@@ -67,16 +67,25 @@ class ProductUnitConversionPriceTest extends TestCase
         ]);
     }
 
-    public function test_product_store_creates_conversion_prices_for_all_settings(): void
+    private function authenticateForAbility(string $ability): void
     {
-        Gate::shouldReceive('denies')->with('products.create')->andReturnFalse();
-        Gate::shouldReceive('allows')->with('products.create')->andReturnTrue();
+        Gate::shouldReceive('denies')->withAnyArgs()->andReturnFalse();
+        Gate::shouldReceive('allows')->withAnyArgs()->andReturnTrue();
+        Gate::shouldReceive('check')->withAnyArgs()->andReturnTrue();
+        Gate::shouldReceive('any')->withAnyArgs()->andReturnTrue();
 
-        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        Gate::shouldReceive('denies')->with($ability)->andReturnFalse();
+        Gate::shouldReceive('allows')->with($ability)->andReturnTrue();
 
         $user = User::factory()->create();
         $this->actingAs($user);
         $this->withoutMiddleware([CheckUserRoleForSetting::class]);
+    }
+
+    public function test_product_store_creates_conversion_prices_for_all_settings(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.create');
 
         $baseUnit       = $this->createUnit($primarySetting, 'Piece');
         $conversionUnit = $this->createUnit($primarySetting, 'Box');
@@ -118,14 +127,8 @@ class ProductUnitConversionPriceTest extends TestCase
 
     public function test_product_update_updates_only_active_setting_conversion_price(): void
     {
-        Gate::shouldReceive('denies')->with('products.edit')->andReturnFalse();
-        Gate::shouldReceive('allows')->with('products.edit')->andReturnTrue();
-
         [$primarySetting, $secondarySetting] = $this->seedSettings();
-
-        $user = User::factory()->create();
-        $this->actingAs($user);
-        $this->withoutMiddleware([CheckUserRoleForSetting::class]);
+        $this->authenticateForAbility('products.edit');
 
         $baseUnit       = $this->createUnit($primarySetting, 'Piece');
         $conversionUnit = $this->createUnit($primarySetting, 'Pack');
@@ -198,5 +201,162 @@ class ProductUnitConversionPriceTest extends TestCase
             'product_unit_conversion_id' => $conversion->id,
             'setting_id'                 => $secondarySetting->id,
         ])->value('price'));
+    }
+
+    public function test_product_store_accepts_formatted_conversion_price_payload(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.create');
+
+        $baseUnit = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Box');
+
+        $payload = [
+            'product_name' => 'Formatted Conversion Product',
+            'product_code' => 'CONV-FMT-001',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+            'conversions' => [
+                [
+                    'unit_id' => $conversionUnit->id,
+                    'conversion_factor' => 2,
+                    'price' => 'RP 9.900,00',
+                    'barcode' => 'BOX-9900-FMT',
+                ],
+            ],
+            'is_purchased' => false,
+            'is_sold' => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->post(route('products.store'), $payload, ['X-Idempotency-Token' => 'test-product-token-formatted']);
+
+        $response->assertRedirect(route('products.index'));
+
+        $conversion = ProductUnitConversion::first();
+        $this->assertNotNull($conversion);
+
+        $prices = ProductUnitConversionPrice::where('product_unit_conversion_id', $conversion->id)
+            ->pluck('price', 'setting_id')
+            ->map(fn ($value) => (float) $value)
+            ->all();
+
+        $this->assertCount(2, $prices);
+        $this->assertSame(9900.0, $prices[$primarySetting->id]);
+        $this->assertSame(9900.0, $prices[$secondarySetting->id]);
+    }
+
+    public function test_product_create_validation_round_trip_preserves_conversion_price_display_and_raw_value(): void
+    {
+        [$primarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.create');
+
+        $baseUnit = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Box');
+
+        $payload = [
+            'product_name' => '',
+            'product_code' => 'CONV-ROUNDTRIP-001',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+            'conversions' => [
+                [
+                    'unit_id' => $conversionUnit->id,
+                    'conversion_factor' => 2,
+                    'price' => 'RP 65.000,00',
+                    'barcode' => 'BOX-ROUNDTRIP',
+                ],
+            ],
+            'is_purchased' => false,
+            'is_sold' => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->from(route('products.create'))
+            ->post(route('products.store'), $payload, ['X-Idempotency-Token' => 'test-product-roundtrip-token']);
+
+        $response
+            ->assertRedirect(route('products.create'))
+            ->assertSessionHasErrors(['product_name']);
+
+        $page = $this->withSession(['setting_id' => $primarySetting->id])
+            ->get(route('products.create'));
+
+        $page->assertOk();
+        $page->assertSee('name="conversions[0][price]"', false);
+        $page->assertSee('value="65000"', false);
+        $page->assertSee('value="RP 65.000,00"', false);
+    }
+
+    public function test_product_edit_validation_round_trip_preserves_conversion_price_display_and_raw_value(): void
+    {
+        [$primarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.edit');
+
+        $baseUnit = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Pack');
+
+        $product = Product::create([
+            'product_name' => 'Existing Product',
+            'product_code' => 'EXIST-ROUNDTRIP-001',
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_stock_alert' => 0,
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $baseUnit->id,
+            'stock_managed' => 1,
+            'is_purchased' => 0,
+            'is_sold' => 0,
+            'setting_id' => $primarySetting->id,
+        ]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $conversionUnit->id,
+            'base_unit_id' => $baseUnit->id,
+            'conversion_factor' => 3,
+            'barcode' => 'PACK-ROUNDTRIP-OLD',
+        ]);
+
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $primarySetting->id,
+            'price' => 15000,
+        ]);
+
+        $payload = [
+            'product_name' => '',
+            'product_code' => 'EXIST-ROUNDTRIP-001',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+            'conversions' => [
+                [
+                    'id' => $conversion->id,
+                    'unit_id' => $conversionUnit->id,
+                    'conversion_factor' => 3,
+                    'price' => 'RP 17.500,00',
+                    'barcode' => 'PACK-ROUNDTRIP-OLD',
+                ],
+            ],
+            'is_purchased' => false,
+            'is_sold' => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->from(route('products.edit', $product))
+            ->put(route('products.update', $product), $payload);
+
+        $response
+            ->assertRedirect(route('products.edit', $product))
+            ->assertSessionHasErrors(['product_name']);
+
+        $page = $this->withSession(['setting_id' => $primarySetting->id])
+            ->get(route('products.edit', $product));
+
+        $page->assertOk();
+        $page->assertSee('name="conversions[0][price]"', false);
+        $page->assertSee('value="17500"', false);
+        $page->assertSee('value="RP 17.500,00"', false);
     }
 }

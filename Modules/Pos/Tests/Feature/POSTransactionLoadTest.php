@@ -72,7 +72,7 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
             ->assertJsonPath('code', 'CART_NOT_EMPTY');
     }
 
-    public function test_non_creator_without_edit_any_cannot_load_other_user_draft(): void
+    public function test_user_with_load_permission_can_load_other_users_mutable_draft(): void
     {
         $setting = $this->createSetting('BIZ POS TXN LOAD OWNER');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
@@ -105,11 +105,12 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         $this->actingAsInSetting($otherUser, $setting);
 
         $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
-            ->assertStatus(409)
-            ->assertJsonPath('code', 'EDIT_FORBIDDEN');
+            ->assertOk()
+            ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED)
+            ->assertJsonPath('transaction.id', $transactionId);
     }
 
-    public function test_user_with_edit_any_can_load_other_user_draft(): void
+    public function test_user_with_edit_any_still_cannot_bypass_missing_load_permission(): void
     {
         $setting = $this->createSetting('BIZ POS TXN LOAD EDIT ANY');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
@@ -124,7 +125,6 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
-            'pos.transactions.load',
             'pos.transactions.edit.any',
         ]);
 
@@ -143,8 +143,7 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         $this->actingAsInSetting($admin, $setting);
 
         $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
-            ->assertOk()
-            ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED);
+            ->assertForbidden();
     }
 
     public function test_can_reload_loaded_transaction_status(): void

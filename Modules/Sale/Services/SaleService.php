@@ -83,21 +83,30 @@ class SaleService
         return DB::transaction(function () use ($data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $data['setting_id'])->value('is_pkp') ?? false);
-            
+            $normalizedSale = app(SaleNormalizer::class)->normalize([
+                'tax_id' => $data['tax_id'] ?? null,
+                'tax_percentage' => $data['tax_percentage'] ?? 0,
+                'discount_percentage' => $data['discount_percentage'] ?? 0,
+                'discount_amount' => $data['discount_amount'] ?? 0,
+                'shipping_amount' => $data['shipping_amount'] ?? 0,
+                'paid_amount' => $data['paid_amount'] ?? 0,
+            ], SaleCartAggregator::aggregate($cartItems), $isPkp);
+            $header = $normalizedSale['header'];
+
             $sale = Sale::create([
                 'date' => $data['date'],
                 'due_date' => $data['due_date'],
                 'customer_id' => $data['customer_id'],
                 'customer_name' => $customer->customer_name,
-                'tax_id' => $isPkp ? ($data['tax_id'] ?? null) : null,
-                'tax_percentage' => $isPkp ? ($data['tax_percentage'] ?? 0) : 0,
-                'tax_amount' => $isPkp ? ($data['tax_amount'] ?? 0) : 0,
-                'discount_percentage' => $data['discount_percentage'] ?? 0,
-                'discount_amount' => $data['discount_amount'] ?? 0,
-                'shipping_amount' => $data['shipping_amount'] ?? 0,
-                'total_amount' => $data['total_amount'],
-                'due_amount' => $data['due_amount'] ?? $data['total_amount'],
-                'paid_amount' => $data['paid_amount'] ?? 0,
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'tax_amount' => $header['tax_amount'],
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
+                'paid_amount' => $header['paid_amount'],
                 'status' => $data['status'] ?? Sale::STATUS_DRAFTED,
                 'payment_status' => $data['payment_status'] ?? 'Unpaid',
                 'payment_term_id' => $data['payment_term_id'] ?? null,
@@ -105,19 +114,14 @@ class SaleService
                 'setting_id' => $data['setting_id'],
                 'is_tax_included' => $data['is_tax_included'] ?? false,
                 'payment_method' => $data['payment_method'] ?? '',
-                'tax_ref_no' => $data['tax_ref_no'] ?? null,
+                'tax_ref_no' => $isPkp ? ($data['tax_ref_no'] ?? null) : null,
             ]);
 
             if (!empty($data['tags'])) {
                 $sale->syncTags($data['tags']);
             }
 
-            $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
-
-            foreach ($aggregatedItems as $item) {
-                $taxId = $isPkp ? ($item['tax_id'] ?? null) : null;
-                $productTaxAmount = $isPkp ? round((float) $item['product_tax_amount'], 2) : 0;
-                
+            foreach ($normalizedSale['details'] as $item) {
                 $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
                     'product_id' => $item['product_id'],
@@ -129,8 +133,8 @@ class SaleService
                     'product_discount_type' => $item['product_discount_type'],
                     'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
                     'sub_total' => round((float) $item['sub_total'], 2),
-                    'product_tax_amount' => $productTaxAmount,
-                    'tax_id' => $taxId,
+                    'product_tax_amount' => round((float) $item['product_tax_amount'], 2),
+                    'tax_id' => $item['tax_id'],
                 ]);
 
                 if (!empty($item['bundle_items'])) {
@@ -181,14 +185,19 @@ class SaleService
         return DB::transaction(function () use ($sale, $data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $sale->setting_id)->value('is_pkp') ?? false);
+            $normalizedSale = app(SaleNormalizer::class)->normalize([
+                'tax_id' => $data['tax_id'] ?? $sale->tax_id,
+                'tax_percentage' => $data['tax_percentage'] ?? $sale->tax_percentage,
+                'discount_percentage' => $data['discount_percentage'] ?? $sale->discount_percentage,
+                'discount_amount' => $data['discount_amount'] ?? $sale->discount_amount,
+                'shipping_amount' => $data['shipping_amount'] ?? $sale->shipping_amount,
+                'paid_amount' => $data['paid_amount'] ?? $sale->paid_amount,
+            ], SaleCartAggregator::aggregate($cartItems), $isPkp);
+            $header = $normalizedSale['header'];
 
-            $due_amount = round((float) $data['total_amount'] - (float) ($data['paid_amount'] ?? 0), 2);
-            $due_amount = max($due_amount, 0);
-            $total_amount = round((float) $data['total_amount'], 2);
-
-            if (round($due_amount, 2) >= $total_amount) {
+            if (round($header['due_amount'], 2) >= $header['total_amount']) {
                 $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
+            } elseif ($header['due_amount'] > 0) {
                 $payment_status = 'Partial';
             } else {
                 $payment_status = 'Paid';
@@ -213,18 +222,21 @@ class SaleService
                 'reference' => $data['reference'] ?? $sale->reference,
                 'customer_id' => $data['customer_id'],
                 'customer_name' => $customer->customer_name,
-                'tax_percentage' => $isPkp ? ($data['tax_percentage'] ?? 0) : 0,
-                'discount_percentage' => $data['discount_percentage'] ?? 0,
-                'shipping_amount' => round((float) ($data['shipping_amount'] ?? 0), 2),
-                'paid_amount' => round((float) ($data['paid_amount'] ?? 0), 2),
-                'total_amount' => $total_amount,
-                'due_amount' => $due_amount,
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'paid_amount' => $header['paid_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
                 'status' => $data['status'] ?? $sale->status,
                 'payment_status' => $payment_status,
                 'payment_method' => $data['payment_method'] ?? $sale->payment_method,
                 'note' => $data['note'] ?? null,
-                'tax_amount' => $isPkp ? ($data['tax_amount'] ?? 0) : 0,
-                'discount_amount' => $data['discount_amount'] ?? 0,
+                'tax_amount' => $header['tax_amount'],
+                'payment_term_id' => $data['payment_term_id'] ?? $sale->payment_term_id,
+                'is_tax_included' => $data['is_tax_included'] ?? $sale->is_tax_included,
                 'tax_ref_no' => $isPkp ? ($data['tax_ref_no'] ?? $sale->tax_ref_no) : null,
             ]);
 
@@ -232,29 +244,24 @@ class SaleService
                 $sale->syncTags($data['tags']);
             }
 
-            foreach ($cartItems as $cart_item) {
-                $productId = $cart_item->options->product_id;
-                
-                $taxId = $isPkp ? ($cart_item->options->product_tax ?: null) : null;
-                $productTaxAmount = $isPkp ? round((float) ($cart_item->options->product_tax_amount ?? $cart_item->options->product_tax ?? 0), 2) : 0;
-                
+            foreach ($normalizedSale['details'] as $item) {
                 $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
-                    'product_id' => $productId,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
-                    'quantity' => $cart_item->qty,
-                    'price' => round((float) $cart_item->price, 2),
-                    'unit_price' => round((float) $cart_item->options->unit_price, 2),
-                    'sub_total' => round((float) $cart_item->options->sub_total, 2),
-                    'product_discount_amount' => round((float) $cart_item->options->product_discount, 2),
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $productTaxAmount,
-                    'tax_id' => $taxId,
+                    'product_id' => $item['product_id'],
+                    'product_name' => $item['product_name'],
+                    'product_code' => $item['product_code'],
+                    'quantity' => $item['quantity'],
+                    'price' => round((float) $item['price'], 2),
+                    'unit_price' => round((float) $item['unit_price'], 2),
+                    'sub_total' => round((float) $item['sub_total'], 2),
+                    'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
+                    'product_discount_type' => $item['product_discount_type'],
+                    'product_tax_amount' => round((float) $item['product_tax_amount'], 2),
+                    'tax_id' => $item['tax_id'],
                 ]);
 
-                if (!empty($cart_item->options->bundle_items)) {
-                    foreach ($cart_item->options->bundle_items as $bundleItem) {
+                if (! empty($item['bundle_items'])) {
+                    foreach ($item['bundle_items'] as $bundleItem) {
                         SaleBundleItem::create([
                             'sale_detail_id' => $saleDetail->id,
                             'sale_id' => $sale->id,

@@ -9,20 +9,31 @@ use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
 class PosTransactionPolicyService
 {
     /**
-     * Assert the user may load/edit/cancel the transaction.
-     * Creator OR holder of pos.transactions.edit.any may proceed.
+     * Assert the user may save changes back into a mutable draft.
      *
      * @throws PosTransactionConflictException('EDIT_FORBIDDEN', ...)
      */
-    public function assertCanEdit(User $user, PosTransaction $transaction): void
+    public function assertCanSaveDraft(User $user, PosTransaction $transaction): void
     {
-        $isCreator = $transaction->owner_user_id === $user->id;
-        $hasEditAnyPermission = $user->can('pos.transactions.edit.any');
-
-        if (!$isCreator && !$hasEditAnyPermission) {
+        if (! $user->can('pos.transactions.save')) {
             throw new PosTransactionConflictException(
                 'EDIT_FORBIDDEN',
                 'Anda tidak memiliki izin untuk mengedit transaksi ini.'
+            );
+        }
+    }
+
+    /**
+     * Assert the user may load a mutable draft for continuation.
+     *
+     * @throws PosTransactionConflictException('EDIT_FORBIDDEN', ...)
+     */
+    public function assertCanLoadDraft(User $user, PosTransaction $transaction): void
+    {
+        if (! $user->can('pos.transactions.load')) {
+            throw new PosTransactionConflictException(
+                'EDIT_FORBIDDEN',
+                'Anda tidak memiliki izin untuk memuat transaksi ini.'
             );
         }
     }

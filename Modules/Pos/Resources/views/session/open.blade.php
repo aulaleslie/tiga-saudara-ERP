@@ -13,6 +13,13 @@
                     $backRoute = auth()->user() && auth()->user()->can('pos.sell')
                         ? route('pos.sell')
                         : route('pos.sessions.index');
+                    $canSelectTerminal = (bool) (($roleCapabilities['can_select_terminal_on_open'] ?? false) === true);
+                    $isManagerCheckoutRole = (bool) (($roleCapabilities['is_manager_checkout_role'] ?? false) === true);
+                    $terminalHint = $canSelectTerminal
+                        ? ($isManagerCheckoutRole
+                            ? 'Opsional. Manager tetap dapat membuka pembayaran meski sesi ini tanpa terminal, tetapi pemilihan terminal tetap tersedia untuk alur kasir normal.'
+                            : 'Opsional. Kasir dapat membuka sesi tanpa terminal, tetapi pembayaran baru aktif setelah sesi ini memiliki terminal.')
+                        : 'Floor staff bekerja tanpa terminal. Gunakan sesi ini untuk siapkan, simpan, dan load draft sebelum handoff ke kasir atau manager.';
                 @endphp
 
                 <form method="POST" action="{{ route('pos.sessions.store') }}">
@@ -27,13 +34,15 @@
                                     </label>
                                     <livewire:modules.pos.pos-terminal-search-dropdown
                                         name="terminal_id"
-                                        placeholder="Pilih terminal..."
+                                        :placeholder="$canSelectTerminal ? 'Pilih terminal...' : 'Terminal tidak dipakai untuk floor staff'"
                                         :selected="old('terminal_id')"
                                         :error="$errors->first('terminal_id')"
+                                        :disabled="! $canSelectTerminal"
+                                        :disabled-reason="$canSelectTerminal ? null : 'Floor staff tidak memilih terminal saat membuka sesi.'"
                                         wire:key="pos-terminal-dropdown"
                                     />
                                     <small class="text-muted">
-                                        Opsional. Anda dapat membuka sesi tanpa memilih terminal.
+                                        {{ $terminalHint }}
                                     </small>
                                 </div>
                             </div>
@@ -104,8 +113,8 @@ document.addEventListener('DOMContentLoaded', function() {
     updateSaldoVisibility();
 
     // Watch for changes via MutationObserver
-    const observer = new MutationObserver(updateSaldoVisibility);
-    if (terminalInput.parentElement) {
+    if (terminalInput && terminalInput.parentElement) {
+        const observer = new MutationObserver(updateSaldoVisibility);
         observer.observe(terminalInput.parentElement, {
             subtree: true,
             attributes: true,

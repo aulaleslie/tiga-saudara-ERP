@@ -14,6 +14,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Setting\Entities\Setting;
 use Throwable;
 
@@ -47,6 +48,7 @@ class EditForm extends Component
     public $global_discount = 0;
     public string $global_discount_type = 'percentage';
     public $is_tax_included = false;
+    public bool $isPkp = false;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
@@ -55,6 +57,7 @@ class EditForm extends Component
     {
         $this->purchaseId = $purchaseId;
         $this->purchase = Purchase::with('purchaseDetails')->findOrFail($purchaseId);
+        $this->isPkp = $this->isPkpEnabled();
 
         // Rule: Partially or Fully Received -> Hard Block
         if (in_array($this->purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
@@ -387,11 +390,15 @@ class EditForm extends Component
     {
         Cart::instance('purchase')->destroy();
         $cart = Cart::instance('purchase');
+        $isPkp = $this->isPkpEnabled();
 
         foreach ($this->purchase->purchaseDetails as $detail) {
             $subTotal = (float) $detail->sub_total;
             $taxAmount = (float) ($detail->product_tax_amount ?? 0);
             $subTotalBeforeTax = max(0, $subTotal - $taxAmount);
+            $productTax = $isPkp ? $detail->tax_id : null;
+            $normalizedTaxAmount = $isPkp ? $taxAmount : 0.0;
+            $normalizedSubTotal = $isPkp ? $subTotal : $subTotalBeforeTax;
 
             $discountInput = $detail->product_discount_amount;
             if ($detail->product_discount_type === 'percentage') {
@@ -408,12 +415,13 @@ class EditForm extends Component
                     'product_discount' => $detail->product_discount_amount,
                     'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
-                    'sub_total' => $detail->sub_total,
+                    'sub_total' => $normalizedSubTotal,
                     'code' => $detail->product_code,
                     'stock' => $detail->product->product_quantity ?? 0,
-                    'product_tax' => $detail->tax_id,
+                    'product_tax' => $productTax,
                     'unit_price' => $detail->unit_price,
                     'sub_total_before_tax' => $subTotalBeforeTax,
+                    'product_tax_amount' => $normalizedTaxAmount,
                 ]
             ]);
         }
@@ -564,26 +572,18 @@ class EditForm extends Component
             $purchase = $this->purchase; // already loaded in mount()
 
             $failureStage = 'calculating_totals';
-            $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
-            $shipping = (float) $this->shipping;
             $globalDiscount = is_numeric($this->global_discount) ? (float) $this->global_discount : 0;
             $discount_amount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0;
             $discount_percentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0;
-            $tax_amount = 0;
-
-            foreach ($cartItems as $item) {
-                $sub_total = $item->options['sub_total'] ?? 0;
-                $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
-                $tax_amount += ($sub_total - $sub_total_before_tax);
-            }
-
-            if ($discount_percentage > 0) {
-                $global_discount_amount = $total_sub_total * ($discount_percentage/100);
-            } else {
-                $global_discount_amount = $discount_amount;
-            }
-
-            $total_amount = $total_sub_total - $global_discount_amount + $shipping;
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'discount_percentage' => $discount_percentage,
+                'discount_amount' => $discount_amount,
+                'shipping_amount' => $this->shipping,
+                'paid_amount' => $purchase->paid_amount,
+                'tax_id' => $purchase->tax_id,
+                'tax_percentage' => $purchase->tax_percentage,
+            ], $cartItems, $this->isPkpEnabled());
+            $header = $normalizedPurchase['header'];
 
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
             $taxRefNo = $this->tax_ref_no ?: null;
@@ -592,12 +592,14 @@ class EditForm extends Component
             $purchase->update([
                 'date' => $this->date,
                 'due_date' => $this->due_date,
-                'discount_percentage' => $discount_percentage,
-                'discount_amount' => $discount_amount,
-                'shipping_amount' => $shipping,
-                'tax_amount' => $tax_amount,
-                'total_amount' => $total_amount,
-                'due_amount' => $total_amount,
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'tax_amount' => $header['tax_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
                 'is_tax_included' => $this->is_tax_included,
                 'supplier_id' => $this->supplier_id,
                 'supplier_purchase_number' => $supplierPurchaseNumber,
@@ -635,26 +637,24 @@ class EditForm extends Component
             $detailCount = 0;
             $detailQuantityTotal = 0;
             $detailTaxTotal = 0.0;
-            foreach ($cartItems as $item) {
-                $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
-
+            foreach ($normalizedPurchase['details'] as $item) {
                 $purchase->purchaseDetails()->create([
-                    'product_id' => $item->id,
-                    'product_name' => $item->name,
-                    'product_code' => $item->options['code'],
-                    'quantity' => $item->qty,
-                    'unit_price' => $item->options['unit_price'],
-                    'price' => $item->price,
-                    'product_discount_type' => $item->options['product_discount_type'],
-                    'product_discount_amount' => $item->options['product_discount'],
-                    'sub_total' => $item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount,
-                    'tax_id' => $item->options['product_tax'],
+                    'product_id' => $item['product_id'],
+                    'product_name' => $item['product_name'],
+                    'product_code' => $item['product_code'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'price' => $item['price'],
+                    'product_discount_type' => $item['product_discount_type'],
+                    'product_discount_amount' => $item['product_discount_amount'],
+                    'sub_total' => $item['sub_total'],
+                    'product_tax_amount' => $item['product_tax_amount'],
+                    'tax_id' => $item['tax_id'],
                 ]);
 
                 $detailCount++;
-                $detailQuantityTotal += (int) $item->qty;
-                $detailTaxTotal += (float) $product_tax_amount;
+                $detailQuantityTotal += (int) $item['quantity'];
+                $detailTaxTotal += (float) $item['product_tax_amount'];
             }
 
             $this->purchaseSubmitDebug('purchase.submit.details_recreated', [
@@ -712,6 +712,7 @@ class EditForm extends Component
             'supplierIdForView' => $this->supplier_id === null ? '' : (string) $this->supplier_id,
             'paymentTermForView' => $this->payment_term === null ? '' : (string) $this->payment_term,
             'dueDateForView' => $this->due_date ?? '',
+            'isPkp' => $this->isPkp,
         ]);
     }
 }

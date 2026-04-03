@@ -49,7 +49,7 @@ class PosSellController extends Controller
 
         return view('pos::sell', [
             'activeSession' => $activeSession,
-            'roleCapabilities' => $rolePolicyService->capabilityFlags($user),
+            'roleCapabilities' => $rolePolicyService->capabilityFlags($user, $activeSession),
         ]);
     }
 
@@ -785,6 +785,25 @@ class PosSellController extends Controller
             return response()->json([
                 'code' => 'CHECKOUT_PERMISSION_REQUIRED',
                 'message' => 'Anda tidak memiliki izin untuk mengakses alur pembayaran POS.',
+            ], 403);
+        }
+
+        $activeSession = $request->attributes->get('pos_active_session');
+
+        if (! $activeSession instanceof PosSession) {
+            return response()->json([
+                'code' => 'ACTIVE_SESSION_REQUIRED',
+                'message' => 'Konteks sesi POS aktif diperlukan.',
+            ], 403);
+        }
+
+        /** @var PosRolePolicyService $rolePolicyService */
+        $rolePolicyService = app(PosRolePolicyService::class);
+
+        if (! $rolePolicyService->canCheckout($user, $activeSession)) {
+            return response()->json([
+                'code' => 'CHECKOUT_TERMINAL_REQUIRED',
+                'message' => 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran POS.',
             ], 403);
         }
 

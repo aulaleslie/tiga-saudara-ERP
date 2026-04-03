@@ -19,6 +19,9 @@
 @endpush
 
 @section('content')
+    @php
+        use Modules\User\Helpers\PermissionHelper;
+    @endphp
     <div class="container-fluid">
         <div class="row">
             <div class="col-md-12">
@@ -40,6 +43,31 @@
 
                             <hr>
 
+                            @php
+                                $posGuidance = PermissionHelper::getPosGuidance();
+                            @endphp
+
+                            <div class="alert alert-info">
+                                <div class="font-weight-bold mb-2">Panduan Bundle POS</div>
+                                <div class="small mb-2">Gunakan bundle POS yang didukung sebagai default, lalu tambahkan pengecualian hanya bila memang dibutuhkan.</div>
+                                <div class="row">
+                                    @foreach($posGuidance['bundles'] as $bundle)
+                                        <div class="col-lg-4 mb-2">
+                                            <div class="border rounded p-2 h-100 bg-white">
+                                                <div class="font-weight-bold">{{ $bundle['label'] }}</div>
+                                                <div class="small text-muted mb-1">{{ $bundle['description'] }}</div>
+                                                @if($bundle['permissions'] !== [])
+                                                    <div class="small">{{ implode(', ', $bundle['permissions']) }}</div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                                <div class="small mt-2">
+                                    Permission POS yang deprecated disembunyikan dari form ini dan dipertahankan hanya untuk migrasi peran lama.
+                                </div>
+                            </div>
+
                             <div class="form-group mb-2">
                                 <label>Permissions <span class="text-danger">*</span></label>
                             </div>
@@ -53,7 +81,6 @@
 
                             <div class="row gy-3">
                                 @php
-                                    use Modules\User\Helpers\PermissionHelper;
                                     $permissionGroups = PermissionHelper::getGroupsForForm();
                                 @endphp
 

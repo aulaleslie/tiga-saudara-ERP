@@ -255,6 +255,7 @@ class PosApprovalRequestService
             PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
             PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
             PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => 'pos.overrides.price',
+            PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL => 'pos.void',
             default => throw new DomainException('Invalid action type.'),
         };
     }
@@ -266,6 +267,7 @@ class PosApprovalRequestService
             PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
             PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
             PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
+            PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL => PosSupervisorApproval::ACTION_TRANSACTION_CANCEL_APPROVAL,
             default => throw new DomainException('Invalid action type.'),
         };
     }

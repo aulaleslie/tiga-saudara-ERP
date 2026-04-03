@@ -285,6 +285,7 @@ return [
         'pos.transactions.view' => 'Lihat Transaksi',
         'pos.transactions.save' => 'Simpan Transaksi',
         'pos.transactions.load' => 'Muat Transaksi',
+        'pos.transactions.edit.any' => 'Ambil Alih Draft Transaksi',
     ],
 
     'Stock Transfers' => [

@@ -27,7 +27,7 @@ class PermissionHelperTest extends TestCase
 
         // Check that groups exist
         $this->assertArrayHasKey('Adjustments', $groups);
-        $this->assertArrayHasKey('Penjualan', $groups);
+        $this->assertArrayHasKey('Sales', $groups);
     }
 
     /**
@@ -49,6 +49,15 @@ class PermissionHelperTest extends TestCase
                 $this->assertFalse($data['checked']);
             }
         }
+    }
+
+    public function test_get_groups_for_form_hides_deprecated_pos_permissions()
+    {
+        $groups = PermissionHelper::getGroupsForForm();
+
+        $this->assertArrayHasKey('POS', $groups);
+        $this->assertArrayNotHasKey('pos.sessions.require-terminal', $groups['POS']);
+        $this->assertArrayNotHasKey('pos.monitor.access', $groups['POS']);
     }
 
     /**
@@ -187,5 +196,32 @@ class PermissionHelperTest extends TestCase
         $group = PermissionHelper::getPermissionGroup('nonexistent.permission');
 
         $this->assertNull($group);
+    }
+
+    public function test_get_pos_guidance_returns_supported_bundles_and_deprecated_notes()
+    {
+        $guidance = PermissionHelper::getPosGuidance();
+
+        $this->assertArrayHasKey('bundles', $guidance);
+        $this->assertArrayHasKey('clusters', $guidance);
+        $this->assertArrayHasKey('deprecated', $guidance);
+        $this->assertArrayHasKey('manager', $guidance['bundles']);
+        $this->assertArrayHasKey('cashier', $guidance['bundles']);
+        $this->assertArrayHasKey('floor_staff', $guidance['bundles']);
+        $this->assertArrayHasKey('pos.sessions.require-terminal', $guidance['deprecated']);
+    }
+
+    public function test_get_hidden_assigned_permissions_returns_deprecated_permissions_only()
+    {
+        $role = Role::create(['name' => 'deprecated-pos-role']);
+
+        foreach (['pos.sessions.require-terminal', 'pos.sell'] as $permissionName) {
+            $permission = \Spatie\Permission\Models\Permission::findOrCreate($permissionName);
+            $role->givePermissionTo($permission);
+        }
+
+        $hidden = PermissionHelper::getHiddenAssignedPermissions($role);
+
+        $this->assertSame(['pos.sessions.require-terminal'], $hidden);
     }
 }

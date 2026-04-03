@@ -41,6 +41,8 @@ window.PosStagedPayment = (function () {
     // Cached data
     let cachedPaymentMethods = [];
     let selectedPaymentMethod = null;
+    let canUsePaymentFlow = true;
+    let paymentFlowBlockedMessage = 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.';
 
     // Task 3.1: Initialize state machine
     function initialize(config = {}) {
@@ -64,6 +66,8 @@ window.PosStagedPayment = (function () {
         stagedSubmitButton = config.submitButton || document.getElementById('staged-payment-submit');
         stagedProcessingSpinner = config.spinner || document.getElementById('staged-payment-spinner');
         stagedErrorAlert = config.errorAlert || document.getElementById('staged-payment-error');
+        canUsePaymentFlow = config.canUsePaymentFlow !== false;
+        paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
 
         console.log('[PosStagedPayment] DOM elements cached:', {
             modalElement: !!stagedModalElement,
@@ -120,6 +124,10 @@ window.PosStagedPayment = (function () {
     async function openModal(cartToken, grandTotal) {
         console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal });
 
+        if (!ensurePaymentFlowAvailable()) {
+            return;
+        }
+
         if (!cartToken || grandTotal === null || grandTotal === undefined) {
             console.warn('[PosStagedPayment] Invalid parameters, returning');
             return;
@@ -145,6 +153,10 @@ window.PosStagedPayment = (function () {
 
     // Task 5.3: Check and recover payment chain from session
     async function checkReloadRecovery(cartToken, grandTotal) {
+        if (!ensurePaymentFlowAvailable()) {
+            return false;
+        }
+
         try {
             const response = await fetch(`/pos/sell/checkout/payment-chain?cart_token=${encodeURIComponent(cartToken)}`, {
                 method: 'GET',
@@ -410,6 +422,10 @@ window.PosStagedPayment = (function () {
     async function submitStagePayment(event) {
         event.preventDefault();
 
+        if (!ensurePaymentFlowAvailable()) {
+            return;
+        }
+
         const remainder = paymentChain?.remainder || 0;
 
         // If remainder is 0, finalize checkout instead of adding another payment
@@ -568,6 +584,10 @@ window.PosStagedPayment = (function () {
 
     // Finalize checkout when all payments are received
     async function finalizeCheckout() {
+        if (!ensurePaymentFlowAvailable()) {
+            return;
+        }
+
         if (!paymentChain) {
             showError('Payment chain is missing');
             return;
@@ -668,6 +688,10 @@ window.PosStagedPayment = (function () {
 
     // Load payment methods from API
     async function loadPaymentMethods() {
+        if (!ensurePaymentFlowAvailable()) {
+            return;
+        }
+
         try {
             // This should fetch available payment methods for the current setting
             // Assuming there's an endpoint or a cached list
@@ -702,6 +726,16 @@ window.PosStagedPayment = (function () {
             stagedErrorAlert.textContent = message;
             stagedErrorAlert.classList.remove('d-none');
         }
+    }
+
+    function ensurePaymentFlowAvailable() {
+        if (canUsePaymentFlow) {
+            return true;
+        }
+
+        showError(paymentFlowBlockedMessage);
+
+        return false;
     }
 
     // Helper: Clear errors

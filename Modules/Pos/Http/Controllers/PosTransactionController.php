@@ -6,7 +6,9 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
@@ -139,9 +141,18 @@ class PosTransactionController extends Controller
 
             $perPage = (int) ($validated['per_page'] ?? 20);
             $paginator = $this->transactionService->list($settingId, $filters, $perPage);
+            $approvalMap = $this->transactionCancelApprovalMap(
+                collect($paginator->items())->pluck('id')->map(fn ($id) => (int) $id)->all(),
+                (int) $request->user()->id
+            );
+
+            $data = collect($paginator->items())
+                ->map(fn (PosTransaction $transaction) => $this->serializeTransaction($transaction, $approvalMap))
+                ->values()
+                ->all();
 
             return response()->json([
-                'data' => $paginator->items(),
+                'data' => $data,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
                     'last_page' => $paginator->lastPage(),
@@ -174,6 +185,9 @@ class PosTransactionController extends Controller
 
         return view('pos::transactions.show', [
             'transaction' => $transaction,
+            'cancelApproval' => $this->serializeCancelApproval(
+                $this->transactionCancelApprovalMap([$transaction->id], (int) $request->user()->id)->get((int) $transaction->id)
+            ),
         ]);
     }
 
@@ -237,13 +251,21 @@ class PosTransactionController extends Controller
     public function cancel(PosTransaction $transaction, Request $request): JsonResponse
     {
         try {
+            $validated = $request->validate([
+                'approval_token' => ['nullable', 'string', 'max:100'],
+            ]);
+
             $settingId = $this->currentSettingId();
             if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
                 return $guardResponse;
             }
             $this->assertSettingScope($transaction, $settingId);
 
-            $transaction = $this->transactionService->cancel($transaction, $request->user());
+            $transaction = $this->transactionService->cancel(
+                $transaction,
+                $request->user(),
+                $validated['approval_token'] ?? null
+            );
 
             return response()->json([
                 'message' => 'Transaksi dibatalkan.',
@@ -309,5 +331,85 @@ class PosTransactionController extends Controller
         }
 
         abort(403, 'Fitur transaksi POS belum diaktifkan untuk bisnis ini.');
+    }
+
+    /**
+     * @param  array<int, int>  $transactionIds
+     * @return Collection<int, PosActionApprovalRequest>
+     */
+    private function transactionCancelApprovalMap(array $transactionIds, int $userId): Collection
+    {
+        if ($transactionIds === [] || $userId <= 0) {
+            return collect();
+        }
+
+        return PosActionApprovalRequest::query()
+            ->where('requested_by', $userId)
+            ->where('action_type', PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL)
+            ->where('target_type', 'pos_transaction')
+            ->whereIn('target_id', $transactionIds)
+            ->whereIn('status', [
+                PosActionApprovalRequest::STATUS_PENDING,
+                PosActionApprovalRequest::STATUS_APPROVED,
+            ])
+            ->with('token')
+            ->latest('id')
+            ->get()
+            ->unique('target_id')
+            ->keyBy(fn (PosActionApprovalRequest $approval) => (int) $approval->target_id);
+    }
+
+    /**
+     * @param  Collection<int, PosActionApprovalRequest>  $approvalMap
+     * @return array<string, mixed>
+     */
+    private function serializeTransaction(PosTransaction $transaction, Collection $approvalMap): array
+    {
+        return [
+            'id' => (int) $transaction->id,
+            'code' => $transaction->code,
+            'status' => $transaction->status,
+            'owner_user_id' => (int) $transaction->owner_user_id,
+            'updated_at' => $transaction->updated_at?->toIso8601String(),
+            'snapshot_totals' => $transaction->snapshot_totals,
+            'owner' => $transaction->owner ? [
+                'id' => (int) $transaction->owner->id,
+                'name' => $transaction->owner->name,
+            ] : null,
+            'customer' => $transaction->customer ? [
+                'id' => (int) $transaction->customer->id,
+                'customer_name' => $transaction->customer->customer_name,
+            ] : null,
+            'cancel_approval' => $this->serializeCancelApproval($approvalMap->get((int) $transaction->id)),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function serializeCancelApproval(?PosActionApprovalRequest $approval): ?array
+    {
+        if (! $approval) {
+            return null;
+        }
+
+        $token = null;
+
+        if (
+            $approval->status === PosActionApprovalRequest::STATUS_APPROVED
+            && $approval->relationLoaded('token')
+            && $approval->token
+        ) {
+            $token = $approval->token->token_hash;
+        }
+
+        return [
+            'request_id' => (int) $approval->id,
+            'status' => $approval->status,
+            'state' => strtolower((string) $approval->status),
+            'approval_token' => $token,
+            'token' => $token,
+            'decision_reason' => $approval->decision_reason,
+        ];
     }
 }

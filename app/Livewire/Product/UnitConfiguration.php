@@ -3,6 +3,7 @@
 namespace App\Livewire\Product;
 
 use Livewire\Component;
+use Modules\Product\Support\ProductConversionPriceNormalizer;
 
 class UnitConfiguration extends Component
 {
@@ -96,6 +97,11 @@ class UnitConfiguration extends Component
         $this->rowKeys = array_values($this->rowKeys);
     }
 
+    public function updatedConversions(): void
+    {
+        $this->syncConversionState();
+    }
+
     // NOTE: showRawPrice() and syncPrice() methods removed as of fix-nominal-field-formatting-consistency
     // Conversion table price formatting is now handled exclusively by jQuery maskMoney
     // on the visible input, with Livewire managing only the hidden input for data storage.
@@ -104,18 +110,6 @@ class UnitConfiguration extends Component
     public function render()
     {
         return view('livewire.product.unit-configuration');
-    }
-
-    private function formatCurrency(float $amount): string
-    {
-        // Fixed product nominal format (deterministic, not system-configurable)
-        // Ensures conversion table prices always display with "RP " prefix and consistent separators
-        // regardless of database currency settings, providing a stable user experience
-        $symbol = 'RP ';
-        $decimal = ',';
-        $thousand = '.';
-
-        return $symbol.number_format($amount, 2, $decimal, $thousand);
     }
 
     private function resetConversions(): void
@@ -133,14 +127,24 @@ class UnitConfiguration extends Component
     private function initConversions(array $conversions): void
     {
         $this->conversions = !empty($conversions) ? array_values($conversions) : [];
+        $this->syncConversionState();
+    }
+
+    private function syncConversionState(): void
+    {
+        $existingRowKeys = $this->rowKeys;
+        $this->conversions = array_values($this->conversions);
+        $this->displayPrices = [];
+        $this->rowKeys = [];
 
         foreach ($this->conversions as $i => $conv) {
-            // Normalize nulls to empty strings so validation rules see a value or ''.
-            $this->conversions[$i]['price'] = $conv['price'] ?? '';
-            $this->displayPrices[$i] = ($conv['price'] ?? '') !== ''
-                ? $this->formatCurrency((float) $conv['price'])
-                : '';
-            $this->rowKeys[$i] = $conv['id'] ?? uniqid('conv_', true);
+            $normalizedPrice = ProductConversionPriceNormalizer::normalizePrice($conv['price'] ?? '');
+
+            $this->conversions[$i]['price'] = $normalizedPrice;
+            $this->displayPrices[$i] = ProductConversionPriceNormalizer::isCanonicalNumeric($normalizedPrice)
+                ? ProductConversionPriceNormalizer::formatDisplay($normalizedPrice)
+                : (string) $normalizedPrice;
+            $this->rowKeys[$i] = $existingRowKeys[$i] ?? ($conv['id'] ?? uniqid('conv_', true));
         }
     }
 }

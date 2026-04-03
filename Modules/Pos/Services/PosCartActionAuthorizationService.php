@@ -32,6 +32,7 @@ class PosCartActionAuthorizationService
             PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
             PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
             PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => 'pos.overrides.price',
+            PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL => 'pos.void',
             default => throw new DomainException('Invalid action type.'),
         };
 

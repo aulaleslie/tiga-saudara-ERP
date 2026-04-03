@@ -41,6 +41,9 @@ class POSOpeningFloatCaptureTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.sessions.require-terminal',
+            'pos.transactions.view',
+            'pos.transactions.save',
+            'pos.transactions.load',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -220,6 +223,51 @@ class POSOpeningFloatCaptureTest extends TestCase
             'opening_float_total' => 0,
             'expected_cash_total' => 0,
         ]);
+    }
+
+    public function test_floor_staff_open_session_form_hides_terminal_picker_and_explains_handoff_flow(): void
+    {
+        $setting = $this->createSetting('BIZ FLOOR STAFF OPEN');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.create'))
+            ->assertOk()
+            ->assertSee('Terminal tidak dipakai untuk floor staff')
+            ->assertSee('Floor staff bekerja tanpa terminal.')
+            ->assertDontSee('Cari terminal...');
+    }
+
+    public function test_floor_staff_cannot_submit_terminal_selection_even_if_payload_is_crafted(): void
+    {
+        $setting = $this->createSetting('BIZ FLOOR STAFF NO TERMINAL PAYLOAD');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.view',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_float_total' => '100000',
+            ])
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHasErrors(['terminal_id']);
     }
 
     public function test_user_can_open_with_terminal_and_opening_float(): void

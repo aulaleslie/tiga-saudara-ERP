@@ -4,6 +4,7 @@ namespace Modules\User\Http\Controllers;
 
 use App\Services\IdempotencyService;
 use Modules\User\DataTables\RolesDataTable;
+use Modules\User\Helpers\PermissionHelper;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -81,6 +82,11 @@ class RolesController extends Controller
             ->whereIn('name', $request->permissions)
             ->pluck('name')
             ->all();
+
+        $permissions = array_values(array_unique(array_merge(
+            $permissions,
+            PermissionHelper::getHiddenAssignedPermissions($role)
+        )));
 
         $role->syncPermissions($permissions);
 

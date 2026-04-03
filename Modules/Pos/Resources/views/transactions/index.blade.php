@@ -96,10 +96,11 @@
 
             const dataEndpoint = @json(route('pos.transactions.data'));
             const transactionsBaseUrl = @json(url('/pos/transactions'));
+            const approvalRequestsBaseUrl = @json(url('/pos/sell/approval-requests'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const canLoad = @json(auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'));
-            const canEditAny = @json(auth()->user()->can('pos.transactions.edit.any'));
-            const currentUserId = @json((int) auth()->id());
+            const canRequestCancel = @json(auth()->user()->can('pos.sell'));
+            const defaultStatusMessage = 'Draft dapat dimuat untuk kolaborasi bila Anda memiliki izin muat. Pembatalan draft memerlukan otorisasi void atau persetujuan supervisor.';
 
             let page = 1;
             let pagination = null;
@@ -166,7 +167,35 @@
                     return false;
                 }
 
-                return canEditAny || Number(row.owner_user_id || 0) === Number(currentUserId);
+                return canRequestCancel;
+            };
+
+            const applyCancelButtonState = (row) => {
+                const approval = row && row.cancel_approval ? row.cancel_approval : null;
+
+                if (!approval || !approval.request_id) {
+                    return {
+                        className: 'btn btn-sm btn-outline-danger js-cancel-transaction',
+                        label: 'Batalkan',
+                        attrs: '',
+                    };
+                }
+
+                if (approval.state === 'approved' && (approval.approval_token || approval.token)) {
+                    const token = escapeHtml(approval.approval_token || approval.token);
+
+                    return {
+                        className: 'btn btn-sm btn-success js-cancel-transaction',
+                        label: 'Lanjutkan / Batalkan',
+                        attrs: ` data-approval-request-id="${approval.request_id}" data-approval-token="${token}"`,
+                    };
+                }
+
+                return {
+                    className: 'btn btn-sm btn-warning js-cancel-transaction',
+                    label: 'Periksa Persetujuan',
+                    attrs: ` data-approval-request-id="${approval.request_id}" data-approval-pending="${approval.request_id}"`,
+                };
             };
 
             const buildActions = (row) => {
@@ -179,7 +208,8 @@
                 }
 
                 if (canCancelRow(row)) {
-                    actions.push(`<button type="button" class="btn btn-sm btn-outline-danger js-cancel-transaction" data-id="${row.id}">Batalkan</button>`);
+                    const cancelState = applyCancelButtonState(row);
+                    actions.push(`<button type="button" class="${cancelState.className}" data-id="${row.id}"${cancelState.attrs}>${cancelState.label}</button>`);
                 }
 
                 return actions.join(' ');
@@ -262,6 +292,109 @@
                 statusNote.classList.add(tone === 'danger' ? 'text-danger' : (tone === 'success' ? 'text-success' : 'text-muted'));
             };
 
+            const resetCancelButton = (button) => {
+                button.removeAttribute('data-approval-pending');
+                button.removeAttribute('data-approval-token');
+                button.removeAttribute('data-approval-request-id');
+                button.className = 'btn btn-sm btn-outline-danger js-cancel-transaction';
+                button.textContent = 'Batalkan';
+            };
+
+            const requestCancelApproval = async (button, transactionId) => {
+                const { value: reasonInput, isDismissed } = await Swal.fire({
+                    title: 'Permintaan Persetujuan',
+                    text: 'Masukkan alasan pembatalan transaksi (opsional).',
+                    input: 'textarea',
+                    inputPlaceholder: 'Tulis alasan di sini...',
+                    showCancelButton: true,
+                    confirmButtonText: 'Kirim Permintaan',
+                    cancelButtonText: 'Tutup',
+                });
+
+                if (isDismissed) {
+                    return;
+                }
+
+                const response = await jsonRequest(approvalRequestsBaseUrl, 'POST', {
+                    action_type: 'TRANSACTION_CANCEL',
+                    target_type: 'pos_transaction',
+                    target_id: transactionId,
+                    payload: {},
+                    reason: (reasonInput || '').trim() || null,
+                });
+
+                if (!response || !response.request_id) {
+                    throw new Error('Permintaan persetujuan tidak valid.');
+                }
+
+                button.setAttribute('data-approval-pending', String(response.request_id));
+                button.setAttribute('data-approval-request-id', String(response.request_id));
+                button.removeAttribute('data-approval-token');
+                button.className = 'btn btn-sm btn-warning js-cancel-transaction';
+                button.textContent = 'Periksa Persetujuan';
+                setStatus('Permintaan pembatalan dikirim. Klik lagi untuk memeriksa hasil persetujuan.', 'success');
+            };
+
+            const checkCancelApproval = async (button) => {
+                const requestId = button.getAttribute('data-approval-pending') || button.getAttribute('data-approval-request-id');
+                if (!requestId) {
+                    return;
+                }
+
+                const response = await jsonRequest(`${approvalRequestsBaseUrl}/${requestId}`, 'GET');
+                const state = String(response && (response.state || response.status) || '').toLowerCase();
+
+                if (state === 'pending') {
+                    setStatus('Permintaan masih menunggu persetujuan supervisor.', 'muted');
+                    return;
+                }
+
+                if (state === 'approved' && (response.approval_token || response.token)) {
+                    const token = response.approval_token || response.token;
+                    button.removeAttribute('data-approval-pending');
+                    button.setAttribute('data-approval-request-id', String(requestId));
+                    button.setAttribute('data-approval-token', token);
+                    button.className = 'btn btn-sm btn-success js-cancel-transaction';
+                    button.textContent = 'Lanjutkan / Batalkan';
+                    setStatus('Persetujuan tersedia. Klik tombol untuk melanjutkan atau membuang persetujuan.', 'success');
+                    return;
+                }
+
+                resetCancelButton(button);
+
+                if (state === 'rejected') {
+                    const reason = String(response.decision_reason || '').trim();
+                    setStatus(reason ? `Permintaan ditolak: ${reason}` : 'Permintaan pembatalan ditolak.', 'danger');
+                    return;
+                }
+
+                if (state === 'cancelled') {
+                    setStatus('Permintaan pembatalan dibatalkan.', 'muted');
+                    return;
+                }
+
+                if (state === 'expired') {
+                    setStatus('Persetujuan pembatalan kedaluwarsa. Ajukan ulang bila diperlukan.', 'danger');
+                    return;
+                }
+
+                setStatus('Status persetujuan tidak dikenali. Ajukan ulang permintaan.', 'danger');
+            };
+
+            const discardCancelApproval = async (button) => {
+                const requestId = button.getAttribute('data-approval-pending') || button.getAttribute('data-approval-request-id');
+                if (requestId) {
+                    try {
+                        await jsonRequest(`${approvalRequestsBaseUrl}/${requestId}/cancel`, 'POST', {});
+                    } catch (error) {
+                        // UI should still reset even if the approval was already consumed or closed elsewhere.
+                    }
+                }
+
+                resetCancelButton(button);
+                setStatus('Persetujuan pembatalan dibuang tanpa mengubah transaksi.', 'muted');
+            };
+
             const setLoadingControls = (isLoading) => {
                 filterButton.disabled = Boolean(isLoading);
                 searchInput.disabled = Boolean(isLoading);
@@ -278,7 +411,7 @@
                     renderLoadingState();
                 }
                 setLoadingControls(true);
-                setStatus('Memuat transaksi...', 'muted');
+                setStatus(showLoading ? 'Memuat transaksi...' : defaultStatusMessage, showLoading ? 'muted' : 'success');
                 try {
                     const response = await jsonRequest(buildQueryUrl(), 'GET');
                     if (loadToken !== latestLoadToken) {
@@ -296,7 +429,7 @@
                         setStatus('Tidak ada transaksi pada filter saat ini.', 'muted');
                     } else {
                         const total = Number(pagination?.total || rows.length);
-                        setStatus(`Menampilkan ${rows.length} transaksi (total ${total}).`, 'success');
+                        setStatus(`Menampilkan ${rows.length} transaksi (total ${total}). ${defaultStatusMessage}`, 'success');
                     }
                 } catch (error) {
                     if (loadToken !== latestLoadToken) {
@@ -341,25 +474,65 @@
                     const id = Number(cancelButton.getAttribute('data-id') || 0);
                     if (id <= 0) return;
 
-                    const result = await Swal.fire({
-                        title: 'Batalkan Transaksi?',
-                        text: 'Aksi ini tidak dapat dibatalkan. Stok akan dikembalikan jika transaksi sudah dikurangi stoknya.',
-                        icon: 'warning',
-                        showCancelButton: true,
-                        confirmButtonColor: '#d33',
-                        confirmButtonText: 'Ya, Batalkan',
-                        cancelButtonText: 'Tutup'
-                    });
-
-                    if (!result.isConfirmed) return;
-
-                    cancelButton.disabled = true;
                     try {
-                        await jsonRequest(`${transactionsBaseUrl}/${id}/cancel`, 'POST', {});
-                        await loadRows();
+                        const pendingRequestId = cancelButton.getAttribute('data-approval-pending');
+                        const approvalToken = cancelButton.getAttribute('data-approval-token');
+
+                        if (pendingRequestId) {
+                            await checkCancelApproval(cancelButton);
+                            return;
+                        }
+
+                        if (approvalToken) {
+                            const decision = await Swal.fire({
+                                title: 'Gunakan Persetujuan Pembatalan?',
+                                text: 'Pilih Lanjutkan untuk membatalkan transaksi, atau Buang Persetujuan untuk membatalkan permintaan.',
+                                icon: 'question',
+                                showCancelButton: true,
+                                showDenyButton: true,
+                                confirmButtonText: 'Lanjutkan',
+                                denyButtonText: 'Buang Persetujuan',
+                                cancelButtonText: 'Tutup',
+                            });
+
+                            if (decision.isDenied) {
+                                await discardCancelApproval(cancelButton);
+                                return;
+                            }
+
+                            if (!decision.isConfirmed) {
+                                return;
+                            }
+                        } else {
+                            const result = await Swal.fire({
+                                title: 'Batalkan Transaksi?',
+                                text: 'Pembatalan draft adalah aksi destruktif dan mungkin memerlukan persetujuan supervisor.',
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonColor: '#d33',
+                                confirmButtonText: 'Lanjutkan',
+                                cancelButtonText: 'Tutup'
+                            });
+
+                            if (!result.isConfirmed) {
+                                return;
+                            }
+                        }
+
+                        cancelButton.disabled = true;
+
+                        await jsonRequest(`${transactionsBaseUrl}/${id}/cancel`, 'POST', approvalToken ? {
+                            approval_token: approvalToken,
+                        } : {});
+
+                        await loadRows({ showLoading: false });
                         setStatus('Transaksi berhasil dibatalkan.', 'success');
                     } catch (error) {
-                        setStatus(error.message || 'Gagal membatalkan transaksi.', 'danger');
+                        if ((error.message || '') === 'APPROVAL_REQUIRED') {
+                            await requestCancelApproval(cancelButton, id);
+                        } else {
+                            setStatus(error.message || 'Gagal membatalkan transaksi.', 'danger');
+                        }
                     } finally {
                         cancelButton.disabled = false;
                     }
@@ -390,6 +563,7 @@
                 await loadRows();
             });
 
+            setStatus(defaultStatusMessage, 'muted');
             loadRows();
         })();
     </script>

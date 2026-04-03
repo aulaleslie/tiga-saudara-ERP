@@ -18,6 +18,7 @@ use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Purchase\Services\PurchaseTaxInclusionResolver;
 use Modules\Setting\Entities\Setting;
 use Throwable;
@@ -666,6 +667,9 @@ class CreateForm extends Component
         foreach ($purchase->purchaseDetails as $detail) {
             $product = $detail->product;
             $subTotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
+            $productTax = $this->isPkp ? $detail->tax_id : null;
+            $normalizedTaxAmount = $this->isPkp ? (float) $detail->product_tax_amount : 0.0;
+            $normalizedSubTotal = $this->isPkp ? (float) $detail->sub_total : (float) $subTotalBeforeTax;
 
             $cart->add([
                 'id' => $detail->product_id,
@@ -676,12 +680,13 @@ class CreateForm extends Component
                 'options' => [
                     'product_discount' => $detail->product_discount_amount,
                     'product_discount_type' => $detail->product_discount_type,
-                    'sub_total' => $detail->sub_total,
+                    'sub_total' => $normalizedSubTotal,
                     'sub_total_before_tax' => $subTotalBeforeTax,
+                    'product_tax_amount' => $normalizedTaxAmount,
                     'code' => $detail->product_code,
                     'stock' => $product?->product_quantity ?? 0,
                     'unit' => $product?->product_unit ?? '',
-                    'product_tax' => $detail->tax_id,
+                    'product_tax' => $productTax,
                     'unit_price' => $detail->unit_price,
                     'last_purchase_price' => $product?->last_purchase_price ?? null,
                     'average_purchase_price' => $product?->average_purchase_price ?? null,
@@ -813,28 +818,19 @@ class CreateForm extends Component
 
             $setting_id = session('setting_id');
 
-            // Global discount and tax calculations
             $failureStage = 'calculating_totals';
             $cartItems = $cart->content();
-            $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
-            $shipping = $this->shipping;
-            $discount_amount = $this->global_discount_type === 'fixed' ? $this->global_discount : 0;
-            $discount_percentage = $this->global_discount_type === 'percentage' ? $this->global_discount : 0;
-            $tax_amount = 0;
-
-            foreach ($cartItems as $item) {
-                $sub_total = $item->options['sub_total'] ?? 0;
-                $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
-                $tax_amount += ($sub_total - $sub_total_before_tax);
-            }
-
-            if ($discount_percentage > 0) {
-                $global_discount_amount = $total_sub_total * ($discount_percentage/100);
-            } else {
-                $global_discount_amount = $discount_amount;
-            }
-
-            $total_amount = $total_sub_total - $global_discount_amount + $shipping;
+            $discount_amount = $this->global_discount_type === 'fixed' ? (float) $this->global_discount : 0.0;
+            $discount_percentage = $this->global_discount_type === 'percentage' ? (float) $this->global_discount : 0.0;
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'discount_percentage' => $discount_percentage,
+                'discount_amount' => $discount_amount,
+                'shipping_amount' => $this->shipping,
+                'paid_amount' => 0,
+                'tax_id' => null,
+                'tax_percentage' => 0,
+            ], $cartItems, $this->isPkpEnabled());
+            $header = $normalizedPurchase['header'];
 
             $failureStage = 'purchase_create';
             $purchase = Purchase::create([
@@ -843,14 +839,14 @@ class CreateForm extends Component
                 'supplier_id' => $this->supplier_id,
                 'supplier_purchase_number' => $this->supplier_purchase_number ?: null,
                 'tax_ref_no' => $this->tax_ref_no ?: null,
-                'discount_percentage' => $discount_percentage,
-                'discount_amount' => $discount_amount,
-                'shipping_amount' => $shipping,
-                'tax_id' => null,
-                'tax_percentage' => 0,
-                'tax_amount' => $tax_amount,
-                'total_amount' => $total_amount,
-                'due_amount' => $total_amount,
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'tax_amount' => $header['tax_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
                 'status' => Purchase::STATUS_DRAFTED,
                 'payment_status' => 'Unpaid',
                 'payment_term_id' => $this->payment_term,
@@ -881,27 +877,25 @@ class CreateForm extends Component
             $detailCount = 0;
             $detailQuantityTotal = 0;
             $detailTaxTotal = 0.0;
-            foreach ($cartItems as $item) {
-                $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
-
+            foreach ($normalizedPurchase['details'] as $item) {
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id,
-                    'product_id' => $item->id,
-                    'product_name' => $item->name,
-                    'product_code' => $item->options['code'],
-                    'quantity' => $item->qty,
-                    'unit_price' => $item->options['unit_price'],
-                    'price' => $item->price,
-                    'product_discount_type' => $item->options['product_discount_type'],
-                    'product_discount_amount' => $item->options['product_discount'],
-                    'sub_total' => $item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount,
-                    'tax_id' => $item->options['product_tax'],
+                    'product_id' => $item['product_id'],
+                    'product_name' => $item['product_name'],
+                    'product_code' => $item['product_code'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'price' => $item['price'],
+                    'product_discount_type' => $item['product_discount_type'],
+                    'product_discount_amount' => $item['product_discount_amount'],
+                    'sub_total' => $item['sub_total'],
+                    'product_tax_amount' => $item['product_tax_amount'],
+                    'tax_id' => $item['tax_id'],
                 ]);
 
                 $detailCount++;
-                $detailQuantityTotal += (int) $item->qty;
-                $detailTaxTotal += (float) $product_tax_amount;
+                $detailQuantityTotal += (int) $item['quantity'];
+                $detailTaxTotal += (float) $item['product_tax_amount'];
             }
 
             $this->purchaseSubmitDebug('purchase.submit.details_created', [

@@ -7,16 +7,17 @@ use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
 class POSTransactionCancelTest extends PosTransactionFeatureTestCase
 {
-    public function test_creator_can_cancel_own_draft_transaction(): void
+    public function test_user_with_direct_void_permission_can_cancel_mutable_transaction(): void
     {
-        $setting = $this->createSetting('BIZ POS TXN CANCEL OWNER');
+        $setting = $this->createSetting('BIZ POS TXN CANCEL VOID');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
-        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER USER', [
+        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL VOID USER', [
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
             'pos.transactions.save',
             'pos.transactions.view',
+            'pos.void',
         ]);
         $this->openSession($setting, $terminal, $user);
         $this->actingAsInSetting($user, $setting);
@@ -38,72 +39,94 @@ class POSTransactionCancelTest extends PosTransactionFeatureTestCase
         ]);
     }
 
-    public function test_other_user_without_edit_any_cannot_cancel_transaction(): void
+    public function test_cancel_without_direct_void_permission_requires_approval(): void
     {
-        $setting = $this->createSetting('BIZ POS TXN CANCEL FORBIDDEN');
+        $setting = $this->createSetting('BIZ POS TXN CANCEL APPROVAL REQUIRED');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
-
-        $owner = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER 2', [
+        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL NEED APPROVAL', [
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
             'pos.transactions.save',
-        ]);
-        $otherUser = $this->createUserForSetting($setting, 'POS TXN CANCEL OTHER USER', [
-            'pos.access',
             'pos.transactions.view',
         ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $this->openSession($setting, $terminal, $owner);
-        $this->actingAsInSetting($owner, $setting);
-
-        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-001']);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-REQ-001']);
         $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
             ->assertOk();
 
         $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
             ->json('transaction.id');
 
-        $this->actingAsInSetting($otherUser, $setting);
         $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
-            ->assertStatus(409)
-            ->assertJsonPath('code', 'EDIT_FORBIDDEN');
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'APPROVAL_REQUIRED');
+
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'status' => PosTransaction::STATUS_DRAFT,
+        ]);
     }
 
-    public function test_user_with_edit_any_can_cancel_other_users_transaction(): void
+    public function test_approved_token_allows_transaction_cancellation(): void
     {
-        $setting = $this->createSetting('BIZ POS TXN CANCEL EDIT ANY');
-        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $setting = $this->createSetting('BIZ POS TXN CANCEL TOKEN');
+        [$cashierTerminal, $location] = $this->createTerminalWithLocation($setting);
+        [$supervisorTerminal] = $this->createTerminalWithLocation($setting);
 
-        $owner = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER 3', [
+        $cashier = $this->createUserForSetting($setting, 'POS TXN CASHIER TOKEN', [
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
             'pos.transactions.save',
-        ]);
-        $admin = $this->createUserForSetting($setting, 'POS TXN CANCEL ADMIN', [
-            'pos.access',
             'pos.transactions.view',
-            'pos.transactions.edit.any',
+        ]);
+        $supervisor = $this->createUserForSetting($setting, 'POS TXN SUPERVISOR TOKEN', [
+            'pos.access',
+            'pos.supervisor.approval',
+            'pos.transactions.view',
+            'pos.void',
         ]);
 
-        $this->openSession($setting, $terminal, $owner);
-        $this->actingAsInSetting($owner, $setting);
+        $this->openSession($setting, $cashierTerminal, $cashier);
+        $this->openSession($setting, $supervisorTerminal, $supervisor);
+        $this->actingAsInSetting($cashier, $setting);
 
-        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-002']);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-TOKEN-001']);
         $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
             ->assertOk();
 
         $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
             ->json('transaction.id');
 
-        $this->actingAsInSetting($admin, $setting);
-        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+        $requestId = (int) $this->postJson(route('pos.sell.approval-requests.store'), [
+            'action_type' => 'TRANSACTION_CANCEL',
+            'target_type' => 'pos_transaction',
+            'target_id' => $transactionId,
+            'payload' => [],
+        ])->assertStatus(201)->json('request_id');
+
+        $this->actingAsInSetting($supervisor, $setting);
+        $this->postJson(route('pos.supervisor.approval-requests.approve', ['id' => $requestId]), [
+            'note' => 'Disetujui untuk pembatalan draft.',
+        ])->assertOk();
+
+        $this->actingAsInSetting($cashier, $setting);
+        $token = (string) $this->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]))
             ->assertOk()
+            ->json('approval_token');
+
+        $this->assertNotSame('', $token);
+
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]), [
+            'approval_token' => $token,
+        ])->assertOk()
             ->assertJsonPath('transaction.status', PosTransaction::STATUS_CANCELLED);
     }
 
-    public function test_completed_transaction_cannot_be_cancelled(): void
+    public function test_completed_transaction_cannot_be_cancelled_even_with_void_permission(): void
     {
         $setting = $this->createSetting('BIZ POS TXN CANCEL COMPLETED');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
@@ -113,6 +136,7 @@ class POSTransactionCancelTest extends PosTransactionFeatureTestCase
             'pos.sessions.open',
             'pos.transactions.save',
             'pos.transactions.view',
+            'pos.void',
         ]);
         $this->openSession($setting, $terminal, $user);
         $this->actingAsInSetting($user, $setting);

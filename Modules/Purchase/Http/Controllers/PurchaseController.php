@@ -38,6 +38,7 @@ use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
+use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -88,6 +89,7 @@ class PurchaseController extends Controller
         // Get data for Alpine.js form
         $paymentTerms = PaymentTerm::all();
         $suppliers = Supplier::all();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
         $taxes = \Modules\Setting\Entities\Tax::all();
         $categories = \Modules\Product\Entities\Category::all();
         $brands = \Modules\Product\Entities\Brand::all();
@@ -145,6 +147,17 @@ class PurchaseController extends Controller
 
         $setting_id = session('setting_id');
         $isPkp = (bool) (Setting::query()->whereKey((int) $setting_id)->value('is_pkp') ?? false);
+        if ($request->has('cart')) {
+            $cartItems = array_map(static function (array $cartItem): array {
+                $product = Product::find($cartItem['product_id'] ?? null);
+
+                return array_merge($cartItem, [
+                    'product_name' => $product?->product_name ?? '',
+                    'product_code' => $product?->product_code ?? '',
+                    'price' => $cartItem['unit_price'] ?? 0,
+                ]);
+            }, (array) $cartItems);
+        }
 
         if ($isPkp) {
             if ($request->has('cart')) {
@@ -168,6 +181,16 @@ class PurchaseController extends Controller
 
         DB::beginTransaction(); // Start the transaction manually
         try {
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => 0,
+                'discount_percentage' => $request->discount_percentage ?? 0,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'shipping_amount' => $request->shipping_amount ?? $request->shipping ?? 0,
+                'paid_amount' => 0,
+            ], $cartItems, $isPkp);
+            $header = $normalizedPurchase['header'];
+
             // Create the purchase record
             $purchase = Purchase::create([
                 'date' => $request->date,
@@ -175,14 +198,14 @@ class PurchaseController extends Controller
                 'supplier_id' => $request->supplier_id,
                 'supplier_purchase_number' => $request->supplier_purchase_number,
                 'tax_ref_no' => $request->tax_ref_no,
-                'tax_id' => $request->tax_id,
-                'tax_percentage' => 0,
-                'tax_amount' => 0,
-                'discount_percentage' => $request->discount_percentage ?? 0,
-                'discount_amount' => $request->discount_amount ?? 0,
-                'shipping_amount' => $request->shipping_amount ?? $request->shipping ?? 0,
-                'total_amount' => $request->total_amount,
-                'due_amount' => $request->total_amount,
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'tax_amount' => $header['tax_amount'],
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
                 'status' => Purchase::STATUS_DRAFTED,
                 'payment_status' => 'Unpaid',
                 'payment_term_id' => $request->payment_term ?: PaymentTerm::defaultCodTermId(),
@@ -193,65 +216,24 @@ class PurchaseController extends Controller
                 'payment_method' => '',
             ]);
 
-            // Handle cart items from Alpine.js form or Livewire cart
-            if ($request->has('cart')) {
-                // Alpine.js form data
-                foreach ($request->cart as $cartItem) {
-                    $product = \Modules\Product\Entities\Product::find($cartItem['product_id']);
-                    if (!$product) continue;
+            foreach ($normalizedPurchase['details'] as $detail) {
+                PurchaseDetail::create([
+                    'purchase_id' => $purchase->id,
+                    'product_id' => $detail['product_id'],
+                    'product_name' => $detail['product_name'],
+                    'product_code' => $detail['product_code'],
+                    'quantity' => $detail['quantity'],
+                    'unit_price' => $detail['unit_price'],
+                    'price' => $detail['price'],
+                    'product_discount_type' => $detail['product_discount_type'],
+                    'product_discount_amount' => $detail['product_discount_amount'],
+                    'sub_total' => $detail['sub_total'],
+                    'product_tax_amount' => $detail['product_tax_amount'],
+                    'tax_id' => $detail['tax_id'],
+                ]);
+            }
 
-                    // Calculate tax amount
-                    $taxAmount = 0;
-                    $taxId = $isPkp ? $cartItem['tax_id'] : null;
-
-                    if ($taxId) {
-                        $tax = \Modules\Setting\Entities\Tax::find($taxId);
-                        if ($tax) {
-                            $subtotal = $cartItem['unit_price'] * $cartItem['quantity'];
-                            $taxAmount = $subtotal * ($tax->value / 100);
-                        }
-                    }
-
-                    PurchaseDetail::create([
-                        'purchase_id' => $purchase->id,
-                        'product_id' => $cartItem['product_id'],
-                        'product_name' => $product->product_name,
-                        'product_code' => $product->product_code,
-                        'quantity' => $cartItem['quantity'],
-                        'unit_price' => $cartItem['unit_price'],
-                        'price' => $cartItem['unit_price'],
-                        'product_discount_type' => $cartItem['discount_type'],
-                        'product_discount_amount' => $cartItem['discount'],
-                        'sub_total' => ($cartItem['unit_price'] * $cartItem['quantity']) - $cartItem['discount'],
-                        'product_tax_amount' => $taxAmount,
-                        'tax_id' => $taxId,
-                    ]);
-                }
-            } else {
-                // Livewire cart data
-                foreach ($cartItems as $cart_item) {
-                    $taxId = $isPkp ? $cart_item->options['product_tax'] : null;
-                    $product_tax_amount = $isPkp 
-                        ? ($cart_item->options['sub_total'] - ($cart_item->options['sub_total_before_tax'] ?? 0))
-                        : 0;
-
-                    PurchaseDetail::create([
-                        'purchase_id' => $purchase->id,
-                        'product_id' => $cart_item->id,
-                        'product_name' => $cart_item->name,
-                        'product_code' => $cart_item->options['code'],
-                        'quantity' => $cart_item->qty,
-                        'unit_price' => $cart_item->options['unit_price'],
-                        'price' => $cart_item->price,
-                        'product_discount_type' => $cart_item->options['product_discount_type'],
-                        'product_discount_amount' => $cart_item->options['product_discount'],
-                        'sub_total' => $cart_item->options['sub_total'],
-                        'product_tax_amount' => $product_tax_amount,
-                        'tax_id' => $taxId,
-                    ]);
-                }
-
-                // Clear the cart after successful creation
+            if (! $request->has('cart')) {
                 Cart::instance('purchase')->destroy();
             }
 
@@ -393,6 +375,7 @@ class PurchaseController extends Controller
         // Filter PaymentTerms by the setting_id
         $paymentTerms = PaymentTerm::all();
         $suppliers = Supplier::all();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
         // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
@@ -422,6 +405,10 @@ class PurchaseController extends Controller
                 }
             }
 
+            $normalizedSubTotal = $isPkp ? (float) $purchase_detail->sub_total : (float) $subtotal_before_tax;
+            $normalizedTaxAmount = $isPkp ? (float) $purchase_detail->product_tax_amount : 0.0;
+            $normalizedTaxId = $isPkp ? $purchase_detail->tax_id : null;
+
             $cart->add([
                 'id' => $purchase_detail->product_id,
                 'name' => $purchase_detail->product_name,
@@ -431,12 +418,13 @@ class PurchaseController extends Controller
                 'options' => [
                     'product_discount' => $purchase_detail->product_discount_amount,
                     'product_discount_type' => $purchase_detail->product_discount_type,
-                    'sub_total' => $purchase_detail->sub_total,
+                    'sub_total' => $normalizedSubTotal,
                     'code' => $purchase_detail->product_code,
                     'stock' => Product::findOrFail($purchase_detail->product_id)->product_quantity,
-                    'product_tax' => $purchase_detail->tax_id,
+                    'product_tax' => $normalizedTaxId,
                     'unit_price' => $purchase_detail->unit_price,
-                    'sub_total_before_tax' => $subtotal_before_tax
+                    'sub_total_before_tax' => $subtotal_before_tax,
+                    'product_tax_amount' => $normalizedTaxAmount,
                 ]
             ]);
         }
@@ -468,21 +456,35 @@ class PurchaseController extends Controller
 
         DB::transaction(function () use ($request, $purchase) {
             $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
+            $cartItems = Cart::instance('purchase')->content();
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'tax_id' => $request->tax_id ?? $purchase->tax_id,
+                'tax_percentage' => $request->tax_percentage ?? $purchase->tax_percentage,
+                'discount_percentage' => $request->discount_percentage ?? $purchase->discount_percentage,
+                'discount_amount' => $request->discount_amount ?? $purchase->discount_amount,
+                'shipping_amount' => $request->shipping_amount ?? $purchase->shipping_amount,
+                'paid_amount' => $request->paid_amount ?? $purchase->paid_amount,
+            ], $cartItems, $isPkp);
+            $header = $normalizedPurchase['header'];
 
             // Fields to update, only if new values are passed in the request
             $updateData = array_filter([
                 'date' => $request->filled('date') && $request->date !== $purchase->date ? $request->date : null,
                 'due_date' => $request->filled('due_date') && $request->due_date !== $purchase->due_date ? $request->due_date : null,
                 'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $purchase->supplier_id ? $request->supplier_id : null,
-                'tax_percentage' => $request->filled('tax_percentage') && $request->tax_percentage !== $purchase->tax_percentage ? $request->tax_percentage : null,
-                'discount_percentage' => $request->filled('discount_percentage') && $request->discount_percentage !== $purchase->discount_percentage ? $request->discount_percentage : null,
-                'shipping_amount' => $request->filled('shipping_amount') && $request->shipping_amount != $purchase->shipping_amount ? $request->shipping_amount : null,
+                'tax_id' => $header['tax_id'] !== $purchase->tax_id ? $header['tax_id'] : null,
+                'tax_percentage' => $header['tax_percentage'] != $purchase->tax_percentage ? $header['tax_percentage'] : null,
+                'tax_amount' => $header['tax_amount'] != $purchase->tax_amount ? $header['tax_amount'] : null,
+                'discount_percentage' => $header['discount_percentage'] != $purchase->discount_percentage ? $header['discount_percentage'] : null,
+                'discount_amount' => $header['discount_amount'] != $purchase->discount_amount ? $header['discount_amount'] : null,
+                'shipping_amount' => $header['shipping_amount'] != $purchase->shipping_amount ? $header['shipping_amount'] : null,
                 'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $purchase->paid_amount ? $request->paid_amount : null,
-                'total_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
-                'due_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
+                'total_amount' => $header['total_amount'] != $purchase->total_amount ? $header['total_amount'] : null,
+                'due_amount' => $header['due_amount'] != $purchase->due_amount ? $header['due_amount'] : null,
                 'status' => $request->filled('status') && $request->status !== $purchase->status ? $request->status : null,
                 'payment_method' => $request->filled('payment_method') && $request->payment_method !== $purchase->payment_method ? $request->payment_method : null,
                 'note' => $request->filled('note') && $request->note !== $purchase->note ? $request->note : null,
+                'payment_term_id' => $request->filled('payment_term') && $request->payment_term != $purchase->payment_term_id ? $request->payment_term : null,
             ], function ($value) {
                 return $value !== null;
             });
@@ -495,6 +497,10 @@ class PurchaseController extends Controller
                 $updateData['tax_ref_no'] = $request->tax_ref_no;
             }
 
+            if ($header['tax_id'] === null && $purchase->tax_id !== null) {
+                $updateData['tax_id'] = null;
+            }
+
             if (!empty($updateData)) {
                 // Update the purchase record
                 $purchase->update($updateData);
@@ -504,25 +510,20 @@ class PurchaseController extends Controller
             $purchase->purchaseDetails()->delete();
 
             // Re-add updated cart items
-            foreach (Cart::instance('purchase')->content() as $cart_item) {
-                $taxId = $isPkp ? $cart_item->options['product_tax'] : null;
-                $productTaxAmount = $isPkp 
-                    ? ($cart_item->options['sub_total'] - ($cart_item->options['sub_total_before_tax'] ?? 0))
-                    : 0;
-
+            foreach ($normalizedPurchase['details'] as $detail) {
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id,
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options['code'],
-                    'quantity' => $cart_item->qty,
-                    'unit_price' => $cart_item->options['unit_price'],
-                    'price' => $cart_item->price,
-                    'product_discount_type' => $cart_item->options['product_discount_type'],
-                    'product_discount_amount' => $cart_item->options['product_discount'],
-                    'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $productTaxAmount,
-                    'tax_id' => $taxId,
+                    'product_id' => $detail['product_id'],
+                    'product_name' => $detail['product_name'],
+                    'product_code' => $detail['product_code'],
+                    'quantity' => $detail['quantity'],
+                    'unit_price' => $detail['unit_price'],
+                    'price' => $detail['price'],
+                    'product_discount_type' => $detail['product_discount_type'],
+                    'product_discount_amount' => $detail['product_discount_amount'],
+                    'sub_total' => $detail['sub_total'],
+                    'product_tax_amount' => $detail['product_tax_amount'],
+                    'tax_id' => $detail['tax_id'],
                 ]);
             }
 

@@ -17,6 +17,9 @@
 @endpush
 
 @section('content')
+    @php
+        use Modules\User\Helpers\PermissionHelper;
+    @endphp
     <div class="container-fluid">
         <div class="row">
             <div class="col-md-12">
@@ -38,6 +41,40 @@
 
                             <hr>
 
+                            @php
+                                $posGuidance = PermissionHelper::getPosGuidance($role);
+                            @endphp
+
+                            <div class="alert alert-info">
+                                <div class="font-weight-bold mb-2">Panduan Bundle POS</div>
+                                <div class="small mb-2">Bundle default POS sebaiknya mengikuti `manager`, `cashier`, atau `floor staff`. Override individual tetap dimungkinkan untuk kebutuhan khusus.</div>
+                                <div class="row">
+                                    @foreach($posGuidance['bundles'] as $bundle)
+                                        <div class="col-lg-4 mb-2">
+                                            <div class="border rounded p-2 h-100 bg-white">
+                                                <div class="font-weight-bold">{{ $bundle['label'] }}</div>
+                                                <div class="small text-muted mb-1">{{ $bundle['description'] }}</div>
+                                                @if($bundle['permissions'] !== [])
+                                                    <div class="small">{{ implode(', ', $bundle['permissions']) }}</div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                                @if($posGuidance['hidden_assigned'] !== [])
+                                    <div class="mt-2 small">
+                                        <div class="font-weight-bold">Permission deprecated yang masih terpasang</div>
+                                        @foreach($posGuidance['hidden_assigned'] as $permission)
+                                            <div>
+                                                <strong>{{ $permission['label'] }}</strong>
+                                                <span class="text-muted">(<code>{{ $permission['key'] }}</code>)</span>
+                                                - {{ $permission['note'] }}
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </div>
+
                             <div class="form-group mb-2">
                                 <label>Hak Akses <span class="text-danger">*</span></label>
                             </div>
@@ -51,7 +88,6 @@
 
                             <div class="row gy-3">
                                 @php
-                                    use Modules\User\Helpers\PermissionHelper;
                                     $permissionGroups = PermissionHelper::getGroupsForForm($role);
                                 @endphp
 

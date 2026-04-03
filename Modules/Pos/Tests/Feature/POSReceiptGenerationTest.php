@@ -60,6 +60,7 @@ class POSReceiptGenerationTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.receipts.reprint',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -173,6 +174,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_reprint_creates_separate_log(): void
     {
         $context = $this->createCheckoutContext('POS REPRINT VIEW');
+        $context['cashier']->givePermissionTo('pos.receipts.reprint');
         $methods = $context['methods'];
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-004', 30000, false);
@@ -201,6 +203,33 @@ class POSReceiptGenerationTest extends TestCase
             'print_type' => PosReceiptPrintLog::TYPE_REPRINT,
             'printed_by' => $context['cashier']->id,
         ]);
+    }
+
+    public function test_receipt_reprint_requires_explicit_permission(): void
+    {
+        $context = $this->createCheckoutContext('POS REPRINT FORBIDDEN');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-004B', 30000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $payload = [
+            'idempotency_key' => 'receipt-k-004b',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 30000,
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        session()->put('setting_id', $context['setting']->id);
+
+        $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt/reprint")
+            ->assertForbidden();
     }
     
     public function test_cross_setting_receipt_access_is_forbidden(): void

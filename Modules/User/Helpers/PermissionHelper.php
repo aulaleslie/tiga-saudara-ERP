@@ -2,6 +2,7 @@
 
 namespace Modules\User\Helpers;
 
+use Modules\Pos\Support\PosPermissionMatrix;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -42,8 +43,12 @@ class PermissionHelper
             $groups[$groupName] = [];
 
             foreach ($groupPermissions as $permissionKey => $label) {
+                if (PosPermissionMatrix::isDeprecated($permissionKey)) {
+                    continue;
+                }
+
                 $groups[$groupName][$permissionKey] = [
-                    'label' => $label,
+                    'label' => self::normalizePermissionLabel($label),
                     'checked' => in_array($permissionKey, $rolePermissionNames),
                 ];
             }
@@ -73,7 +78,9 @@ class PermissionHelper
         $permissions = [];
 
         foreach ($config as $groupPermissions) {
-            $permissions = array_merge($permissions, $groupPermissions);
+            foreach ($groupPermissions as $permissionKey => $label) {
+                $permissions[$permissionKey] = self::normalizePermissionLabel($label);
+            }
         }
 
         return $permissions;
@@ -129,5 +136,94 @@ class PermissionHelper
         }
 
         return null;
+    }
+
+    /**
+     * @return array{
+     *   bundles: array<string, array{label:string, description:string, permissions:array<int, string>}>,
+     *   clusters: array<string, array{label:string, permissions:array<int, string>}>,
+     *   deprecated: array<string, array{key:string, label:string, note:string}>,
+     *   hidden_assigned: array<string, array{key:string, label:string, note:string}>
+     * }
+     */
+    public static function getPosGuidance(?Role $role = null): array
+    {
+        $hiddenAssigned = [];
+        $bundles = [];
+        $clusters = [];
+        $deprecated = [];
+
+        foreach (PosPermissionMatrix::deprecatedPermissions() as $permissionKey => $note) {
+            $deprecated[$permissionKey] = [
+                'key' => $permissionKey,
+                'label' => self::getPermissionLabel($permissionKey) ?? $permissionKey,
+                'note' => $note,
+            ];
+        }
+
+        if ($role !== null) {
+            foreach ($role->permissions->pluck('name')->all() as $permissionName) {
+                if (isset($deprecated[$permissionName])) {
+                    $hiddenAssigned[$permissionName] = $deprecated[$permissionName];
+                }
+            }
+        }
+
+        foreach (PosPermissionMatrix::supportedBundles() as $bundleKey => $bundle) {
+            $bundles[$bundleKey] = [
+                'label' => $bundle['label'],
+                'description' => $bundle['description'],
+                'permissions' => self::mapPermissionKeysToLabels($bundle['permissions']),
+            ];
+        }
+
+        foreach (PosPermissionMatrix::capabilityClusters() as $clusterKey => $cluster) {
+            $clusters[$clusterKey] = [
+                'label' => $cluster['label'],
+                'permissions' => self::mapPermissionKeysToLabels($cluster['permissions']),
+            ];
+        }
+
+        return [
+            'bundles' => $bundles,
+            'clusters' => $clusters,
+            'deprecated' => $deprecated,
+            'hidden_assigned' => $hiddenAssigned,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function getHiddenAssignedPermissions(Role $role): array
+    {
+        return $role->permissions
+            ->pluck('name')
+            ->filter(static fn (string $permissionName): bool => PosPermissionMatrix::isDeprecated($permissionName))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  mixed  $label
+     */
+    private static function normalizePermissionLabel($label): string
+    {
+        if (is_array($label)) {
+            return (string) ($label['label'] ?? '');
+        }
+
+        return (string) $label;
+    }
+
+    /**
+     * @param  array<int, string>  $permissionKeys
+     * @return array<int, string>
+     */
+    private static function mapPermissionKeysToLabels(array $permissionKeys): array
+    {
+        return array_values(array_map(function (string $permissionKey): string {
+            return self::getPermissionLabel($permissionKey) ?? $permissionKey;
+        }, $permissionKeys));
     }
 }

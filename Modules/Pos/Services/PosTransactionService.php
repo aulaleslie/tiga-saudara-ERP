@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
@@ -18,7 +19,8 @@ class PosTransactionService
         private readonly PosCartService $cartService,
         private readonly PosTransactionSnapshotMapper $mapper,
         private readonly PosTransactionCodeGenerator $codeGenerator,
-        private readonly PosTransactionPolicyService $policyService
+        private readonly PosTransactionPolicyService $policyService,
+        private readonly PosCartActionAuthorizationService $actionAuthorizationService
     ) {}
 
     /**
@@ -64,7 +66,7 @@ class PosTransactionService
                     );
                 }
 
-                $this->policyService->assertCanEdit($user, $transaction);
+                $this->policyService->assertCanSaveDraft($user, $transaction);
 
                 if (in_array($transaction->status, [
                     PosTransaction::STATUS_COMPLETED,
@@ -177,7 +179,7 @@ class PosTransactionService
         $this->policyService->assertCartEmpty($currentCart['lines']);
 
         // Check user has permission to edit this transaction
-        $this->policyService->assertCanEdit($user, $transaction);
+        $this->policyService->assertCanLoadDraft($user, $transaction);
 
         // Only non-completed, non-cancelled transactions can be loaded.
         if (! in_array($transaction->status, [
@@ -242,18 +244,24 @@ class PosTransactionService
      */
     public function cancel(
         PosTransaction $transaction,
-        User $user
+        User $user,
+        ?string $approvalToken = null
     ): PosTransaction {
-        // Check user has permission
-        $this->policyService->assertCanEdit($user, $transaction);
-
-        // Cannot cancel COMPLETED transactions
-        if ($transaction->status === PosTransaction::STATUS_COMPLETED) {
+        if (! in_array($transaction->status, [
+            PosTransaction::STATUS_DRAFT,
+            PosTransaction::STATUS_LOADED,
+        ], true)) {
             throw new PosTransactionValidationException(
                 'TRANSACTION_NOT_CANCELLABLE',
-                'Transaksi yang sudah selesai tidak dapat dibatalkan.'
+                'Hanya transaksi draft atau loaded yang dapat dibatalkan.'
             );
         }
+
+        $this->actionAuthorizationService->authorize(
+            $user,
+            PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL,
+            $approvalToken
+        );
 
         $transaction->update([
             'status' => PosTransaction::STATUS_CANCELLED,

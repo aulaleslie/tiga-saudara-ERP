@@ -87,24 +87,24 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
 
-    Route::group(['middleware' => ['can:pos.checkout.payment']], function () {
-        Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
+    Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
 
-        Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
-            ->name('pos.sell.checkout.stage-payment');
-        Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
-            ->name('pos.sell.checkout.payment-chain');
-        Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
-            ->name('pos.sell.checkout.payment-chain.reset');
+    Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
+        ->name('pos.sell.checkout.stage-payment');
+    Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
+        ->name('pos.sell.checkout.payment-chain');
+    Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
+        ->name('pos.sell.checkout.payment-chain.reset');
 
-        Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
-            ->name('pos.sell.checkout.finalize');
-    });
+    Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
+        ->name('pos.sell.checkout.finalize');
 
     Route::get('/pos/sell/checkout/{checkout}/receipt', [PosSellController::class, 'receiptView'])
         ->name('pos.sell.checkout.receipt');
-    Route::get('/pos/sell/checkout/{checkout}/receipt/reprint', [PosSellController::class, 'receiptReprint'])
-        ->name('pos.sell.checkout.receipt.reprint');
+    Route::group(['middleware' => ['can:pos.receipts.reprint']], function () {
+        Route::get('/pos/sell/checkout/{checkout}/receipt/reprint', [PosSellController::class, 'receiptReprint'])
+            ->name('pos.sell.checkout.receipt.reprint');
+    });
 
     Route::get('/pos/sell/serials/search', [PosSellController::class, 'serialSearch'])->name('pos.sell.serials.search');
     Route::post('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])

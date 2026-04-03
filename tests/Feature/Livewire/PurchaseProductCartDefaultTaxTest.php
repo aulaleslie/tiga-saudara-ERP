@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
@@ -88,5 +89,45 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         $this->assertNull($cartItem->options->product_tax);
         $this->assertEquals((float) $cartItem->options->sub_total, (float) $cartItem->options->sub_total_before_tax);
         $this->assertEquals(0, (float) $cartItem->options->product_tax_amount);
+    }
+
+    public function test_non_pkp_product_add_does_not_seed_product_purchase_tax_default(): void
+    {
+        $setting = Setting::findOrFail(session('setting_id'));
+        $setting->update(['is_pkp' => false]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => $setting->id,
+            'last_purchase_price' => 1000,
+            'average_purchase_price' => 1000,
+            'purchase_tax_id' => $tax->id,
+        ]);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => $this->product->product_quantity,
+                'product_unit' => $this->product->product_unit,
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+                'purchase_tax_id' => $tax->id,
+            ]);
+
+        $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
+
+        $this->assertNotNull($cartItem);
+        $this->assertNull($cartItem->options->product_tax);
+        $this->assertEquals(1000.0, (float) $cartItem->options->sub_total);
+        $this->assertEquals(1000.0, (float) $cartItem->options->sub_total_before_tax);
+        $this->assertEquals(0.0, (float) $cartItem->options->product_tax_amount);
     }
 }

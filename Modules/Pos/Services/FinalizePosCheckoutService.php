@@ -65,7 +65,8 @@ class FinalizePosCheckoutService
         }
 
         $sessionId = (int) $activeSession->id;
-        $terminalId = (int) $activeSession->terminal_id;
+        $checkoutTerminal = $this->resolveCheckoutTerminal($settingId, $activeSession);
+        $terminalId = (int) $checkoutTerminal->id;
 
         if ($sessionId <= 0 || $terminalId <= 0) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks sesi POS yang aktif tidak valid.');
@@ -159,6 +160,7 @@ class FinalizePosCheckoutService
             checkout: $checkout,
             settingId: $settingId,
             sessionId: $sessionId,
+            terminalId: $terminalId,
             cashierUserId: $cashierUserId,
             customerId: (int) $resolvedCustomerId,
             cartSnapshot: $cartSnapshot,
@@ -487,6 +489,7 @@ class FinalizePosCheckoutService
         PosCheckout $checkout,
         int $settingId,
         int $sessionId,
+        int $terminalId,
         int $cashierUserId,
         int $customerId,
         array $cartSnapshot,
@@ -504,6 +507,7 @@ class FinalizePosCheckoutService
                 $checkout,
                 $settingId,
                 $sessionId,
+                $terminalId,
                 $cashierUserId,
                 $customerId,
                 $cartSnapshot,
@@ -530,10 +534,14 @@ class FinalizePosCheckoutService
 
                 $terminal = PosTerminal::query()
                     ->with('policy')
-                    ->where('id', $session->terminal_id)
+                    ->where('id', $terminalId)
                     ->where('setting_id', $settingId)
                     ->lockForUpdate()
                     ->first();
+
+                if (! $terminal) {
+                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Terminal checkout POS tidak ditemukan.');
+                }
 
                 $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
                 $lines = $this->buildStockResolverLines($cartLines);
@@ -575,7 +583,7 @@ class FinalizePosCheckoutService
                     'setting_id' => $settingId,
                     'checkout_id' => $checkoutId,
                     'pos_session_id' => $sessionId,
-                    'terminal_id' => (int) $session->terminal_id,
+                    'terminal_id' => $terminalId,
                     'cashier_user_id' => $cashierUserId,
                     'customer_id' => $customerId,
                     'payment' => $payment,
@@ -712,7 +720,7 @@ class FinalizePosCheckoutService
 
                     $this->cashDrawerService->triggerDrawerOpen(
                         PosCashDrawerService::TRIGGER_CASH_SALE,
-                        (int) $session->terminal_id,
+                        $terminalId,
                         $settingId,
                         [
                             'pos_checkout_id' => $checkoutId,
@@ -831,6 +839,59 @@ class FinalizePosCheckoutService
                 $exception
             );
         }
+    }
+
+    private function resolveCheckoutTerminal(int $settingId, PosSession $activeSession): PosTerminal
+    {
+        $terminalId = (int) $activeSession->terminal_id;
+
+        if ($terminalId > 0) {
+            $terminal = PosTerminal::query()
+                ->with('policy')
+                ->where('id', $terminalId)
+                ->where('setting_id', $settingId)
+                ->first();
+
+            if (! $terminal) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Terminal POS tidak ditemukan untuk sesi aktif.');
+            }
+
+            return $terminal;
+        }
+
+        $terminal = PosTerminal::query()->firstOrCreate(
+            [
+                'setting_id' => $settingId,
+                'code' => 'MGR-INTERVENTION',
+            ],
+            [
+                'name' => 'Manager Intervention',
+                'is_active' => true,
+                'metadata' => [
+                    'system_terminal' => true,
+                    'manager_intervention' => true,
+                ],
+            ]
+        );
+
+        $terminal->policy()->firstOrCreate([], [
+            'require_session_open' => true,
+            'require_opening_float' => false,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'cash_threshold' => null,
+            'auto_open_drawer_on_session_open' => false,
+            'auto_open_drawer_on_cash_sale' => false,
+            'auto_open_drawer_on_pickup' => false,
+            'auto_open_drawer_on_close' => false,
+            'require_pickup_supervisor_approval' => false,
+            'metadata' => [
+                'system_terminal' => true,
+                'manager_intervention' => true,
+            ],
+        ]);
+
+        return $terminal->fresh(['policy']) ?? $terminal;
     }
 
     /**

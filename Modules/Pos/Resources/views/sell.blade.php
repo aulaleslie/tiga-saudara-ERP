@@ -227,6 +227,45 @@
         margin-bottom: 0;
     }
 
+    .pos-search-input-shell {
+        position: relative;
+    }
+
+    #pos-shell-search {
+        padding-right: 2.5rem;
+    }
+
+    #pos-shell-search-clear {
+        position: absolute;
+        top: 50%;
+        right: 0.55rem;
+        transform: translateY(-50%);
+        width: 1.6rem;
+        height: 1.6rem;
+        border: 0;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: #e2e8f0;
+        color: #475569;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    #pos-shell-search-clear:hover,
+    #pos-shell-search-clear:focus {
+        background: #cbd5e1;
+        color: #0f172a;
+        outline: 0;
+    }
+
+    #pos-shell-search-clear span[aria-hidden="true"] {
+        font-size: 1rem;
+        line-height: 1;
+    }
+
     .pos-scan-action-rail {
         grid-area: actions;
         display: flex;
@@ -1059,7 +1098,11 @@
             : '-';
         $terminalLabelShort = \Illuminate\Support\Str::limit($terminalLabelFull, 30);
         $posTransactionsEnabled = (bool) (settings()->pos_transactions_enabled ?? false);
-        $canCheckoutFlow = (bool) (($roleCapabilities['can_checkout'] ?? false) === true);
+        $hasCheckoutAuthority = (bool) (($roleCapabilities['has_checkout_authority'] ?? $roleCapabilities['can_checkout'] ?? false) === true);
+        $canCheckoutFlow = (bool) (($roleCapabilities['can_use_payment_flow'] ?? false) === true);
+        $checkoutDisabledTitle = ! $hasCheckoutAuthority
+            ? 'Membutuhkan izin pos.checkout.payment untuk membuka pembayaran.'
+            : 'Kasir harus membuka sesi dengan terminal untuk mengakses pembayaran.';
     @endphp
 
     <div class="pos-lock-screen" aria-live="polite">
@@ -1139,9 +1182,9 @@
                                             <a class="dropdown-item" href="{{ route('pos.supervisor.approval-requests.index') }}" target="_blank">Antrian Persetujuan</a>
                                         @endcan
                                         <div class="dropdown-divider"></div>
-                                        @can('pos.sessions.close')
+                                        @if(auth()->user()->canAny(['pos.sessions.close', 'pos.sessions.close-admin']))
                                             <button type="button" id="pos-close-session-btn" class="dropdown-item">Tutup Sesi</button>
-                                        @endcan
+                                        @endif
                                         <button type="button" id="pos-cash-pickup-btn" class="dropdown-item">Pengambilan Kas</button>
                                     </div>
                                 </div>
@@ -1160,9 +1203,15 @@
                             <div class="pos-search-grid">
                                 <div class="pos-search-input-row">
                                     <label for="pos-shell-search" class="small font-weight-bold">Pindai Barcode / Serial</label>
-                                    <input id="pos-shell-search" type="text" class="form-control"
-                                           placeholder="Pindai barcode atau ketik nomor serial"
-                                           autocomplete="off">
+                                    <div class="pos-search-input-shell">
+                                        <input id="pos-shell-search" type="text" class="form-control"
+                                               placeholder="Pindai barcode atau ketik nomor serial"
+                                               autocomplete="off">
+                                        <button id="pos-shell-search-clear" type="button" class="d-none"
+                                                aria-label="Bersihkan input pencarian">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="pos-scan-action-rail">
                                     <button id="pos-btn-scan-helper" type="button" class="btn btn-primary pos-scan-action-primary">
@@ -1274,7 +1323,7 @@
                                             disabled
                                             @if(! $canCheckoutFlow)
                                                 data-permission-locked="1"
-                                                title="Membutuhkan izin pos.checkout.payment untuk membuka pembayaran."
+                                                title="{{ $checkoutDisabledTitle }}"
                                             @endif>
                                         Pilih Pembayaran
                                     </button>
@@ -1790,6 +1839,7 @@
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
+            const searchClearButton = document.getElementById('pos-shell-search-clear');
             const statusElement = document.getElementById('pos-shell-search-status');
 
             const cariProdukButton = document.getElementById('pos-btn-cari-produk');
@@ -1884,7 +1934,9 @@
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const roleCapabilities = @json($roleCapabilities ?? []);
             console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
-            const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout === true);
+            const hasCheckoutAuthority = Boolean(roleCapabilities && (roleCapabilities.has_checkout_authority === true || roleCapabilities.can_checkout === true));
+            const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_use_payment_flow === true);
+            const requiresTerminalForCheckout = hasCheckoutAuthority && !canCheckoutByRole;
             const canReduceQuantity = Boolean(
               typeof roleCapabilities?.can_reduce_quantity === 'boolean' ? roleCapabilities.can_reduce_quantity :
               typeof roleCapabilities?.direct_permissions?.qty_reduce === 'boolean' ? roleCapabilities.direct_permissions.qty_reduce :
@@ -1915,6 +1967,30 @@
                 statusElement.textContent = message || '';
                 statusElement.classList.remove('text-muted', 'text-danger', 'text-success', 'text-warning');
                 statusElement.classList.add(tone || 'text-muted');
+            }
+
+            function syncSearchClearButtonVisibility() {
+                if (!searchInput || !searchClearButton) {
+                    return;
+                }
+
+                const hasValue = (searchInput.value || '').trim().length > 0;
+                searchClearButton.classList.toggle('d-none', !hasValue);
+            }
+
+            function clearSearchInput(options = {}) {
+                if (!searchInput) {
+                    return;
+                }
+
+                const keepFocus = options.keepFocus !== false;
+                searchInput.value = '';
+                syncSearchClearButtonVisibility();
+                setSearchStatus('', 'text-muted');
+
+                if (keepFocus) {
+                    searchInput.focus();
+                }
             }
 
             function setCartStatus(message, tone, showAsAlert = false) {
@@ -2860,7 +2936,9 @@
                  // Display serial mismatch error if present
                  if (!allSerialsValid && mismatchMessage) {
                      setCartStatus(mismatchMessage, 'text-danger');
-                 } else if (!canCheckoutByRole && hasItems) {
+                 } else if (requiresTerminalForCheckout && hasItems) {
+                     setCartStatus('Kasir tanpa terminal tetap bisa menyiapkan draft, tetapi pembayaran baru aktif setelah sesi terhubung ke terminal.', 'text-muted');
+                 } else if (!hasCheckoutAuthority && hasItems) {
                      setCartStatus('Anda dapat menyimpan draft, tetapi pembayaran membutuhkan izin pos.checkout.payment.', 'text-muted');
                  }
 
@@ -2918,8 +2996,7 @@
                     const message = 'Serial "' + escapeHtml(serial.serial_number) + '" sudah ditambahkan. Silakan pindai serial lainnya.';
                     setSearchStatus(message, 'text-info');
                     if (searchInput) {
-                        searchInput.value = '';
-                        searchInput.focus();
+                        clearSearchInput();
                     }
                     return;
                 }
@@ -3130,7 +3207,7 @@
                 latestRequestId += 1;
                 clearResults();
                 if (searchInput) {
-                    searchInput.value = '';
+                    clearSearchInput({ keepFocus: false });
                 }
 
                 try {
@@ -3376,7 +3453,7 @@
 
                     if (response.type === 'product_exact') {
                         await addProductToCart(response.product, 'scan');
-                        searchInput.value = '';
+                        clearSearchInput({ keepFocus: false });
                         // Task 3.1: Enrich message with product name
                         const productMessage = 'Produk "' + (response.product.product_name || 'Unknown') + '" telah ditambahkan';
                         setSearchStatus(productMessage, 'text-success');
@@ -3389,7 +3466,7 @@
                         };
                     } else if (response.type === 'serial_exact') {
                         await handleSerialScanResult(response);
-                        searchInput.value = '';
+                        clearSearchInput({ keepFocus: false });
                         // Task 3.2: Enrich message with serial number
                         const serialMessage = 'Serial "' + (response.serial.serial_number || 'Unknown') + '" telah ditambahkan';
                         setSearchStatus(serialMessage, 'text-success');
@@ -3425,6 +3502,18 @@
 
             // Expose shared resolver to global scope so camera scanner can access it (2.3)
             window.executeScanResolve = executeScanResolve;
+
+            searchInput.addEventListener('input', function () {
+                syncSearchClearButtonVisibility();
+            });
+
+            if (searchClearButton) {
+                searchClearButton.addEventListener('click', function () {
+                    clearSearchInput();
+                });
+            }
+
+            syncSearchClearButtonVisibility();
 
             // Phase 1: Enter key handler for scan resolver (2.2: preserve for scanner hardware)
             searchInput.addEventListener('keydown', async function (event) {
@@ -4678,7 +4767,12 @@
 
             if (btnCheckout) {
                 btnCheckout.addEventListener('click', function () {
-                    if (!canCheckoutByRole) {
+                    if (requiresTerminalForCheckout) {
+                        setCartStatus('Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.', 'text-danger');
+                        return;
+                    }
+
+                    if (!hasCheckoutAuthority) {
                         setCartStatus('Anda tidak memiliki izin pembayaran POS.', 'text-danger');
                         return;
                     }
@@ -4794,7 +4888,7 @@
             }
 
             // Initialize Staged Payment Module
-            if (canCheckoutByRole && typeof PosStagedPayment !== 'undefined') {
+            if (hasCheckoutAuthority && typeof PosStagedPayment !== 'undefined') {
                 PosStagedPayment.initialize({
                     modalElement: document.getElementById('pos-staged-checkout-modal'),
                     methodSearchInput: document.getElementById('staged-method-search'),
@@ -4807,12 +4901,16 @@
                     submitButton: document.getElementById('staged-payment-submit'),
                     spinner: document.getElementById('staged-payment-spinner'),
                     errorAlert: document.getElementById('staged-payment-error'),
+                    canUsePaymentFlow: canCheckoutByRole,
+                    paymentFlowBlockedMessage: requiresTerminalForCheckout
+                        ? 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.'
+                        : 'Anda tidak memiliki izin pembayaran POS.',
                 });
 
                 // Load payment methods
-                if (typeof window.POS_PAYMENT_METHODS !== 'undefined') {
+                if (canCheckoutByRole && typeof window.POS_PAYMENT_METHODS !== 'undefined') {
                     PosStagedPayment.setPaymentMethods(window.POS_PAYMENT_METHODS);
-                } else {
+                } else if (canCheckoutByRole) {
                     // Fallback: load payment methods from API
                     PosStagedPayment.loadPaymentMethods();
                 }
@@ -4898,7 +4996,7 @@
                 }
 
                 // Check for reload recovery on page load
-                if (currentSnapshot && currentSnapshot.staged_payment_token) {
+                if (canCheckoutByRole && currentSnapshot && currentSnapshot.staged_payment_token) {
                     fetch(`/pos/sell/checkout/payment-chain?cart_token=${encodeURIComponent(currentSnapshot.staged_payment_token)}`)
                         .then(r => r.json())
                         .then(data => {

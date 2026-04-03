@@ -15,6 +15,8 @@ class PosTerminalSearchDropdown extends Component
     public string $placeholder = 'Pilih terminal...';
     public string $search = '';
     public bool $isOpen = false;
+    public bool $disabled = false;
+    public ?string $disabledReason = null;
     #[Reactive]
     public ?string $error = null;
 
@@ -26,11 +28,15 @@ class PosTerminalSearchDropdown extends Component
         int|string|null $selected = null,
         string $name = 'terminal_id',
         string $placeholder = 'Pilih terminal...',
-        ?string $error = null
+        ?string $error = null,
+        bool $disabled = false,
+        ?string $disabledReason = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->error = $error;
+        $this->disabled = $disabled;
+        $this->disabledReason = $disabledReason;
 
         $this->options = $this->fetchTerminals();
         $this->selected = $selected ?: null;
@@ -44,6 +50,10 @@ class PosTerminalSearchDropdown extends Component
 
     public function toggleDropdown(): void
     {
+        if ($this->disabled) {
+            return;
+        }
+
         $this->isOpen = !$this->isOpen;
         if ($this->isOpen) {
             $this->search = '';
@@ -57,6 +67,10 @@ class PosTerminalSearchDropdown extends Component
 
     public function select(int|string $id): void
     {
+        if ($this->disabled) {
+            return;
+        }
+
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
         $this->isOpen = false;
@@ -66,6 +80,10 @@ class PosTerminalSearchDropdown extends Component
 
     public function clear(): void
     {
+        if ($this->disabled) {
+            return;
+        }
+
         $this->selected = null;
         $this->selectedLabel = null;
         $this->isOpen = false;
@@ -75,6 +93,13 @@ class PosTerminalSearchDropdown extends Component
 
     public function updatedSelected($value): void
     {
+        if ($this->disabled) {
+            $this->selected = null;
+            $this->selectedLabel = null;
+
+            return;
+        }
+
         $this->selectedLabel = $this->resolveLabel($value);
         $this->dispatch('terminal-selected');
     }

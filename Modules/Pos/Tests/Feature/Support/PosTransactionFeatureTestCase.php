@@ -54,10 +54,12 @@ abstract class PosTransactionFeatureTestCase extends TestCase
             'pos.cart.clear',
             'pos.cart.line.remove',
             'pos.cart.line.reduce',
+            'pos.supervisor.approval',
             'pos.transactions.view',
             'pos.transactions.save',
             'pos.transactions.load',
             'pos.transactions.edit.any',
+            'pos.void',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }

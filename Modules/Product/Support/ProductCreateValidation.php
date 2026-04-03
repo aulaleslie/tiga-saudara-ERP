@@ -8,11 +8,16 @@ class ProductCreateValidation
 {
     public static function normalize(array $input): array
     {
+        $conversions = is_array($input['conversions'] ?? null)
+            ? ProductConversionPriceNormalizer::normalizeConversions($input['conversions'])
+            : ($input['conversions'] ?? null);
+
         return [
             'is_purchased' => self::toBoolean($input['is_purchased'] ?? false),
             'is_sold' => self::toBoolean($input['is_sold'] ?? false),
             'stock_managed' => self::toBoolean($input['stock_managed'] ?? false),
             'serial_number_required' => self::toBoolean($input['serial_number_required'] ?? false),
+            'conversions' => $conversions,
         ];
     }
 

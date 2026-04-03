@@ -51,13 +51,18 @@ class POSRoleMatrixEnforcementTest extends TestCase
             'pos.sessions.open',
             'pos.sessions.require-terminal',
             'pos.checkout.payment',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
             'pos.cart.clear',
             'pos.cart.line.remove',
             'pos.cart.line.reduce',
             'pos.overrides.price',
             'pos.supervisor.approval',
+            'pos.transactions.view',
             'pos.transactions.save',
             'pos.transactions.load',
+            'pos.transactions.edit.any',
+            'pos.void',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -70,6 +75,7 @@ class POSRoleMatrixEnforcementTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.transactions.view',
             'pos.transactions.save',
             'pos.transactions.load',
         ]);
@@ -101,6 +107,13 @@ class POSRoleMatrixEnforcementTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.transactions.save-and-new'))
             ->assertStatus(201);
+
+        $transactionId = (int) \Modules\Pos\Entities\PosTransaction::query()->value('id');
+
+        $this->actingAs($helper)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
 
         $this->actingAs($helper)
             ->withSession(['setting_id' => $setting->id])
@@ -144,6 +157,8 @@ class POSRoleMatrixEnforcementTest extends TestCase
             'pos.sessions.open',
             'pos.sessions.require-terminal',
             'pos.checkout.payment',
+            'pos.transactions.view',
+            'pos.transactions.load',
             'pos.transactions.save',
         ]);
 
@@ -178,6 +193,23 @@ class POSRoleMatrixEnforcementTest extends TestCase
             ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $walkIn->id])
             ->assertOk();
 
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index'))
+            ->assertForbidden();
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = (int) \Modules\Pos\Entities\PosTransaction::query()->latest('id')->value('id');
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
         $snapshot = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->getJson(route('pos.sell.cart.show'))
@@ -204,6 +236,122 @@ class POSRoleMatrixEnforcementTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.checkout.finalize'), [
                 'idempotency_key' => 'cashier-finalize-' . uniqid(),
+                'cart_token' => $cartToken,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+    }
+
+    public function test_cashier_without_terminal_cannot_finalize_checkout_even_with_checkout_permission(): void
+    {
+        $setting = $this->createSetting('CASHIER NO TERMINAL CHECKOUT');
+        $cashier = $this->createUserForSetting($setting, 'Cashier No Terminal', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+            'pos.transactions.view',
+            'pos.transactions.load',
+            'pos.transactions.save',
+        ]);
+
+        [, $location] = $this->createTerminalForSetting($setting);
+        $paymentMethodId = $this->createPaymentMethodForSetting($setting);
+        $walkIn = $this->assignDefaultWalkInCustomer($setting);
+
+        /** @var PosSessionLifecycleService $sessionLifecycle */
+        $sessionLifecycle = app(PosSessionLifecycleService::class);
+        $sessionLifecycle->openSession($setting->id, null, $cashier->id, 0, null, $cashier->id);
+
+        $product = $this->createStockedProduct($setting, $location, 'CASHIER-NO-TERM-001');
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $walkIn->id])
+            ->assertOk();
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'cashier-no-terminal-finalize-' . uniqid(),
+                'payment' => [
+                    'payment_method_id' => $paymentMethodId,
+                    'amount_paid' => 10000,
+                ],
+            ])
+            ->assertForbidden()
+            ->assertJsonPath('code', 'CHECKOUT_TERMINAL_REQUIRED');
+    }
+
+    public function test_manager_without_terminal_can_stage_and_finalize_checkout(): void
+    {
+        $setting = $this->createSetting('MANAGER NO TERMINAL CHECKOUT');
+        $manager = $this->createUserForSetting($setting, 'Manager No Terminal', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
+            'pos.transactions.edit.any',
+            'pos.transactions.view',
+            'pos.transactions.load',
+            'pos.transactions.save',
+        ]);
+
+        [, $location] = $this->createTerminalForSetting($setting);
+        $paymentMethodId = $this->createPaymentMethodForSetting($setting);
+        $walkIn = $this->assignDefaultWalkInCustomer($setting);
+
+        /** @var PosSessionLifecycleService $sessionLifecycle */
+        $sessionLifecycle = app(PosSessionLifecycleService::class);
+        $session = $sessionLifecycle->openSession($setting->id, null, $manager->id, 0, null, $manager->id);
+
+        $this->assertNull($session->terminal_id);
+
+        $product = $this->createStockedProduct($setting, $location, 'MANAGER-NO-TERM-001');
+
+        $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $walkIn->id])
+            ->assertOk();
+
+        $snapshot = $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot');
+
+        $cartToken = (string) ($snapshot['staged_payment_token'] ?? '');
+        $grandTotal = (float) ($snapshot['totals']['grand_total'] ?? 0);
+
+        $this->assertNotSame('', $cartToken);
+        $this->assertGreaterThan(0, $grandTotal);
+
+        $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $paymentMethodId,
+                'amount' => $grandTotal,
+                'grand_total' => $grandTotal,
+            ])
+            ->assertStatus(201);
+
+        $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'manager-no-terminal-finalize-' . uniqid(),
                 'cart_token' => $cartToken,
             ])
             ->assertStatus(201)
@@ -257,6 +405,59 @@ class POSRoleMatrixEnforcementTest extends TestCase
 
         $this->assertSame(8500.0, (float) ($line['unit_price'] ?? 0));
         $this->assertSame('OVERRIDE', (string) ($line['price_source'] ?? ''));
+    }
+
+    public function test_floor_staff_can_load_cashier_draft_but_cannot_cancel_without_void_authority(): void
+    {
+        $setting = $this->createSetting('HANDOFF WITHOUT VOID');
+        $cashier = $this->createUserForSetting($setting, 'Cashier Handoff', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.view',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $floorStaff = $this->createUserForSetting($setting, 'Floor Staff Handoff', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.view',
+            'pos.transactions.load',
+        ]);
+
+        [$cashierTerminal, $location] = $this->createTerminalForSetting($setting);
+        [$floorTerminal] = $this->createTerminalForSetting($setting);
+        $this->createPaymentMethodForSetting($setting);
+
+        /** @var PosSessionLifecycleService $sessionLifecycle */
+        $sessionLifecycle = app(PosSessionLifecycleService::class);
+        $sessionLifecycle->openSession($setting->id, $cashierTerminal->id, $cashier->id, 100000, ['100000' => 1], $cashier->id);
+        $sessionLifecycle->openSession($setting->id, $floorTerminal->id, $floorStaff->id, 100000, ['100000' => 1], $floorStaff->id);
+
+        $product = $this->createStockedProduct($setting, $location, 'HANDOFF-NO-VOID-001');
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $transactionId = (int) $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201)
+            ->json('transaction.id');
+
+        $this->actingAs($floorStaff)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $this->actingAs($floorStaff)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'APPROVAL_REQUIRED');
     }
 
     private function createSetting(string $name): Setting

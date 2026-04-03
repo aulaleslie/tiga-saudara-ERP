@@ -70,7 +70,7 @@ The product import process MUST NOT assign default taxes to products if the impo
 - **AND** the system MUST NOT fallback to hardcoded defaults (e.g., PPN 11%).
 
 ### Requirement: Ignore Incoming Product Tax When Non-PKP
-The system MUST actively ignore any pre-assigned or incoming `tax_id` from the Cartesian details when processing row inserts or updates if the `is_pkp` setting is FALSE. In this non-PKP context, the resulting saved row details MUST have `tax_id = null` and a calculated `product_tax_amount = 0`, overriding whatever the cart or product model initially supplied.
+The system MUST actively ignore any pre-assigned or incoming `tax_id` from the Cartesian details when processing sale or purchase row inserts or updates if the `is_pkp` setting is FALSE. In this non-PKP context, the resulting saved row details MUST have `tax_id = null` and a calculated `product_tax_amount = 0`, overriding whatever the cart or product model initially supplied. For non-PKP sale persistence, the system MUST also recompute persisted line subtotals and header totals using tax-excluded values so hidden or restored tax-bearing cart state cannot survive as gross saved amounts.
 
 #### Scenario: Storing a purchase with a tax-assigned product when Non-PKP
 - **WHEN** a user Submits a Purchase Cart (Store or Update) and `is_pkp` is false
@@ -83,3 +83,53 @@ The system MUST actively ignore any pre-assigned or incoming `tax_id` from the C
 - **AND** a Cartesian row has a `tax_id` populated (e.g., from the Product default)
 - **THEN** the backend process SHALL intercept this and set `tax_id = null`
 - **AND** the backend process SHALL persist the row with `product_tax_amount = 0`.
+
+#### Scenario: Storing a non-PKP sale with hidden tax-bearing cart economics
+- **WHEN** a user Submits a Sale Cart (Store or Update) and `is_pkp` is false
+- **AND** a sale cart row contains hidden or restored tax-bearing values such as `product_tax_amount > 0` or a tax-inflated `sub_total`
+- **THEN** the backend process SHALL persist the row with `tax_id = null`
+- **AND** the backend process SHALL persist the row with `product_tax_amount = 0`
+- **AND** the backend process SHALL persist the row `sub_total` using the tax-excluded amount
+- **AND** the backend process SHALL recompute sale `tax_amount = 0`
+- **AND** the backend process SHALL recompute sale `total_amount` and `due_amount` from normalized non-tax line economics.
+
+#### Scenario: Re-saving a restored non-PKP sale edit does not preserve hidden tax
+- **WHEN** a user opens a Sale Edit flow while `is_pkp` is false
+- **AND** restored cart state contains line values derived from previously tax-bearing sale details
+- **AND** the user updates and saves the sale
+- **THEN** the persisted sale details SHALL not retain hidden tax-bearing economic amounts
+- **AND** the persisted sale header SHALL reflect normalized tax-excluded totals for non-PKP mode.
+
+### Requirement: Non-PKP Purchase Persistence Uses Tax-Excluded Amounts
+When the current purchase setting has `is_pkp = false`, the purchase persistence pipeline MUST treat any incoming purchase tax state as invalid and MUST persist the purchase using tax-excluded amounts. This rule SHALL apply to purchase creation and purchase updates across Livewire and controller-backed flows, even when cart state or restored purchase details still contain `tax_id`, `product_tax_amount`, or tax-inflated subtotals from prior defaults or saved data.
+
+#### Scenario: Creating a non-PKP purchase from Livewire cart state with hidden product tax
+- **WHEN** a user submits a purchase through the Livewire create flow
+- **AND** the current setting has `is_pkp = false`
+- **AND** one or more cart lines still contain a `tax_id` or non-zero `product_tax_amount`
+- **THEN** the persisted purchase details SHALL store `tax_id = null`
+- **AND** the persisted purchase details SHALL store `product_tax_amount = 0`
+- **AND** each persisted purchase detail `sub_total` SHALL equal the tax-excluded amount for that line
+- **AND** the persisted purchase header `tax_amount` SHALL equal `0`
+
+#### Scenario: Updating a non-PKP purchase from restored taxed detail state
+- **WHEN** a user opens an existing purchase in the Livewire edit flow
+- **AND** restored cart state contains previously saved `tax_id` or tax-bearing subtotals
+- **AND** the current setting has `is_pkp = false`
+- **THEN** submitting the update SHALL persist purchase details with `tax_id = null`
+- **AND** submitting the update SHALL persist purchase details with `product_tax_amount = 0`
+- **AND** the saved purchase totals SHALL be recomputed from normalized tax-excluded line subtotals plus discount and shipping inputs
+
+#### Scenario: Creating a non-PKP purchase from controller-backed payload with tax-bearing cart rows
+- **WHEN** a request submits purchase cart rows through a controller-backed create path
+- **AND** the current setting has `is_pkp = false`
+- **AND** one or more request rows include `tax_id` or tax-inflated totals
+- **THEN** the persistence layer SHALL ignore the incoming tax identifiers
+- **AND** the saved purchase details SHALL use tax-excluded subtotals
+- **AND** the saved purchase header totals SHALL be recomputed from normalized detail values
+
+#### Scenario: Non-PKP purchase totals do not preserve hidden gross tax
+- **WHEN** a non-PKP purchase line arrives with a gross total that includes tax
+- **AND** the tax component can be derived from the tax-bearing line state
+- **THEN** the saved purchase line SHALL use the tax-excluded subtotal rather than the gross tax-inflated amount
+- **AND** the saved purchase header total SHALL exclude the removed tax component

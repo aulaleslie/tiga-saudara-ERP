@@ -1,4 +1,4 @@
-<div>
+<div class="unit-configuration-root">
 <fieldset id="stock-dependent" class="mt-4">
     <div class="form-row">
         <div class="col-md-4">
@@ -143,25 +143,18 @@
                                             @endif
                                         </td>
                                         <td>
-                                            <!-- Hidden input: stores actual numeric value for form submission and Livewire binding -->
+                                            <div class="conversion-price-field">
                                             <input type="hidden"
-                                                   id="conv-price-{{ $rowKey }}"
+                                                   class="conversion-price-hidden"
                                                    name="conversions[{{ $index }}][price]"
                                                    wire:model="conversions.{{ $index }}.price"
                                                    value="{{ $conversion['price'] }}"/>
-
-                                            <!-- Visible input: jQuery maskMoney formatting only
-                                                 IMPORTANT: Must NOT have wire:model, wire:focus, or wire:blur attributes
-                                                 Livewire re-renders destroy maskMoney state, so we keep visible input
-                                                 jQuery-only. The hidden input handles Livewire data binding.
-                                                 See: fix-nominal-field-formatting-consistency change
-                                            -->
                                             <input type="text"
                                                    class="form-control conversion-price-input {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
                                                    placeholder="0,00"
-                                                   data-hidden="#conv-price-{{ $rowKey }}"
                                                    value="{{ $displayPrices[$index] ?? '' }}"
                                             />
+                                            </div>
                                             @if(isset($errors['conversions.' . $index . '.price']))
                                                 <span class="invalid-feedback" role="alert">
                                                     <strong>{{ $errors['conversions.' . $index . '.price'][0] }}</strong>
@@ -201,132 +194,202 @@
 </style>
 
 <script>
-    // Initialize maskMoney for conversion table price fields
-    (function() {
+    (function () {
         'use strict';
 
-        // Fixed product nominal format (deterministic, not system-configurable)
-        // This ensures conversion table prices always display with "RP " prefix and consistent separators
-        // regardless of database currency settings, providing a stable user experience
-        const symbol = 'RP ';
-        const thousands = '.';
-        const decimal = ',';
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+            return;
+        }
 
-        function initConversionPriceFields() {
-            $('.conversion-price-input').each(function() {
-                const $visible = $(this);
-                const hiddenSelector = $visible.data('hidden');
-                const $hidden = hiddenSelector ? $(hiddenSelector) : null;
+        const RP_PREFIX = 'RP ';
+        const THOUSANDS = '.';
+        const DECIMAL = ',';
+        const PRECISION = 2;
 
-                // Prevent double-initialization
-                if ($visible.data('maskmoney-initialized')) {
+        function toCanonicalString(value) {
+            if (value === null || value === undefined || value === '') {
+                return '';
+            }
+
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) {
+                return '';
+            }
+
+            const rounded = Math.round(numeric * 100) / 100;
+
+            if (Number.isInteger(rounded)) {
+                return String(rounded);
+            }
+
+            return rounded.toFixed(PRECISION).replace(/\.?0+$/, '');
+        }
+
+        function formatDisplay(rawValue) {
+            const canonical = toCanonicalString(rawValue);
+
+            if (canonical === '') {
+                return '';
+            }
+
+            const numeric = Number(canonical);
+            if (!Number.isFinite(numeric)) {
+                return '';
+            }
+
+            const fixed = numeric.toFixed(PRECISION);
+            const parts = fixed.split('.');
+            const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, THOUSANDS);
+
+            return RP_PREFIX + grouped + DECIMAL + parts[1];
+        }
+
+        function extractRawValue(visible) {
+            const textValue = String(visible.value || '').trim();
+            if (!textValue) {
+                return '';
+            }
+
+            let cleaned = textValue.replace(/^RP\s*/i, '').trim();
+            cleaned = cleaned.replace(/\s+/g, '');
+            cleaned = cleaned.replace(/\./g, '');
+            cleaned = cleaned.replace(/,/g, '.');
+
+            const parsed = Number.parseFloat(cleaned);
+
+            return Number.isFinite(parsed) ? toCanonicalString(parsed) : '';
+        }
+
+        function findHiddenInput(visible) {
+            return visible.closest('.conversion-price-field')?.querySelector('.conversion-price-hidden') ?? null;
+        }
+
+        function dispatchNativeInput(hidden) {
+            hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function syncInput(visible) {
+            const hidden = findHiddenInput(visible);
+            const rawValue = extractRawValue(visible);
+
+            if (hidden) {
+                if (hidden.value !== rawValue) {
+                    hidden.value = rawValue;
+                }
+
+                dispatchNativeInput(hidden);
+            }
+
+            return rawValue;
+        }
+
+        function applyFormattedState(visible, rawValue) {
+            visible.value = formatDisplay(rawValue);
+        }
+
+        function bindInput(visible) {
+            if (visible.dataset.unitConfigBound === 'true') {
+                return;
+            }
+
+            visible.dataset.unitConfigBound = 'true';
+
+            const hidden = findHiddenInput(visible);
+            const initialRawValue = (hidden && hidden.value) || extractRawValue(visible);
+            const initialCanonical = toCanonicalString(initialRawValue);
+
+            if (hidden) {
+                hidden.value = initialCanonical;
+                dispatchNativeInput(hidden);
+            }
+
+            applyFormattedState(visible, initialCanonical);
+
+            visible.addEventListener('focus', function () {
+                visible.value = hidden ? hidden.value : '';
+
+                window.setTimeout(() => {
+                    if (typeof visible.select === 'function') {
+                        visible.select();
+                    }
+                }, 0);
+            });
+
+            visible.addEventListener('blur', function () {
+                const rawValue = syncInput(visible);
+                applyFormattedState(visible, rawValue);
+            });
+
+            visible.addEventListener('input', function () {
+                syncInput(visible);
+            });
+
+            visible.addEventListener('change', function () {
+                syncInput(visible);
+            });
+        }
+
+        function syncForm(form) {
+            form.querySelectorAll('.conversion-price-input').forEach((visible) => {
+                const rawValue = syncInput(visible);
+
+                if (document.activeElement !== visible) {
+                    applyFormattedState(visible, rawValue);
+                }
+            });
+        }
+
+        function bindFormSubmit() {
+            document.querySelectorAll('form').forEach((form) => {
+                if (form.dataset.unitConfigPriceSubmitBound === 'true') {
                     return;
                 }
 
-                // Configure maskMoney
-                $visible.maskMoney({
-                    prefix: symbol,
-                    thousands: thousands,
-                    decimal: decimal,
-                    precision: 2,
-                    allowZero: true,
-                    allowNegative: false,
-                });
-
-                // Apply initial mask
-                const currentValue = $visible.val();
-                if (currentValue) {
-                    $visible.val(currentValue);
-                    $visible.maskMoney('mask');
-                } else {
-                    // Show placeholder for empty fields
-                    $visible.maskMoney('mask');
+                if (!form.querySelector('.conversion-price-input')) {
+                    return;
                 }
 
-                $visible.data('maskmoney-initialized', true);
-
-                // Focus: show raw number, destroy mask
-                $visible.on('focus', function() {
-                    try {
-                        $visible.maskMoney('destroy');
-                    } catch (e) {
-                        // Already destroyed
-                    }
-                    const unmasked = $hidden ? $hidden.val() : extractRawValue($visible);
-                    $visible.val(unmasked || '');
-                    setTimeout(() => $visible.select(), 0);
-                });
-
-                // Blur: format and reapply mask
-                $visible.on('blur', function() {
-                    const raw = extractRawValue($visible);
-                    if ($hidden) {
-                        $hidden.val(raw).trigger('input');
-                    }
-                    $visible.val(raw);
-                    $visible.maskMoney({
-                        prefix: symbol,
-                        thousands: thousands,
-                        decimal: decimal,
-                        precision: 2,
-                        allowZero: true,
-                        allowNegative: false,
-                    });
-                    $visible.maskMoney('mask');
-                });
-
-                // Sync hidden on keyup/change
-                $visible.on('keyup change', function() {
-                    if ($hidden) {
-                        const raw = extractRawValue($visible);
-                        $hidden.val(raw).trigger('input');
-                    }
+                form.dataset.unitConfigPriceSubmitBound = 'true';
+                form.addEventListener('submit', function () {
+                    syncForm(form);
                 });
             });
         }
 
-        function extractRawValue($el) {
-            const textValue = String($el.val() || '');
+        function refresh() {
+            document.querySelectorAll('.conversion-price-input').forEach((visible) => {
+                bindInput(visible);
+            });
 
-            // Strategy: Parse based on the separators we control
-            // This ensures "65000" doesn't become "0.65"
-            // First, try maskMoney's unmasked method if available
-            try {
-                const unmasked = $el.maskMoney('unmasked');
-                if (unmasked && unmasked.length) {
-                    return unmasked[0];
-                }
-            } catch (e) {
-                // maskMoney not initialized, continue to manual parsing
+            bindFormSubmit();
+        }
+
+        function queueRefresh() {
+            if (window.__unitConfigurationPriceRefreshQueued) {
+                return;
             }
 
-            // Fallback: Manual parsing using our known separators
-            // Remove currency symbol (RP ), then handle separators
-            let cleaned = textValue.replace(/RP\s*/g, '').trim();
+            window.__unitConfigurationPriceRefreshQueued = true;
 
-            // Replace thousand separator (.) with nothing, and decimal separator (,) with .
-            // This converts "1.234,56" -> "1234.56"
-            cleaned = cleaned.replace(/\./g, ''); // Remove thousand separators
-            cleaned = cleaned.replace(/,/g, '.'); // Convert decimal separator
-
-            const num = parseFloat(cleaned);
-            return isNaN(num) ? 0 : num;
+            requestAnimationFrame(function () {
+                window.__unitConfigurationPriceRefreshQueued = false;
+                refresh();
+            });
         }
 
-        // Initialize on document ready
-        if (typeof $ !== 'undefined' && typeof $.fn.maskMoney !== 'undefined') {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initConversionPriceFields);
-            } else {
-                initConversionPriceFields();
-            }
+        if (!window.__unitConfigurationPriceObserver) {
+            window.__unitConfigurationPriceObserver = new MutationObserver(queueRefresh);
+            window.__unitConfigurationPriceObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
         }
 
-        // Re-initialize on Livewire updates
-        if (window.Livewire) {
-            document.addEventListener('livewire:navigated', initConversionPriceFields);
-            document.addEventListener('livewire:updated', initConversionPriceFields);
-        }
+        document.addEventListener('livewire:load', queueRefresh);
+        document.addEventListener('livewire:initialized', queueRefresh);
+        document.addEventListener('livewire:navigated', queueRefresh);
+
+        queueRefresh();
     })();
 </script>
 </div>

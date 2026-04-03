@@ -96,7 +96,7 @@ class PurchaseNonPkpTaxStrippingTest extends TestCase
                 'discount_percentage' => 0,
                 'discount_amount' => 0,
                 'shipping_amount' => 0,
-                'total_amount' => 2000,
+                'total_amount' => 2220,
                 'cart' => $cartData,
             ]);
 

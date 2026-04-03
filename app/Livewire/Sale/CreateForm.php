@@ -6,7 +6,6 @@ use App\Services\IdempotencyService;
 use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -14,9 +13,6 @@ use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Sale\Entities\Sale;
-use Modules\Sale\Entities\SaleBundleItem;
-use Modules\Sale\Entities\SaleDetails;
-use Modules\Sale\Services\SaleCartAggregator;
 use Modules\Sale\Services\SaleService;
 use Modules\Setting\Entities\Setting;
 
@@ -371,20 +367,10 @@ class CreateForm extends Component
 
                 $cartItems = Cart::instance('sale')->content();
 
-                $totalSubTotal = (float) $cartItems->sum(fn($i) => $i->options['sub_total']);
                 $shipping = (float) $this->shipping;
                 $globalDiscount = (float) $this->global_discount;
                 $discountAmount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0.0;
                 $discountPercentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0.0;
-                $taxAmount = (float) $cartItems->sum(
-                    fn($i) => ($i->options['sub_total'] ?? 0) - ($i->options['sub_total_before_tax'] ?? 0)
-                );
-
-                $globalDiscountAmount = $discountPercentage > 0
-                    ? ($totalSubTotal * ($discountPercentage / 100))
-                    : $discountAmount;
-
-                $totalAmount = $totalSubTotal - $globalDiscountAmount + $shipping;
 
                 $data = [
                     'date'               => $this->date,
@@ -392,11 +378,9 @@ class CreateForm extends Component
                     'customer_id'        => $this->customerId,
                     'tax_id'             => null,
                     'tax_percentage'     => 0,
-                    'tax_amount'         => $taxAmount,
                     'discount_percentage'=> $discountPercentage,
                     'discount_amount'    => $discountAmount,
                     'shipping_amount'    => $shipping,
-                    'total_amount'       => $totalAmount,
                     'status'             => Sale::STATUS_DRAFTED,
                     'payment_status'     => 'Unpaid',
                     'payment_term_id'    => $this->paymentTermId,

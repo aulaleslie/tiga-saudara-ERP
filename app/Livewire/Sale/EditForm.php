@@ -5,18 +5,14 @@ namespace App\Livewire\Sale;
 use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
 use Livewire\Component;
-use Modules\Sale\Services\SaleCartAggregator;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
-use Modules\Sale\Entities\SaleBundleItem;
-use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Services\SaleService;
 
 class EditForm extends Component
 {
@@ -89,20 +85,24 @@ class EditForm extends Component
                     ->first()
                 : null;
 
-            $subtotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
+            $subtotalBeforeTax = round((float) ($detail->sub_total - $detail->product_tax_amount), 2);
+            $normalizedTaxId = $this->isPkp ? $detail->tax_id : null;
+            $normalizedTaxAmount = $this->isPkp ? (float) $detail->product_tax_amount : 0.0;
+            $normalizedSubTotal = $this->isPkp ? (float) $detail->sub_total : $subtotalBeforeTax;
 
             // build the options *array*
             $options = [
                 'product_id'             => $detail->product_id,
                 'product_discount'       => $detail->product_discount_amount,
                 'product_discount_type'  => $detail->product_discount_type,
-                'sub_total'              => $detail->sub_total,
+                'sub_total'              => $normalizedSubTotal,
                 'sub_total_before_tax'   => $subtotalBeforeTax,
+                'product_tax_amount'     => $normalizedTaxAmount,
                 'code'                   => $detail->product_code,
                 'stock'                  => $product?->product_quantity ?? 0,
                 'unit'                   => $product?->product_unit,
                 'unit_price'             => $detail->unit_price,
-                'product_tax'            => $detail->tax_id,
+                'product_tax'            => $normalizedTaxId,
                 'sale_price'             => $product?->sale_price ?? $detail->unit_price,
                 'tier_1_price'           => $product?->tier_1_price ?? $product?->sale_price ?? $detail->unit_price,
                 'tier_2_price'           => $product?->tier_2_price ?? $product?->sale_price ?? $detail->unit_price,
@@ -124,15 +124,24 @@ class EditForm extends Component
                     'sub_total'      => $b->sub_total,
                 ];
             }
+            $bundleTotal = (float) collect($bundleItems)->sum('sub_total');
+            $normalizedUnitPrice = (float) $detail->unit_price;
+            $normalizedPrice = (float) $detail->price;
+            if (! $this->isPkp && $detail->quantity > 0) {
+                $parentSubTotalBeforeTax = max(0, $subtotalBeforeTax - $bundleTotal);
+                $normalizedUnitPrice = round(($parentSubTotalBeforeTax / $detail->quantity) + (float) $detail->product_discount_amount, 2);
+                $normalizedPrice = $normalizedUnitPrice;
+            }
             $options['bundle_items'] = $bundleItems;
-            $options['bundle_price'] = collect($bundleItems)->sum('sub_total');
+            $options['bundle_price'] = $bundleTotal;
+            $options['unit_price'] = $normalizedUnitPrice;
 
             // pass options as array, not object
             Cart::instance('sale')->add([
                 'id'      => $detail->id,
                 'name'    => $detail->product_name,
                 'qty'     => $detail->quantity,
-                'price'   => $detail->price,
+                'price'   => $normalizedPrice,
                 'weight'  => 1,
                 'options' => $options,
             ]);
@@ -413,8 +422,6 @@ class EditForm extends Component
                 return;
             }
 
-            DB::beginTransaction();
-
             try {
                 Log::info('Sale update persisting', [
                     'sale_id' => $this->sale->id,
@@ -425,84 +432,33 @@ class EditForm extends Component
 
                 $cartItems = Cart::instance('sale')->content();
                 $this->ensureCartTaxesForPkp($cartItems);
-                $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
+                $data = [
+                    'date' => $this->date,
+                    'due_date' => $this->dueDate,
+                    'reference' => $this->reference,
+                    'customer_id' => $this->customerId,
+                    'tax_id' => null,
+                    'tax_percentage' => 0,
+                    'discount_percentage' => 0,
+                    'discount_amount' => 0,
+                    'shipping_amount' => 0,
+                    'paid_amount' => 0,
+                    'status' => $this->sale->status,
+                    'payment_term_id' => $this->paymentTermId,
+                    'payment_method' => $this->sale->payment_method ?: 'Cash',
+                    'note' => $this->note,
+                    'tax_ref_no' => $this->tax_ref_no ?: null,
+                    'is_tax_included' => (bool) $this->is_tax_included,
+                    'tags' => $this->tags,
+                ];
 
-                // Totals
-                $totalSub       = $cartItems->sum(fn($i) => $i->options['sub_total']);
-                $taxAmount      = $cartItems->sum(fn($i) => $i->options['sub_total'] - ($i->options['sub_total_before_tax'] ?? 0));
-                $globalDiscount = 0;
-                $shipping       = 0;
-                $grandTotal     = $totalSub - $globalDiscount + $shipping;
-
-                // Update sale header
-                $this->sale->update([
-                    'date'               => $this->date,
-                    'due_date'           => $this->dueDate,
-                    'customer_id'        => $this->customerId,
-                    'customer_name'      => Customer::findOrFail($this->customerId)->customer_name,
-                    'tax_amount'         => $taxAmount,
-                    'discount_percentage'=> 0,
-                    'discount_amount'    => $globalDiscount,
-                    'shipping_amount'    => $shipping,
-                    'total_amount'       => $grandTotal,
-                    'due_amount'         => $grandTotal,
-                    'payment_term_id'    => $this->paymentTermId,
-                    'note'               => $this->note,
-                    'tax_ref_no'         => $this->tax_ref_no ?: null,
-                    'is_tax_included'    => (bool) $this->is_tax_included,
-                ]);
-
-                $this->sale->syncTags($this->tags);
-
-                Log::info('Sale header updated', ['sale_id' => $this->sale->id, 'reference' => $this->sale->reference]);
-
-                // Remove old details & bundles
-                SaleBundleItem::where('sale_id', $this->sale->id)->delete();
-                SaleDetails::where('sale_id', $this->sale->id)->delete();
-
-                // Re-insert details & bundles using aggregated items
-                foreach ($aggregatedItems as $item) {
-                    $detail = SaleDetails::create([
-                        'sale_id'                 => $this->sale->id,
-                        'product_id'              => $item['product_id'],
-                        'product_name'            => $item['product_name'],
-                        'product_code'            => $item['product_code'],
-                        'quantity'                => $item['quantity'],
-                        'unit_price'              => round((float) $item['unit_price'], 2),
-                        'price'                   => round((float) $item['price'], 2),
-                        'product_discount_type'   => $item['product_discount_type'],
-                        'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
-                        'sub_total'               => round((float) $item['sub_total'], 2),
-                        'product_tax_amount'      => round((float) $item['product_tax_amount'], 2),
-                        'tax_id'                  => $item['tax_id'],
-                    ]);
-
-                    foreach ($item['bundle_items'] ?? [] as $b) {
-                        SaleBundleItem::create([
-                            'sale_detail_id' => $detail->id,
-                            'sale_id'        => $this->sale->id,
-                            'bundle_id'      => $b['bundle_id'] ?? null,
-                            'bundle_item_id' => $b['bundle_item_id'] ?? null,
-                            'product_id'     => $b['product_id'],
-                            'name'           => $b['name'],
-                            'price'          => round((float) ($b['price'] ?? 0), 2),
-                            'quantity'       => $b['quantity'],
-                            'sub_total'      => round((float) ($b['sub_total'] ?? 0), 2),
-                        ]);
-                    }
-                }
-
-                DB::commit();
+                app(SaleService::class)->updateSale($this->sale, $data, $cartItems);
 
                 Cart::instance('sale')->destroy();
                 session()->flash('success', 'Penjualan Diperbaharui!');
                 Log::info('Sale update completed', ['sale_id' => $this->sale->id]);
                 return redirect()->route('sales.index');
-            } catch (ValidationException $e) {
-                DB::rollBack();
-                throw $e;
             } catch (Exception $e) {
-                DB::rollBack();
                 Log::error('Livewire Sale Update Failed: ' . $e->getMessage());
                 session()->flash('error', 'Gagal memperbaharui penjualan. Silakan coba lagi.');
             }

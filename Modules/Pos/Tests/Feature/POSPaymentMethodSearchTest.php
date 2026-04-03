@@ -90,6 +90,35 @@ class POSPaymentMethodSearchTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_cashier_without_terminal_cannot_search_payment_methods_even_with_checkout_permission(): void
+    {
+        $setting = $this->createSetting('PAYMENT METHOD CASHIER NO TERMINAL');
+        $cashier = $this->createUserForSetting($setting, 'PAYMENT METHOD CASHIER NO TERMINAL', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => null,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $cashier->id,
+            'opening_float_total' => 0,
+            'expected_cash_total' => 0,
+            'active_marker' => 1,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.payment-methods.search'))
+            ->assertForbidden()
+            ->assertJsonPath('code', 'CHECKOUT_TERMINAL_REQUIRED');
+    }
+
     public function test_returns_only_enabled_methods(): void
     {
         $setting = $this->createSetting('PAYMENT METHOD ENABLED');

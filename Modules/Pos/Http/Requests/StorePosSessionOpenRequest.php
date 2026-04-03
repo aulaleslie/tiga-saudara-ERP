@@ -5,6 +5,7 @@ namespace Modules\Pos\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Modules\Pos\Services\PosRolePolicyService;
 
 class StorePosSessionOpenRequest extends FormRequest
 {
@@ -18,9 +19,13 @@ class StorePosSessionOpenRequest extends FormRequest
         $settingId = (int) session('setting_id');
         $terminalId = $this->input('terminal_id');
         $hasTerminal = !empty($terminalId);
+        $user = $this->user();
+        $isFloorStaffStyleSession = $user !== null
+            && app(PosRolePolicyService::class)->detectRole($user) === PosRolePolicyService::PROFILE_HELPER;
 
         return [
             'terminal_id' => [
+                Rule::prohibitedIf($isFloorStaffStyleSession),
                 'nullable',
                 'integer',
                 Rule::exists('pos_terminals', 'id')

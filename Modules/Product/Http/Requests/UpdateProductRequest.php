@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Support\ProductConversionPriceNormalizer;
 
 class UpdateProductRequest extends FormRequest
 {
@@ -186,6 +187,9 @@ class UpdateProductRequest extends FormRequest
             'is_sold'                => $this->boolean('is_sold'),
             'stock_managed'          => $this->boolean('stock_managed'),
             'serial_number_required' => $this->boolean('serial_number_required'),
+            'conversions'            => is_array($this->input('conversions'))
+                ? ProductConversionPriceNormalizer::normalizeConversions($this->input('conversions'))
+                : $this->input('conversions'),
         ]);
     }
 

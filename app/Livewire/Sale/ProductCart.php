@@ -106,6 +106,7 @@ class ProductCart extends Component
             );
         }
 
+        $this->reconcileNonPkpSaleCartState();
         $this->reconcileMissingPkpTaxesInCart();
 
         if ($data) {
@@ -216,6 +217,61 @@ class ProductCart extends Component
                 ]),
             ]);
         }
+    }
+
+    private function reconcileNonPkpSaleCartState(): void
+    {
+        if ($this->cart_instance !== 'sale' || $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+
+        foreach ($cart->content() as $cartItem) {
+            $normalizedUnitPrice = $this->resolveNonPkpUnitPrice($cartItem);
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $normalizedUnitPrice,
+                $cartItem->qty,
+                $discountAmount,
+                null
+            );
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cartItem->options->bundle_items ?? [],
+                (int) $cartItem->qty,
+                (int) $cartItem->qty
+            );
+
+            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+            $cart->update($cartItem->rowId, [
+                'price' => $normalizedUnitPrice,
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'unit_price' => $normalizedUnitPrice,
+                    'product_tax' => null,
+                    'sub_total' => $newSubTotal,
+                    'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'product_tax_amount' => 0,
+                    'bundle_items' => $updatedBundleItems,
+                    'bundle_price' => $bundleTotal,
+                ]),
+            ]);
+
+            $this->product_tax[$cartItem->id] = null;
+        }
+    }
+
+    private function resolveNonPkpUnitPrice($cartItem): float
+    {
+        $quantity = max(1, (int) $cartItem->qty);
+        $bundlePrice = (float) ($cartItem->options->bundle_price ?? 0);
+        $subTotalBeforeTax = (float) ($cartItem->options->sub_total_before_tax ?? $cartItem->options->sub_total ?? ($cartItem->price * $quantity));
+        $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+        $parentSubTotalBeforeTax = max(0, $subTotalBeforeTax - $bundlePrice);
+
+        return round(($parentSubTotalBeforeTax / $quantity) + $discountAmount, 2);
     }
 
     private function resolveDefaultTaxId(): ?int
@@ -840,6 +896,7 @@ class ProductCart extends Component
         $price = max(0, (float) $price);
         $qty = max(1, (int) $qty);
         $discount = max(0.0, (float) $discount);
+        $tax_id = ($this->cart_instance === 'sale' && ! $this->isPkp) ? null : $tax_id;
 
         $effective_price = max(0.0, $price - $discount);
 

@@ -173,89 +173,6 @@
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(function () {
-            const PRODUCT_NOMINAL_CONFIG = {
-                prefix: 'RP ',
-                thousands: '.',
-                decimal: ',',
-                precision: 2,
-            };
-
-            function parseNominalNumber(value) {
-                if (value === null || value === undefined) return 0;
-
-                let text = String(value).trim();
-                if (!text) return 0;
-
-                text = text.replace(/^RP\s*/i, '');
-                text = text.replace(/\s+/g, '');
-                text = text.replace(/[^0-9,.-]/g, '');
-                if (!text || text === '-' || text === ',' || text === '.') return 0;
-
-                const lastComma = text.lastIndexOf(',');
-                const lastDot = text.lastIndexOf('.');
-                let decimalSeparator = null;
-
-                if (lastComma !== -1 && lastDot !== -1) {
-                    decimalSeparator = lastComma > lastDot ? ',' : '.';
-                } else if (lastComma !== -1) {
-                    decimalSeparator = ',';
-                } else if (lastDot !== -1) {
-                    const dotMatches = text.match(/\./g);
-                    const dotCount = dotMatches ? dotMatches.length : 0;
-                    const fractionalDigits = text.slice(lastDot + 1).replace(/\D/g, '').length;
-
-                    if (dotCount === 1 && fractionalDigits > 0 && fractionalDigits <= 2) {
-                        decimalSeparator = '.';
-                    }
-                }
-
-                let normalized = text;
-                if (decimalSeparator === ',') {
-                    normalized = normalized.replace(/\./g, '');
-                    normalized = normalized.replace(',', '.');
-                } else if (decimalSeparator === '.') {
-                    normalized = normalized.replace(/,/g, '');
-                } else {
-                    normalized = normalized.replace(/[.,]/g, '');
-                }
-
-                const parsed = Number.parseFloat(normalized);
-                if (!Number.isFinite(parsed) || parsed < 0) return 0;
-                return parsed;
-            }
-
-            function toRawNominal(value) {
-                const numeric = Number.isFinite(value) && value >= 0 ? value : 0;
-                const rounded = Math.round(numeric * 100) / 100;
-                if (Number.isInteger(rounded)) return String(rounded);
-                return rounded.toFixed(2).replace(/\.?0+$/, '');
-            }
-
-            // --- Money mask helpers (conversion prices only - main prices use x-nominal-field component) ---
-            // Main prices are now handled by the x-nominal-field component which manages its own
-            // maskMoney binding. The maskNow() early initialization has been removed to prevent
-            // conflicts with the component's focus/blur lifecycle.
-            // Only conversion prices need jQuery maskMoney initialization here.
-            function applyMask() {
-                // Main prices (purchase_price, sale_price, tier_1_price, tier_2_price) now handled by x-nominal-field
-                // Only apply maskMoney to conversion prices and disabled field mirrors
-                $('.conversion-price-input').maskMoney({
-                    prefix: PRODUCT_NOMINAL_CONFIG.prefix,
-                    thousands: PRODUCT_NOMINAL_CONFIG.thousands,
-                    decimal: PRODUCT_NOMINAL_CONFIG.decimal,
-                    precision: PRODUCT_NOMINAL_CONFIG.precision,
-                    allowZero: true,
-                    allowNegative: false,
-                });
-            }
-            function setMaskedZero($el){ $el.maskMoney('destroy'); $el.val('0'); applyMask(); $el.maskMoney('mask'); }
-
-            // --- Numeric extraction (no formatting) ---
-            function unmaskNumber($el){
-                if(!$el.length) return 0;
-                return parseNominalNumber($el.val());
-            }
-
             // --- Mirror helpers (ensure disabled fields still submit) ---
             const MIRROR_TARGETS = [
                 { sel: '[name="base_unit_id"]',     val: $el => $el.val() },
@@ -288,10 +205,6 @@
                 if(disabled) ensureMirror(name, ($el.is(':checkbox') ? ($el.is(':checked')?'1':'0') : $el.val()));
                 else removeMirror(name);
             }
-
-            // Init masks for conversion prices only (main prices now use x-nominal-field component)
-            // Note: maskNow() removed to prevent focus/blur conflicts with x-nominal-field component
-            applyMask();
 
             // Always lock Stok on edit
             const $qtyInput = $('input[name="product_quantity"]');
@@ -328,121 +241,8 @@
             // Focus/blur handlers for main price fields removed
             // (now handled by x-nominal-field component)
 
-            // Conversion price fields
-            function bindConversionPriceInputs() {
-                $('.conversion-price-input').each(function () {
-                    const $input = $(this);
-                    if ($input.data('bound') === 1) return;
-                    $input.data('bound', 1);
-
-                    const hiddenSelector = $input.data('hidden');
-                    const $hidden = hiddenSelector ? $(hiddenSelector) : null;
-                    const updateHidden = (num) => {
-                        if (!$hidden || !$hidden.length) return;
-                        $hidden.val(toRawNominal(num));
-                        $hidden.trigger('input');
-                    };
-                    const maskOptions = {
-                        prefix: PRODUCT_NOMINAL_CONFIG.prefix,
-                        thousands: PRODUCT_NOMINAL_CONFIG.thousands,
-                        decimal: PRODUCT_NOMINAL_CONFIG.decimal,
-                        precision: PRODUCT_NOMINAL_CONFIG.precision,
-                        allowZero: true,
-                        allowNegative: false
-                    };
-
-                    const bindFocusRawHandler = function () {
-                        $input.off('focus.conversionRaw').on('focus.conversionRaw', function (event) {
-                            try {
-                                $input.maskMoney('destroy');
-                            } catch (e) {
-                                // no-op if already destroyed
-                            }
-                            $input.val(toRawNominal(parseNominalNumber($input.val())));
-                            setTimeout(() => this.select(), 0);
-
-                            if (event && typeof event.stopImmediatePropagation === 'function') {
-                                event.stopImmediatePropagation();
-                            }
-                        });
-                    };
-
-                    const applyMaskedState = function (numericValue) {
-                        const v = Number.isFinite(numericValue) ? numericValue : 0;
-                        $input.maskMoney(maskOptions);
-                        $input.val(v);
-                        $input.maskMoney('mask');
-
-                        // Rebind focus after maskMoney init so raw-focus handler wins every cycle.
-                        bindFocusRawHandler();
-                    };
-
-                    const initialValue = parseNominalNumber($input.val());
-                    updateHidden(initialValue);
-                    applyMaskedState(initialValue);
-
-                    $input.off('blur.conversionRaw').on('blur.conversionRaw', function () {
-                        const v = parseNominalNumber($input.val());
-                        updateHidden(v);
-                        applyMaskedState(v);
-                    });
-
-                    $input.off('keyup.conversionRaw change.conversionRaw')
-                        .on('keyup.conversionRaw change.conversionRaw', function () {
-                            const v = parseNominalNumber($input.val());
-                            updateHidden(v);
-                        });
-                });
-            }
-            let bindQueued = false;
-            function queueBindConversionPriceInputs() {
-                if (bindQueued) return;
-                bindQueued = true;
-                requestAnimationFrame(function () {
-                    bindQueued = false;
-                    bindConversionPriceInputs();
-                });
-            }
-
-            bindConversionPriceInputs();
-            if (window.Livewire) {
-                document.addEventListener('livewire:load', queueBindConversionPriceInputs);
-                document.addEventListener('livewire:initialized', queueBindConversionPriceInputs);
-                document.addEventListener('livewire:navigated', queueBindConversionPriceInputs);
-                if (typeof Livewire.hook === 'function') {
-                    try {
-                        Livewire.hook('message.processed', queueBindConversionPriceInputs);
-                    } catch (e) {
-                        // Livewire v3 may not expose this hook name; events/observer still cover rebinds.
-                    }
-                }
-            }
-
-            const conversionTableObserver = new MutationObserver(queueBindConversionPriceInputs);
-            conversionTableObserver.observe(document.body, {
-                childList: true,
-                subtree: true,
-            });
-
             // --- FINAL: before submit, sync conversion prices and ensure mirrors for disabled fields ---
             $('#product-form').on('submit', function () {
-                // Note: Main price fields (purchase_price, sale_price, tier_1_price, tier_2_price)
-                // are now handled by x-nominal-field component which manages their own hidden inputs.
-                // No unmasking needed for them.
-
-                // Handle conversion price inputs
-                $('.conversion-price-input').each(function(){
-                    const $input = $(this);
-                    const hiddenSelector = $input.data('hidden');
-                    const $hidden = hiddenSelector ? $(hiddenSelector) : null;
-                    const n = unmaskNumber($input);
-                    try { $input.maskMoney('destroy'); } catch(e){}
-                    $input.val(toRawNominal(n));
-                    if ($hidden && $hidden.length) {
-                        $hidden.val(toRawNominal(n));
-                        $hidden.trigger('input');
-                    }
-                });
                 // Ensure mirrors exist for any disabled targets
                 refreshMirrorsForDisabledTargets();
             });
