@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Modules\People\DataTables\CustomersDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -159,10 +160,10 @@ class CustomersController extends Controller
                 'contact_name' => $request->contact_name,
                 'customer_name' => $request->customer_name ?? '',
                 'customer_phone' => $request->customer_phone,
-                'customer_email' => $request->customer_email ?? '',
+                'customer_email' => $this->nullableInput($request->customer_email),
                 'identity' => $request->identity,
-                'identity_number' => $request->identity_number,
-                'npwp' => $request->npwp,
+                'identity_number' => $this->nullableInput($request->identity_number),
+                'npwp' => $this->nullableInput($request->npwp),
                 'billing_address' => $request->billing_address,
                 'shipping_address' => $request->shipping_address,
                 'city' => $request->city ?? '',
@@ -181,6 +182,24 @@ class CustomersController extends Controller
             toast('Pelanggan Ditambahkan!', 'success');
 
             return redirect()->route('customers.index');
+        } catch (QueryException $e) {
+            \Illuminate\Support\Facades\Log::error('Customer creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+                'setting_id' => $settingId
+            ]);
+
+            if ($this->isIntegrityConstraintViolation($e)) {
+                return redirect()
+                    ->back()
+                    ->withErrors($this->duplicateConstraintErrors($e))
+                    ->withInput();
+            }
+
+            toast('Gagal menyimpan pelanggan. Silakan hubungi administrator.', 'error');
+
+            return redirect()->back()->withInput();
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Customer creation failed', [
                 'error' => $e->getMessage(),
@@ -352,5 +371,54 @@ class CustomersController extends Controller
         toast('Data Pelanggan Dihapus!', 'warning');
 
         return redirect()->route('customers.index');
+    }
+
+    private function nullableInput(mixed $value): mixed
+    {
+        return is_string($value) && trim($value) === '' ? null : $value;
+    }
+
+    private function isIntegrityConstraintViolation(QueryException $exception): bool
+    {
+        return ($exception->errorInfo[0] ?? null) === '23000'
+            || str_contains($exception->getMessage(), 'SQLSTATE[23000]');
+    }
+
+    private function duplicateConstraintErrors(QueryException $exception): array
+    {
+        return match ($this->extractConstraintName($exception)) {
+            'customers_setting_email_unique' => ['customer_email' => 'Email sudah digunakan.'],
+            'customers_setting_phone_unique' => ['customer_phone' => 'Nomor telepon sudah digunakan.'],
+            'customers_setting_identity_unique' => ['identity_number' => 'Nomor identitas sudah digunakan.'],
+            'customers_setting_npwp_unique' => ['npwp' => 'NPWP sudah digunakan.'],
+            default => ['contact_name' => 'Data pelanggan duplikat terdeteksi. Periksa kembali data yang diinput.'],
+        };
+    }
+
+    private function extractConstraintName(QueryException $exception): ?string
+    {
+        $message = $exception->getMessage();
+
+        if (preg_match("/for key '([^']+)'/", $message, $matches) === 1) {
+            return $matches[1];
+        }
+
+        if (str_contains($message, 'customers.setting_id, customers.customer_email')) {
+            return 'customers_setting_email_unique';
+        }
+
+        if (str_contains($message, 'customers.setting_id, customers.customer_phone')) {
+            return 'customers_setting_phone_unique';
+        }
+
+        if (str_contains($message, 'customers.setting_id, customers.identity_number')) {
+            return 'customers_setting_identity_unique';
+        }
+
+        if (str_contains($message, 'customers.setting_id, customers.npwp')) {
+            return 'customers_setting_npwp_unique';
+        }
+
+        return null;
     }
 }

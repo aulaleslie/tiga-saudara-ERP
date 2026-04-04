@@ -130,7 +130,7 @@ class PurchaseCreatePkpAutoTaxReconcileSubmitTest extends TestCase
         ]);
     }
 
-    public function test_pkp_create_submit_uses_latest_tax_when_no_default_tax_exists(): void
+    public function test_pkp_create_submit_fails_clearly_when_no_product_tax_and_no_default_tax_exist(): void
     {
         $this->defaultTax->update(['is_default' => false]);
 
@@ -169,18 +169,14 @@ class PurchaseCreatePkpAutoTaxReconcileSubmitTest extends TestCase
 
         $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
         $this->assertNotNull($cartItem);
-        $this->assertSame($latestTax->id, (int) $cartItem->options->product_tax);
+        $this->assertNotNull($latestTax);
+        $this->assertNull($cartItem->options->product_tax);
 
         $createForm->set('supplier_id', $this->supplier->id)
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
-            ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertHasErrors(['cart']);
 
-        $this->assertDatabaseCount('purchases', 1);
-        $this->assertDatabaseHas('purchase_details', [
-            'product_id' => $this->product->id,
-            'tax_id' => $latestTax->id,
-        ]);
+        $this->assertDatabaseCount('purchases', 0);
     }
 }

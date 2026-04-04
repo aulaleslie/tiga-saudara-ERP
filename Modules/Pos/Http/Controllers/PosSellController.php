@@ -96,7 +96,7 @@ class PosSellController extends Controller
         ]);
 
         $settingId = $this->currentSettingId();
-        
+
         $uniqId = uniqid();
         $email = "noemail-{$uniqId}@placeholder.local";
         $phone = !empty($validated['customer_phone']) ? $validated['customer_phone'] : "nophone-{$uniqId}";
@@ -104,7 +104,7 @@ class PosSellController extends Controller
         $customer = Customer::create([
             'setting_id' => $settingId,
             'customer_name' => $validated['customer_name'],
-            'contact_name' => '',
+            'contact_name' => $validated['customer_name'],
             'customer_email' => $email,
             'customer_phone' => $phone,
             'address' => '',

@@ -36,6 +36,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
+use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\SettingSaleLocation;
@@ -596,11 +597,7 @@ class SaleController extends Controller
                             }
                             
                             // Check for serials in PENDING dispatches
-                            $pendingDispatch = DispatchDetail::whereHas('dispatch', function($q) {
-                                $q->where('status', Dispatch::STATUS_PENDING);
-                            })->where('serial_numbers', 'LIKE', '%"' . $serialNumber . '"%')->exists();
-
-                            if ($pendingDispatch) {
+                            if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
                                 $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sedang dalam proses pengiriman.");
                             }
 

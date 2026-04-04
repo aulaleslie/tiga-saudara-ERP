@@ -81,7 +81,10 @@ class EditForm extends Component
         $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->note = $this->purchase->note;
         $this->shipping = $this->purchase->shipping_amount ?? 0;
-        $this->is_tax_included = (bool) $this->purchase->is_tax_included;
+        $this->is_tax_included = $this->isPkp ? (bool) $this->purchase->is_tax_included : false;
+        if (! $this->isPkp) {
+            $this->tax_ref_no = null;
+        }
         if ($this->purchase->discount_percentage > 0) {
             $this->global_discount_type = 'percentage';
             $this->global_discount = $this->purchase->discount_percentage;
@@ -573,6 +576,7 @@ class EditForm extends Component
 
             $failureStage = 'calculating_totals';
             $globalDiscount = is_numeric($this->global_discount) ? (float) $this->global_discount : 0;
+            $resolvedTaxIncluded = $this->isPkp ? (bool) $this->is_tax_included : false;
             $discount_amount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0;
             $discount_percentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0;
             $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
@@ -586,7 +590,7 @@ class EditForm extends Component
             $header = $normalizedPurchase['header'];
 
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
-            $taxRefNo = $this->tax_ref_no ?: null;
+            $taxRefNo = $this->isPkp ? ($this->tax_ref_no ?: null) : null;
 
             $failureStage = 'purchase_update';
             $purchase->update([
@@ -600,7 +604,7 @@ class EditForm extends Component
                 'tax_amount' => $header['tax_amount'],
                 'total_amount' => $header['total_amount'],
                 'due_amount' => $header['due_amount'],
-                'is_tax_included' => $this->is_tax_included,
+                'is_tax_included' => $resolvedTaxIncluded,
                 'supplier_id' => $this->supplier_id,
                 'supplier_purchase_number' => $supplierPurchaseNumber,
                 'tax_ref_no' => $taxRefNo,

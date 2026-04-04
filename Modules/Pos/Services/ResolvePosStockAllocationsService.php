@@ -5,6 +5,7 @@ namespace Modules\Pos\Services;
 use App\Support\SalesLocationResolver;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
@@ -196,6 +197,13 @@ class ResolvePosStockAllocationsService
                 return [
                     'allocations' => [],
                     'reason_code' => 'SERIAL_NOT_ACTIVE',
+                ];
+            }
+
+            if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+                return [
+                    'allocations' => [],
+                    'reason_code' => 'SERIAL_PENDING_DISPATCH',
                 ];
             }
 

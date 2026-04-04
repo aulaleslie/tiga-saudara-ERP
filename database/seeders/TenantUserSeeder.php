@@ -63,38 +63,69 @@ class TenantUserSeeder extends Seeder
             $floorStaffRole->syncPermissions($floorStaffPermissions);
 
             $managerUser = User::firstOrCreate(
-                ['email' => 'manager@tiga-computer.com'],
+                ['email' => 'manager@tigacom.com'],
                 [
                     'name' => 'Manager',
-                    'password' => Hash::make('Manager@1234'),
+                    'password' => Hash::make('12345678'),
                     'is_active' => 1,
                 ]
             );
 
             $cashierUser = User::firstOrCreate(
-                ['email' => 'cashier@tiga-computer.com'],
+                ['email' => 'kasir@tigacom.com'],
                 [
                     'name' => 'Cashier',
-                    'password' => Hash::make('Cashier@1234'),
+                    'password' => Hash::make('12345678'),
                     'is_active' => 1,
                 ]
             );
 
-            $floorStaffUser = User::firstOrCreate(
-                ['email' => 'floor.staff@tiga-computer.com'],
+            $floorStaffUser1 = User::firstOrCreate(
+                ['email' => 'staff1@tigacom.com'],
                 [
-                    'name' => 'Floor Staff',
-                    'password' => Hash::make('FloorStaff@1234'),
+                    'name' => 'Floor Staff 1',
+                    'password' => Hash::make('12345678'),
                     'is_active' => 1,
                 ]
             );
+
+            $floorStaffUser2 = User::firstOrCreate(
+                ['email' => 'staff2@tigacom.com'],
+                [
+                    'name' => 'Floor Staff 2',
+                    'password' => Hash::make('12345678'),
+                    'is_active' => 1,
+                ]
+            );
+
+            $floorStaffUser3 = User::firstOrCreate(
+                ['email' => 'staff3@tigacom.com'],
+                [
+                    'name' => 'Floor Staff 3',
+                    'password' => Hash::make('12345678'),
+                    'is_active' => 1,
+                ]
+            );
+
+            $floorStaffUser4 = User::firstOrCreate(
+                ['email' => 'staff4@tigacom.com'],
+                [
+                    'name' => 'Floor Staff 4',
+                    'password' => Hash::make('12345678'),
+                    'is_active' => 1,
+                ]
+            );
+            
 
             $settings = Setting::all();
 
             foreach ($settings as $setting) {
                 $this->assignUserToSetting($managerUser, $setting->id, $managerRole->id);
                 $this->assignUserToSetting($cashierUser, $setting->id, $cashierRole->id);
-                $this->assignUserToSetting($floorStaffUser, $setting->id, $floorStaffRole->id);
+                $this->assignUserToSetting($floorStaffUser1, $setting->id, $floorStaffRole->id);
+                $this->assignUserToSetting($floorStaffUser2, $setting->id, $floorStaffRole->id);
+                $this->assignUserToSetting($floorStaffUser3, $setting->id, $floorStaffRole->id);
+                $this->assignUserToSetting($floorStaffUser4, $setting->id, $floorStaffRole->id);
             }
 
             $this->command->info('Created Manager role with ' . count($allPermissions) . ' permissions');

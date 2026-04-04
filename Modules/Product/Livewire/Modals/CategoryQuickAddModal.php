@@ -13,11 +13,15 @@ class CategoryQuickAddModal extends Component
     public $category_code = '';
     public $category_name = '';
     public $parent_id = null;
+    public $listenEvent = 'openCategoryModal';
 
-    protected $listeners = [
-        'openCategoryModal' => 'openModal',
-        'categoryDropdownSelected' => 'onCategoryDropdownSelected',
-    ];
+    public function getListeners()
+    {
+        return [
+            $this->listenEvent => 'openModal',
+            'categoryDropdownSelected' => 'onCategoryDropdownSelected',
+        ];
+    }
 
     protected function rules()
     {

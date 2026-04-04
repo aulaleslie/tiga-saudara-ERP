@@ -20,6 +20,7 @@
                     name="customer_id"
                     placeholder="Pilih pelanggan..."
                     :allow-create="true"
+                    :dispatch-on-create="true"
                     :error="$errors->first('customerId')"
                     wire:key="sale-customer-dropdown"
                 />

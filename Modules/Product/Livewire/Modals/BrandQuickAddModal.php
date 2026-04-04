@@ -12,10 +12,14 @@ class BrandQuickAddModal extends Component
     public $showModal = false;
     public $name = '';
     public $description = '';
+    public $listenEvent = 'openBrandModal';
 
-    protected $listeners = [
-        'openBrandModal' => 'openModal'
-    ];
+    public function getListeners()
+    {
+        return [
+            $this->listenEvent => 'openModal',
+        ];
+    }
 
     protected function rules()
     {

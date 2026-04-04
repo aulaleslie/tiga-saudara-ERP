@@ -10,6 +10,7 @@ use Livewire\Component;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Services\SaleService;
@@ -36,7 +37,6 @@ class EditForm extends Component
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
-        'customerCreated' => 'handleCustomerCreated',
         'confirmUpdate'   => 'update',
         'tagsUpdated'     => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
@@ -89,6 +89,10 @@ class EditForm extends Component
             $normalizedTaxId = $this->isPkp ? $detail->tax_id : null;
             $normalizedTaxAmount = $this->isPkp ? (float) $detail->product_tax_amount : 0.0;
             $normalizedSubTotal = $this->isPkp ? (float) $detail->sub_total : $subtotalBeforeTax;
+            $pricingMetadata = $this->resolveSalePricingMetadata(
+                (int) $detail->product_id,
+                (float) $detail->unit_price
+            );
 
             // build the options *array*
             $options = [
@@ -103,9 +107,9 @@ class EditForm extends Component
                 'unit'                   => $product?->product_unit,
                 'unit_price'             => $detail->unit_price,
                 'product_tax'            => $normalizedTaxId,
-                'sale_price'             => $product?->sale_price ?? $detail->unit_price,
-                'tier_1_price'           => $product?->tier_1_price ?? $product?->sale_price ?? $detail->unit_price,
-                'tier_2_price'           => $product?->tier_2_price ?? $product?->sale_price ?? $detail->unit_price,
+                'sale_price'             => $pricingMetadata['sale_price'],
+                'tier_1_price'           => $pricingMetadata['tier_1_price'],
+                'tier_2_price'           => $pricingMetadata['tier_2_price'],
                 'quantity_non_tax'       => $stockData->quantity_non_tax ?? 0,
                 'quantity_tax'           => $stockData->quantity_tax ?? 0,
                 // bundles below
@@ -322,17 +326,6 @@ class EditForm extends Component
         $this->updateDueDateFromPaymentTerm();
     }
 
-    public function handleCustomerCreated(array $customer): void
-    {
-        $this->customerId = $customer['id'] ?? null;
-        $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
-        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
-            ? (int) $customer['payment_term_id']
-            : $this->resolveDefaultPaymentTermId();
-
-        $this->applyPaymentTermSelection($paymentTermId, true);
-    }
-
     public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
@@ -475,6 +468,24 @@ class EditForm extends Component
         }
 
         return (bool) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+    }
+
+    private function resolveSalePricingMetadata(int $productId, float $fallbackPrice): array
+    {
+        $priceRow = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting((int) session('setting_id'))
+            ->first();
+
+        $salePrice = (float) ($priceRow?->sale_price ?? $fallbackPrice);
+        $tier1Price = (float) ($priceRow?->tier_1_price ?? $salePrice);
+        $tier2Price = (float) ($priceRow?->tier_2_price ?? $salePrice);
+
+        return [
+            'sale_price' => $salePrice,
+            'tier_1_price' => $tier1Price > 0 ? $tier1Price : $salePrice,
+            'tier_2_price' => $tier2Price > 0 ? $tier2Price : $salePrice,
+        ];
     }
 
     public function render()

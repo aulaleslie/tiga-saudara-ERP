@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
+use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
@@ -15,6 +16,10 @@ use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
@@ -238,6 +243,39 @@ class POSScanResolveEndpointTest extends TestCase
             ->assertJsonPath('serial.location_id', $location->id)
             ->assertJsonPath('product.id', $product->id)
             ->assertJsonPath('product.serial_number_required', false);
+    }
+
+    public function test_serial_number_scan_returns_none_when_serial_is_in_pending_dispatch(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE SERIAL PENDING');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE SERIAL PENDING');
+
+        $product = $this->createStockedProduct(
+            $setting,
+            $location,
+            'SKU-SERIAL-PENDING',
+            'Produk Serial Pending',
+            100000,
+            $cashier->id
+        );
+
+        $serialNumber = 'SN-PENDING-' . time() . '-' . rand(1000, 9999);
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => $serialNumber,
+            'status' => 'ACTIVE',
+            'location_id' => $location->id,
+            'tax_id' => null,
+        ]);
+
+        $this->createDispatchForSerial($setting, $product, $location, $serialNumber);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $serialNumber]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'none');
     }
 
     /**
@@ -562,5 +600,61 @@ class POSScanResolveEndpointTest extends TestCase
         ]);
 
         return $product->fresh();
+    }
+
+    private function createDispatchForSerial(
+        Setting $setting,
+        Product $product,
+        Location $location,
+        string $serialNumber,
+        string $status = Dispatch::STATUS_PENDING
+    ): DispatchDetail {
+        $paymentTerm = PaymentTerm::query()->firstOrCreate(
+            ['name' => 'POS SCAN TERM'],
+            ['longevity' => 0]
+        );
+
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'payment_term_id' => $paymentTerm->id,
+        ]);
+
+        $sale = Sale::query()->create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => 'Approved',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $paymentTerm->id,
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+            'reference' => 'POS-SCAN-DSP-' . uniqid(),
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => $status,
+        ]);
+
+        return DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode([$serialNumber]),
+        ]);
     }
 }

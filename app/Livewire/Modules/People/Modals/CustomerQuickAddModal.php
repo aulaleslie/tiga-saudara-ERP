@@ -69,7 +69,7 @@ class CustomerQuickAddModal extends Component
             $customer = Customer::create([
                 'setting_id' => session('setting_id'),
                 'customer_name' => $this->customer_name,
-                'contact_name' => $this->contact_name ?: '',
+                'contact_name' => $this->contact_name ?: $this->customer_name,
                 'customer_email' => $email,
                 'customer_phone' => $phone,
                 'address' => $this->address ?: '',

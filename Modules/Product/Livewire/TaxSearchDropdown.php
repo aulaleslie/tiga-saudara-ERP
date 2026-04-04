@@ -23,6 +23,7 @@ class TaxSearchDropdown extends Component
      */
     public array $options = [];
     public ?string $selectedLabel = null;
+    public string $modalEvent = 'openTaxModal';
 
     protected $listeners = [
         'taxCreated' => 'handleTaxCreated',
@@ -41,7 +42,8 @@ class TaxSearchDropdown extends Component
         bool $disabled = false,
         ?string $inputId = null,
         ?string $dispatchTo = null,
-        bool $clearable = false
+        bool $clearable = false,
+        string $modalEvent = 'openTaxModal'
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -51,6 +53,7 @@ class TaxSearchDropdown extends Component
         $this->disabled = $disabled;
         $this->inputId = $inputId;
         $this->dispatchTo = $dispatchTo;
+        $this->modalEvent = $modalEvent;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
@@ -160,8 +163,12 @@ class TaxSearchDropdown extends Component
         }));
     }
 
-    public function handleTaxCreated(int $id, string $name, $value): void
+    public function handleTaxCreated(int $id, string $name, $value, $product_id = null, ?string $requester = null): void
     {
+        if ($requester !== null && $requester !== $this->name) {
+            return;
+        }
+
         $option = [
             'id' => $id,
             'name' => $name,
@@ -175,6 +182,7 @@ class TaxSearchDropdown extends Component
             $this->selectedLabel = $this->resolveLabel($option['id']);
             $this->open = false;
             $this->search = '';
+            $this->dispatchSelection();
         }
     }
 

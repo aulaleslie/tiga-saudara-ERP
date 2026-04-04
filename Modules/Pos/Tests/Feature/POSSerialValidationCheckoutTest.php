@@ -20,6 +20,10 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -255,6 +259,90 @@ class POSSerialValidationCheckoutTest extends TestCase
             ->assertJsonPath('serials.1.serial_number', 'SN-AVAIL-2');
     }
 
+    public function test_serial_search_endpoint_excludes_serials_in_pending_dispatches(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL SEARCH PENDING');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'SEARCH-PEND', 100000, true);
+
+        $this->createSerialNumber($product, $context['location'], 'SN-GUARD-AVAILABLE');
+        $this->createSerialNumber($product, $context['location'], 'SN-GUARD-PENDING');
+        $this->createDispatchForSerial($context['setting'], $product, $context['location'], 'SN-GUARD-PENDING');
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.serials.search', [
+                'product_id' => $product->id,
+                'q' => 'SN-GUARD-',
+            ]));
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'serials')
+            ->assertJsonPath('serials.0.serial_number', 'SN-GUARD-AVAILABLE');
+    }
+
+    public function test_serial_search_endpoint_includes_serials_from_rejected_dispatches(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL SEARCH REJECTED');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'SEARCH-REJ', 100000, true);
+
+        $this->createSerialNumber($product, $context['location'], 'SN-GUARD-REJECTED');
+        $this->createDispatchForSerial(
+            $context['setting'],
+            $product,
+            $context['location'],
+            'SN-GUARD-REJECTED',
+            Dispatch::STATUS_REJECTED
+        );
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.serials.search', [
+                'product_id' => $product->id,
+                'q' => 'SN-GUARD-REJECTED',
+            ]));
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'serials')
+            ->assertJsonPath('serials.0.serial_number', 'SN-GUARD-REJECTED');
+    }
+
+    public function test_finalize_rejects_serial_that_entered_pending_dispatch(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL FINALIZE PENDING');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'FINAL-PEND', 100000, true);
+
+        $this->createSerialNumber($product, $context['location'], 'SN-FINAL-PENDING');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-FINAL-PENDING'],
+            ])
+            ->assertOk();
+
+        $this->createDispatchForSerial($context['setting'], $product, $context['location'], 'SN-FINAL-PENDING');
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-PENDING-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'STOCK_UNAVAILABLE')
+            ->assertJsonPath('details.unfulfilled_lines.0.product_id', $product->id)
+            ->assertJsonPath('details.unfulfilled_lines.0.reason_code', 'SERIAL_PENDING_DISPATCH');
+    }
+
     private function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
@@ -439,6 +527,62 @@ class POSSerialValidationCheckoutTest extends TestCase
             'serial_number' => $serialNumber,
             'tax_id' => null,
             'status' => 'ACTIVE',
+        ]);
+    }
+
+    private function createDispatchForSerial(
+        Setting $setting,
+        Product $product,
+        Location $location,
+        string $serialNumber,
+        string $status = Dispatch::STATUS_PENDING
+    ): DispatchDetail {
+        $paymentTerm = PaymentTerm::query()->firstOrCreate(
+            ['name' => 'POS SERIAL TERM'],
+            ['longevity' => 0]
+        );
+
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'payment_term_id' => $paymentTerm->id,
+        ]);
+
+        $sale = Sale::query()->create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => 'Approved',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $paymentTerm->id,
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+            'reference' => 'POS-SERIAL-DSP-' . $this->sequence++,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => $status,
+        ]);
+
+        return DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode([$serialNumber]),
         ]);
     }
 

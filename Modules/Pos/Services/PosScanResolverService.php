@@ -8,6 +8,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
+use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Modules\Setting\Entities\Unit;
 
 class PosScanResolverService
@@ -73,7 +74,13 @@ class PosScanResolverService
             ->with('product')
             ->first();
 
-        if ($serialRecord && $serialRecord->product && $serialRecord->product->stock_managed && $this->hasPriceForSetting($serialRecord->product->id, $settingId)) {
+        if (
+            $serialRecord
+            && ! PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)
+            && $serialRecord->product
+            && $serialRecord->product->stock_managed
+            && $this->hasPriceForSetting($serialRecord->product->id, $settingId)
+        ) {
             return [
                 'type' => 'serial_exact',
                 'serial' => [

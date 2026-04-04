@@ -11,10 +11,14 @@ class UnitQuickAddModal extends Component
     public $showModal = false;
     public $name = '';
     public $short_name = '';
+    public $listenEvent = 'openUnitModal';
 
-    protected $listeners = [
-        'openUnitModal' => 'openModal'
-    ];
+    public function getListeners()
+    {
+        return [
+            $this->listenEvent => 'openModal',
+        ];
+    }
 
     protected function rules()
     {

@@ -10,6 +10,12 @@
                 </div>
 
                 <div class="modal-body overflow-auto" style="max-height: 70vh;">
+                    @if($context === 'sale')
+                        <div class="alert alert-info">
+                            Produk yang dibuat dari modal ini akan langsung dipakai di keranjang penjualan. Harga jual wajib tersedia sebelum produk bisa diproses.
+                        </div>
+                    @endif
+
                     @if($errors->any())
                         <div class="alert alert-danger">
                             <strong>Periksa kembali data yang Anda masukkan.</strong>
@@ -47,6 +53,7 @@
                                         :clearable="true"
                                         :allow-create="true"
                                         :error="$errors->first('category_id')"
+                                        modal-event="openNestedCategoryModal"
                                         dispatch-to="modules.product.modals.product-quick-add-modal"
                                         wire:key="'quick-product-category-'.$formResetVersion"
                                     />
@@ -60,6 +67,7 @@
                                         :clearable="true"
                                         :allow-create="true"
                                         :error="$errors->first('brand_id')"
+                                        modal-event="openNestedBrandModal"
                                         dispatch-to="modules.product.modals.product-quick-add-modal"
                                         wire:key="'quick-product-brand-'.$formResetVersion"
                                     />
@@ -101,6 +109,7 @@
                                                 :clearable="true"
                                                 :allow-create="true"
                                                 :error="$errors->first('purchase_tax_id')"
+                                                modal-event="openNestedTaxModal"
                                                 dispatch-to="modules.product.modals.product-quick-add-modal"
                                                 wire:key="'quick-product-tax-buy-'.$formResetVersion"
                                             />
@@ -114,13 +123,14 @@
                                     <input type="checkbox"
                                            id="modal_is_sold"
                                            wire:model.live="is_sold"
-                                           wire:key="sale-checkbox-{{ $formResetVersion }}">
+                                           wire:key="sale-checkbox-{{ $formResetVersion }}"
+                                           @disabled($context === 'sale')>
                                     <label for="modal_is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
                                     @if($is_sold)
                                         <div class="row mt-3">
                                             <div class="col-md-6 mb-3">
-                                                <label class="form-label">Harga Jual</label>
+                                                <label class="form-label">Harga Jual @if($context === 'sale')<span class="text-danger">*</span>@endif</label>
                                                 <input
                                                     type="text"
                                                     class="form-control price-mask"
@@ -144,6 +154,7 @@
                                                     :clearable="true"
                                                     :allow-create="true"
                                                     :error="$errors->first('sale_tax_id')"
+                                                    modal-event="openNestedTaxModal"
                                                     dispatch-to="modules.product.modals.product-quick-add-modal"
                                                     wire:key="'quick-product-tax-sell-'.$formResetVersion"
                                                 />
@@ -165,6 +176,9 @@
                                                     autocomplete="off"
                                                 >
                                                 @error('tier_1_price') <span class="text-danger">{{ $message }}</span> @enderror
+                                                @if($context === 'sale')
+                                                    <small class="form-text text-muted">Kosongkan untuk memakai harga jual utama.</small>
+                                                @endif
                                             </div>
                                         </div>
 
@@ -183,6 +197,9 @@
                                                     autocomplete="off"
                                                 >
                                                 @error('tier_2_price') <span class="text-danger">{{ $message }}</span> @enderror
+                                                @if($context === 'sale')
+                                                    <small class="form-text text-muted">Kosongkan untuk memakai harga jual utama.</small>
+                                                @endif
                                             </div>
                                         </div>
                                     @endif
@@ -235,6 +252,7 @@
                                             :selected="$base_unit_id"
                                             :allow-create="true"
                                             :error="$errors->first('base_unit_id')"
+                                            modal-event="openNestedUnitModal"
                                             width="100%"
                                             :disabled="!$stock_managed"
                                             dispatch-to="modules.product.modals.product-quick-add-modal"
@@ -281,6 +299,7 @@
                                                                                 placeholder="Pilih unit..."
                                                                                 :allow-create="true"
                                                                                 :error="$errors->first('conversions.' . $index . '.unit_id')"
+                                                                                modal-event="openNestedUnitModal"
                                                                                 width="220px"
                                                                                 dispatch-to="modules.product.modals.product-quick-add-modal"
                                                                                 wire:key="'conv-unit-'.$rowKey.'-'.$formResetVersion"
@@ -338,10 +357,10 @@
         </div>
     </div>
 
-    <livewire:modules.product.modals.category-quick-add-modal wire:key="nested-cat-quick-add" />
-    <livewire:modules.product.modals.brand-quick-add-modal wire:key="nested-brand-quick-add" />
-    <livewire:modules.setting.modals.unit-quick-add-modal wire:key="nested-unit-quick-add" />
-    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="nested-tax-quick-add" />
+    <livewire:modules.product.modals.category-quick-add-modal wire:key="nested-cat-quick-add" listen-event="openNestedCategoryModal" />
+    <livewire:modules.product.modals.brand-quick-add-modal wire:key="nested-brand-quick-add" listen-event="openNestedBrandModal" />
+    <livewire:modules.setting.modals.unit-quick-add-modal wire:key="nested-unit-quick-add" listen-event="openNestedUnitModal" />
+    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="nested-tax-quick-add" listen-event="openNestedTaxModal" />
     <style>
     .unit-conversion-table {
         overflow: visible !important;

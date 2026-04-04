@@ -17,6 +17,7 @@ use Throwable;
 class ProductQuickAddModal extends Component
 {
     public bool $showModal = false;
+    public string $context = 'purchase';
 
     public $product_name;
     public $product_code;
@@ -58,8 +59,9 @@ class ProductQuickAddModal extends Component
         $this->applyPurchaseDefaults();
     }
 
-    public function openModal(): void
+    public function openModal(array $params = []): void
     {
+        $this->context = $this->normalizeContext($params['context'] ?? null);
         $this->resetForm();
         $this->showModal = true;
     }
@@ -68,6 +70,7 @@ class ProductQuickAddModal extends Component
     {
         $this->showModal = false;
         $this->resetForm();
+        $this->context = 'purchase';
     }
 
     public function resetForm(): void
@@ -97,7 +100,7 @@ class ProductQuickAddModal extends Component
         $this->formResetVersion++;
         $this->resetErrorBag();
         $this->resetValidation();
-        $this->applyPurchaseDefaults();
+        $this->applyContextDefaults();
 
         $this->dispatch('product-modal-reset');
     }
@@ -189,6 +192,11 @@ class ProductQuickAddModal extends Component
 
     public function updatedIsSold($value): void
     {
+        if ($this->isSalesContext()) {
+            $this->is_sold = true;
+            return;
+        }
+
         if ((bool) $value) {
             return;
         }
@@ -258,14 +266,15 @@ class ProductQuickAddModal extends Component
             /** @var ProductCreator $creator */
             $creator = app(ProductCreator::class);
             $product = $creator->create($validated);
-
-            $productData = $this->buildPurchaseProductPayload($product);
+            $productData = $this->buildProductPayload($product);
 
             $this->dispatch('productSelected', $productData);
             $this->dispatch('productCreated', $productData);
 
             $this->closeModal();
-            session()->flash('success', 'Produk berhasil ditambahkan dan dimasukkan ke keranjang!');
+            session()->flash('success', $this->isSalesContext()
+                ? 'Produk berhasil dibuat untuk penjualan.'
+                : 'Produk berhasil ditambahkan dan dimasukkan ke keranjang!');
         } catch (Throwable $e) {
             Log::error('Quick Add Product Error', [
                 'message' => $e->getMessage(),
@@ -280,6 +289,16 @@ class ProductQuickAddModal extends Component
         return view('livewire.modules.product.modals.product-quick-add-modal');
     }
 
+    private function applyContextDefaults(): void
+    {
+        if ($this->isSalesContext()) {
+            $this->applySalesDefaults();
+            return;
+        }
+
+        $this->applyPurchaseDefaults();
+    }
+
     private function applyPurchaseDefaults(): void
     {
         $this->stock_managed = true;
@@ -289,8 +308,26 @@ class ProductQuickAddModal extends Component
         $this->product_stock_alert = null;
     }
 
+    private function applySalesDefaults(): void
+    {
+        $this->stock_managed = true;
+        $this->is_purchased = true;
+        $this->is_sold = true;
+        $this->serial_number_required = false;
+        $this->product_stock_alert = null;
+    }
+
     private function buildValidationPayload(): array
     {
+        $normalizedSalePrice = $this->emptyToNull($this->sale_price);
+        $normalizedTier1Price = $this->emptyToNull($this->tier_1_price);
+        $normalizedTier2Price = $this->emptyToNull($this->tier_2_price);
+
+        if ($this->isSalesContext() && $normalizedSalePrice !== null) {
+            $normalizedTier1Price ??= $normalizedSalePrice;
+            $normalizedTier2Price ??= $normalizedSalePrice;
+        }
+
         $payload = [
             'product_name' => $this->product_name,
             'product_code' => $this->emptyToNull($this->product_code),
@@ -302,11 +339,11 @@ class ProductQuickAddModal extends Component
             'stock_managed' => true,
             'product_stock_alert' => $this->emptyToNull($this->product_stock_alert),
             'is_purchased' => true,
-            'is_sold' => (bool) $this->is_sold,
+            'is_sold' => $this->isSalesContext() ? true : (bool) $this->is_sold,
             'purchase_price' => $this->emptyToNull($this->purchase_price),
-            'sale_price' => $this->emptyToNull($this->sale_price),
-            'tier_1_price' => $this->emptyToNull($this->tier_1_price),
-            'tier_2_price' => $this->emptyToNull($this->tier_2_price),
+            'sale_price' => $normalizedSalePrice,
+            'tier_1_price' => $normalizedTier1Price,
+            'tier_2_price' => $normalizedTier2Price,
             'purchase_tax_id' => $this->emptyToNull($this->purchase_tax_id),
             'sale_tax_id' => $this->emptyToNull($this->sale_tax_id),
             'conversions' => array_values($this->conversions),
@@ -319,7 +356,7 @@ class ProductQuickAddModal extends Component
         return $payload;
     }
 
-    private function buildPurchaseProductPayload(Product $product): array
+    private function buildProductPayload(Product $product): array
     {
         $settingId = (int) (session('setting_id') ?? $product->setting_id ?? 0);
         $product->loadMissing('baseUnit:id,name');
@@ -348,9 +385,23 @@ class ProductQuickAddModal extends Component
             'last_purchase_price' => (float) ($priceRow?->last_purchase_price ?? 0),
             'average_purchase_price' => (float) ($priceRow?->average_purchase_price ?? 0),
             'purchase_tax_id' => $priceRow?->purchase_tax_id,
+            'sale_price' => (float) ($priceRow?->sale_price ?? 0),
+            'tier_1_price' => (float) ($priceRow?->tier_1_price ?? 0),
+            'tier_2_price' => (float) ($priceRow?->tier_2_price ?? 0),
+            'sale_tax_id' => $priceRow?->sale_tax_id,
             'base_unit_name' => $unitName,
             'serial_number_required' => (bool) $product->serial_number_required,
         ];
+    }
+
+    private function isSalesContext(): bool
+    {
+        return $this->context === 'sale';
+    }
+
+    private function normalizeContext(mixed $context): string
+    {
+        return $context === 'sale' ? 'sale' : 'purchase';
     }
 
     private function emptyToNull(mixed $value): mixed

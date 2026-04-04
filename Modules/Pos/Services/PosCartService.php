@@ -17,6 +17,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
+use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
@@ -576,6 +577,10 @@ class PosCartService
                 throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
             }
 
+            if (PendingDispatchSerialGuard::isReserved($sn)) {
+                throw new DomainException("Serial number $sn sedang dalam proses pengiriman.");
+            }
+
             if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
                 throw new DomainException("Serial number $sn is located in a restricted location.");
             }
@@ -598,12 +603,14 @@ class PosCartService
     public function availableSerialsForProduct(int $settingId, int $productId, string $query, int $limit = 10): array
     {
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+        $reservedSerials = PendingDispatchSerialGuard::getReservedSerialsForProduct($productId);
 
         return \Modules\Product\Entities\ProductSerialNumber::query()
             ->where('product_id', $productId)
             ->whereIn('location_id', $allowedLocationIds)
             ->where('status', 'ACTIVE')
             ->whereNull('dispatch_detail_id')
+            ->when($reservedSerials !== [], fn ($q) => $q->whereNotIn('serial_number', $reservedSerials))
             ->when($query !== '', fn ($q) => $q->where('serial_number', 'like', "%$query%"))
             ->limit($limit)
             ->get(['id', 'serial_number'])
@@ -933,6 +940,10 @@ class PosCartService
 
         if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
             throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
+        }
+
+        if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+            throw new DomainException("Serial number $serialNumber sedang dalam proses pengiriman.");
         }
 
         if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {

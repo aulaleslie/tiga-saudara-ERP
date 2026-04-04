@@ -98,8 +98,6 @@ class ProductCart extends Component
                 $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
                 $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown($cart_item->id, $qty);
             }
-
-            $this->dispatch('taxIncludedUpdated', $this->is_tax_included);
             $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
             $this->dispatch('globalDiscountUpdated', $this->global_discount);
             $this->dispatch('shippingUpdated', $this->shipping);
@@ -123,6 +121,13 @@ class ProductCart extends Component
             }
         }
 
+        if (! $this->isPkp) {
+            $this->is_tax_included = false;
+        }
+
+        // Always publish the cart's initial tax state so the parent form persists the same value.
+        $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+        $this->reconcileNonPkpPurchaseCartState();
         $this->reconcileMissingPkpTaxesInCart();
     }
 
@@ -295,18 +300,53 @@ class ProductCart extends Component
         }
     }
 
+    private function reconcileNonPkpPurchaseCartState(): void
+    {
+        if ($this->cart_instance !== 'purchase' || $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+
+        foreach ($cart->content() as $cartItem) {
+            $normalizedUnitPrice = $this->resolveNonPkpUnitPrice($cartItem);
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $normalizedUnitPrice,
+                $cartItem->qty,
+                $discountAmount,
+                null
+            );
+
+            $cart->update($cartItem->rowId, [
+                'price' => $normalizedUnitPrice,
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'unit_price' => $normalizedUnitPrice,
+                    'product_tax' => null,
+                    'sub_total' => $calculated['sub_total'],
+                    'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                    'product_tax_amount' => 0,
+                ]),
+            ]);
+
+            $this->product_tax[$cartItem->id] = null;
+        }
+    }
+
+    private function resolveNonPkpUnitPrice($cartItem): float
+    {
+        $quantity = max(1, (int) $cartItem->qty);
+        $subTotalBeforeTax = (float) ($cartItem->options->sub_total_before_tax ?? $cartItem->options->sub_total ?? ($cartItem->price * $quantity));
+        $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+
+        return round(($subTotalBeforeTax / $quantity) + $discountAmount, 2);
+    }
+
     private function resolveDefaultTaxId(): ?int
     {
         $defaultTax = $this->taxes->firstWhere('is_default', true);
 
         return $defaultTax ? (int) $defaultTax->id : null;
-    }
-
-    private function resolveLatestTaxId(): ?int
-    {
-        $latestTaxId = Tax::query()->latest('id')->value('id');
-
-        return $latestTaxId ? (int) $latestTaxId : null;
     }
 
     private function resolveProductPurchaseTaxIdForProduct(int $productId, ?array $productPayload = null): ?int
@@ -336,7 +376,12 @@ class ProductCart extends Component
         }
 
         if ($productId) {
-            return $this->resolveProductPurchaseTaxIdForProduct($productId, $productPayload);
+            $productTaxId = $this->resolveProductPurchaseTaxIdForProduct($productId, $productPayload);
+            if ($productTaxId) {
+                return $productTaxId;
+            }
+
+            return $this->resolveDefaultTaxId();
         }
 
         return null;

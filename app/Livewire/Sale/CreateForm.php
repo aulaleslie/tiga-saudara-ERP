@@ -40,7 +40,6 @@ class CreateForm extends Component
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
-        'customerCreated' => 'handleCustomerCreated',
         'confirmSubmit' => 'submit',
         'tagsUpdated' => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
@@ -267,19 +266,6 @@ class CreateForm extends Component
             return;
         }
         $this->updateDueDateFromPaymentTerm();
-    }
-
-    public function handleCustomerCreated(array $customer): void
-    {
-        // Customer was just created, the dropdown will auto-select it
-        // We need to set the payment term from the newly created customer
-        $this->customerId = $customer['id'] ?? null;
-        $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
-        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
-            ? (int) $customer['payment_term_id']
-            : $this->resolveDefaultPaymentTermId();
-
-        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     public function submit(?string $customerId = null, ?string $paymentTermId = null)

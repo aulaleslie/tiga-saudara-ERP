@@ -19,6 +19,7 @@
                     placeholder="Pilih pelanggan..."
                     :selected="$customerId"
                     :allow-create="true"
+                    :dispatch-on-create="true"
                     :error="$errors->first('customerId')"
                     wire:key="sale-edit-customer-dropdown"
                 />

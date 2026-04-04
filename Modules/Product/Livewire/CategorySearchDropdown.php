@@ -17,6 +17,7 @@ class CategorySearchDropdown extends Component
     public bool $clearable = false;
     public ?string $error = null;
     public ?string $dispatchTo = null;
+    public string $modalEvent = 'openCategoryModal';
 
     /** @var array<int, array{id:int|string,name:string,parent_id:int|null,raw_name?:string}> */
     public array $options = [];
@@ -35,7 +36,8 @@ class CategorySearchDropdown extends Component
         bool $allowCreate = false,
         ?string $error = null,
         ?string $dispatchTo = null,
-        bool $clearable = false
+        bool $clearable = false,
+        string $modalEvent = 'openCategoryModal'
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -44,6 +46,7 @@ class CategorySearchDropdown extends Component
         $this->clearable = $clearable;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
+        $this->modalEvent = $modalEvent;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {

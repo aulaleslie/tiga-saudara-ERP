@@ -475,6 +475,7 @@ class ProductCart extends Component
                     'price' => $newPriceCalc['price'],
                     'unit_price' => $newPriceCalc['unit_price'],
                     'options' => array_merge($cart_item->options->toArray(), [
+                        'unit_price' => $newPriceCalc['unit_price'],
                         'sub_total' => $newSubTotal,
                         'sub_total_before_tax' => $newSubTotalBeforeTax,
                         'product_tax_amount' => $calculated['tax_amount'],

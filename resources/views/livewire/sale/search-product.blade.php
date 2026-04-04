@@ -68,6 +68,7 @@
                         entity="produk"
                         permission="products.create"
                         modal-event="openProductModal"
+                        :modal-params="['context' => 'sale']"
                         tooltip="Tambah produk baru"
                     />
                 </div>

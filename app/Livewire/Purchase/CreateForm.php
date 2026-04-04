@@ -52,6 +52,8 @@ class CreateForm extends Component
     {
         $this->idempotencyToken = $idempotencyToken;
         $this->isPkp = $this->isPkpEnabled();
+        // New PKP purchases default to tax-included; duplicates keep the source purchase value.
+        $this->is_tax_included = $this->isPkp && $duplicateId === null;
         $this->reference = 'PR'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
@@ -820,6 +822,8 @@ class CreateForm extends Component
 
             $failureStage = 'calculating_totals';
             $cartItems = $cart->content();
+            $resolvedTaxIncluded = $this->isPkp ? (bool) $this->is_tax_included : false;
+            $resolvedTaxRefNo = $this->isPkp ? ($this->tax_ref_no ?: null) : null;
             $discount_amount = $this->global_discount_type === 'fixed' ? (float) $this->global_discount : 0.0;
             $discount_percentage = $this->global_discount_type === 'percentage' ? (float) $this->global_discount : 0.0;
             $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
@@ -838,7 +842,7 @@ class CreateForm extends Component
                 'due_date' => $this->due_date,
                 'supplier_id' => $this->supplier_id,
                 'supplier_purchase_number' => $this->supplier_purchase_number ?: null,
-                'tax_ref_no' => $this->tax_ref_no ?: null,
+                'tax_ref_no' => $resolvedTaxRefNo,
                 'discount_percentage' => $header['discount_percentage'],
                 'discount_amount' => $header['discount_amount'],
                 'shipping_amount' => $header['shipping_amount'],
@@ -853,7 +857,7 @@ class CreateForm extends Component
                 'note' => $this->note,
                 'setting_id' => $setting_id,
                 'paid_amount' => 0.0,
-                'is_tax_included' => $this->is_tax_included,
+                'is_tax_included' => $resolvedTaxIncluded,
                 'payment_method' => '',
             ]);
 

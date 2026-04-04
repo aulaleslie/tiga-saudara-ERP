@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Synchronized POS Save & Open New Activation
-The "Simpan dan Buka Baru" button on the POS sell page SHALL be enabled only when all transaction validation rules are met, matching the behavior of the "Pilih Pembayaran" button, and SHALL only be actionable by users with draft-save permission for handoff flow.
+The "Simpan dan Buka Baru" button on the POS sell page SHALL be enabled only when all transaction validation rules are met, matching the behavior of the "Pilih Pembayaran" button, and SHALL only be actionable by users with POS shell access and draft-save permission for handoff flow. The supported `cashier` and `floor staff` bundles SHALL both satisfy this handoff requirement, while payment authority SHALL remain a separate capability.
 
 #### Scenario: Button is disabled on empty cart
 - **WHEN** the POS cart is empty
@@ -23,10 +23,11 @@ The "Simpan dan Buka Baru" button on the POS sell page SHALL be enabled only whe
 - **WHEN** there are items in the cart, total > 0, customer is resolved, prices are valid, and all required serials are assigned
 - **THEN** the "Simpan dan Buka Baru" button MUST be enabled
 
-#### Scenario: Button is unavailable without save-draft permission
-- **WHEN** the logged-in user lacks permission to create POS draft handoff transactions
-- **THEN** the "Simpan dan Buka Baru" control MUST be hidden or disabled and submission MUST be rejected server-side
+#### Scenario: Button is unavailable without shell or save-draft authority
+- **WHEN** the logged-in user lacks POS shell access or lacks permission to save POS draft handoff transactions
+- **THEN** the "Simpan dan Buka Baru" control MUST be hidden or disabled
+- **AND** submission MUST be rejected server-side
 
-#### Scenario: Floor and cashier roles can trigger valid handoff save
-- **WHEN** Floor Staff or Cashier Staff user has save-draft permission and validation rules pass
-- **THEN** the system MUST allow "Simpan dan Buka Baru" to persist draft and clear cart for next customer
+#### Scenario: Cashier and floor staff can trigger valid handoff save
+- **WHEN** a user in the supported `cashier` or `floor staff` bundle has shell access, save-draft permission, and all validation rules pass
+- **THEN** the system MUST allow "Simpan dan Buka Baru" to persist the draft and clear the cart for the next customer

@@ -13,10 +13,15 @@ class TaxQuickAddModal extends Component
     public $value = 0;
     public $is_default = false;
     public $product_id = null; // Track which product row is requesting the tax
+    public $requester = null; // Track which dropdown requested the tax quick-add
+    public $listenEvent = 'openTaxModal';
 
-    protected $listeners = [
-        'openTaxModal' => 'openModal'
-    ];
+    public function getListeners()
+    {
+        return [
+            $this->listenEvent => 'openModal',
+        ];
+    }
 
     protected function rules()
     {
@@ -41,10 +46,19 @@ class TaxQuickAddModal extends Component
         ];
     }
 
-    public function openModal($productId = null)
+    public function openModal($target = null)
     {
         $this->resetForm();
-        $this->product_id = $productId;
+
+        if (is_array($target)) {
+            $this->product_id = $target['product_id'] ?? null;
+            $this->requester = $target['requester'] ?? null;
+        } elseif (is_string($target) && ! is_numeric($target)) {
+            $this->requester = $target;
+        } else {
+            $this->product_id = $target;
+        }
+
         $this->showModal = true;
     }
 
@@ -69,7 +83,8 @@ class TaxQuickAddModal extends Component
             id: $tax->id,
             name: $tax->name,
             value: $tax->value,
-            product_id: $this->product_id
+            product_id: $this->product_id,
+            requester: $this->requester
         );
 
         $this->closeModal();
@@ -81,6 +96,7 @@ class TaxQuickAddModal extends Component
         $this->value = 0;
         $this->is_default = false;
         $this->product_id = null;
+        $this->requester = null;
         $this->resetValidation();
     }
 

@@ -15,6 +15,7 @@ class BrandSearchDropdown extends Component
     public bool $allowCreate = false;
     public bool $clearable = false;
     public ?string $error = null;
+    public string $modalEvent = 'openBrandModal';
 
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
@@ -34,7 +35,8 @@ class BrandSearchDropdown extends Component
         bool $allowCreate = false,
         ?string $error = null,
         ?string $dispatchTo = null,
-        bool $clearable = false
+        bool $clearable = false,
+        string $modalEvent = 'openBrandModal'
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -42,6 +44,7 @@ class BrandSearchDropdown extends Component
         $this->clearable = $clearable;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
+        $this->modalEvent = $modalEvent;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {

@@ -11,11 +11,16 @@ use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -149,6 +154,47 @@ class POSSerialIncrementalAssignmentTest extends TestCase
                 'serial_number' => 'SN-DUPAPP',
             ])
             ->assertStatus(422);
+    }
+
+    public function test_append_serial_in_pending_dispatch_is_rejected_with_expected_message(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL PENDING APPEND');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-PENDAPP', 100000, true);
+
+        $this->createSerialNumber($product, $context['location'], 'SN-PENDAPP');
+        $this->createDispatchForSerial($context['setting'], $product, $context['location'], 'SN-PENDAPP');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-PENDAPP',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Serial number SN-PENDAPP sedang dalam proses pengiriman.');
+    }
+
+    public function test_append_serial_not_in_pending_dispatch_succeeds(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL APPEND AVAILABLE');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-APP-OK', 100000, true);
+
+        $this->createSerialNumber($product, $context['location'], 'SN-APP-OK');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-APP-OK',
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-APP-OK']);
     }
 
     public function test_replace_serials_overwrites_assignment(): void
@@ -490,6 +536,62 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             'serial_number' => $serialNumber,
             'tax_id' => null,
             'status' => 'ACTIVE',
+        ]);
+    }
+
+    private function createDispatchForSerial(
+        Setting $setting,
+        Product $product,
+        Location $location,
+        string $serialNumber,
+        string $status = Dispatch::STATUS_PENDING
+    ): DispatchDetail {
+        $paymentTerm = PaymentTerm::query()->firstOrCreate(
+            ['name' => 'POS INCR TERM'],
+            ['longevity' => 0]
+        );
+
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'payment_term_id' => $paymentTerm->id,
+        ]);
+
+        $sale = Sale::query()->create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => 'Approved',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $paymentTerm->id,
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+            'reference' => 'POS-INCR-DSP-' . $this->sequence++,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => $status,
+        ]);
+
+        return DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode([$serialNumber]),
         ]);
     }
 
