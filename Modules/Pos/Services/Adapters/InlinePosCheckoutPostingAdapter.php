@@ -174,6 +174,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                             'source_location_id' => $chunkLocId,
                             'source_setting_id' => $sourceSettingId,
                             'allocated_qty' => 0,
+                            'tax_bucket_used' => $chunkTaxId !== null,
                             'serial_numbers' => [],
                             'tax_policy_snapshot' => [
                                 'source_is_pkp' => $sourceIsPkp,
@@ -251,8 +252,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
                 $chunkLocId = (int) ($chunk['source_location_id'] ?? 0);
                 $snapshot = $chunk['tax_policy_snapshot'] ?? [];
-                $sourceIsPkp = (bool) ($snapshot['source_is_pkp'] ?? false);
-                $effectiveTaxId = $sourceIsPkp ? ($snapshot['tax_id'] ?? $taxId) : null;
+                $taxBucketUsed = (bool) ($chunk['tax_bucket_used'] ?? false);
+                $snapshotTaxId = isset($snapshot['tax_id']) ? (int) $snapshot['tax_id'] : null;
+                $snapshotTaxId = $snapshotTaxId !== null && $snapshotTaxId > 0 ? $snapshotTaxId : null;
 
                 $stock = ProductStock::query()
                     ->where('product_id', $productId)
@@ -268,11 +270,11 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok tidak cukup di lokasi sumber.');
                 }
 
-                if ($effectiveTaxId !== null && (int) $stock->quantity_tax < $chunkQty) {
+                if ($taxBucketUsed && (int) $stock->quantity_tax < $chunkQty) {
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok pajak tidak cukup di lokasi sumber.');
                 }
 
-                if ($effectiveTaxId === null && (int) $stock->quantity_non_tax < $chunkQty) {
+                if (! $taxBucketUsed && (int) $stock->quantity_non_tax < $chunkQty) {
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok non-pajak tidak cukup di lokasi sumber.');
                 }
 
@@ -281,7 +283,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $dispatchDetail = DispatchDetail::query()->create([
                     'dispatch_id' => $dispatch->id,
                     'sale_id' => $sale->id,
-                    'tax_id' => $effectiveTaxId,
+                    'tax_id' => $snapshotTaxId ?? $taxId,
                     'product_id' => $productId,
                     'bundle_id' => null,
                     'dispatched_quantity' => $chunkQty,
@@ -317,7 +319,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $previousLocationQty = (int) $stock->quantity;
 
                 $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
-                if ($effectiveTaxId !== null) {
+                if ($taxBucketUsed) {
                     $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $chunkQty);
                 } else {
                     $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $chunkQty);
@@ -344,8 +346,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'after_quantity' => $afterProductQty,
                     'previous_quantity_at_location' => $previousLocationQty,
                     'after_quantity_at_location' => $afterLocationQty,
-                    'quantity_tax' => $effectiveTaxId !== null ? $chunkQty : 0,
-                    'quantity_non_tax' => $effectiveTaxId !== null ? 0 : $chunkQty,
+                    'quantity_tax' => $taxBucketUsed ? $chunkQty : 0,
+                    'quantity_non_tax' => $taxBucketUsed ? 0 : $chunkQty,
                     'broken_quantity_tax' => 0,
                     'broken_quantity_non_tax' => 0,
                 ]);

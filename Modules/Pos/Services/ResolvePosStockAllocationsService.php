@@ -74,7 +74,6 @@ class ResolvePosStockAllocationsService
                 $serialResult = $this->allocateSerialLineUsingAssignedSerials(
                     $productId,
                     $neededQty,
-                    $taxId,
                     $assignedSerials,
                     $locationIds,
                     $settingId,
@@ -85,31 +84,15 @@ class ResolvePosStockAllocationsService
                 $lineAllocations = $serialResult['allocations'];
                 $reasonCode = $serialResult['reason_code'];
             } else {
-                // Determine allocation strategy based on tax requirement.
-                $isTaxable = $taxId !== null && (int) $taxId > 0;
-
-                if ($isTaxable) {
-                    // Taxable line: use bucket-first strategy.
-                    $lineAllocations = $this->allocateTaxableLineBucketFirst(
-                        $productId,
-                        $neededQty,
-                        $taxId,
-                        $locationIds,
-                        $settingId,
-                        $settingsCache,
-                        $taxesCache
-                    );
-                } else {
-                    // Non-taxable line: only use non-tax bucket.
-                    $lineAllocations = $this->allocateNonTaxableLineNonTaxBucketOnly(
-                        $productId,
-                        $neededQty,
-                        $locationIds,
-                        $settingId,
-                        $settingsCache,
-                        $taxesCache
-                    );
-                }
+                $lineAllocations = $this->allocateLineBucketFirst(
+                    $productId,
+                    $neededQty,
+                    $taxId,
+                    $locationIds,
+                    $settingId,
+                    $settingsCache,
+                    $taxesCache
+                );
             }
 
             $allocatedQty = array_sum(array_map(
@@ -142,7 +125,6 @@ class ResolvePosStockAllocationsService
     /**
      * @param  int  $productId
      * @param  int  $neededQty
-     * @param  int|null  $lineTaxId
      * @param  array<int, string>  $assignedSerials
      * @param  array<int>  $locationIds
      * @param  int  $settingId
@@ -156,7 +138,6 @@ class ResolvePosStockAllocationsService
     private function allocateSerialLineUsingAssignedSerials(
         int $productId,
         int $neededQty,
-        ?int $lineTaxId,
         array $assignedSerials,
         array $locationIds,
         int $settingId,
@@ -231,9 +212,7 @@ class ResolvePosStockAllocationsService
             $sourceSetting = $settingsCache[$sourceSettingId];
             $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
 
-            $resolvedTaxId = $lineTaxId !== null && $lineTaxId > 0
-                ? (int) $lineTaxId
-                : ((int) ($record->tax_id ?? 0) > 0 ? (int) $record->tax_id : null);
+            $resolvedTaxId = ((int) ($record->tax_id ?? 0) > 0) ? (int) $record->tax_id : null;
 
             $tax = null;
             if ($resolvedTaxId !== null) {
@@ -318,7 +297,7 @@ class ResolvePosStockAllocationsService
     }
 
     /**
-     * Allocate a taxable line using owner-priority bucket-first strategy:
+     * Allocate a non-serial line using owner-priority bucket-first strategy:
      * Phase 1: Allocate from non-tax bucket prioritized by owner (non-PKP first, then PKP)
      * Phase 2: Allocate from tax bucket prioritized by owner (non-PKP first, then PKP)
      *
@@ -326,7 +305,7 @@ class ResolvePosStockAllocationsService
      *
      * @param  int  $productId
      * @param  int  $neededQty
-     * @param  int  $taxId
+     * @param  int|null  $taxId
      * @param  array<int>  $locationIds
      * @param  int  $settingId
      * @param  array<int, Setting|null>  $settingsCache
@@ -334,10 +313,10 @@ class ResolvePosStockAllocationsService
      * @param  array<int, Tax|null>  $taxesCache
      * @return array<int, array<string, mixed>>
      */
-    private function allocateTaxableLineBucketFirst(
+    private function allocateLineBucketFirst(
         int $productId,
         int $neededQty,
-        int $taxId,
+        ?int $taxId,
         $locationIds,
         int $settingId,
         array &$settingsCache,
@@ -401,10 +380,12 @@ class ResolvePosStockAllocationsService
                 $sourceIsPkp = $locInfo['source_is_pkp'];
 
                 $tax = null;
-                if (! isset($taxesCache[$taxId])) {
-                    $taxesCache[$taxId] = Tax::query()->find($taxId);
+                if ($taxId !== null && $taxId > 0) {
+                    if (! isset($taxesCache[$taxId])) {
+                        $taxesCache[$taxId] = Tax::query()->find($taxId);
+                    }
+                    $tax = $taxesCache[$taxId];
                 }
-                $tax = $taxesCache[$taxId];
 
                 $lineAllocations[] = [
                     'source_location_id' => $locationId,
@@ -448,10 +429,12 @@ class ResolvePosStockAllocationsService
                     $sourceIsPkp = $locInfo['source_is_pkp'];
 
                     $tax = null;
-                    if (! isset($taxesCache[$taxId])) {
-                        $taxesCache[$taxId] = Tax::query()->find($taxId);
+                    if ($taxId !== null && $taxId > 0) {
+                        if (! isset($taxesCache[$taxId])) {
+                            $taxesCache[$taxId] = Tax::query()->find($taxId);
+                        }
+                        $tax = $taxesCache[$taxId];
                     }
-                    $tax = $taxesCache[$taxId];
 
                     $lineAllocations[] = [
                         'source_location_id' => $locationId,
@@ -468,75 +451,6 @@ class ResolvePosStockAllocationsService
 
                     $remainingQty -= $take;
                 }
-            }
-        }
-
-        return $lineAllocations;
-    }
-
-    /**
-     * Allocate a non-taxable line using only non-tax bucket.
-     *
-     * @param  int  $productId
-     * @param  int  $neededQty
-     * @param  array<int>  $locationIds
-     * @param  int  $settingId
-     * @param  array<int, Setting|null>  $settingsCache
-     * @param  array<int, Tax|null>  $taxesCache
-     * @return array<int, array<string, mixed>>
-     */
-    private function allocateNonTaxableLineNonTaxBucketOnly(
-        int $productId,
-        int $neededQty,
-        $locationIds,
-        int $settingId,
-        array &$settingsCache,
-        array &$taxesCache
-    ): array {
-        $lineAllocations = [];
-        $remainingQty = $neededQty;
-
-        foreach ($locationIds as $locationId) {
-            if ($remainingQty <= 0) {
-                break;
-            }
-
-            $stock = ProductStock::query()
-                ->where('product_id', $productId)
-                ->where('location_id', $locationId)
-                ->first();
-
-            if (! $stock) {
-                continue;
-            }
-
-            $available = (int) $stock->quantity_non_tax;
-            if ($available > 0) {
-                $take = min($remainingQty, $available);
-
-                $location = Location::query()->find($locationId);
-                $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
-                
-                if (! isset($settingsCache[$sourceSettingId])) {
-                    $settingsCache[$sourceSettingId] = Setting::query()->find($sourceSettingId);
-                }
-                $sourceSetting = $settingsCache[$sourceSettingId];
-                $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
-
-                $lineAllocations[] = [
-                    'source_location_id' => $locationId,
-                    'source_setting_id' => $sourceSettingId,
-                    'allocated_qty' => $take,
-                    'tax_bucket_used' => false,
-                    'tax_policy_snapshot' => [
-                        'source_is_pkp' => $sourceIsPkp,
-                        'tax_id' => null,
-                        'tax_name' => null,
-                        'tax_rate' => 0.0,
-                    ],
-                ];
-
-                $remainingQty -= $take;
             }
         }
 

@@ -219,6 +219,177 @@ class POSStockAllocationResolverTest extends TestCase
         $this->assertSame($product->id, $result['unfulfilled_details'][0]['product_id']);
     }
 
+    public function test_mixed_serials_across_locations_validate_against_their_own_stock_buckets(): void
+    {
+        $setting = $this->createSetting('BIZ-SERIAL-MIXED');
+        $setting->update(['is_pkp' => true]);
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN MIXED SERIAL',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createProduct($setting, 'PROD-SERIAL-MIXED', 50000);
+
+        $taxLocation = $this->createLocation($setting, 'LOC-TAX');
+        $this->assignSaleLocation($setting, $taxLocation);
+        $this->seedTaxedStock($product, $taxLocation, 1, $tax->id);
+        $this->createSerialNumber($product, $taxLocation, 'SN-MIX-001', $tax->id);
+
+        $serials = ['SN-MIX-001'];
+        for ($index = 2; $index <= 6; $index++) {
+            $location = $this->createLocation($setting, 'LOC-NON-TAX-' . $index);
+            $this->assignSaleLocation($setting, $location);
+            $this->seedStock($product, $location, 1);
+            $serial = 'SN-MIX-00' . $index;
+            $this->createSerialNumber($product, $location, $serial, null);
+            $serials[] = $serial;
+        }
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [[
+            'product_id' => $product->id,
+            'qty' => 6,
+            'tax_id' => $tax->id,
+            'serial_number_required' => true,
+            'assigned_serials' => $serials,
+        ]]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(6, $result['allocations'][0]);
+        $this->assertSame(1, collect($result['allocations'][0])->where('tax_bucket_used', true)->count());
+        $this->assertSame(5, collect($result['allocations'][0])->where('tax_bucket_used', false)->count());
+    }
+
+    public function test_serial_with_null_tax_id_uses_non_tax_bucket_even_when_line_tax_exists(): void
+    {
+        $setting = $this->createSetting('BIZ-SERIAL-NON-TAX');
+        $setting->update(['is_pkp' => true]);
+
+        $location = $this->createLocation($setting, 'LOC-SERIAL-NON-TAX');
+        $this->assignSaleLocation($setting, $location);
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN SERIAL NON TAX',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createProduct($setting, 'PROD-SERIAL-NON-TAX', 35000);
+        $this->seedStock($product, $location, 1);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $location->id)
+            ->update(['quantity_tax' => 0, 'quantity_non_tax' => 1]);
+        $this->createSerialNumber($product, $location, 'SN-NON-TAX-001', null);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [[
+            'product_id' => $product->id,
+            'qty' => 1,
+            'tax_id' => $tax->id,
+            'serial_number_required' => true,
+            'assigned_serials' => ['SN-NON-TAX-001'],
+        ]]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertFalse((bool) $result['allocations'][0][0]['tax_bucket_used']);
+        $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+    }
+
+    public function test_serial_with_tax_id_fails_when_tax_bucket_is_empty(): void
+    {
+        $setting = $this->createSetting('BIZ-SERIAL-TAX-EMPTY');
+        $setting->update(['is_pkp' => true]);
+
+        $location = $this->createLocation($setting, 'LOC-SERIAL-TAX-EMPTY');
+        $this->assignSaleLocation($setting, $location);
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN SERIAL EMPTY',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createProduct($setting, 'PROD-SERIAL-TAX-EMPTY', 37000);
+        $this->seedStock($product, $location, 1);
+        $this->createSerialNumber($product, $location, 'SN-TAX-EMPTY-001', $tax->id);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [[
+            'product_id' => $product->id,
+            'qty' => 1,
+            'tax_id' => $tax->id,
+            'serial_number_required' => true,
+            'assigned_serials' => ['SN-TAX-EMPTY-001'],
+        ]]);
+
+        $this->assertSame([0], $result['unfulfilled_lines']);
+        $this->assertSame('SERIAL_TAX_STOCK_UNAVAILABLE', $result['unfulfilled_details'][0]['reason_code']);
+    }
+
+    public function test_non_taxable_line_uses_non_tax_bucket_first_across_locations(): void
+    {
+        $setting = $this->createSetting('BIZ-NON-TAX-FIRST');
+        $loc1 = $this->createLocation($setting, 'LOC-FIRST');
+        $loc2 = $this->createLocation($setting, 'LOC-SECOND');
+        $this->assignSaleLocation($setting, $loc1);
+        $this->assignSaleLocation($setting, $loc2);
+
+        $product = $this->createProduct($setting, 'PROD-NON-TAX-FIRST', 18000);
+        $this->seedStock($product, $loc1, 1);
+        $this->seedStock($product, $loc2, 2);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $loc1->id)
+            ->update(['quantity_tax' => 4]);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $loc2->id)
+            ->update(['quantity_tax' => 4]);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [
+            ['product_id' => $product->id, 'qty' => 3, 'tax_id' => null],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(2, $result['allocations'][0]);
+        $this->assertSame([1, 2], array_column($result['allocations'][0], 'allocated_qty'));
+        $this->assertSame([false, false], array_column($result['allocations'][0], 'tax_bucket_used'));
+    }
+
+    public function test_non_taxable_line_falls_back_to_tax_bucket_when_non_tax_is_exhausted(): void
+    {
+        $setting = $this->createSetting('BIZ-NON-TAX-FALLBACK');
+        $location = $this->createLocation($setting, 'LOC-FALLBACK');
+        $this->assignSaleLocation($setting, $location);
+
+        $product = $this->createProduct($setting, 'PROD-NON-TAX-FALLBACK', 19000);
+        $this->seedStock($product, $location, 3);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $location->id)
+            ->update([
+                'quantity_non_tax' => 1,
+                'quantity_tax' => 2,
+            ]);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [
+            ['product_id' => $product->id, 'qty' => 3, 'tax_id' => null],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(2, $result['allocations'][0]);
+        $this->assertSame(1, $result['allocations'][0][0]['allocated_qty']);
+        $this->assertFalse((bool) $result['allocations'][0][0]['tax_bucket_used']);
+        $this->assertSame(2, $result['allocations'][0][1]['allocated_qty']);
+        $this->assertTrue((bool) $result['allocations'][0][1]['tax_bucket_used']);
+        $this->assertNull($result['allocations'][0][1]['tax_policy_snapshot']['tax_id']);
+    }
+
     // --- Helpers using withoutEvents to stay clean ---
 
     private function createSetting(string $name): Setting

@@ -492,6 +492,73 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $this->assertSame('STOCK_UNAVAILABLE', $checkout->failure_code);
     }
 
+    public function test_taxed_line_decrements_non_tax_bucket_when_allocation_uses_non_tax_stock(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT TAX BUCKET ALIGN');
+        $context['setting']->update(['is_pkp' => true]);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $tax = Tax::query()->create([
+            'name' => 'VAT ALIGN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-TAX-BUCKET-001', 10000, false);
+        ProductPrice::query()
+            ->where('product_id', $product->id)
+            ->where('setting_id', $context['setting']->id)
+            ->update(['sale_tax_id' => $tax->id]);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $context['location']->id)
+            ->update([
+                'quantity' => 1,
+                'quantity_non_tax' => 1,
+                'quantity_tax' => 0,
+                'tax_id' => $tax->id,
+            ]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-TAX-BUCKET-ALIGN-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 10000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'quantity' => 0,
+            'quantity_non_tax' => 0,
+            'quantity_tax' => 0,
+        ]);
+
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'quantity' => -1,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 1,
+            'type' => 'DISPATCH',
+        ]);
+
+        $this->assertDatabaseHas('dispatch_details', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'tax_id' => $tax->id,
+            'dispatched_quantity' => 1,
+        ]);
+    }
+
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT OVERPAY');
