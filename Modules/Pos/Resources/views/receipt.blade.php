@@ -16,8 +16,9 @@
             padding: 10px;
             width: 80mm;
             color: #000;
+            font-weight: 600; /* Task 3.1: Bolder fonts for thermal printers */
         }
-        h2 { text-transform: uppercase; font-size: 14px; text-align: center; margin: 0 0 5px 0; }
+        h2 { text-transform: uppercase; font-size: 15px; text-align: center; margin: 0 0 5px 0; font-weight: 800; }
         p { margin: 2px 0; text-align: center; }
         .divider { border-top: 1px dashed #000; margin: 10px 0; }
         .text-left { text-align: left; }
@@ -27,13 +28,13 @@
         table { width: 100%; border-collapse: collapse; }
         td, th { vertical-align: top; padding: 2px 0; font-weight: normal; }
         .item-row td { padding-top: 5px; }
-        .item-name { font-weight: bold; }
+        .item-name { font-weight: 800; }
         .unit-breakdown { font-size: 11px; padding-left: 10px; color: #333; }
         
         .totals-table { width: 100%; }
         .totals-table td { padding: 2px 0; }
         .totals-label { text-align: left; }
-        .totals-value { text-align: right; font-weight: bold; }
+        .totals-value { text-align: right; font-weight: 800; }
         
         .footer { text-align: center; margin-top: 15px; font-style: italic; }
         
@@ -49,6 +50,9 @@
     </div>
 
     <div class="header">
+        @if(!empty($receiptData['is_draft']))
+            <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; text-align: center; font-weight: 900; font-size: 18px;">STRUK DRAFT</div>
+        @endif
         <!-- Task 2.1: Center aligned business header -->
         <h2>{{ $receiptData['business_name'] }}</h2>
         @if(!empty($receiptData['business_address']))

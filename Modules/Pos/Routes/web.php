@@ -142,6 +142,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'pos.trans
     Route::get('/pos/transactions', [PosTransactionController::class, 'index'])->name('pos.transactions.index');
     Route::get('/pos/transactions/data', [PosTransactionController::class, 'data'])->name('pos.transactions.data');
     Route::get('/pos/transactions/{transaction}', [PosTransactionController::class, 'show'])->name('pos.transactions.show');
+    Route::get('/pos/transactions/{transaction}/receipt', [PosTransactionController::class, 'receipt'])->name('pos.transactions.receipt');
     Route::post('/pos/transactions/{transaction}/cancel', [PosTransactionController::class, 'cancel'])->name('pos.transactions.cancel');
 });
 

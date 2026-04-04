@@ -1549,6 +1549,34 @@
         </div>
     </div>
 
+    <!-- Task 2.1: Save success modal for draft transactions -->
+    <div class="modal fade" id="pos-save-success-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem;">
+                <div class="modal-body text-center py-5">
+                    <div class="mb-4">
+                        <div class="d-inline-flex align-items-center justify-content-center bg-success-light text-success rounded-circle" style="width: 80px; height: 80px; background-color: rgba(40, 167, 69, 0.1);">
+                            <i class="fas fa-check" style="font-size: 2.5rem;"></i>
+                        </div>
+                    </div>
+                    <h3 class="font-weight-bold mb-2">Simpan Berhasil</h3>
+                    <p class="text-muted mb-4">Transaksi draft telah diamankan dengan nomor:</p>
+                    <div class="bg-light py-2 px-4 rounded mb-4 d-inline-block border">
+                        <span class="h2 font-weight-bold mb-0 text-dark" id="pos-save-success-trx-code">-</span>
+                    </div>
+                    <div class="px-4">
+                        <button type="button" class="btn btn-primary btn-lg py-3 font-weight-bold btn-block mb-3" id="pos-save-success-continue-btn" style="border-radius: 0.75rem;">
+                            Buka Keranjang Baru
+                        </button>
+                        <button type="button" class="btn btn-outline-info btn-lg py-3 font-weight-bold btn-block" id="pos-save-success-print-btn" style="border-radius: 0.75rem;">
+                            <i class="fas fa-print mr-2"></i> Cetak Struk Draft
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Tambah Pelanggan Baru -->
     <div class="modal fade" id="pos-customer-create-modal" tabindex="-1" role="dialog" aria-labelledby="pos-customer-create-modal-label" aria-hidden="true" data-backdrop="static">
         <div class="modal-dialog modal-dialog-centered" role="document">
@@ -3782,19 +3810,59 @@
                 saveDraftButton.addEventListener('click', async function () {
                     const originalText = saveDraftButton.textContent;
                     saveDraftButton.disabled = true;
-                    saveDraftButton.textContent = 'Menyimpan...';
+                    saveDraftButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyimpan...';
 
                     try {
                         const response = await jsonRequest(saveAndNewEndpoint, 'POST');
                         await refreshCart();
 
                         const code = response && response.transaction ? response.transaction.code : '-';
-                        setCartStatus('Transaksi ' + code + ' disimpan. Keranjang baru siap dipakai.', 'text-success');
+                        const trxId = response && response.transaction ? response.transaction.id : null;
+                        
+                        // Task 2.2: Show success modal instead of just status message
+                        const successModalTrx = document.getElementById('pos-save-success-trx-code');
+                        const printBtn = document.getElementById('pos-save-success-print-btn');
+                        
+                        if (successModalTrx) successModalTrx.textContent = code;
+                        if (printBtn) {
+                            printBtn.setAttribute('data-trx-id', trxId);
+                        }
+                        
+                        if (typeof $ !== 'undefined') {
+                            $('#pos-save-success-modal').modal('show');
+                        }
+                        
+                        setCartStatus('Transaksi ' + code + ' disimpan.', 'text-success');
                     } catch (error) {
                         setCartStatus(error.message || 'Gagal menyimpan transaksi.', 'text-danger', true);
                     } finally {
                         saveDraftButton.disabled = false;
                         saveDraftButton.textContent = originalText;
+                    }
+                });
+            }
+
+            // Task 2.3: Implement button actions for the modal
+            const saveSuccessContinueBtn = document.getElementById('pos-save-success-continue-btn');
+            if (saveSuccessContinueBtn) {
+                saveSuccessContinueBtn.addEventListener('click', function() {
+                    if (typeof $ !== 'undefined') {
+                        $('#pos-save-success-modal').modal('hide');
+                    }
+                    if (searchInput) {
+                        searchInput.focus();
+                        searchInput.select();
+                    }
+                });
+            }
+
+            const saveSuccessPrintBtn = document.getElementById('pos-save-success-print-btn');
+            if (saveSuccessPrintBtn) {
+                saveSuccessPrintBtn.addEventListener('click', function() {
+                    const trxId = this.getAttribute('data-trx-id');
+                    if (trxId) {
+                        const url = `/pos/transactions/${trxId}/receipt`;
+                        window.open(url, '_blank');
                     }
                 });
             }

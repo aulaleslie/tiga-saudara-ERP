@@ -15,6 +15,7 @@ use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
 use Modules\Pos\Http\Requests\StorePosTransactionSaveRequest;
 use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
 use Modules\Pos\Services\Exceptions\PosTransactionValidationException;
+use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosTransactionService;
 use Modules\Setting\Entities\Setting;
 
@@ -189,6 +190,25 @@ class PosTransactionController extends Controller
                 $this->transactionCancelApprovalMap([$transaction->id], (int) $request->user()->id)->get((int) $transaction->id)
             ),
         ]);
+    }
+
+    /**
+     * GET /pos/transactions/{transaction}/receipt
+     * Show draft receipt for a transaction.
+     */
+    public function receipt(PosTransaction $transaction, PosReceiptService $receiptService): Renderable
+    {
+        $settingId = $this->currentSettingId();
+        abort_if(
+            ! $this->transactionsEnabled($settingId),
+            403,
+            'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
+        );
+        $this->assertSettingScope($transaction, $settingId);
+
+        $receiptData = $receiptService->getTransactionReceiptData($transaction);
+
+        return view('pos::receipt', compact('receiptData'));
     }
 
     /**

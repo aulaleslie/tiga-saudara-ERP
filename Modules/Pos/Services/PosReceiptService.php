@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosReceiptPrintLog;
+use Modules\Pos\Entities\PosTransaction;
 
 class PosReceiptService
 {
@@ -158,5 +159,88 @@ class PosReceiptService
             'printed_by' => $userId,
             'printed_at' => Carbon::now(),
         ]);
+    }
+
+    /**
+     * Get data required to render the receipt view for a draft transaction.
+     */
+    public function getTransactionReceiptData(PosTransaction $transaction): array
+    {
+        $transaction->loadMissing([
+            'setting.currency',
+            'owner',
+            'customer',
+            'lines.product.unit',
+            'lines.product.baseUnit',
+            'lines.conversion.unit',
+        ]);
+
+        $setting = $transaction->setting;
+        $lines = [];
+
+        foreach ($transaction->lines as $line) {
+            $unitBreakdown = null;
+            $unitName = null;
+            $factor = 1.0;
+
+            if ($line->conversion && $line->conversion->unit) {
+                $unitName = $line->conversion->unit->short_name ?? $line->conversion->unit->name;
+                $factor = (float)($line->conversion->conversion_factor ?? 1);
+            } elseif ($line->product) {
+                $unitName = $line->product->unit->short_name 
+                            ?? $line->product->unit->name 
+                            ?? $line->product->baseUnit->short_name
+                            ?? $line->product->baseUnit->name
+                            ?? $line->product->product_unit;
+                $factor = 1.0;
+            }
+
+            if ($unitName) {
+                $pricePerUnit = $line->unit_price / $factor;
+                $unitBreakdown = sprintf(
+                    "%s %s(S) @ %s",
+                    (float)$line->qty,
+                    $unitName,
+                    format_currency($pricePerUnit)
+                );
+            }
+
+            // Simple subtotal calculation for receipt display
+            $lineSubtotal = ($line->qty * $line->unit_price) - (float)($line->line_discount_value ?? 0);
+
+            $lines[] = [
+                'product_name' => $line->product_name_snapshot,
+                'qty' => (float)$line->qty,
+                'price' => (float)$line->unit_price,
+                'discount' => (float)($line->line_discount_value ?? 0),
+                'sub_total' => $lineSubtotal,
+                'unit_breakdown' => $unitBreakdown,
+            ];
+        }
+
+        $totals = $transaction->snapshot_totals ?? [];
+
+        return [
+            'business_name' => $setting->company_name ?? 'Business',
+            'business_address' => $setting->company_address,
+            'business_phone' => $setting->company_phone,
+            'business_email' => $setting->company_email,
+            'receipt_number' => $transaction->code,
+            'date' => $transaction->created_at->format('d-m-Y H:i'),
+            'cashier_name' => $transaction->owner ? $transaction->owner->name : 'N/A',
+            'terminal_name' => 'N/A',
+            'lines' => $lines,
+            'subtotal' => (float)($totals['total_subtotal'] ?? 0),
+            'discount' => (float)($totals['total_discount'] ?? 0),
+            'tax' => (float)($totals['total_tax'] ?? 0),
+            'grand_total' => (float)($totals['total_grand_total'] ?? 0),
+            'payment_method' => '-',
+            'amount_paid' => 0,
+            'payment_breakdown' => [],
+            'change' => 0,
+            'footer_text' => $setting->footer_text ?? 'Terima Kasih',
+            'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
+            'is_draft' => true,
+        ];
     }
 }
