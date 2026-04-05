@@ -16,6 +16,7 @@ class PosSessionSummaryService
      *     session_id:int,
      *     status:string,
      *     cashier_user_id:int,
+     *     cashier_name:string,
      *     terminal_id:int,
      *     expected_cash_total:float,
      *     cached_expected_cash_total:float,
@@ -41,7 +42,7 @@ class PosSessionSummaryService
         }
 
         $session = PosSession::query()
-            ->with(['terminal.policy', 'cashEvents.performer', 'cashEvents.approver'])
+            ->with(['cashier', 'terminal.policy', 'cashEvents.performer', 'cashEvents.approver'])
             ->where('id', $sessionId)
             ->where('setting_id', $settingId)
             ->first();
@@ -63,43 +64,79 @@ class PosSessionSummaryService
         $expectedCashTotal = round((float) $calculation['expected_cash_total'], 2);
         $threshold = round((float) $thresholdValue, 2);
 
-        // Load transactions (last 50) from checkouts
-        $checkoutQuery = \Modules\Pos\Entities\PosCheckout::query()
-            ->with(['cashier', 'paymentMethod', 'payments.paymentMethod'])
-            ->where('pos_session_id', $sessionId)
-            ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
-            ->orderBy('finalized_at', 'desc');
+        // Load transactions based on session type (terminal vs non-terminal)
+        $isNonTerminal = $session->terminal_id === null;
 
-        $transactions = (clone $checkoutQuery)
-            ->limit(50)
-            ->get()
-            ->map(function ($checkout) {
-                $paymentMethods = $checkout->payments->map(fn ($p) => $p->paymentMethod?->name)
-                    ->filter()
-                    ->unique()
-                    ->implode(', ');
+        if ($isNonTerminal) {
+            // For non-terminal sessions, load PosTransaction records
+            $transactionQuery = \Modules\Pos\Entities\PosTransaction::query()
+                ->with(['owner'])
+                ->where('source_pos_session_id', $sessionId)
+                ->orderBy('created_at', 'desc');
 
-                if ($paymentMethods === '') {
-                    $paymentMethods = $checkout->paymentMethod?->name ?? 'Unknown';
-                }
+            $transactions = (clone $transactionQuery)
+                ->limit(50)
+                ->get()
+                ->map(function ($transaction) {
+                    $amount = $transaction->snapshot_totals['grand_total'] ?? 0;
+                    return [
+                        'id' => (int) $transaction->id,
+                        'code' => (string) $transaction->code,
+                        'amount' => round((float) $amount, 2),
+                        'owner_name' => $transaction->owner?->name ?? 'Unknown',
+                        'timestamp' => $transaction->created_at?->toIso8601String(),
+                    ];
+                })
+                ->values()
+                ->toArray();
 
-                return [
-                    'id' => (int) $checkout->id,
-                    'receipt_number' => (string) $checkout->receipt_number,
-                    'amount' => round((float) $checkout->grand_total, 2),
-                    'payment_method' => $paymentMethods,
-                    'cashier' => $checkout->cashier?->name ?? 'Unknown',
-                    'timestamp' => $checkout->finalized_at?->toIso8601String(),
-                ];
-            })
-            ->values()
-            ->toArray();
+            // Calculate transaction aggregates for non-terminal
+            $totalTransactionsCount = (clone $transactionQuery)->count();
+            $totalTransactionsAmount = (clone $transactionQuery)
+                ->get()
+                ->sum(function ($tx) {
+                    return $tx->snapshot_totals['grand_total'] ?? 0;
+                });
+        } else {
+            // For terminal sessions, load PosCheckout records (existing logic)
+            $checkoutQuery = \Modules\Pos\Entities\PosCheckout::query()
+                ->with(['cashier', 'paymentMethod', 'payments.paymentMethod'])
+                ->where('pos_session_id', $sessionId)
+                ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
+                ->orderBy('finalized_at', 'desc');
 
-        // Calculate transaction aggregates (total for this session)
-        $totalTransactionsCount = (clone $checkoutQuery)->count();
-        $totalTransactionsAmount = (clone $checkoutQuery)->sum('grand_total');
+            $transactions = (clone $checkoutQuery)
+                ->limit(50)
+                ->get()
+                ->map(function ($checkout) {
+                    $paymentMethods = $checkout->payments->map(fn ($p) => $p->paymentMethod?->name)
+                        ->filter()
+                        ->unique()
+                        ->implode(', ');
 
-        // Calculate sales total (already available from sum above, but let's keep it explicit if needed)
+                    if ($paymentMethods === '') {
+                        $paymentMethods = $checkout->paymentMethod?->name ?? 'Unknown';
+                    }
+
+                    return [
+                        'id' => (int) $checkout->id,
+                        'transaction_id' => $checkout->pos_transaction_id ? (int) $checkout->pos_transaction_id : null,
+                        'receipt_number' => (string) $checkout->receipt_number,
+                        'amount' => round((float) $checkout->grand_total, 2),
+                        'payment_method' => $paymentMethods,
+                        'cashier' => $checkout->cashier?->name ?? 'Unknown',
+                        'timestamp' => $checkout->finalized_at?->toIso8601String(),
+                    ];
+                })
+                ->values()
+                ->toArray();
+
+            // Calculate transaction aggregates (total for this session)
+            $totalTransactionsCount = (clone $checkoutQuery)->count();
+            $totalTransactionsAmount = (clone $checkoutQuery)->sum('grand_total');
+        }
+
+        // Calculate sales total
         $salesTotal = round((float) $totalTransactionsAmount, 2);
 
         // Load cash event timeline
@@ -124,7 +161,8 @@ class PosSessionSummaryService
             'session_id' => (int) $session->id,
             'status' => (string) $session->status,
             'cashier_user_id' => (int) $session->cashier_user_id,
-            'terminal_id' => (int) $session->terminal_id,
+            'cashier_name' => $session->cashier?->name ?? 'Unknown',
+            'terminal_id' => $session->terminal_id,
             'expected_cash_total' => $expectedCashTotal,
             'cached_expected_cash_total' => round((float) $calculation['cached_expected_cash_total'], 2),
             'threshold_value' => $threshold,
