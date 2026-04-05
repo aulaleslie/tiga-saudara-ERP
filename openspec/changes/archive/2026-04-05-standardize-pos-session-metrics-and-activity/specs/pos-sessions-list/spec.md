@@ -1,8 +1,5 @@
-# pos-sessions-list Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change fix-pos-sessions-table-alignment. Update Purpose after archive.
-## Requirements
 ### Requirement: Sessions List Table Display
 The sessions list view SHALL render a normalized HTML table with consistent column structure across all session statuses and filters. The table structure SHALL NOT vary based on the active status filter or row status values.
 
@@ -39,11 +36,3 @@ The sessions list view SHALL render a normalized HTML table with consistent colu
 #### Scenario: Filter consistency
 - **WHEN** user applies Aktif (OPEN) filter vs Selesai (CLOSED) filter
 - **THEN** column headers and column count remain identical; only row data changes based on filter
-
-### Requirement: Responsive Table Layout
-The sessions list table SHALL use fixed column widths or controlled layout to prevent cell shifting when switching between filter views.
-
-#### Scenario: Prevent column width reflow on filter change
-- **WHEN** user switches status filters or views pages with different data values
-- **THEN** column widths remain consistent; no text reflow or cell repositioning occurs
-

@@ -46,6 +46,7 @@
                                 <th class="text-end">Total Penjualan</th>
                                 <th class="text-end">Kas</th>
                                 <th class="text-end">Pengambilan Kas</th>
+                                <th class="text-end">Threshold</th>
                                 <th class="text-end">Metrik</th>
                                 <th>Aktivitas Terakhir</th>
                                 <th>Aksi</th>
@@ -56,8 +57,12 @@
                                 @php
                                     $nonTerminalLabel = 'Non-Terminal';
                                     $terminalCodeLabel = $session->terminal?->code ?? $nonTerminalLabel;
+                                    // Highlight row if expected cash exceeds threshold (for sessions with terminals)
+                                    $isThresholdExceeded = $session->terminal
+                                        && $session->terminal->policy
+                                        && $session->expected_cash_total > $session->terminal->policy->cash_threshold;
                                 @endphp
-                                <tr>
+                                <tr class="{{ $isThresholdExceeded ? 'table-warning' : '' }}">
                                     <td>
                                         @if($session->terminal)
                                             <strong>{{ $session->terminal->code }}</strong><br>
@@ -87,34 +92,45 @@
                                     <td class="text-end">{{ format_currency($session->opening_float_total) }}</td>
                                     <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
 
-                                    {{-- Kas column: shows expected for OPEN, counted for CLOSED --}}
+                                    {{-- Kas column: displays expected_cash_total for all session states (OPEN, CLOSED, CLOSING, FINALIZED) --}}
+                                    {{-- This provides consistent operational context: what should be in the drawer based on opening float + sales --}}
                                     <td class="text-end">
-                                        @if($session->status === 'OPEN')
-                                            {{ format_currency($session->expected_cash_total) }}
-                                        @else
-                                            {{ format_currency($session->counted_cash_total) }}
-                                        @endif
+                                        {{ format_currency($session->expected_cash_total) }}
                                     </td>
 
                                     <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
 
-                                    {{-- Metrik column: shows transaction count for OPEN, variance for CLOSED --}}
+                                    {{-- Threshold column: displays terminal policy cash threshold or - if no terminal --}}
                                     <td class="text-end">
-                                        @if($session->status === 'OPEN')
-                                            <span class="badge bg-info">{{ $session->transaction_count ?? 0 }}</span>
-                                        @elseif($session->status === 'CLOSED' || $session->status === 'FINALIZED' || $session->status === 'CLOSING')
-                                            <span class="{{ $session->variance_total != 0 ? 'text-danger fw-bold' : 'text-success' }}">
-                                                {{ format_currency($session->variance_total) }}
-                                            </span>
+                                        @if($session->terminal && $session->terminal->policy)
+                                            {{ format_currency($session->terminal->policy->cash_threshold) }}
                                         @else
                                             <span class="text-muted">-</span>
                                         @endif
                                     </td>
 
-                                    {{-- Aktivitas Terakhir: shows time for OPEN, dash for CLOSED --}}
+                                    {{-- Metrik column: shows CASH_SALE_IN count for terminal sessions, total PosTransaction count for non-terminal --}}
+                                    <td class="text-end">
+                                        @if($session->terminal)
+                                            <span class="badge bg-info">{{ $session->transaction_count ?? 0 }}</span>
+                                        @else
+                                            <span class="badge bg-info">{{ $session->draft_transaction_count ?? 0 }}</span>
+                                        @endif
+                                    </td>
+
+                                    {{-- Aktivitas Terakhir: shows last cash event for terminals, last transaction creation for non-terminals --}}
                                     <td>
-                                        @if($session->status === 'OPEN')
-                                            {{ $session->last_activity ? \Carbon\Carbon::parse($session->last_activity)->format('H:i') : '-' }}
+                                        @php
+                                            $timestamp = $session->terminal
+                                                ? $session->last_cash_activity
+                                                : $session->last_transaction_created;
+                                        @endphp
+                                        @if($timestamp)
+                                            @if($session->status === 'OPEN')
+                                                {{ \Carbon\Carbon::parse($timestamp)->format('H:i') }}
+                                            @else
+                                                {{ \Carbon\Carbon::parse($timestamp)->format('d/m/Y H:i') }}
+                                            @endif
                                         @else
                                             <span class="text-muted">-</span>
                                         @endif
@@ -136,6 +152,10 @@
                                                         <button type="button" class="btn btn-sm btn-outline-success disabled" data-bs-toggle="tooltip" title="Tutup terminal terlebih dahulu sebelum finalisasi">
                                                             <i class="bi bi-check-circle"></i> Finalisasi
                                                         </button>
+                                                    @else
+                                                        <button type="button" class="btn btn-sm btn-outline-success disabled" data-bs-toggle="tooltip" title="Finalisasi tidak diperlukan untuk sesi tanpa terminal">
+                                                            <i class="bi bi-check-circle"></i> Finalisasi
+                                                        </button>
                                                     @endif
                                                 @endcan
                                             @elseif($session->status === 'CLOSED' && $session->terminal)
@@ -150,7 +170,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="12" class="text-center py-4 text-muted">
+                                    <td colspan="13" class="text-center py-4 text-muted">
                                         Tidak ada data sesi POS ditemukan.
                                     </td>
                                 </tr>
@@ -190,6 +210,16 @@
         /* Placeholder dashes styling */
         .pos-sessions-table td .text-muted {
             opacity: 0.6;
+        }
+
+        /* Row highlighting for threshold exceeded sessions */
+        .pos-sessions-table .table-warning {
+            background-color: #fff3cd;
+        }
+
+        .pos-sessions-table .table-warning td {
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
         }
 
         /* Ensure action buttons don't wrap */

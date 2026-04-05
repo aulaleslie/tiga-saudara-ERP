@@ -36,7 +36,7 @@ class PosSessionController extends Controller
         $terminalId = request()->query('terminal_id');
 
         $sessions = PosSession::query()
-            ->with(['terminal', 'terminal.policy', 'cashier', 'cashEvents', 'checkouts'])
+            ->with(['terminal', 'terminal.policy', 'cashier', 'cashEvents', 'checkouts', 'transactions'])
             ->withCount([
                 'cashEvents as transaction_count' => function ($query) {
                     return $query->where('event_type', PosSessionCashEvent::EVENT_CASH_SALE_IN);
@@ -44,8 +44,13 @@ class PosSessionController extends Controller
                 'cashEvents as safe_drops_count' => function ($query) {
                     return $query->where('event_type', PosSessionCashEvent::EVENT_SAFE_DROP_OUT);
                 },
+                'transactions as draft_transaction_count' => function ($query) {
+                    return $query->where('source_pos_session_id', '!=', null);
+                },
             ])
             ->withMax('cashEvents as last_activity', 'occurred_at')
+            ->withMax('cashEvents as last_cash_activity', 'occurred_at')
+            ->withMax('transactions as last_transaction_created', 'created_at')
             ->where('setting_id', $settingId)
             ->when($status, function ($query) use ($status) {
                 return $query->where('status', $status);

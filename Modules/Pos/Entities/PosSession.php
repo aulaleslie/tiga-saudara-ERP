@@ -95,6 +95,11 @@ class PosSession extends BaseModel
         return $this->hasMany(PosCheckout::class, 'pos_session_id');
     }
 
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(PosTransaction::class, 'source_pos_session_id');
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereNotNull('active_marker');

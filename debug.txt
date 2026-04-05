@@ -1,0 +1,39 @@
+Under the main sidebar POS group, the menu entries are:
+
+POS Kasir -> route('pos.sell')
+Sesi POS -> route('pos.sessions.index')
+Transaksi POS -> route('pos.transactions.index')
+Laporan POS -> route('pos.reports.index')
+Rekonsiliasi POS -> route('pos.reconciliation.index')
+Terminal POS -> route('pos.terminals.index')
+Antrian Persetujuan -> route('pos.supervisor.approval-requests.index')
+Source: menu.blade.php (line 158)
+
+Visibility rules for each:
+
+POS Kasir: pos.access + pos.sell
+Sesi POS: pos.access + pos.sessions.view
+Transaksi POS: transactions feature enabled + pos.access + pos.transactions.view
+Laporan POS: pos.access + pos.reports.access
+Rekonsiliasi POS: pos.access + pos.reconciliation.access
+Terminal POS: pos.terminals.access
+Antrian Persetujuan: pos.supervisor.approval
+Related but not part of the sidebar group:
+
+Header quick button Buka POS in header.blade.php (line 27)
+Inside cashier screen dropdown:
+Lap. Sales
+Sesi POS
+Transaksi POS
+Rekonsiliasi
+Kelola Terminal
+Antrian Persetujuan
+actions Tutup Sesi, Pengambilan Kas
+Source: sell.blade.php (line 1103)
+If you want, I can also give you this as a permission-to-menu matrix.
+
+align-pos-role-bundle-matrix
+align-pos-permission-registry-and-deprecations
+align-pos-shell-and-transaction-handoff-permissions
+align-pos-checkout-and-session-oversight-permissions
+align-pos-menu-and-screen-visibility
