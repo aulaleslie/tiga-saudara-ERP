@@ -680,7 +680,6 @@
         max-width: 100px;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .pos-serial-chip .js-serial-remove {
@@ -3042,19 +3041,24 @@
                     return;
                 }
 
-                // Try to find an existing line for this product with unfilled serial slots
-                let targetLine = null;
-                for (const line of currentSnapshot.lines) {
-                    if (line.product_id === product.id && 
-                        line.serial_number_required === true &&
-                        (line.assigned_serials.length < line.qty)) {
-                        targetLine = line;
-                        break;
-                    }
+                // Try to find an existing line for this product
+                // First preference: find a line with unfilled serial slots
+                let targetLine = currentSnapshot.lines.find(line => 
+                    line.product_id === product.id && 
+                    line.serial_number_required === true &&
+                    (line.assigned_serials.length < line.qty)
+                );
+
+                // Second preference: if all are full, pick the first line for this product to consolidate
+                if (!targetLine) {
+                    targetLine = currentSnapshot.lines.find(line => 
+                        line.product_id === product.id && 
+                        line.serial_number_required === true
+                    );
                 }
 
                 if (!targetLine) {
-                    // No existing line with unfilled slots, add product first
+                    // No existing line at all, add product first then append serial
                     await addProductToCart(product, 'scan');
                     if (currentSnapshot && Array.isArray(currentSnapshot.lines)) {
                         const newLine = currentSnapshot.lines.find(line => line.product_id === product.id);
@@ -3063,7 +3067,8 @@
                         }
                     }
                 } else {
-                    // Found existing line with space, append serial to it
+                    // Found existing line (either with space or full), append serial to it
+                    // Backend will now auto-increment qty if full
                     await appendSerialToLine(targetLine.line_id, serial.serial_number);
                 }
             }

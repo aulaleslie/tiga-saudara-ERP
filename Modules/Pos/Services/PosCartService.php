@@ -964,12 +964,17 @@ class PosCartService
         $qty = (int) ($line['qty'] ?? 0);
 
         // Guard: prevent appending if serial count already matches qty.
-        // We do NOT auto-increment here to maintain existing backend validation rules.
+        // If the line is full (assigned count == qty), auto-increment qty first as requested.
         if (count($assignedSerials) >= $qty) {
-            throw new PosCheckoutValidationException(
-                'SERIAL_EXCEEDS_QTY',
-                "Cannot append serial. Line quantity ($qty) is already fully assigned."
-            );
+            $availableQty = (int) ($line['available_qty'] ?? 0);
+            if ($availableQty > 0 && $qty >= $availableQty) {
+                throw new PosCheckoutValidationException(
+                    'SERIAL_EXCEEDS_STOCK',
+                    "Gagal menambahkan serial. Kuantitas stok maksimum ({$availableQty}) telah tercapai."
+                );
+            }
+            $qty++;
+            $cart['lines'][$lineId]['qty'] = $qty;
         }
 
         // Append the serial
