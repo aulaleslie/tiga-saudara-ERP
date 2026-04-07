@@ -1959,6 +1959,11 @@
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+            // Global session context for approval flows
+            window.posSessionId = {{ $activeSession->id }};
+            window.posSettingId = {{ session("setting_id") ?? 0 }};
+
             const roleCapabilities = @json($roleCapabilities ?? []);
             console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
             const hasCheckoutAuthority = Boolean(roleCapabilities && (roleCapabilities.has_checkout_authority === true || roleCapabilities.can_checkout === true));
@@ -2977,13 +2982,15 @@
                      // Persist approval state for Kosongkan Keranjang
                      const clearReq = (snapshot && snapshot.pending_approvals || []).find(a => a.action_type === 'CART_CLEAR');
                      if (clearReq) {
-                         clearCartButton.setAttribute('data-approval-pending', clearReq.request_id);
                          clearCartButton.setAttribute('data-approval-request-id', clearReq.request_id);
                          if (clearReq.status === 'APPROVED') {
+                             clearCartButton.removeAttribute('data-approval-pending');
+                             clearCartButton.setAttribute('data-approval-token', clearReq.approval_token || clearReq.token || '');
                              clearCartButton.textContent = 'Lanjutkan / Batalkan';
                              clearCartButton.classList.remove('btn-outline-danger', 'btn-warning');
                              clearCartButton.classList.add('btn-success');
                          } else {
+                             clearCartButton.setAttribute('data-approval-pending', clearReq.request_id);
                              clearCartButton.textContent = 'Periksa Persetujuan';
                              clearCartButton.classList.remove('btn-outline-danger', 'btn-success');
                              clearCartButton.classList.add('btn-warning');

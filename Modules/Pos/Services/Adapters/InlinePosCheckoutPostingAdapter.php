@@ -315,7 +315,13 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     }
                 }
 
-                $previousProductQty = (int) $product->product_quantity;
+                $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $settingId);
+
+                $previousSettingQty = (int) ProductStock::query()
+                    ->where('product_id', $productId)
+                    ->whereHas('location', fn($q) => $q->where('setting_id', $sourceSettingId))
+                    ->sum('quantity');
+
                 $previousLocationQty = (int) $stock->quantity;
 
                 $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
@@ -329,21 +335,21 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $product->product_quantity = max(0, (int) $product->product_quantity - $chunkQty);
                 $product->save();
 
-                $afterProductQty = (int) $product->product_quantity;
+                $afterSettingQty = $previousSettingQty - $chunkQty;
                 $afterLocationQty = (int) $stock->quantity;
 
                 Transaction::query()->create([
                     'product_id' => $productId,
-                    'setting_id' => $settingId,
+                    'setting_id' => $sourceSettingId,
                     'quantity' => -$chunkQty,
-                    'current_quantity' => $afterProductQty,
+                    'current_quantity' => $afterSettingQty,
                     'broken_quantity' => 0,
                     'location_id' => $chunkLocId,
                     'user_id' => $cashierUserId,
                     'reason' => 'POS checkout #' . $checkoutId,
                     'type' => 'DISPATCH',
-                    'previous_quantity' => $previousProductQty,
-                    'after_quantity' => $afterProductQty,
+                    'previous_quantity' => $previousSettingQty,
+                    'after_quantity' => $afterSettingQty,
                     'previous_quantity_at_location' => $previousLocationQty,
                     'after_quantity_at_location' => $afterLocationQty,
                     'quantity_tax' => $taxBucketUsed ? $chunkQty : 0,

@@ -43,3 +43,11 @@ The posting adapter's inline stock validation (before decrement) SHALL check the
 - **WHEN** the posting adapter validates an allocation chunk with `tax_bucket_used=true` at a location where `quantity_tax >= allocated_qty`
 - **THEN** validation SHALL pass, even if `quantity_non_tax < allocated_qty` at that location
 
+### Requirement: Localized Stock Mutations
+Stock mutations (inventory history logs) must be attributed to the setting that actually owns the stock physically located in the source warehouse.
+
+#### Scenario: Correct Mutation Attribution
+- **WHEN** Stock from Setting B is sold at a terminal in Setting A.
+- **THEN** The `Transaction` mutation record must have `setting_id = Setting B`.
+- **THEN** The mutation log for Setting A should show no deduction for that specific stock chunk.
+
