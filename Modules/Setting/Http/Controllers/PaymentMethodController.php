@@ -8,6 +8,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\PaymentMethod;
+use Modules\Setting\Http\Requests\StorePaymentMethodRequest;
+use Modules\Setting\Http\Requests\UpdatePaymentMethodRequest;
 
 class PaymentMethodController extends Controller
 {
@@ -29,24 +31,10 @@ class PaymentMethodController extends Controller
         return view('setting::payment_methods.create', compact('chartOfAccounts'));
     }
 
-    public function store(Request $request)
+    public function store(StorePaymentMethodRequest $request)
     {
-        abort_if(Gate::denies('paymentMethods.create'), 403);
-        // Validate the request
-        $request->validate([
-            'name' => 'required|string|max:255|unique:payment_methods,name',
-            'coa_id' => 'required|exists:chart_of_accounts,id',
-            'is_cash' => 'nullable|boolean',
-            'requires_reference' => 'nullable|boolean',
-        ]);
-
         // Create a new payment method
-        PaymentMethod::create([
-            'name' => $request->name,
-            'coa_id' => $request->coa_id,
-            'is_cash' => $request->boolean('is_cash'),
-            'requires_reference' => $request->boolean('requires_reference'),
-        ]);
+        PaymentMethod::create($request->validated());
 
         toast('Payment method created successfully!', 'success');
         return redirect()->route('payment-methods.index');
@@ -61,24 +49,10 @@ class PaymentMethodController extends Controller
         return view('setting::payment_methods.edit', compact('paymentMethod', 'chartOfAccounts'));
     }
 
-    public function update(Request $request, PaymentMethod $paymentMethod)
+    public function update(UpdatePaymentMethodRequest $request, PaymentMethod $paymentMethod)
     {
-        abort_if(Gate::denies('paymentMethods.edit'), 403);
-        // Validate the request
-        $request->validate([
-            'name' => 'required|string|max:255|unique:payment_methods,name,' . $paymentMethod->id,
-            'coa_id' => 'required|exists:chart_of_accounts,id',
-            'is_cash' => 'nullable|boolean',
-            'requires_reference' => 'nullable|boolean',
-        ]);
-
         // Update the payment method
-        $paymentMethod->update([
-            'name' => $request->name,
-            'coa_id' => $request->coa_id,
-            'is_cash' => $request->boolean('is_cash'),
-            'requires_reference' => $request->boolean('requires_reference'),
-        ]);
+        $paymentMethod->update($request->validated());
 
         toast('Payment method updated successfully!', 'info');
         return redirect()->route('payment-methods.index');

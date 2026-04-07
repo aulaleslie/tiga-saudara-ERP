@@ -233,6 +233,7 @@ class ResolvePosStockAllocationsService
                     'source_location_id' => $sourceLocationId,
                     'source_setting_id' => $sourceSettingId,
                     'allocated_qty' => 0,
+                    'allocated_serials' => [],
                     'tax_bucket_used' => $resolvedTaxId !== null,
                     'tax_policy_snapshot' => [
                         'source_is_pkp' => $sourceIsPkp,
@@ -244,6 +245,7 @@ class ResolvePosStockAllocationsService
             }
 
             $grouped[$groupKey]['allocated_qty']++;
+            $grouped[$groupKey]['allocated_serials'][] = $serialNumber;
         }
 
         $allocations = array_values($grouped);

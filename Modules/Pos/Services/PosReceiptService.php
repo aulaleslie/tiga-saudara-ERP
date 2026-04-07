@@ -35,8 +35,15 @@ class PosReceiptService
 
         $lines = [];
         // Task 1.2 & 1.3: Prefer PosTransactionLine for accurate unit/conversion breakdown
-        if ($checkout->transaction && $checkout->transaction->lines->count() > 0) {
-            foreach ($checkout->transaction->lines as $line) {
+        // Collect lines from all transactions associated with this checkout
+        $allTransactions = $checkout->transactions;
+        
+        if ($allTransactions->count() > 0) {
+            foreach ($allTransactions as $transaction) {
+                // Ensure lines are loaded
+                $transaction->loadMissing('lines.conversion.unit', 'lines.product.unit', 'lines.product.baseUnit');
+                
+                foreach ($transaction->lines as $line) {
                 $unitBreakdown = null;
                 $unitName = null;
                 $factor = 1.0;
@@ -75,7 +82,8 @@ class PosReceiptService
                     'unit_breakdown' => $unitBreakdown,
                 ];
             }
-        } elseif ($sale) {
+        }
+    } elseif ($sale) {
             foreach ($sale->saleDetails as $detail) {
                 $unitBreakdown = null;
                 if ($detail->product) {

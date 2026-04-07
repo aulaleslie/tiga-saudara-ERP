@@ -760,7 +760,8 @@ class FinalizePosCheckoutService
                         $session,
                         $cashierUserId,
                         $cartSnapshot,
-                        $lockedCheckout->id
+                        $lockedCheckout->id,
+                        $resolution['allocations']
                     );
 
                     $lockedCheckout->pos_transaction_id = (int) $completedTransaction->id;

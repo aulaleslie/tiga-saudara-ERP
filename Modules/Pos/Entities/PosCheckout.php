@@ -132,4 +132,9 @@ class PosCheckout extends BaseModel
     {
         return $this->hasMany(PosCheckoutPaymentAllocation::class, 'pos_checkout_id');
     }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(PosTransaction::class, 'completed_checkout_id');
+    }
 }

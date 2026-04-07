@@ -311,16 +311,63 @@ class PosTransactionService
         PosSession $activeSession,
         int $actorUserId,
         array $cartSnapshot,
-        int $checkoutId
+        int $checkoutId,
+        array $allocations = []
     ): PosTransaction {
         $activeTransactionId = (int) ($cartSnapshot['active_transaction_id'] ?? 0);
-        $snapshotTotals = $this->mapper->buildSnapshotTotals((array) ($cartSnapshot['totals'] ?? []));
-        $snapshotLines = $this->normalizeSnapshotLines((array) ($cartSnapshot['lines'] ?? []));
+        $snapshotLines = (array) ($cartSnapshot['lines'] ?? []);
         $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
         $selectedCustomerId = (int) ($cartSnapshot['customer']['selected_customer']['id'] ?? 0);
         $customerId = $resolvedCustomerId > 0
             ? $resolvedCustomerId
             : ($selectedCustomerId > 0 ? $selectedCustomerId : null);
+
+        // Group allocated quantities and serials by setting
+        $linesBySetting = [];
+        
+        foreach ($snapshotLines as $index => $line) {
+            $lineAllocations = $allocations[$index] ?? [];
+            if (empty($lineAllocations)) {
+                $linesBySetting[$settingId][] = array_merge($line, [
+                    'qty' => $line['qty'],
+                    'assigned_serials' => $line['assigned_serials'] ?? []
+                ]);
+                continue;
+            }
+
+            foreach ($lineAllocations as $alloc) {
+                $targetSettingId = (int) $alloc['source_setting_id'];
+                $allocatedQty = (int) $alloc['allocated_qty'];
+                $allocatedSerials = (array) ($alloc['allocated_serials'] ?? []);
+
+                if ($allocatedQty <= 0) {
+                    continue;
+                }
+
+                $lineSubset = $line;
+                $lineSubset['qty'] = $allocatedQty;
+                $lineSubset['assigned_serials'] = $allocatedSerials;
+                
+                $originalQty = max(1, (int) ($line['qty'] ?? 1));
+                $ratio = $allocatedQty / $originalQty;
+                
+                foreach ([
+                    'line_gross',
+                    'line_discount_amount',
+                    'line_net_before_bill',
+                    'bill_discount_amount',
+                    'line_subtotal',
+                    'line_tax_total',
+                    'line_total'
+                ] as $field) {
+                    if (isset($line[$field])) {
+                        $lineSubset[$field] = round($line[$field] * $ratio, 2);
+                    }
+                }
+
+                $linesBySetting[$targetSettingId][] = $lineSubset;
+            }
+        }
 
         return DB::transaction(function () use (
             $settingId,
@@ -328,50 +375,97 @@ class PosTransactionService
             $actorUserId,
             $checkoutId,
             $activeTransactionId,
-            $snapshotTotals,
-            $snapshotLines,
-            $customerId
+            $customerId,
+            $linesBySetting
         ) {
-            $transaction = null;
+            $primaryTransaction = null;
+            $sortedSettings = array_keys($linesBySetting);
+            usort($sortedSettings, fn($a, $b) => ($a == $settingId ? -1 : ($b == $settingId ? 1 : $a <=> $b)));
 
-            if ($activeTransactionId > 0) {
+            foreach ($sortedSettings as $targetSettingId) {
+                $settingLines = $linesBySetting[$targetSettingId];
+                
+                $totals = [
+                    'line_count' => count($settingLines),
+                    'subtotal' => round(array_sum(array_column($settingLines, 'line_subtotal')), 2),
+                    'discount_total' => round(
+                        array_sum(array_column($settingLines, 'line_discount_amount')) +
+                        array_sum(array_column($settingLines, 'bill_discount_amount')),
+                        2
+                    ),
+                    'tax_total' => round(array_sum(array_column($settingLines, 'line_tax_total')), 2),
+                    'grand_total' => round(array_sum(array_column($settingLines, 'line_subtotal')), 2),
+                ];
+
+                $transaction = null;
+                if ($targetSettingId === $settingId && $activeTransactionId > 0) {
+                    $transaction = PosTransaction::query()
+                        ->where('setting_id', $settingId)
+                        ->whereKey($activeTransactionId)
+                        ->lockForUpdate()
+                        ->first();
+                }
+
+                if (! $transaction) {
+                    $transaction = PosTransaction::query()->create([
+                        'setting_id' => $targetSettingId,
+                        'code' => $this->codeGenerator->generate($targetSettingId),
+                        'status' => PosTransaction::STATUS_DRAFT,
+                        'created_by' => $actorUserId,
+                        'owner_user_id' => $actorUserId,
+                        'last_saved_by' => $actorUserId,
+                        'customer_id' => $customerId,
+                        'source_pos_session_id' => $activeSession->id,
+                        'snapshot_totals' => $totals,
+                    ]);
+                } else {
+                    $transaction->update([
+                        'last_saved_by' => $actorUserId,
+                        'customer_id' => $customerId,
+                        'source_pos_session_id' => $activeSession->id,
+                        'snapshot_totals' => $totals,
+                    ]);
+                }
+
+                $this->mapper->persistLines($transaction, $settingLines);
+                $transaction->refresh();
+                $transaction->update([
+                    'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
+                    'status' => PosTransaction::STATUS_COMPLETED,
+                    'completed_checkout_id' => $checkoutId,
+                ]);
+
+                if ($targetSettingId === $settingId || $primaryTransaction === null) {
+                    $primaryTransaction = $transaction;
+                }
+            }
+            
+            if ($activeTransactionId > 0 && !isset($linesBySetting[$settingId])) {
                 $transaction = PosTransaction::query()
                     ->where('setting_id', $settingId)
                     ->whereKey($activeTransactionId)
                     ->lockForUpdate()
                     ->first();
+                if ($transaction) {
+                    $transaction->update([
+                        'snapshot_totals' => [
+                            'line_count' => 0,
+                            'subtotal' => 0,
+                            'discount_total' => 0,
+                            'tax_total' => 0,
+                            'grand_total' => 0
+                        ],
+                        'status' => PosTransaction::STATUS_COMPLETED,
+                        'completed_checkout_id' => $checkoutId,
+                    ]);
+                    $this->mapper->persistLines($transaction, []);
+                    $transaction->update([
+                        'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
+                    ]);
+                }
             }
 
-            if (! $transaction) {
-                $transaction = PosTransaction::query()->create([
-                    'setting_id' => $settingId,
-                    'code' => $this->codeGenerator->generate($settingId),
-                    'status' => PosTransaction::STATUS_DRAFT,
-                    'created_by' => $actorUserId,
-                    'owner_user_id' => $actorUserId,
-                    'last_saved_by' => $actorUserId,
-                    'customer_id' => $customerId,
-                    'source_pos_session_id' => $activeSession->id,
-                    'snapshot_totals' => $snapshotTotals,
-                ]);
-            } else {
-                $transaction->update([
-                    'last_saved_by' => $actorUserId,
-                    'customer_id' => $customerId,
-                    'source_pos_session_id' => $activeSession->id,
-                    'snapshot_totals' => $snapshotTotals,
-                ]);
-            }
-
-            $this->mapper->persistLines($transaction, $snapshotLines);
-            $transaction->refresh();
-            $transaction->update([
-                'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
-                'status' => PosTransaction::STATUS_COMPLETED,
-                'completed_checkout_id' => $checkoutId,
-            ]);
-
-            return $transaction->fresh();
+            return $primaryTransaction->fresh();
         });
     }
 
