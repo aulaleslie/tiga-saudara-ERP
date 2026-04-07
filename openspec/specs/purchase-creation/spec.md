@@ -1,7 +1,9 @@
 # purchase-creation Specification
 
 ## Purpose
-TBD - created by archiving change fix-purchase-is-tax-included-state. Update Purpose after archive.
+
+This specification defines the requirements for the purchase creation workflow, including the initialization and persistence of tax states, automatic tax resolution based on PKP policies, and state synchronization during product quick-add operations.
+
 ## Requirements
 ### Requirement: CreateForm initializes is_tax_included based on PKP status
 
@@ -63,17 +65,28 @@ The purchase creation flow SHALL resolve purchase-line tax according to the acti
 - **AND** a default tax exists
 - **THEN** the purchase cart line SHALL use the default tax
 - **AND** purchase tax calculations SHALL use that default tax immediately
+- **AND** the UI SHALL display this default tax as selected
 
-#### Scenario: PKP purchase does not use latest tax as fallback
+#### Scenario: PKP purchase falls back to any available tax when default is missing
 - **WHEN** a user creates a purchase and the active setting has `is_pkp = true`
 - **AND** the selected product does not have a configured purchase tax for the active setting
-- **AND** no default tax exists
-- **THEN** the system SHALL NOT assign the latest-created tax automatically
+- **AND** no tax is explicitly marked as "default" in the database
+- **AND** at least one tax exists in the system
+- **THEN** the purchase cart line SHALL auto-select the first available tax (alphabetical by name)
+- **AND** purchase tax calculations SHALL use that fallback tax immediately
+- **AND** the UI SHALL display this fallback tax as selected
 
 #### Scenario: PKP purchase blocks unresolved tax lines
 - **WHEN** a user submits a purchase and the active setting has `is_pkp = true`
 - **AND** one or more purchase lines still have no resolved tax
 - **THEN** the submission SHALL fail with a validation error indicating that purchase tax is required
+
+### Requirement: PKP tax availability validation
+
+#### Scenario: PKP purchase blocks submission when zero taxes exist
+- **WHEN** a user submits a purchase and the active setting has `is_pkp = true`
+- **AND** no taxes are configured in the system
+- **THEN** the submission SHALL fail with a validation error: "Tidak ada data pajak tersedia. Bisnis PKP wajib mengatur setidaknya satu data pajak."
 
 ### Requirement: Product quick-add tax auto-selection persists through the purchase flow
 

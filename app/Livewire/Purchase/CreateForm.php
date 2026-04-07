@@ -21,6 +21,7 @@ use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Purchase\Services\PurchaseTaxInclusionResolver;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Throwable;
 
 class CreateForm extends Component
@@ -371,6 +372,13 @@ class CreateForm extends Component
     {
         if (! $this->isPkpEnabled()) {
             return;
+        }
+
+        // Check if any taxes exist in the system
+        if (Tax::query()->count() === 0) {
+            throw ValidationException::withMessages([
+                'cart' => "Tidak ada data pajak tersedia. Bisnis PKP wajib mengatur setidaknya satu data pajak.",
+            ]);
         }
 
         foreach ($cartItems as $index => $item) {

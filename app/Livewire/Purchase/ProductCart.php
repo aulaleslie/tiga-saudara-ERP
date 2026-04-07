@@ -346,7 +346,15 @@ class ProductCart extends Component
     {
         $defaultTax = $this->taxes->firstWhere('is_default', true);
 
-        return $defaultTax ? (int) $defaultTax->id : null;
+        if ($defaultTax) {
+            return (int) $defaultTax->id;
+        }
+
+        if ($this->isPkp && $this->taxes->isNotEmpty()) {
+            return (int) $this->taxes->first()->id;
+        }
+
+        return null;
     }
 
     private function resolveProductPurchaseTaxIdForProduct(int $productId, ?array $productPayload = null): ?int
