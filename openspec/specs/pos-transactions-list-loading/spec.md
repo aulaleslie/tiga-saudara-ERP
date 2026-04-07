@@ -40,3 +40,14 @@ The `Muat Data` action SHALL retry list loading using currently selected filter 
 #### Scenario: Explicit status filter narrows results
 - **WHEN** user clicks `Muat Data` with one or more statuses selected
 - **THEN** the list MUST return only transactions matching selected statuses
+
+### Requirement: Conditional Transaction Actions Visibility
+The POS transaction list UI SHALL conditionally hide actions based on the transaction's current status to prevent redundant or invalid state transitions.
+
+#### Scenario: Transaction marked as LOADED hides the Load action
+- **WHEN** a transaction has the `LOADED` status
+- **THEN** the "Muat" action MUST be hidden in the list UI
+
+#### Scenario: Transaction marked as DRAFT shows the Load action
+- **WHEN** a transaction has the `DRAFT` status
+- **THEN** the "Muat" action MUST be visible in the list UI

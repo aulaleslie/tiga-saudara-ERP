@@ -208,7 +208,7 @@
                     actions.push(`<button type="button" class="btn btn-sm btn-outline-primary js-reprint-transaction" data-id="${row.id}">Cetak Ulang</button>`);
                 }
 
-                if (canLoad && (row.status === 'DRAFT' || row.status === 'LOADED')) {
+                if (canLoad && row.status === 'DRAFT') {
                     actions.push(`<button type="button" class="btn btn-sm btn-primary js-load-transaction" data-id="${row.id}">Muat</button>`);
                 }
 

@@ -181,14 +181,11 @@ class PosTransactionService
         // Check user has permission to edit this transaction
         $this->policyService->assertCanLoadDraft($user, $transaction);
 
-        // Only non-completed, non-cancelled transactions can be loaded.
-        if (! in_array($transaction->status, [
-            PosTransaction::STATUS_DRAFT,
-            PosTransaction::STATUS_LOADED,
-        ], true)) {
+        // Only DRAFT transactions can be loaded to prevent concurrent loading across terminals.
+        if ($transaction->status !== PosTransaction::STATUS_DRAFT) {
             throw new PosTransactionValidationException(
                 'TRANSACTION_NOT_LOADABLE',
-                'Hanya transaksi non-selesai yang dapat dimuat.'
+                'Hanya transaksi draf yang dapat dimuat.'
             );
         }
 
@@ -207,6 +204,14 @@ class PosTransactionService
                 );
             }
 
+            // Atomic status check after lock to prevent race conditions
+            if ($transaction->status !== PosTransaction::STATUS_DRAFT) {
+                throw new PosTransactionConflictException(
+                    'TRANSACTION_ALREADY_LOADED',
+                    'Transaksi ini sedang aktif atau telah dimuat di terminal lain dan tidak dapat diproses bersamaan.'
+                );
+            }
+
             $storedHash = (string) ($transaction->snapshot_hash ?? '');
             $currentHash = $this->mapper->buildSnapshotHash($transaction);
 
@@ -217,9 +222,7 @@ class PosTransactionService
                 );
             }
 
-            if ($transaction->status !== PosTransaction::STATUS_LOADED) {
-                $transaction->update(['status' => PosTransaction::STATUS_LOADED]);
-            }
+            $transaction->update(['status' => PosTransaction::STATUS_LOADED]);
 
             // Hydrate cart from transaction
             $hydratedCart = $this->mapper->hydrateCart($transaction);
