@@ -148,7 +148,7 @@ class PosReceiptService
     }
 
     /**
-     * Log a print or reprint action.
+     * Log a print or reprint action for checkouts.
      */
     public function logPrint(int $settingId, int $checkoutId, int $userId, string $type = 'PRINT'): PosReceiptPrintLog
     {
@@ -159,6 +159,49 @@ class PosReceiptService
             'printed_by' => $userId,
             'printed_at' => Carbon::now(),
         ]);
+    }
+
+    /**
+     * Log a print or reprint action for transactions.
+     */
+    public function logTransactionPrint(int $settingId, int $transactionId, int $userId, string $type = 'PRINT'): PosReceiptPrintLog
+    {
+        return PosReceiptPrintLog::query()->create([
+            'setting_id' => $settingId,
+            'pos_transaction_id' => $transactionId,
+            'print_type' => $type,
+            'printed_by' => $userId,
+            'printed_at' => Carbon::now(),
+        ]);
+    }
+
+    /**
+     * Get print history for a transaction with user information.
+     */
+    public function getTransactionPrintHistory(int $transactionId): array
+    {
+        $logs = PosReceiptPrintLog::query()
+            ->where('pos_transaction_id', $transactionId)
+            ->with('printer:id,name')
+            ->latest('printed_at')
+            ->get();
+
+        if ($logs->isEmpty()) {
+            return [
+                'count' => 0,
+                'last_printer' => null,
+                'last_printed_at' => null,
+            ];
+        }
+
+        $lastLog = $logs->first();
+
+        return [
+            'count' => $logs->count(),
+            'last_printer' => $lastLog->printer?->name ?? 'Unknown',
+            'last_printed_at' => $lastLog->printed_at,
+            'logs' => $logs,
+        ];
     }
 
     /**
@@ -187,8 +230,8 @@ class PosReceiptService
                 $unitName = $line->conversion->unit->short_name ?? $line->conversion->unit->name;
                 $factor = (float)($line->conversion->conversion_factor ?? 1);
             } elseif ($line->product) {
-                $unitName = $line->product->unit->short_name 
-                            ?? $line->product->unit->name 
+                $unitName = $line->product->unit->short_name
+                            ?? $line->product->unit->name
                             ?? $line->product->baseUnit->short_name
                             ?? $line->product->baseUnit->name
                             ?? $line->product->product_unit;
@@ -219,6 +262,7 @@ class PosReceiptService
         }
 
         $totals = $transaction->snapshot_totals ?? [];
+        $printHistory = $this->getTransactionPrintHistory($transaction->id);
 
         return [
             'business_name' => $setting->company_name ?? 'Business',
@@ -241,6 +285,7 @@ class PosReceiptService
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
             'is_draft' => true,
+            'print_history' => $printHistory,
         ];
     }
 }

@@ -100,6 +100,7 @@
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const canLoad = @json(auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'));
             const canRequestCancel = @json(auth()->user()->can('pos.sell'));
+            const canReprint = @json(auth()->user()->can('pos.receipts.reprint'));
             const defaultStatusMessage = 'Draft dapat dimuat untuk kolaborasi bila Anda memiliki izin muat. Pembatalan draft memerlukan otorisasi void atau persetujuan supervisor.';
 
             let page = 1;
@@ -202,6 +203,10 @@
                 const actions = [
                     `<a class="btn btn-sm btn-outline-secondary" href="${transactionsBaseUrl}/${row.id}">Detail</a>`,
                 ];
+
+                if (canReprint) {
+                    actions.push(`<button type="button" class="btn btn-sm btn-outline-primary js-reprint-transaction" data-id="${row.id}">Cetak Ulang</button>`);
+                }
 
                 if (canLoad && (row.status === 'DRAFT' || row.status === 'LOADED')) {
                     actions.push(`<button type="button" class="btn btn-sm btn-primary js-load-transaction" data-id="${row.id}">Muat</button>`);
@@ -452,6 +457,16 @@
             };
 
             tableBody.addEventListener('click', async (event) => {
+                const reprintButton = event.target.closest('.js-reprint-transaction');
+                if (reprintButton) {
+                    const id = Number(reprintButton.getAttribute('data-id') || 0);
+                    if (id <= 0) return;
+
+                    const receiptUrl = `${transactionsBaseUrl}/${id}/receipt/reprint`;
+                    window.open(receiptUrl, '_blank');
+                    return;
+                }
+
                 const loadButton = event.target.closest('.js-load-transaction');
                 if (loadButton) {
                     const id = Number(loadButton.getAttribute('data-id') || 0);

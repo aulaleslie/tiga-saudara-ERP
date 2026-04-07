@@ -16,6 +16,7 @@ class PosReceiptPrintLog extends BaseModel
     protected $fillable = [
         'setting_id',
         'pos_checkout_id',
+        'pos_transaction_id',
         'print_type',
         'printed_by',
         'printed_at',
@@ -32,6 +33,11 @@ class PosReceiptPrintLog extends BaseModel
     public function checkout(): BelongsTo
     {
         return $this->belongsTo(PosCheckout::class, 'pos_checkout_id', 'id');
+    }
+
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(PosTransaction::class, 'pos_transaction_id', 'id');
     }
 
     public function printer(): BelongsTo

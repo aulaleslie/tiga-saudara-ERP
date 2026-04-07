@@ -9,6 +9,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
@@ -196,7 +197,7 @@ class PosTransactionController extends Controller
      * GET /pos/transactions/{transaction}/receipt
      * Show draft receipt for a transaction.
      */
-    public function receipt(PosTransaction $transaction, PosReceiptService $receiptService): Renderable
+    public function receipt(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
     {
         $settingId = $this->currentSettingId();
         abort_if(
@@ -205,6 +206,48 @@ class PosTransactionController extends Controller
             'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
         );
         $this->assertSettingScope($transaction, $settingId);
+
+        // Log the initial print
+        $receiptService->logTransactionPrint(
+            $settingId,
+            $transaction->id,
+            (int) $request->user()->id,
+            PosReceiptPrintLog::TYPE_PRINT
+        );
+
+        $receiptData = $receiptService->getTransactionReceiptData($transaction);
+
+        return view('pos::receipt', compact('receiptData'));
+    }
+
+    /**
+     * POST /pos/transactions/{transaction}/receipt/reprint
+     * Reprint a transaction receipt.
+     */
+    public function receiptReprint(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
+    {
+        $settingId = $this->currentSettingId();
+        abort_if(
+            ! $this->transactionsEnabled($settingId),
+            403,
+            'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
+        );
+        $this->assertSettingScope($transaction, $settingId);
+
+        // Check permission to reprint receipts
+        abort_unless(
+            $request->user()->can('pos.receipts.reprint'),
+            403,
+            'Anda tidak memiliki izin untuk mencetak ulang struk.'
+        );
+
+        // Log the reprint
+        $receiptService->logTransactionPrint(
+            $settingId,
+            $transaction->id,
+            (int) $request->user()->id,
+            PosReceiptPrintLog::TYPE_REPRINT
+        );
 
         $receiptData = $receiptService->getTransactionReceiptData($transaction);
 

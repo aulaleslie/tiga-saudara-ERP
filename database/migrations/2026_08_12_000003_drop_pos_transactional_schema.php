@@ -73,12 +73,12 @@ return new class extends Migration
             return;
         }
 
-        Schema::table($tableName, function (Blueprint $table) use ($column) {
-            try {
+        try {
+            Schema::table($tableName, function (Blueprint $table) use ($column) {
                 $table->dropForeign([$column]);
-            } catch (\Throwable) {
-                // No-op if foreign key name differs or FK is already absent.
-            }
-        });
+            });
+        } catch (\Throwable) {
+            // No-op if foreign key name differs or FK is already absent.
+        }
     }
 };

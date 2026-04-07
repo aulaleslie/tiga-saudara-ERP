@@ -12,6 +12,19 @@ return new class extends Migration
             return;
         }
 
+        // Clean up orphaned records before adding foreign key constraints
+        if (Schema::hasTable('pos_transactions') && Schema::hasColumn('pos_transactions', 'source_pos_session_id')) {
+            Schema::getConnection()->statement(
+                'DELETE FROM pos_transactions WHERE source_pos_session_id IS NOT NULL AND source_pos_session_id NOT IN (SELECT id FROM pos_sessions)'
+            );
+        }
+
+        if (Schema::hasTable('pos_action_approval_requests') && Schema::hasColumn('pos_action_approval_requests', 'pos_session_id')) {
+            Schema::getConnection()->statement(
+                'DELETE FROM pos_action_approval_requests WHERE pos_session_id IS NOT NULL AND pos_session_id NOT IN (SELECT id FROM pos_sessions)'
+            );
+        }
+
         $this->addForeignIfMissing(
             'pos_transactions',
             'source_pos_session_id',

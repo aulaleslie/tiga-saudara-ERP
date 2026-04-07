@@ -27,6 +27,9 @@
                 </div>
                 <div class="d-flex gap-2">
                     <a href="{{ route('pos.transactions.index') }}" class="btn btn-sm btn-outline-secondary">Kembali</a>
+                    @if(auth()->user()->can('pos.receipts.reprint'))
+                        <button id="btn-reprint-transaction" type="button" class="btn btn-sm btn-outline-primary">Cetak Ulang</button>
+                    @endif
                     @if($isLoadable && auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'))
                         <button id="btn-load-transaction" type="button" class="btn btn-sm btn-primary">Muat ke Kasir</button>
                     @endif
@@ -87,7 +90,6 @@
                             <th class="text-right">Qty</th>
                             <th class="text-right">Harga</th>
                             <th class="text-right">Diskon</th>
-                            <th class="text-right">Pajak</th>
                             <th class="text-right">Sub Total</th>
                             <th>Serial</th>
                         </tr>
@@ -102,11 +104,7 @@
                                 $lineDiscount = $line->line_discount_type === 'percentage'
                                     ? ($lineBase * ($discountValue / 100))
                                     : $discountValue;
-                                $lineAfterDiscount = max(0, $lineBase - $lineDiscount);
-                                $lineTax = ((float) ($line->tax_rate_snapshot ?? 0)) > 0
-                                    ? ($lineAfterDiscount * ((float) $line->tax_rate_snapshot / 100))
-                                    : 0;
-                                $lineSubtotal = $lineAfterDiscount + $lineTax;
+                                $lineSubtotal = max(0, $lineBase - $lineDiscount);
                             @endphp
                             <tr>
                                 <td>{{ $line->line_no }}</td>
@@ -123,7 +121,6 @@
                                         {{ number_format($discountValue, 2, ',', '.') }}
                                     @endif
                                 </td>
-                                <td class="text-right">{{ number_format($lineTax, 2, ',', '.') }}</td>
                                 <td class="text-right font-weight-bold">{{ number_format($lineSubtotal, 2, ',', '.') }}</td>
                                 <td>
                                     @if($line->serials->isEmpty())
@@ -146,21 +143,19 @@
             </div>
             <div class="card-footer bg-white">
                 <div class="row">
-                    <div class="col-md-3">
+                    <div class="col-md-6">
                         <div class="small text-muted">Subtotal</div>
                         <div>{{ number_format((float) ($transaction->snapshot_totals['subtotal'] ?? 0), 2, ',', '.') }}</div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-6">
                         <div class="small text-muted">Diskon</div>
                         <div>{{ number_format((float) ($transaction->snapshot_totals['discount_total'] ?? 0), 2, ',', '.') }}</div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="small text-muted">Pajak</div>
-                        <div>{{ number_format((float) ($transaction->snapshot_totals['tax_total'] ?? 0), 2, ',', '.') }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="small text-muted">Grand Total</div>
-                        <div class="font-weight-bold">{{ number_format((float) ($transaction->snapshot_totals['grand_total'] ?? 0), 2, ',', '.') }}</div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-md-6 offset-md-6">
+                        <div class="small text-muted">Total</div>
+                        <div class="font-weight-bold" style="font-size: 18px;">{{ number_format((float) ($transaction->snapshot_totals['grand_total'] ?? 0), 2, ',', '.') }}</div>
                     </div>
                 </div>
             </div>
@@ -172,6 +167,7 @@
     <script>
         (function () {
             const loadButton = document.getElementById('btn-load-transaction');
+            const reprintButton = document.getElementById('btn-reprint-transaction');
             const cancelButton = document.getElementById('btn-cancel-transaction');
             const statusElement = document.getElementById('transaction-action-status');
             const transactionId = @json((int) $transaction->id);
@@ -246,6 +242,13 @@
 
                 return body;
             };
+
+            if (reprintButton) {
+                reprintButton.addEventListener('click', () => {
+                    const receiptUrl = `/pos/transactions/${transactionId}/receipt/reprint`;
+                    window.open(receiptUrl, '_blank');
+                });
+            }
 
             if (loadButton) {
                 loadButton.addEventListener('click', async () => {

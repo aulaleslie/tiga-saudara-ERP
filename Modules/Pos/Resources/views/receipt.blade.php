@@ -89,8 +89,21 @@
                 <td class="text-left">: {{ $receiptData['terminal_name'] }}</td>
             </tr>
         </table>
-        
+
         <div class="divider"></div>
+
+        @if(!empty($receiptData['print_history']) && $receiptData['print_history']['count'] > 0)
+        <div class="print-history" style="text-align: center; font-size: 11px; margin-bottom: 10px;">
+            @php
+                $count = $receiptData['print_history']['count'];
+                $countText = $count === 1 ? 'Dicetak 1 kali' : "Dicetak $count kali";
+                $lastPrinter = $receiptData['print_history']['last_printer'];
+                $lastPrintedAt = \Carbon\Carbon::parse($receiptData['print_history']['last_printed_at'])->format('d-m-Y H:i:s');
+            @endphp
+            {{ $countText }}. Terakhir dicetak oleh {{ $lastPrinter }} pada {{ $lastPrintedAt }}
+        </div>
+        <div class="divider"></div>
+        @endif
     </div>
 
     <div class="items">
