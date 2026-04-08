@@ -26,8 +26,15 @@
             width: 72mm;
             max-width: 72mm;
             margin: 0 auto;
-            padding: 2mm;
+            padding: 0;
             background: #fff;
+        }
+
+        .receipt-container {
+            width: 68mm;
+            max-width: 68mm;
+            margin: 0 auto;
+            padding: 2mm 0;
         }
 
         h2 {
@@ -70,6 +77,27 @@
 
         .meta {
             margin-top: 5px;
+        }
+
+        .meta-table td {
+            font-size: 10px;
+            line-height: 13px;
+            padding: 1px 0;
+            vertical-align: top;
+        }
+
+        .meta-table tr {
+            border-bottom: 0;
+        }
+
+        .meta-label {
+            width: 19mm;
+            white-space: nowrap;
+        }
+
+        .meta-separator {
+            width: 3mm;
+            text-align: center;
         }
 
         .print-history {
@@ -115,6 +143,8 @@
             body {
                 width: 72mm;
                 max-width: 72mm;
+                margin: 0 auto;
+                padding: 0;
             }
 
             * {
@@ -134,8 +164,16 @@
             }
 
             body {
-                margin: 0;
-                padding: 2mm;
+                margin: 0 auto;
+                padding: 0;
+                background: #fff;
+            }
+
+            .receipt-container {
+                width: 68mm;
+                max-width: 68mm;
+                margin: 0 auto;
+                padding: 2mm 0;
             }
         }
 
@@ -163,7 +201,7 @@
     <button onclick="window.print()">Cetak Struk</button>
 </div>
 
-<div class="receipt-container" style="max-width:72mm;margin:0 auto">
+<div class="receipt-container">
     <div id="receipt-data">
         <div class="centered">
             <h2 style="margin-bottom: 5px">{{ $receiptData['business_name'] }}</h2>
@@ -177,17 +215,39 @@
             </p>
         </div>
 
-        <p class="meta">
-            <span>Tanggal:</span> {{ $displayDate }}<br>
-            <span>No. Struk:</span> {{ $receiptData['receipt_number'] }}<br>
-            <span>Pelanggan:</span> {{ $receiptData['customer_name'] ?? '-' }}
-            @if(!empty($receiptData['cashier_name']) && $receiptData['cashier_name'] !== 'N/A')
-                <br><span>Kasir:</span> {{ $receiptData['cashier_name'] }}
-            @endif
-            @if(!empty($receiptData['terminal_name']) && $receiptData['terminal_name'] !== 'N/A')
-                <br><span>Terminal:</span> {{ $receiptData['terminal_name'] }}
-            @endif
-        </p>
+        <table class="meta meta-table">
+            <tbody>
+                <tr>
+                    <td class="meta-label">Tanggal</td>
+                    <td class="meta-separator">:</td>
+                    <td>{{ $displayDate }}</td>
+                </tr>
+                <tr>
+                    <td class="meta-label">No. Struk</td>
+                    <td class="meta-separator">:</td>
+                    <td>{{ $receiptData['receipt_number'] }}</td>
+                </tr>
+                <tr>
+                    <td class="meta-label">Pelanggan</td>
+                    <td class="meta-separator">:</td>
+                    <td>{{ $receiptData['customer_name'] ?? '-' }}</td>
+                </tr>
+                @if(!empty($receiptData['cashier_name']) && $receiptData['cashier_name'] !== 'N/A')
+                    <tr>
+                        <td class="meta-label">Kasir</td>
+                        <td class="meta-separator">:</td>
+                        <td>{{ $receiptData['cashier_name'] }}</td>
+                    </tr>
+                @endif
+                @if(!empty($receiptData['terminal_name']) && $receiptData['terminal_name'] !== 'N/A')
+                    <tr>
+                        <td class="meta-label">Terminal</td>
+                        <td class="meta-separator">:</td>
+                        <td>{{ $receiptData['terminal_name'] }}</td>
+                    </tr>
+                @endif
+            </tbody>
+        </table>
 
         <table class="items-table" style="margin-top: 5px; margin-bottom: 5px;">
             <thead>
