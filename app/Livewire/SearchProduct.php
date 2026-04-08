@@ -37,10 +37,7 @@ class SearchProduct extends Component
 
         $this->search_results = Product::query()
             ->where('stock_managed', true)
-            ->where(function ($query) use ($term) {
-                $query->where('product_name', 'like', '%' . $term . '%')
-                    ->orWhere('product_code', 'like', '%' . $term . '%');
-            })
+            ->globalSearch($term)
             ->take($this->how_many)
             ->get([
                 'id',

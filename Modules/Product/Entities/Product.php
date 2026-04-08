@@ -262,4 +262,32 @@ class Product extends BaseModel implements HasMedia
     {
         return $this->hasMany(ProductStock::class);
     }
+
+    public function scopeGlobalSearch($query, $search)
+    {
+        if (empty($search)) {
+            return $query;
+        }
+
+        $tokens = array_filter(explode(' ', $search), 'strlen');
+
+        if (empty($tokens)) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($tokens) {
+            foreach ($tokens as $token) {
+                $q->where(function ($sub) use ($token) {
+                    $sub->where('product_name', 'like', '%' . $token . '%')
+                        ->orWhere('product_code', 'like', '%' . $token . '%')
+                        ->orWhereHas('category', function ($cat) use ($token) {
+                            $cat->where('category_name', 'like', '%' . $token . '%');
+                        })
+                        ->orWhereHas('brand', function ($brand) use ($token) {
+                            $brand->where('name', 'like', '%' . $token . '%');
+                        });
+                });
+            }
+        });
+    }
 }

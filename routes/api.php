@@ -62,46 +62,42 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
     }
 
     $productQuery = \Modules\Product\Entities\Product::query()
-        ->from('products as p')
-        ->where('p.stock_managed', true)
-        ->where(function ($q) use ($search) {
-            $q->where('p.product_name', 'like', '%' . $search . '%')
-                ->orWhere('p.product_code', 'like', '%' . $search . '%');
-        });
+        ->where('products.stock_managed', true)
+        ->globalSearch($search);
 
     $priceSelect = [
-        DB::raw('COALESCE(p.last_purchase_price, p.purchase_price) as last_purchase_price'),
-        DB::raw('p.average_purchase_price as average_purchase_price'),
-        DB::raw('p.purchase_tax_id as purchase_tax_id'),
+        DB::raw('COALESCE(products.last_purchase_price, products.purchase_price) as last_purchase_price'),
+        DB::raw('products.average_purchase_price as average_purchase_price'),
+        DB::raw('products.purchase_tax_id as purchase_tax_id'),
     ];
 
     if ($settingId) {
         $productQuery->leftJoin('product_prices as pp', function ($join) use ($settingId) {
-            $join->on('pp.product_id', '=', 'p.id');
+            $join->on('pp.product_id', '=', 'products.id');
             $join->where('pp.setting_id', '=', $settingId);
         });
 
         $priceSelect = [
-            DB::raw('COALESCE(pp.last_purchase_price, p.last_purchase_price, p.purchase_price) as last_purchase_price'),
-            DB::raw('COALESCE(pp.average_purchase_price, p.average_purchase_price) as average_purchase_price'),
-            DB::raw('COALESCE(pp.purchase_tax_id, p.purchase_tax_id) as purchase_tax_id'),
+            DB::raw('COALESCE(pp.last_purchase_price, products.last_purchase_price, products.purchase_price) as last_purchase_price'),
+            DB::raw('COALESCE(pp.average_purchase_price, products.average_purchase_price) as average_purchase_price'),
+            DB::raw('COALESCE(pp.purchase_tax_id, products.purchase_tax_id) as purchase_tax_id'),
         ];
     }
 
     $products = $productQuery
         ->limit($limit)
         ->get(array_merge([
-            'p.id',
-            'p.product_name',
-            'p.product_code',
+            'products.id',
+            'products.product_name',
+            'products.product_code',
             DB::raw('COALESCE((
                 SELECT SUM(ps.quantity)
                 FROM product_stocks ps
                 INNER JOIN locations l ON l.id = ps.location_id
-                WHERE ps.product_id = p.id
+                WHERE ps.product_id = products.id
                 ' . ($settingId ? 'AND l.setting_id = ' . (int) $settingId : '') . '
             ), 0) as product_quantity'),
-            'p.product_unit',
+            'products.product_unit',
         ], $priceSelect));
 
     $productIds = $products->pluck('id')->all();

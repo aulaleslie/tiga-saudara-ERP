@@ -63,10 +63,7 @@ class SearchProduct extends Component
             });
         }
 
-        $query->where(function ($q) {
-            $q->where('product_name', 'like', '%' . $this->query . '%')
-                ->orWhere('product_code', 'like', '%' . $this->query . '%');
-        });
+        $query->globalSearch($this->query);
 
         return $query->take($this->how_many)->get();
     }

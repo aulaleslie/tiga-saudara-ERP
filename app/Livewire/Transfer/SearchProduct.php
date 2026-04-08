@@ -36,10 +36,7 @@ class SearchProduct extends Component
     public function updatedQuery(): void
     {
         $this->search_results = Product::where('stock_managed', true)
-            ->where(function ($query) {
-                $query->where('product_name', 'like', '%' . $this->query . '%')
-                    ->orWhere('product_code', 'like', '%' . $this->query . '%');
-            })
+            ->globalSearch($this->query)
             ->get()
             ->map(function ($product) {
                 $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
