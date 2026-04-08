@@ -278,7 +278,17 @@ class ProductCart extends Component
     {
         $defaultTax = $this->taxes->firstWhere('is_default', true);
 
-        return $defaultTax ? (int) $defaultTax->id : null;
+        if ($defaultTax) {
+            return (int) $defaultTax->id;
+        }
+
+        if ($this->isPkp) {
+            $firstTax = $this->taxes->first();
+
+            return $firstTax ? (int) $firstTax->id : null;
+        }
+
+        return null;
     }
 
     private function resolveLatestTaxId(): ?int
@@ -323,10 +333,13 @@ class ProductCart extends Component
         }
 
         if ($productId) {
-            return $this->resolveProductSaleTaxIdForProduct($productId, $productPayload);
+            $taxId = $this->resolveProductSaleTaxIdForProduct($productId, $productPayload);
+            if ($taxId) {
+                return $taxId;
+            }
         }
 
-        return null;
+        return $this->resolveDefaultTaxId();
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application

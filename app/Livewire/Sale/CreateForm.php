@@ -136,8 +136,13 @@ class CreateForm extends Component
         foreach ($cartItems as $item) {
             $taxId = $item->options['product_tax'] ?? null;
             if (empty($taxId)) {
+                $this->dispatch('notify', [
+                    'type'    => 'error',
+                    'message' => 'Semua produk wajib memilih pajak karena bisnis PKP.'
+                ]);
+
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'paymentTermId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                    'customerId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
                 ]);
             }
         }
