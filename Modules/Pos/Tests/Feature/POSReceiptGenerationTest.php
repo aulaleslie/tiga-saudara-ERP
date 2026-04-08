@@ -159,6 +159,7 @@ class POSReceiptGenerationTest extends TestCase
             ->assertStatus(200)
             ->assertSee($receiptNumber)
             ->assertSee('Cetak Struk')
+            ->assertSee('Pelanggan')
             ->assertSee('PROD-003');
             
         // Assert log was created
@@ -315,22 +316,18 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse = $this->actingAs($context['cashier'])
             ->get("/pos/sell/checkout/{$checkoutId}/receipt");
         
-        if ($receiptResponse->status() !== 200 || !str_contains($receiptResponse->getContent(), '1 POS UNIT(S)')) {
-            file_put_contents('receipt_debug.html', $receiptResponse->getContent());
-        }
-
         $receiptResponse->assertStatus(200)
             ->assertSee('PROD-CONV')
             ->assertSee('1 RIM(S)')
             ->assertSee('PROD-STD')
             ->assertSee('1 PUNIT(S)') // Base unit short name
-            ->assertSee('BAYAR (CASH POS)')
+            ->assertSee('Bayar: CASH POS')
             ->assertSee('300.000')
-            ->assertSee('KEMBALI')
+            ->assertSee('Kembalian')
             ->assertSee('50.000')
-            ->assertDontSee('SUB TOTAL')
-            ->assertDontSee('PAJAK')
-            ->assertSee('BAYAR (QRIS POS)')
+            ->assertDontSee('Subtotal')
+            ->assertDontSee('Pajak')
+            ->assertSee('Bayar: QRIS POS')
             ->assertSee('50.000')
             ->assertSee('Harga sudah termasuk PPN');
     }
@@ -363,14 +360,44 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse = $this->actingAs($context['cashier'])
             ->get("/pos/sell/checkout/{$checkoutId}/receipt");
         
-        if ($receiptResponse->status() !== 200 || !str_contains($receiptResponse->getContent(), '1 POS UNIT(S)')) {
-            file_put_contents('receipt_debug_change.html', $receiptResponse->getContent());
-        }
-
         $receiptResponse->assertStatus(200)
-            ->assertSee('KEMBALI')
+            ->assertSee('Kembalian')
             ->assertSee('50.000')
             ->assertSee('1 PUNIT(S)'); // Confirms baseUnit relation used
+    }
+
+    public function test_receipt_shows_selected_customer_name(): void
+    {
+        $context = $this->createCheckoutContext('POS RECEIPT CUSTOMER');
+        $methods = $context['methods'];
+        $customer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'contact_name' => 'Budi Receipt',
+            'customer_name' => 'Toko Budi',
+        ]);
+        $expectedCustomerName = $customer->fresh()->contact_name ?: $customer->fresh()->customer_name;
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CUST', 25000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'receipt-customer-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 25000,
+            ],
+        ]);
+
+        $checkoutId = $response->json('pos_checkout_id');
+
+        session()->put('setting_id', $context['setting']->id);
+
+        $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt")
+            ->assertStatus(200)
+            ->assertSee('Pelanggan')
+            ->assertSee($expectedCustomerName);
     }
 
     // --- Helper Methods adapted from POSCheckoutFinalizeIdempotencyTest ---

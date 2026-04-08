@@ -19,7 +19,9 @@ class PosReceiptService
             'setting.currency',
             'terminal',
             'cashier',
+            'customer',
             'paymentMethod',
+            'sale.customer',
             'sale.saleDetails.product.unit',
             'sale.saleDetails.product.baseUnit',
             'transaction.lines.conversion.unit', // Task 1.1: Load unit breakdown details
@@ -32,6 +34,11 @@ class PosReceiptService
         $sale = $checkout->sale;
         $session = $checkout->session;
         $terminal = $checkout->terminal;
+        $customerName = $checkout->customer?->contact_name
+            ?? $checkout->customer?->customer_name
+            ?? $sale?->customer?->contact_name
+            ?? $sale?->customer?->customer_name
+            ?? '-';
 
         $lines = [];
         // Task 1.2 & 1.3: Prefer PosTransactionLine for accurate unit/conversion breakdown
@@ -139,6 +146,7 @@ class PosReceiptService
             'business_email' => $setting->company_email, // Task 1.5: Add business email
             'receipt_number' => $checkout->receipt_number,
             'date' => $checkout->finalized_at ? $checkout->finalized_at->format('d-m-Y H:i') : now()->format('d-m-Y H:i'),
+            'customer_name' => $customerName,
             'cashier_name' => $checkout->cashier ? $checkout->cashier->name : 'N/A',
             'terminal_name' => $terminal ? $terminal->name : 'N/A',
             'lines' => $lines,
@@ -221,13 +229,28 @@ class PosReceiptService
             'setting.currency',
             'owner',
             'customer',
+            'completedCheckout',
             'lines.product.unit',
             'lines.product.baseUnit',
             'lines.conversion.unit',
         ]);
 
+        if (
+            $transaction->status === PosTransaction::STATUS_COMPLETED
+            && $transaction->completedCheckout instanceof PosCheckout
+        ) {
+            $receiptData = $this->getReceiptData($transaction->completedCheckout);
+            $receiptData['print_history'] = $this->getTransactionPrintHistory($transaction->id);
+            $receiptData['is_draft'] = false;
+
+            return $receiptData;
+        }
+
         $setting = $transaction->setting;
         $lines = [];
+        $customerName = $transaction->customer?->contact_name
+            ?? $transaction->customer?->customer_name
+            ?? '-';
 
         foreach ($transaction->lines as $line) {
             $unitBreakdown = null;
@@ -279,20 +302,21 @@ class PosReceiptService
             'business_email' => $setting->company_email,
             'receipt_number' => $transaction->code,
             'date' => $transaction->created_at->format('d-m-Y H:i'),
+            'customer_name' => $customerName,
             'cashier_name' => $transaction->owner ? $transaction->owner->name : 'N/A',
             'terminal_name' => 'N/A',
             'lines' => $lines,
-            'subtotal' => (float)($totals['total_subtotal'] ?? 0),
-            'discount' => (float)($totals['total_discount'] ?? 0),
-            'tax' => (float)($totals['total_tax'] ?? 0),
-            'grand_total' => (float)($totals['total_grand_total'] ?? 0),
+            'subtotal' => (float) ($totals['subtotal'] ?? $totals['total_subtotal'] ?? 0),
+            'discount' => (float) ($totals['discount_total'] ?? $totals['total_discount'] ?? 0),
+            'tax' => (float) ($totals['tax_total'] ?? $totals['total_tax'] ?? 0),
+            'grand_total' => (float) ($totals['grand_total'] ?? $totals['total_grand_total'] ?? 0),
             'payment_method' => '-',
             'amount_paid' => 0,
             'payment_breakdown' => [],
             'change' => 0,
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
-            'is_draft' => true,
+            'is_draft' => in_array($transaction->status, [PosTransaction::STATUS_DRAFT, PosTransaction::STATUS_LOADED], true),
             'print_history' => $printHistory,
         ];
     }

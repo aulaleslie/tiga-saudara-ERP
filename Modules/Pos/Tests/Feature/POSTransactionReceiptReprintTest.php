@@ -4,9 +4,15 @@ namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Modules\People\Entities\Customer;
+use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosReceiptPrintLog;
+use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
+use Modules\Setting\Entities\ChartOfAccount;
+use Modules\Setting\Entities\PaymentMethod;
 use Spatie\Permission\Models\Permission;
 
 /**
@@ -43,6 +49,9 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->get(route('pos.transactions.receipt', $transaction));
         $response->assertStatus(200);
+        $response->assertSee('Cetak Struk');
+        $response->assertSee('Pelanggan');
+        $response->assertSee('-');
 
         // Verify print log was created
         $this->assertDatabaseHas('pos_receipt_print_logs', [
@@ -106,14 +115,114 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->get(route('pos.transactions.receipt', $transaction));
         $response->assertStatus(200);
-        $response->assertSee('Dicetak 1 kali');
+        $response->assertSee('Terakhir dicetak oleh');
         $response->assertSee($user->name);
 
         // Reprint (logs as REPRINT)
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->post(route('pos.transactions.receipt.reprint', $transaction));
         $response->assertStatus(200);
-        $response->assertSee('Dicetak 2 kali');
+        $response->assertSee('Terakhir dicetak oleh');
+    }
+
+    public function test_transaction_receipt_shows_customer_name_when_available(): void
+    {
+        $setting = $this->createSetting('Test Business');
+        $user = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'contact_name' => 'Draft Customer',
+            'customer_name' => 'Draft Store',
+        ]);
+        $expectedCustomerName = $customer->fresh()->contact_name ?: $customer->fresh()->customer_name;
+
+        $transaction = $this->createDraftTransaction($setting, $user);
+        $transaction->update(['customer_id' => $customer->id]);
+
+        $this->actingAs($user)->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.transactions.receipt', $transaction))
+            ->assertStatus(200)
+            ->assertSee('Pelanggan')
+            ->assertSee($expectedCustomerName);
+    }
+
+    public function test_completed_transaction_receipt_uses_checkout_payment_data_and_is_not_draft(): void
+    {
+        $setting = $this->createSetting('Test Business');
+        $user = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access',
+            'pos.transactions.view',
+            'pos.receipts.reprint',
+        ]);
+        [$terminal] = $this->createTerminalWithLocation($setting);
+        $session = $this->openSession($setting, $terminal, $user);
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'contact_name' => 'Completed Customer',
+            'customer_name' => 'Completed Store',
+        ]);
+        $expectedCustomerName = $customer->fresh()->contact_name ?: $customer->fresh()->customer_name;
+        $coa = ChartOfAccount::create([
+            'name' => 'TXN CASH ' . $setting->id,
+            'account_number' => '1101-' . $setting->id . '-' . uniqid(),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+        ]);
+        $paymentMethod = PaymentMethod::create([
+            'name' => 'Cash POS',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'customer_id' => $customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => 'txn-receipt-' . uniqid(),
+            'payload_hash' => str_repeat('a', 64),
+            'subtotal' => 100000,
+            'discount_total' => 0,
+            'tax_total' => 0,
+            'grand_total' => 100000,
+            'paid_total' => 120000,
+            'change_total' => 20000,
+            'payment_method_id' => $paymentMethod->id,
+            'receipt_number' => 'RCP-TXN-001',
+            'finalized_at' => now(),
+        ]);
+
+        PosCheckoutPayment::create([
+            'pos_checkout_id' => $checkout->id,
+            'payment_method_id' => $paymentMethod->id,
+            'amount_minor_units' => 12000000,
+            'reference' => null,
+            'sequence_order' => 1,
+        ]);
+
+        $transaction = $this->createDraftTransaction($setting, $user);
+        $transaction->update([
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'customer_id' => $customer->id,
+            'completed_checkout_id' => $checkout->id,
+        ]);
+
+        $this->actingAs($user)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.transactions.receipt.reprint', $transaction))
+            ->assertStatus(200)
+            ->assertSee('Bayar:')
+            ->assertSee($paymentMethod->fresh()->name)
+            ->assertSee('120.000')
+            ->assertSee('Kembalian')
+            ->assertSee('20.000')
+            ->assertSee($expectedCustomerName)
+            ->assertDontSee('STRUK DRAFT');
     }
 
     /**
@@ -299,13 +408,26 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
      */
     private function createDraftTransaction($setting, $user): PosTransaction
     {
+        $session = PosSession::query()
+            ->where('setting_id', $setting->id)
+            ->where('cashier_user_id', $user->id)
+            ->where('status', PosSession::STATUS_OPEN)
+            ->first();
+
+        if (! $session) {
+            [$terminal] = $this->createTerminalWithLocation($setting);
+            $session = $this->openSession($setting, $terminal, $user);
+        }
+
         return PosTransaction::create([
             'setting_id' => $setting->id,
             'owner_user_id' => $user->id,
             'created_by' => $user->id,
+            'last_saved_by' => $user->id,
             'code' => 'TXN-' . uniqid(),
             'status' => 'DRAFT',
             'customer_id' => null,
+            'source_pos_session_id' => $session->id,
             'snapshot_totals' => [
                 'total_subtotal' => 100000,
                 'total_discount' => 0,
