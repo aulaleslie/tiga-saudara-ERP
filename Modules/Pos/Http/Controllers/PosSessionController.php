@@ -126,7 +126,7 @@ class PosSessionController extends Controller
 
         // Check for active session in other settings
         $activeSessionInOtherSetting = PosSession::query()
-            ->with('setting:id,name')
+            ->with('setting:id,company_name')
             ->where('cashier_user_id', $user->id)
             ->where('setting_id', '!=', $settingId)
             ->active()

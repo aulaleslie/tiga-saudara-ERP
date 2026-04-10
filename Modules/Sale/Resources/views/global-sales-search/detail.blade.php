@@ -72,7 +72,7 @@
                                 </tr>
                                 <tr>
                                     <td class="font-weight-bold">Tenant:</td>
-                                    <td>{{ $sale->setting->name ?? 'N/A' }}</td>
+                                    <td>{{ $sale->setting->company_name ?? 'N/A' }}</td>
                                 </tr>
                                 <tr>
                                     <td class="font-weight-bold">Seller:</td>

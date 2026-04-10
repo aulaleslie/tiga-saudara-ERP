@@ -31,7 +31,7 @@
                             <div>
                                 <h5 class="alert-heading fw-bold mb-1">Sesi Aktif Terdeteksi di Lokasi Lain</h5>
                                 <p class="mb-0">
-                                    Anda saat ini memiliki sesi POS yang masih terbuka di <strong>{{ $activeSessionInOtherSetting->setting?->name }}</strong>.
+                                    Anda saat ini memiliki sesi POS yang masih terbuka di <strong>{{ $activeSessionInOtherSetting->setting?->company_name }}</strong>.
                                     Demi keamanan kas, sistem hanya mengizinkan satu sesi aktif per pengguna secara global. 
                                     Silakan tutup sesi tersebut di lokasi originalnya sebelum membuka sesi baru di sini.
                                 </p>

@@ -33,7 +33,7 @@ class GlobalSalesSearchDataTable extends DataTable
                 return '<span class="badge badge-info">' . $count . ' serials</span>';
             })
             ->addColumn('tenant_name', function ($data) {
-                return $data->setting->name ?? 'N/A';
+                return $data->setting->company_name ?? 'N/A';
             })
             ->addColumn('seller_name', function ($data) {
                 return $data->user->name ?? 'N/A';

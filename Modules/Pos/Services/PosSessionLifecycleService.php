@@ -84,8 +84,8 @@ class PosSessionLifecycleService
 
             if ($activeSessionForUser) {
                 if ((int) $activeSessionForUser->setting_id !== $settingId) {
-                    $activeSessionForUser->loadMissing('setting:id,name');
-                    $settingName = $activeSessionForUser->setting?->name ?? 'Cabang Lain';
+                    $activeSessionForUser->loadMissing('setting:id,company_name');
+                    $settingName = $activeSessionForUser->setting?->company_name ?? 'Cabang Lain';
 
                     throw new DomainException(
                         "Anda sudah memiliki sesi POS aktif di {$settingName}. " .
