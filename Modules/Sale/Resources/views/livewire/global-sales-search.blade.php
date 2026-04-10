@@ -79,66 +79,152 @@
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th wire:click="sortBy('reference')" style="cursor: pointer;">
-                                Referensi
-                                @if($sortBy === 'reference')
-                                    <i class="bi bi-chevron-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
-                                @endif
-                            </th>
+                            <th>Tipe</th>
+                            <th>Referensi</th>
                             <th>Pelanggan</th>
-                            <th>Nomor Seri</th>
-                            <th>Tenant</th>
-                            <th>Penjual</th>
-                            <th wire:click="sortBy('status')" style="cursor: pointer;">
-                                Status
-                                @if($sortBy === 'status')
-                                    <i class="bi bi-chevron-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
-                                @endif
-                            </th>
-                                                        <th wire:click="sortBy('created_at')" style="cursor: pointer;">
-                                Tanggal
-                                @if($sortBy === 'created_at')
-                                    <i class="bi bi-chevron-{{ $sortDirection === 'asc' ? 'up' : 'down' }}"></i>
-                                @endif
-                            </th>
+                            <th>Total</th>
+                            <th>Status</th>
+                            <th>Tanggal</th>
+                            <th>Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach($searchResultsData as $sale)
+                        @foreach($searchResultsData as $row)
                             <tr>
                                 <td>
-                                    <strong>{{ $sale->reference }}</strong>
+                                    @if($row['type'] === 'sale')
+                                        <span class="badge badge-primary">SALE</span>
+                                    @else
+                                        <span class="badge badge-warning">POS</span>
+                                    @endif
                                 </td>
                                 <td>
-                                    {{ $sale->customer->customer_name ?? 'N/A' }}
+                                    <strong>{{ $row['reference'] }}</strong>
                                 </td>
                                 <td>
-                                    @php
-                                        $serialCount = $sale->dispatchDetails->sum(function($dispatchDetail) {
-                                            $serials = json_decode($dispatchDetail->serial_numbers, true);
-                                            return is_array($serials) ? count($serials) : 0;
-                                        });
-                                    @endphp
-                                    <span class="badge badge-info">{{ $serialCount }} seri</span>
+                                    {{ $row['customer_name'] }}
                                 </td>
                                 <td>
-                                    {{ $sale->tenantSetting->company_name ?? 'N/A' }}
+                                    {{ format_currency($row['total_amount']) }}
                                 </td>
                                 <td>
-                                    {{ $sale->seller->name ?? 'N/A' }}
-                                </td>
-                                <td>
-                                    <span class="badge badge-{{ $this->getStatusBadgeClass($sale->status) }}">
-                                        {{ $sale->status }}
+                                    <span class="badge badge-{{ $this->getStatusBadgeClass($row['status']) }}">
+                                        {{ $row['status_label'] }}
                                     </span>
                                 </td>
                                 <td>
-                                    {{ $sale->created_at->format('M d, Y') }}
+                                    {{ \Carbon\Carbon::parse($row['date'])->format('M d, Y') }}
+                                </td>
+                                <td>
+                                    <button
+                                        wire:click="viewSale('{{ $row['id'] }}', '{{ $row['type'] }}')"
+                                        class="btn btn-sm btn-primary"
+                                        title="Lihat Detail"
+                                    >
+                                        <i class="bi bi-eye"></i>
+                                    </button>
                                 </td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Detail Modal -->
+            <div wire:ignore.self class="modal fade" id="detailModal" tabindex="-1" role="dialog" aria-labelledby="detailModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+                    <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+                        <div class="modal-header bg-primary text-white py-3" style="border-radius: 15px 15px 0 0;">
+                            <h5 class="modal-title fw-bold" id="detailModalLabel">
+                                <i class="bi bi-receipt me-2"></i>
+                                Detail {{ ($itemDetails['type'] ?? '') === 'sale' ? 'Penjualan' : 'Transaksi POS' }}
+                            </h5>
+                            <button type="button" class="close btn-close btn-close-white" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body p-4">
+                            @if($itemDetails)
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <div class="p-3 bg-light rounded shadow-sm">
+                                            <div class="text-muted small mb-1 text-uppercase fw-bold">Referensi</div>
+                                            <div class="h5 mb-3 text-primary"><strong>{{ $itemDetails['reference'] }}</strong></div>
+                                            
+                                            <div class="text-muted small mb-1 text-uppercase fw-bold">Pelanggan</div>
+                                            <div class="h6 mb-0">{{ $itemDetails['customer'] }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="p-3 bg-light rounded shadow-sm">
+                                            <div class="text-muted small mb-1 text-uppercase fw-bold">Tanggal & Waktu</div>
+                                            <div class="h6 mb-3">{{ \Carbon\Carbon::parse($itemDetails['date'])->format('d M Y, H:i') }}</div>
+                                            
+                                            <div class="text-muted small mb-1 text-uppercase fw-bold">Status</div>
+                                            <div class="h6 mb-0">
+                                                <span class="badge badge-{{ $this->getStatusBadgeClass($itemDetails['status']) }} rounded-pill px-3">
+                                                    {{ $itemDetails['status_label'] }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6 class="fw-bold mb-3 border-bottom pb-2">Daftar Produk</h6>
+                                <div class="table-responsive rounded shadow-sm border">
+                                    <table class="table table-hover mb-0">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th class="border-0">Produk</th>
+                                                <th class="border-0 text-center">Qty</th>
+                                                <th class="border-0 text-right">Harga Unit</th>
+                                                <th class="border-0 text-right">Subtotal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($itemDetails['items'] as $item)
+                                                <tr>
+                                                    <td class="align-middle">
+                                                        <div class="fw-bold">{{ $item['product'] }}</div>
+                                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                                            <small class="text-muted text-uppercase">{{ $item['code'] }}</small>
+                                                        </div>
+                                                        @if(!empty($item['serials']))
+                                                            <div class="mt-1 d-flex flex-wrap gap-1">
+                                                                @foreach($item['serials'] as $serial)
+                                                                    <span class="badge badge-secondary small font-weight-normal" style="font-size: 0.75rem; background-color: #6c757d; color: white; padding: 0.25rem 0.5rem; border-radius: 4px;">{{ $serial }}</span>
+                                                                @endforeach
+                                                            </div>
+                                                        @endif
+                                                    </td>
+                                                    <td class="align-middle text-center">{{ $item['quantity'] }}</td>
+                                                    <td class="align-middle text-right">{{ format_currency($item['price']) }}</td>
+                                                    <td class="align-middle text-right fw-bold">{{ format_currency($item['subtotal']) }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                        <tfoot class="bg-light fw-bold">
+                                            <tr>
+                                                <td colspan="3" class="text-right py-3 h5 mb-0">Grand Total:</td>
+                                                <td class="text-right text-primary py-3 h5 mb-0 font-weight-bold">{{ format_currency($itemDetails['total']) }}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            @else
+                                <div class="text-center py-5">
+                                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                                        <span class="sr-only">Memuat...</span>
+                                    </div>
+                                    <h5 class="text-muted">Mengambil data detail...</h5>
+                                </div>
+                            @endif
+                        </div>
+                        <div class="modal-footer bg-light border-0 p-3" style="border-radius: 0 0 15px 15px;">
+                            <button type="button" class="btn btn-secondary rounded-pill px-4" data-dismiss="modal" data-bs-dismiss="modal">Tutup</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Pagination -->
@@ -201,12 +287,17 @@
 
 @push('scripts')
 <script>
-document.addEventListener('livewire:loaded', () => {
+document.addEventListener('livewire:init', () => {
     // Auto-focus search input when component loads
     const searchInput = document.querySelector('input[wire\\:model\\.live*="query"]');
     if (searchInput) {
         searchInput.focus();
     }
+
+    // Modal control
+    Livewire.on('open-detail-modal', () => {
+        $('#detailModal').modal('show');
+    });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {

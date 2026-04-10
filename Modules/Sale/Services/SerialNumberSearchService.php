@@ -9,6 +9,8 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Product\Entities\ProductSerialNumber;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
+use Modules\Pos\Entities\PosTransaction;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class SerialNumberSearchService
 {
@@ -89,7 +91,7 @@ class SerialNumberSearchService
     }
 
     /**
-     * Build a complex query based on multiple filters.
+     * Build a complex query based on multiple filters for Sales.
      *
      * @param array $filters
      * @param int|null $settingId
@@ -97,135 +99,221 @@ class SerialNumberSearchService
      */
     public function buildQuery(array $filters, ?int $settingId = null): Builder
     {
-        Log::info('SerialNumberSearchService::buildQuery called', [
-            'filters' => $filters,
-            'settingId' => $settingId,
-            'session_setting_id' => session('setting_id')
-        ]);
+        return $this->getSaleQuery($filters, $settingId);
+    }
 
+    /**
+     * Get Builder for Sales with advanced OR filtering.
+     *
+     * @param array $filters
+     * @param int|null $settingId
+     * @return Builder
+     */
+    public function getSaleQuery(array $filters, ?int $settingId = null): Builder
+    {
         $query = Sale::query()
-            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails']);
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails.product', 'location', 'dispatchDetails', 'posCheckout']);
 
-        // Apply tenant filter only if settingId is provided (for global search, pass null)
         if ($settingId !== null) {
             $this->applyTenantFilter($query, $settingId);
         }
 
-        // Build search conditions with OR logic for search filters
-        $searchConditions = [];
+        $this->applySaleFilters($query, $filters);
 
-        // Serial number filter - search in both dispatch_details and sale_details
-        if (!empty($filters['serial_number'])) {
-            Log::info('Adding serial number search condition', ['serial_number' => $filters['serial_number']]);
-            $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->where(function (Builder $subQ) use ($filters) {
-                    // Search in dispatch_details.serial_numbers
-                    $subQ->whereHas('dispatchDetails', function (Builder $dispatchQ) use ($filters) {
-                        $dispatchQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$filters['serial_number']]);
+        return $query->orderByDesc('created_at');
+    }
+
+    /**
+     * Apply Sale specific filters.
+     */
+    protected function applySaleFilters(Builder $query, array $filters): void
+    {
+        // Keyword Search (OR Logic)
+        $keyword = $filters['search'] ?? null;
+        
+        // Backwards compatibility for UI that sends individual fields
+        if (!$keyword && !empty($filters)) {
+            $query->where(function (Builder $q) use ($filters) {
+                if (!empty($filters['serial_number'])) {
+                    $q->orWhere(function(Builder $sq) use ($filters) {
+                        $sq->whereHas('dispatchDetails', function (Builder $dq) use ($filters) {
+                            $dq->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$filters['serial_number']]);
+                        })->orWhereHas('saleDetails', function (Builder $dq) use ($filters) {
+                            $dq->whereJsonContains('serial_number_ids', $filters['serial_number']);
+                        });
                     });
-                    // OR search in sale_details.serial_number_ids
-                    $subQ->orWhereHas('saleDetails', function (Builder $saleDetailQ) use ($filters) {
-                        $saleDetailQ->whereJsonContains('serial_number_ids', $filters['serial_number']);
-                    });
-                });
-            };
-        }
-
-        // Sale reference filter
-        if (!empty($filters['sale_reference'])) {
-            Log::info('Adding sale reference search condition', ['sale_reference' => $filters['sale_reference']]);
-            $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->where('reference', 'like', "%{$filters['sale_reference']}%");
-            };
-        }
-
-        // Customer filter
-        if (!empty($filters['customer_id'])) {
-            Log::info('Adding customer ID search condition', ['customer_id' => $filters['customer_id']]);
-            $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->where('customer_id', $filters['customer_id']);
-            };
-        } elseif (!empty($filters['customer_name'])) {
-            Log::info('Adding customer name search condition', ['customer_name' => $filters['customer_name']]);
-            $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->whereHas('customer', function (Builder $subQ) use ($filters) {
-                    $subQ->where('customer_name', 'like', "%{$filters['customer_name']}%");
-                });
-            };
-        }
-
-        // Product name/code filter
-        if (!empty($filters['product_name'])) {
-            Log::info('Adding product name/code search condition', ['product_name' => $filters['product_name']]);
-            $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->whereHas('saleDetails.product', function (Builder $subQ) use ($filters) {
-                    $subQ->where('product_name', 'like', "%{$filters['product_name']}%")
-                         ->orWhere('product_code', 'like', "%{$filters['product_name']}%");
-                });
-            };
-        }
-
-        // Apply search conditions with OR logic if any exist
-        if (!empty($searchConditions)) {
-            $query->where(function (Builder $q) use ($searchConditions) {
-                foreach ($searchConditions as $condition) {
-                    $q->orWhere($condition);
+                }
+                if (!empty($filters['sale_reference'])) {
+                    $q->orWhere('reference', 'like', "%{$filters['sale_reference']}%");
+                }
+                if (!empty($filters['customer_name'])) {
+                    $q->orWhereHas('customer', fn($sq) => $sq->where('customer_name', 'like', "%{$filters['customer_name']}%"));
+                }
+                if (!empty($filters['product_name'])) {
+                    $q->orWhereHas('saleDetails.product', fn($sq) => $sq->where('product_name', 'like', "%{$filters['product_name']}%")->orWhere('product_code', 'like', "%{$filters['product_name']}%"));
                 }
             });
         }
 
-        // Apply non-search filters with AND logic
-        // Status filter
-        if (!empty($filters['status'])) {
-            Log::info('Applying status filter', ['status' => $filters['status']]);
-            $query->where('status', $filters['status']);
-        }
-
-        // Date range filters
-        if (!empty($filters['date_from'])) {
-            Log::info('Applying date_from filter', ['date_from' => $filters['date_from']]);
-            $query->whereDate('created_at', '>=', $filters['date_from']);
-        }
-        if (!empty($filters['date_to'])) {
-            Log::info('Applying date_to filter', ['date_to' => $filters['date_to']]);
-            $query->whereDate('created_at', '<=', $filters['date_to']);
-        }
-
-        // Location filter
-        if (!empty($filters['location_id'])) {
-            Log::info('Applying location filter', ['location_id' => $filters['location_id']]);
-            $query->where('location_id', $filters['location_id']);
-        }
-
-        // Product filter
-        if (!empty($filters['product_id'])) {
-            Log::info('Applying product filter', ['product_id' => $filters['product_id']]);
-            $query->whereHas('saleDetails', function (Builder $q) use ($filters) {
-                $q->where('product_id', $filters['product_id']);
+        if ($keyword) {
+            $query->where(function (Builder $q) use ($keyword) {
+                $q->where('reference', 'like', "%{$keyword}%")
+                  ->orWhereHas('customer', fn($subQ) => $subQ->where('customer_name', 'like', "%{$keyword}%"))
+                  ->orWhereHas('posCheckout', function (Builder $subQ) use ($keyword) {
+                      $subQ->where('receipt_number', 'like', "%{$keyword}%")
+                           ->orWhereHas('transaction', fn($ssq) => $ssq->where('code', 'like', "%{$keyword}%"));
+                  })
+                  ->orWhereHas('checkoutSale.checkout', function (Builder $subQ) use ($keyword) {
+                      $subQ->where('receipt_number', 'like', "%{$keyword}%")
+                           ->orWhereHas('transaction', fn($ssq) => $ssq->where('code', 'like', "%{$keyword}%"));
+                  })
+                  ->orWhereHas('saleDetails.product', fn($subQ) => $subQ->where('product_name', 'like', "%{$keyword}%")->orWhere('product_code', 'like', "%{$keyword}%"))
+                  ->orWhereHas('dispatchDetails', function (Builder $subQ) use ($keyword) {
+                      $subQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$keyword]);
+                  })
+                  ->orWhereHas('saleDetails', function (Builder $subQ) use ($keyword) {
+                      $subQ->whereJsonContains('serial_number_ids', $keyword);
+                  });
             });
         }
 
-        // Order by most recent first
-        $query->orderByDesc('created_at');
+        // AND filters
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+        if (!empty($filters['date_from'])) {
+            $query->whereDate('created_at', '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $query->whereDate('created_at', '<=', $filters['date_to']);
+        }
+        if (!empty($filters['location_id'])) {
+            $query->where('location_id', $filters['location_id']);
+        }
+        if (!empty($filters['customer_id'])) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+    }
 
-        Log::info('Query built successfully', ['query_sql' => $query->toSql(), 'query_bindings' => $query->getBindings()]);
+    /**
+     * Get Builder for POS Transactions with advanced OR filtering.
+     *
+     * @param array $filters
+     * @param int|null $settingId
+     * @return Builder
+     */
+    public function getPosTransactionQuery(array $filters, ?int $settingId = null): Builder
+    {
+        $query = PosTransaction::query()
+            ->with(['customer', 'creator', 'setting', 'lines', 'completedCheckout.cashier']);
 
-        // Log the actual results before returning
-        $rawResults = $query->get();
-        Log::info('SerialNumberSearchService::buildQuery raw results', [
-            'raw_results_count' => $rawResults->count(),
-            'raw_results' => $rawResults->map(function ($sale) {
-                return [
-                    'id' => $sale->id,
-                    'reference' => $sale->reference,
-                    'customer_name' => $sale->customer?->customer_name,
-                    'status' => $sale->status,
-                    'created_at' => $sale->created_at
-                ];
-            })->toArray()
-        ]);
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
 
-        return $query;
+        $this->applyPosFilters($query, $filters);
+
+        return $query->orderByDesc('created_at');
+    }
+
+    /**
+     * Apply POS specific filters.
+     */
+    protected function applyPosFilters(Builder $query, array $filters): void
+    {
+        $keyword = $filters['search'] ?? null;
+
+        if ($keyword) {
+            $query->where(function (Builder $q) use ($keyword) {
+                $q->where('code', 'like', "%{$keyword}%")
+                  ->orWhereHas('customer', fn($subQ) => $subQ->where('customer_name', 'like', "%{$keyword}%"))
+                  ->orWhere('metadata->customer_name', 'like', "%{$keyword}%")
+                  ->orWhereHas('creator', fn($subQ) => $subQ->where('name', 'like', "%{$keyword}%"))
+                  ->orWhereHas('completedCheckout.cashier', fn($subQ) => $subQ->where('name', 'like', "%{$keyword}%"))
+                  ->orWhereHas('completedCheckout', function (Builder $subQ) use ($keyword) {
+                      $subQ->where('receipt_number', 'like', "%{$keyword}%")
+                           ->orWhereHas('sale', fn($ssq) => $ssq->where('reference', 'like', "%{$keyword}%"))
+                           ->orWhereHas('checkoutSales.sale', fn($ssq) => $ssq->where('reference', 'like', "%{$keyword}%"));
+                  })
+                  ->orWhereHas('lines', fn($subQ) => $subQ->where('product_name_snapshot', 'like', "%{$keyword}%")->orWhere('product_code_snapshot', 'like', "%{$keyword}%"));
+            });
+        }
+
+        // AND filters
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+        if (!empty($filters['date_from'])) {
+            $query->whereDate('created_at', '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $query->whereDate('created_at', '<=', $filters['date_to']);
+        }
+        if (!empty($filters['customer_id'])) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+    }
+
+    /**
+     * Get a unified paginated result combining Sales and POS Transactions.
+     */
+    public function getUnifiedPagination(array $filters, ?int $settingId = null, int $perPage = 20, int $page = 1)
+    {
+        // Fetch a safe window of results from both tables
+        $fetchLimit = $perPage * $page + $perPage;
+
+        $sales = $this->getSaleQuery($filters, $settingId)->limit($fetchLimit)->get();
+        $pos = $this->getPosTransactionQuery($filters, $settingId)->limit($fetchLimit)->get();
+
+        $unified = collect();
+
+        foreach ($sales as $sale) {
+            $unified->push([
+                'id' => $sale->id,
+                'type' => 'sale',
+                'reference' => $sale->reference,
+                'customer_name' => $sale->customer?->customer_name ?: 'Walking Customer',
+                'date' => $sale->created_at->toDateTimeString(),
+                'total_amount' => $sale->total_amount,
+                'status' => $sale->status,
+                'status_label' => $sale->status,
+                'raw_date' => $sale->created_at,
+            ]);
+        }
+
+        foreach ($pos as $p) {
+            $total = 0;
+            if ($p->status === 'COMPLETED' && $p->completedCheckout) {
+                $total = $p->completedCheckout->grand_total;
+            } elseif ($p->snapshot_totals) {
+                $total = $p->snapshot_totals['total'] ?? 0;
+            }
+
+            $unified->push([
+                'id' => $p->id,
+                'type' => 'pos',
+                'reference' => $p->code,
+                'customer_name' => $p->customer?->customer_name ?: ($p->metadata['customer_name'] ?? 'Walking Customer'),
+                'date' => $p->created_at->toDateTimeString(),
+                'total_amount' => $total,
+                'status' => $p->status,
+                'status_label' => $p->status,
+                'raw_date' => $p->created_at,
+            ]);
+        }
+
+        $sorted = $unified->sortByDesc('raw_date')->values();
+        
+        $trueTotal = $this->getSaleQuery($filters, $settingId)->count() + $this->getPosTransactionQuery($filters, $settingId)->count();
+        $items = $sorted->forPage($page, $perPage);
+
+        return new LengthAwarePaginator(
+            $items,
+            $trueTotal,
+            $perPage,
+            $page,
+            ['path' => Paginator::resolveCurrentPath()]
+        );
     }
 
     /**

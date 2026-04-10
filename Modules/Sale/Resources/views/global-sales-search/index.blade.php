@@ -34,24 +34,34 @@
 
 @push('scripts')
 <script>
-document.addEventListener('livewire:loaded', () => {
+document.addEventListener('livewire:init', () => {
+    // Listen for viewSale event dispatched from Livewire
+    Livewire.on('viewSale', (data) => {
+        // Livewire 3 passes data as an object in the first argument
+        const id = data.id;
+        const type = data.type;
+        
+        const url = type === 'sale'
+            ? `{{ url('sales') }}/${id}`
+            : `{{ url('pos/transactions') }}/${id}`;
+        
+        window.open(url, '_blank');
+    });
+
     // Listen for filter applied events
     Livewire.on('filtersApplied', (filters) => {
         console.log('Filter diterapkan:', filters);
-        // The search component will handle the actual search
     });
 
     Livewire.on('filtersCleared', () => {
         console.log('Filter dibersihkan');
     });
 
-    Livewire.on('viewSale', (saleId) => {
-        window.open(`{{ url('sales') }}/${saleId}`, '_blank');
+    Livewire.on('showSerialNumbers', (data) => {
+        const id = typeof data === 'object' ? data.saleId : data;
+        showSerialNumbersModal(id);
     });
-
-    Livewire.on('showSerialNumbers', (saleId) => {
-        showSerialNumbersModal(saleId);
-    });
+});
 
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
@@ -65,7 +75,6 @@ document.addEventListener('livewire:loaded', () => {
             }
         }
     });
-});
 
 function refreshResults() {
     Livewire.emit('refreshResults');

@@ -125,10 +125,11 @@ class SaleController extends Controller
 
     public function show(Sale $sale, SalePaymentsDataTable $dataTable)
     {
-        Log::info('SaleController::show reached', ['id' => $sale->id]);
+        Log::info('SaleController::show reached', ['id' => $sale->id, 'setting_id' => $sale->setting_id, 'session_setting_id' => session('setting_id')]);
         abort_if(Gate::denies('sales.show'), 403);
 
         $this->ensureSaleBelongsToCurrentSetting($sale);
+        Log::info('SaleController::show: passed ensureSaleBelongsToCurrentSetting');
 
         $sale->load([
             'saleDetails.bundleItems',
@@ -138,12 +139,25 @@ class SaleController extends Controller
             'saleDispatches.details.location',
             'salePayments.paymentMethod',
         ]);
+        Log::info('SaleController::show: relationships loaded');
 
-        $customer = Customer::findOrFail($sale->customer_id);
+        try {
+            $customer = Customer::findOrFail($sale->customer_id);
+            Log::info('SaleController::show: customer loaded', ['customer_id' => $customer->id]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('SaleController::show: Customer not found', [
+                'customer_id' => $sale->customer_id,
+                'sale_id' => $sale->id,
+                'sale_setting_id' => $sale->setting_id,
+                'session_setting_id' => session('setting_id')
+            ]);
+            throw $e;
+        }
 
         // optional: if you want a clean var for the view
         $dispatches = $sale->saleDispatches;
         app(SaleSerialDisplayResolver::class)->annotateDispatchesForSale($sale);
+        Log::info('SaleController::show: dispatches annotated');
 
         return $dataTable
             ->with(['sale_id' => $sale->id])
@@ -1149,6 +1163,10 @@ class SaleController extends Controller
 
     private function ensureSaleBelongsToCurrentSetting(Sale $sale): void
     {
+        if (Gate::allows('globalSalesSearch.access')) {
+            return;
+        }
+
         $currentSettingId = session('setting_id');
 
         if (! is_null($currentSettingId) && (int) $sale->setting_id !== (int) $currentSettingId) {

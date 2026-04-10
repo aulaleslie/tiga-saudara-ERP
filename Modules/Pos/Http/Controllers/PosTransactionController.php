@@ -360,6 +360,10 @@ class PosTransactionController extends Controller
      */
     private function assertSettingScope(PosTransaction $transaction, int $settingId): void
     {
+        if (\Illuminate\Support\Facades\Gate::allows('globalSalesSearch.access')) {
+            return;
+        }
+
         if ($transaction->setting_id !== $settingId) {
             abort(403, 'Transaksi ini tidak termasuk dalam setting Anda.');
         }

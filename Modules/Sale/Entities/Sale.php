@@ -62,6 +62,16 @@ class Sale extends BaseModel
         return $this->hasMany(DispatchDetail::class, 'sale_id', 'id');
     }
 
+    public function posCheckout(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Pos\Entities\PosCheckout::class, 'sale_id', 'id');
+    }
+
+    public function checkoutSale(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Pos\Entities\PosCheckoutSale::class, 'sale_id', 'id');
+    }
+
     public function serialTrackings(): HasMany
     {
         return $this->hasMany(SalesOrderSerialTracking::class, 'sale_id', 'id');
@@ -172,8 +182,15 @@ class Sale extends BaseModel
      */
     public function resolveRouteBinding($value, $field = null)
     {
-        return $this->where($field ?? $this->getRouteKeyName(), $value)
+        \Illuminate\Support\Facades\Log::info('Sale::resolveRouteBinding called', ['value' => $value, 'field' => $field]);
+        $model = $this->where($field ?? $this->getRouteKeyName(), $value)
             ->withoutGlobalScopes()
             ->first();
+        
+        if (!$model) {
+            \Illuminate\Support\Facades\Log::warning('Sale::resolveRouteBinding: Model NOT found', ['value' => $value]);
+        }
+        
+        return $model;
     }
 }
