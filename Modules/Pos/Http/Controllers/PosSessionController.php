@@ -124,7 +124,15 @@ class PosSessionController extends Controller
         $rolePolicy = app(PosRolePolicyService::class);
         $roleCapabilities = $rolePolicy->capabilityFlags($user);
 
-        return view('pos::session.open', compact('terminals', 'roleCapabilities'));
+        // Check for active session in other settings
+        $activeSessionInOtherSetting = PosSession::query()
+            ->with('setting:id,name')
+            ->where('cashier_user_id', $user->id)
+            ->where('setting_id', '!=', $settingId)
+            ->active()
+            ->first();
+
+        return view('pos::session.open', compact('terminals', 'roleCapabilities', 'activeSessionInOtherSetting'));
     }
 
     public function store(StorePosSessionOpenRequest $request, PosSessionLifecycleService $sessionLifecycleService): RedirectResponse

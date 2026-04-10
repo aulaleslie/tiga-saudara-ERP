@@ -77,13 +77,22 @@ class PosSessionLifecycleService
             }
 
             $activeSessionForUser = PosSession::query()
-                ->where('setting_id', $settingId)
                 ->where('cashier_user_id', $cashierUserId)
                 ->active()
                 ->lockForUpdate()
                 ->first();
 
             if ($activeSessionForUser) {
+                if ((int) $activeSessionForUser->setting_id !== $settingId) {
+                    $activeSessionForUser->loadMissing('setting:id,name');
+                    $settingName = $activeSessionForUser->setting?->name ?? 'Cabang Lain';
+
+                    throw new DomainException(
+                        "Anda sudah memiliki sesi POS aktif di {$settingName}. " .
+                        "Silakan tutup sesi di {$settingName} terlebih dahulu sebelum membuka sesi di lokasi ini."
+                    );
+                }
+
                 $existingTerminalId = $activeSessionForUser->terminal_id !== null
                     ? (int) $activeSessionForUser->terminal_id
                     : null;

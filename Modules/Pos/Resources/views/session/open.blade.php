@@ -22,61 +22,83 @@
                         : 'Floor staff bekerja tanpa terminal. Gunakan sesi ini untuk siapkan, simpan, dan load draft sebelum handoff ke kasir atau manager.';
                 @endphp
 
-                <form method="POST" action="{{ route('pos.sessions.store') }}">
-                    @csrf
-
-                    <div id="saldo-form-container">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="terminal_search" class="form-label">
-                                        Terminal
-                                    </label>
-                                    <livewire:modules.pos.pos-terminal-search-dropdown
-                                        name="terminal_id"
-                                        :placeholder="$canSelectTerminal ? 'Pilih terminal...' : 'Terminal tidak dipakai untuk floor staff'"
-                                        :selected="old('terminal_id')"
-                                        :error="$errors->first('terminal_id')"
-                                        :disabled="! $canSelectTerminal"
-                                        :disabled-reason="$canSelectTerminal ? null : 'Floor staff tidak memilih terminal saat membuka sesi.'"
-                                        wire:key="pos-terminal-dropdown"
-                                    />
-                                    <small class="text-muted">
-                                        {{ $terminalHint }}
-                                    </small>
-                                </div>
+                @if($activeSessionInOtherSetting)
+                    <div class="alert alert-warning mb-4 shadow-sm border-start border-4 border-warning">
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-exclamation-triangle fa-2x text-warning"></i>
                             </div>
-                            <div class="col-md-6">
-                                <div class="mb-3" x-show="terminalSelected" style="display: none;">
-                                    <label for="opening_float_total_display" class="form-label">
-                                        Total Saldo Awal
-                                        <span class="text-danger">*</span>
-                                    </label>
-                                    <input type="text" id="opening_float_total_display"
-                                           class="form-control @error('opening_float_total') is-invalid @enderror"
-                                           value="{{ old('opening_float_total') ? number_format(old('opening_float_total'), 0, ',', '.') : '' }}"
-                                           placeholder="0"
-                                           :required="saldoRequired">
-                                    <small class="text-muted">
-                                        Wajib diisi saat membuka sesi dengan terminal.
-                                    </small>
-                                    <input type="hidden" name="opening_float_total" id="opening_float_total" value="{{ old('opening_float_total') }}">
-                                    @error('opening_float_total')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
-                                </div>
+                            <div>
+                                <h5 class="alert-heading fw-bold mb-1">Sesi Aktif Terdeteksi di Lokasi Lain</h5>
+                                <p class="mb-0">
+                                    Anda saat ini memiliki sesi POS yang masih terbuka di <strong>{{ $activeSessionInOtherSetting->setting?->name }}</strong>.
+                                    Demi keamanan kas, sistem hanya mengizinkan satu sesi aktif per pengguna secara global. 
+                                    Silakan tutup sesi tersebut di lokasi originalnya sebelum membuka sesi baru di sini.
+                                </p>
                             </div>
                         </div>
                     </div>
+                @endif
 
-                    <div class="mb-3">
-                        <label for="notes" class="form-label">Catatan</label>
-                        <textarea name="notes" id="notes" rows="2" class="form-control @error('notes') is-invalid @enderror">{{ old('notes') }}</textarea>
-                        @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
+                <form method="POST" action="{{ route('pos.sessions.store') }}">
+                    @csrf
 
-                    <div class="mt-3">
-                        <button type="submit" class="btn btn-primary">Buka Sesi</button>
-                        <a href="{{ $backRoute }}" class="btn btn-secondary">Kembali</a>
-                    </div>
+                    <fieldset @if($activeSessionInOtherSetting) disabled style="opacity: 0.6;" @endif>
+                        <div id="saldo-form-container">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="terminal_search" class="form-label">
+                                            Terminal
+                                        </label>
+                                        <livewire:modules.pos.pos-terminal-search-dropdown
+                                            name="terminal_id"
+                                            :placeholder="$canSelectTerminal ? 'Pilih terminal...' : 'Terminal tidak dipakai untuk floor staff'"
+                                            :selected="old('terminal_id')"
+                                            :error="$errors->first('terminal_id')"
+                                            :disabled="! $canSelectTerminal || (bool) $activeSessionInOtherSetting"
+                                            :disabled-reason="$activeSessionInOtherSetting ? 'Tutup sesi aktif Anda terlebih dahulu.' : ($canSelectTerminal ? null : 'Floor staff tidak memilih terminal saat membuka sesi.')"
+                                            wire:key="pos-terminal-dropdown"
+                                        />
+                                        <small class="text-muted">
+                                            {{ $terminalHint }}
+                                        </small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3" x-show="terminalSelected" style="display: none;">
+                                        <label for="opening_float_total_display" class="form-label">
+                                            Total Saldo Awal
+                                            <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="text" id="opening_float_total_display"
+                                            class="form-control @error('opening_float_total') is-invalid @enderror"
+                                            value="{{ old('opening_float_total') ? number_format(old('opening_float_total'), 0, ',', '.') : '' }}"
+                                            placeholder="0"
+                                            :required="saldoRequired">
+                                        <small class="text-muted">
+                                            Wajib diisi saat membuka sesi dengan terminal.
+                                        </small>
+                                        <input type="hidden" name="opening_float_total" id="opening_float_total" value="{{ old('opening_float_total') }}">
+                                        @error('opening_float_total')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="notes" class="form-label">Catatan</label>
+                            <textarea name="notes" id="notes" rows="2" class="form-control @error('notes') is-invalid @enderror">{{ old('notes') }}</textarea>
+                            @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+
+                        <div class="mt-3">
+                            @if(!$activeSessionInOtherSetting)
+                                <button type="submit" class="btn btn-primary">Buka Sesi</button>
+                            @endif
+                            <a href="{{ $backRoute }}" class="btn btn-secondary">Kembali</a>
+                        </div>
+                    </fieldset>
                 </form>
             </div>
         </div>
