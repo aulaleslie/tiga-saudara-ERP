@@ -46,6 +46,11 @@ class ProductCart extends Component
 
     public $pendingProduct = null;
     public $bundleOptions = [];
+    public $selectedBundle = [
+        'name' => '',
+        'price' => 0,
+        'items' => []
+    ];
 
     public $quantityBreakdowns = [];
     public $priceBreakdowns = [];
@@ -642,6 +647,37 @@ class ProductCart extends Component
         ];
     }
 
+    /**
+     * Resolve a cart item by rowId, falling back to stable ID (UUID).
+     * This ensures synchronization if rowId has changed due to options updates.
+     */
+    private function resolveCartItem(string $rowId, ?string $stableId = null)
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $item = $cart->content()->get($rowId);
+
+        if (!$item && $stableId) {
+            $item = $cart->content()->firstWhere('id', $stableId);
+        }
+
+        return $item;
+    }
+
+    public function viewBundleDetails($rowId, $id = null): void
+    {
+        $cartItem = $this->resolveCartItem($rowId, $id);
+
+        if ($cartItem && $cartItem->options->bundle_items) {
+            $this->selectedBundle = [
+                'name' => $cartItem->options->bundle_name ?? 'Packaged Items',
+                'price' => $cartItem->options->bundle_price ?? 0,
+                'items' => $cartItem->options->bundle_items
+            ];
+
+            $this->dispatch('open-bundle-modal');
+        }
+    }
+
     public function confirmBundleSelection($bundleId): void
     {
         $cart = Cart::instance($this->cart_instance);
@@ -802,10 +838,12 @@ class ProductCart extends Component
         return implode(', ', $parts);
     }
 
-    public function removeItem($row_id)
+    public function removeItem($row_id, $id = null)
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
-        Cart::instance($this->cart_instance)->remove($row_id);
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        Cart::instance($this->cart_instance)->remove($cart_item->rowId);
         unset($this->quantity[$cart_item->id]);
         unset($this->unit_price[$cart_item->id]);
         unset($this->item_discount[$cart_item->id]);
@@ -831,13 +869,16 @@ class ProductCart extends Component
             'id' => $id
         ]);
 
-        if ($this->quantity[$id] <= 0) {
+        if (($this->quantity[$id] ?? 0) <= 0) {
             $this->quantity[$id] = 1;
             session()->flash('message', 'Jumlah barang dipesan minimal 1!');
             return;
         }
 
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
 
         if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
             $productId = $cart_item->options->product_id;
@@ -1034,7 +1075,10 @@ class ProductCart extends Component
 
     public function setProductDiscount($row_id, $product_id): void
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = $this->resolveCartItem($row_id, $product_id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
 
         $unit_price = $this->unit_price[$product_id] ?? $cart_item->price;
         $quantity = $cart_item->qty;
@@ -1102,7 +1146,10 @@ class ProductCart extends Component
 
     public function updatePrice($row_id, $id)
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
 
         // Get the new price (unit price)
         $new_price = $this->unit_price[$id] ?? $cart_item->price;
@@ -1269,10 +1316,12 @@ class ProductCart extends Component
 
     public function updateTax($row_id, $id, $selectedTaxId = null)
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = $this->resolveCartItem($row_id, $id);
         if (! $cart_item) {
             return;
         }
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
 
         $tax_id = $this->normalizeTaxId($selectedTaxId);
         $this->product_tax[$id] = $tax_id;
@@ -1460,7 +1509,7 @@ class ProductCart extends Component
         $this->taxes = $this->loadTaxes(); // Refresh the taxes list
 
         if ($product_id) {
-            $cartItem = Cart::instance($this->cart_instance)->get($product_id);
+            $cartItem = $this->resolveCartItem('', $product_id);
             if ($cartItem) {
                 $this->updateTax($cartItem->rowId, $cartItem->id, $id);
             }

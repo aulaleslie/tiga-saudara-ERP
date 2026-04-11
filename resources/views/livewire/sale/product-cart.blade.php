@@ -42,11 +42,11 @@
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                 @if($cart_item->options->bundle_items)
                                     <br>
-                                    <a class="btn btn-link btn-sm p-0" data-toggle="collapse"
-                                       href="#bundleCollapse{{ $cart_item->id }}" role="button" aria-expanded="false"
-                                       aria-controls="bundleCollapse{{ $cart_item->id }}">
+                                    <button type="button" class="btn btn-info btn-sm text-white py-0 px-1" 
+                                            wire:click="viewBundleDetails('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                            style="font-size: 0.7rem;">
                                         Lihat Paket Penjualan
-                                    </a>
+                                    </button>
                                 @endif
 
                                 <!-- Tooltip Container -->
@@ -195,41 +195,12 @@
                             </td>
 
                             <td class="align-middle text-center">
-                                <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
+                                <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')">
                                     <i class="bi bi-x-circle font-2xl text-danger"></i>
                                 </a>
                             </td>
                         </tr>
 
-                        @if($cart_item->options->bundle_items)
-                            <tr wire:ignore wire:key="bundle-{{ $cart_item->id }}" class="collapse" id="bundleCollapse{{ $cart_item->id }}">
-                                <td colspan="{{ $isPkp ? 9 : 7 }}" class="p-0">
-                                    <div class="card card-body">
-                                        <h6 class="mb-2">Paket Penjualan</h6>
-                                        <p class="mb-2">
-                                            <strong>Nama Paket:</strong> {{ $cart_item->options->bundle_name ?? '-' }} <br>
-                                            <strong>Harga Paket:</strong> {{ format_currency($cart_item->options->bundle_price ?? 0) }}
-                                        </p>
-                                        <table class="table table-sm table-bordered mb-0">
-                                            <thead>
-                                            <tr>
-                                                <th>Nama Barang</th>
-                                                <th>Jumlah</th>
-                                            </tr>
-                                            </thead>
-                                            <tbody>
-                                            @foreach($cart_item->options->bundle_items as $bundleItem)
-                                                <tr>
-                                                    <td>{{ $bundleItem['name'] }}</td>
-                                                    <td>{{ $bundleItem['quantity'] }}</td>
-                                                </tr>
-                                            @endforeach
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </td>
-                            </tr>
-                        @endif
                     @endforeach
                 @else
                     <tr>
@@ -359,6 +330,7 @@
         </div>
     </div>
     @include('livewire.sale.includes.bundle-confirmation-modal')
+    @include('livewire.sale.includes.bundle-details-modal')
 
     <!-- Modals -->
     <livewire:modules.setting.modals.tax-quick-add-modal />
