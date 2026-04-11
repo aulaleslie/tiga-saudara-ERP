@@ -23,6 +23,9 @@
                         <label for="bundle_price">Harga Paket</label>
                         <input type="number" name="price" id="bundle_price" class="form-control"
                                step="0.01" min="0" value="{{ old('price', $bundle->price ?? 0) }}">
+                        <small class="text-muted">
+                            Harga Paket akan menambah Harga Jual. Harga Jual saat ini adalah {{ format_currency($parentProduct->salePrice()) }}
+                        </small>
                     </div>
                 </div>
             </div>
