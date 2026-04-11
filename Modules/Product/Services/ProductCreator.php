@@ -62,7 +62,6 @@ class ProductCreator
         $fieldsWithDefaults = [
             'product_quantity'        => 0,
             'product_cost'            => 0,
-            'product_stock_alert'     => 0,
             'product_order_tax'       => 0,
             'product_tax_type'        => 0,
             'profit_percentage'       => 0,
@@ -77,6 +76,8 @@ class ProductCreator
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
             $validatedData[$field] = $defaultValue;
         }
+
+        $validatedData['product_stock_alert'] = (int) ($validatedData['product_stock_alert'] ?? 0);
 
         foreach (['brand_id', 'category_id', 'base_unit_id'] as $field) {
             if (empty($validatedData[$field])) {
