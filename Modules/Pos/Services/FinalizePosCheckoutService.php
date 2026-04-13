@@ -1208,16 +1208,38 @@ class FinalizePosCheckoutService
                 static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
             ));
 
-            $resolverLines[$lineIndex] = [
-                'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null,
-                'product_id' => (int) ($line['product_id'] ?? 0),
-                'product_code' => isset($line['product_code']) ? (string) $line['product_code'] : null,
-                'product_name' => isset($line['product_name']) ? (string) $line['product_name'] : null,
-                'qty' => max(0, (int) ($line['qty'] ?? 0)),
-                'tax_id' => $taxId,
-                'serial_number_required' => (bool) ($line['serial_number_required'] ?? false),
-                'assigned_serials' => $assignedSerials,
-            ];
+            $qty = max(0, (int) ($line['qty'] ?? 0));
+
+            // Only add parent to resolver if stock is managed
+            if ((bool) ($line['stock_managed'] ?? true)) {
+                $resolverLines["{$lineIndex}_P"] = [
+                    'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null,
+                    'product_id' => (int) ($line['product_id'] ?? 0),
+                    'product_code' => isset($line['product_code']) ? (string) $line['product_code'] : null,
+                    'product_name' => isset($line['product_name']) ? (string) $line['product_name'] : null,
+                    'qty' => $qty,
+                    'tax_id' => $taxId,
+                    'serial_number_required' => (bool) ($line['serial_number_required'] ?? false),
+                    'assigned_serials' => $assignedSerials,
+                ];
+            }
+
+            // Add bundle items if present and stock managed
+            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            foreach ($bundleItems as $itemIndex => $item) {
+                if ((bool) ($item['stock_managed'] ?? false)) {
+                    $resolverLines["{$lineIndex}_C_{$itemIndex}"] = [
+                        'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null, // Grouped by parent line_id
+                        'product_id' => (int) ($item['product_id'] ?? 0),
+                        'product_code' => null, // Name/code not strictly needed for resolver but good for logs
+                        'product_name' => isset($item['product_name']) ? (string) $item['product_name'] : null,
+                        'qty' => $qty * (int) ($item['quantity'] ?? 1),
+                        'tax_id' => null, // Child items don't inherit parent tax for stock bucket resolution
+                        'serial_number_required' => (bool) ($item['serial_number_required'] ?? false),
+                        'assigned_serials' => [], // Bundled serials not yet supported in POS frontend
+                    ];
+                }
+            }
         }
 
         return $resolverLines;

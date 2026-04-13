@@ -331,6 +331,38 @@ class POSProductSearchScanTest extends TestCase
         $response->assertJsonPath('results.0.is_bundle_parent', true);
     }
 
+    public function test_scan_resolve_exposes_bundle_parent_flag_for_exact_barcode_match(): void
+    {
+        $setting = $this->createSetting('BIZ SCAN BUNDLE');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SCAN BUNDLE');
+
+        $bundleParent = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-SCAN-BUNDLE-01',
+            name: 'Produk Scan Bundle',
+            barcode: 'SCAN-BUNDLE-01',
+            availableQty: 3,
+            salePrice: 99000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        ProductBundle::create([
+            'parent_product_id' => $bundleParent->id,
+            'name' => 'Paket Scan',
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.scan.resolve', ['q' => 'SCAN-BUNDLE-01']));
+
+        $response->assertOk();
+        $response->assertJsonPath('type', 'product_exact');
+        $response->assertJsonPath('product.id', $bundleParent->id);
+        $response->assertJsonPath('product.is_bundle_parent', true);
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([

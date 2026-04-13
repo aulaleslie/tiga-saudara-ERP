@@ -118,23 +118,20 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $qty = (int) ($line['qty'] ?? 0);
             $taxId = isset($line['tax_id']) ? (int) $line['tax_id'] : 0;
             $taxId = $taxId > 0 ? $taxId : null;
+            $bundleId = isset($line['bundle_id']) ? (int) $line['bundle_id'] : null;
+            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
 
             if ($productId <= 0 || $qty <= 0) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Baris checkout tidak valid.');
             }
 
-            $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
-            if (! $product) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Produk tidak tersedia untuk posting.');
-            }
-
-            // Handle serial assignments
+            // Handle serial assignments (Parent only for now)
             $isSerialTracked = (bool) ($line['serial_number_required'] ?? false);
             $assignedSerials = (array) ($line['assigned_serials'] ?? []);
             $serialRecords = [];
             $serialIds = [];
 
-            if ($isSerialTracked) {
+            if ($isSerialTracked && (bool) ($line['stock_managed'] ?? true)) {
                 if (count($assignedSerials) !== $qty) {
                     throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memerlukan $qty seri, tetapi " . count($assignedSerials) . " yang diberikan.");
                 }
@@ -151,56 +148,26 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     }
                     $serialIds[] = (int) $serialRecords[$sn]->id;
                 }
+            }
 
-                // Override allocations based on actual serial locations
-                // Resolve source setting and PKP status from each serial's location
-                $lineAllocations = [];
-                $grouped = [];
-                foreach ($assignedSerials as $sn) {
-                    $record = $serialRecords[$sn];
-                    $chunkLocId = (int) $record->location_id;
-                    $chunkTaxId = $record->tax_id;
+            // 1. Resolve Parent Allocations
+            $parentAllocations = [];
+            if ((bool) ($line['stock_managed'] ?? true)) {
+                // Try "{index}_P" first (from new bundle-aware resolver lines), fallback to "$index" for backward compatibility
+                $parentAllocations = $allocations["{$index}_P"] ?? ($allocations[$index] ?? []);
 
-                    // Resolve source setting from location
-                    $location = \Modules\Setting\Entities\Location::find($chunkLocId);
-                    $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
-                    $sourceSetting = \Modules\Setting\Entities\Setting::find($sourceSettingId);
-                    $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
-
-                    $groupKey = $chunkLocId . '_' . ($chunkTaxId ?? 'null');
-                    if (! isset($grouped[$groupKey])) {
-                        $taxRecord = $chunkTaxId ? \Modules\Setting\Entities\Tax::find($chunkTaxId) : null;
-                        $grouped[$groupKey] = [
-                            'source_location_id' => $chunkLocId,
-                            'source_setting_id' => $sourceSettingId,
-                            'allocated_qty' => 0,
-                            'tax_bucket_used' => $chunkTaxId !== null,
-                            'serial_numbers' => [],
-                            'tax_policy_snapshot' => [
-                                'source_is_pkp' => $sourceIsPkp,
-                                'tax_id' => $chunkTaxId,
-                                'tax_name' => $taxRecord ? (string) $taxRecord->name : null,
-                                'tax_rate' => $taxRecord ? (float) $taxRecord->value : 0.0,
-                            ]
-                        ];
-                    }
-                    $grouped[$groupKey]['allocated_qty']++;
-                    $grouped[$groupKey]['serial_numbers'][] = $sn;
-                }
-                $lineAllocations = array_values($grouped);
-            } else {
-                $lineAllocations = $allocations[$index] ?? [];
-
-                if ($lineAllocations === []) {
+                if ($parentAllocations === []) {
                     throw new PosCheckoutValidationException(
                         'STOCK_UNAVAILABLE',
-                        'Stok alokasi untuk baris checkout tidak ditemukan.'
+                        "Stok alokasi untuk produk #{$productId} tidak ditemukan."
                     );
                 }
 
-                $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
-                if ((int) $totalAllocated !== $qty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Kuantitas yang dialokasikan tidak sesuai dengan kuantitas baris.');
+                if (! $isSerialTracked) {
+                    $totalAllocated = array_sum(array_column($parentAllocations, 'allocated_qty'));
+                    if ((int) $totalAllocated !== $qty) {
+                        throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Kuantitas alokasi produk #{$productId} tidak sesuai.");
+                    }
                 }
             }
 
@@ -208,22 +175,22 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $lineSubtotal = round((float) ($line['line_subtotal'] ?? ($unitPrice * $qty)), 2);
 
             $lineSubtotalMinor = $this->toMinor($lineSubtotal);
-            $chunkGrossMinor = $this->allocateMinorByQuantity($lineAllocations, $lineSubtotalMinor, $qty);
-
             $linePostedTaxMinor = 0;
-            foreach ($lineAllocations as $chunkIndex => $chunk) {
-                $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
-                $snapshot = $chunk['tax_policy_snapshot'] ?? [];
-                $sourceIsPkp = (bool) ($snapshot['source_is_pkp'] ?? false);
 
-                if ($sourceIsPkp) {
-                    $taxRate = (float) ($snapshot['tax_rate'] ?? 0);
-                    $linePostedTaxMinor += $this->extractIncludedTaxMinor(
-                        (int) ($chunkGrossMinor[$chunkIndex] ?? 0),
-                        $taxRate
-                    );
+            if ($parentAllocations !== []) {
+                $chunkGrossMinor = $this->allocateMinorByQuantity($parentAllocations, $lineSubtotalMinor, $qty);
+                foreach ($parentAllocations as $chunkIndex => $chunk) {
+                    $snapshot = $chunk['tax_policy_snapshot'] ?? [];
+                    if ((bool) ($snapshot['source_is_pkp'] ?? false)) {
+                        $taxRate = (float) ($snapshot['tax_rate'] ?? 0);
+                        $linePostedTaxMinor += $this->extractIncludedTaxMinor(
+                            (int) ($chunkGrossMinor[$chunkIndex] ?? 0),
+                            $taxRate
+                        );
+                    }
                 }
             }
+            
             $linePostedTax = $this->fromMinor($linePostedTaxMinor);
             $totalPostedTaxTotal += $linePostedTax;
 
@@ -248,115 +215,51 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'serial_number_ids' => $isSerialTracked ? $serialIds : null,
             ]);
 
-            foreach ($lineAllocations as $chunk) {
-                $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
-                $chunkLocId = (int) ($chunk['source_location_id'] ?? 0);
-                $snapshot = $chunk['tax_policy_snapshot'] ?? [];
-                $taxBucketUsed = (bool) ($chunk['tax_bucket_used'] ?? false);
-                $snapshotTaxId = isset($snapshot['tax_id']) ? (int) $snapshot['tax_id'] : null;
-                $snapshotTaxId = $snapshotTaxId !== null && $snapshotTaxId > 0 ? $snapshotTaxId : null;
+            // 2. Process Parent Stock Deduction
+            if ($parentAllocations !== []) {
+                $this->recordStockMovement(
+                    $productId,
+                    $qty,
+                    $parentAllocations,
+                    $cashierUserId,
+                    $settingId,
+                    $checkoutId,
+                    $sale,
+                    $dispatch,
+                    $taxId,
+                    $bundleId,
+                    $serialRecords
+                );
+            }
 
-                $stock = ProductStock::query()
-                    ->where('product_id', $productId)
-                    ->where('location_id', $chunkLocId)
-                    ->lockForUpdate()
-                    ->first();
+            // 3. Process Bundle Child Stock Deduction
+            foreach ($bundleItems as $itemIndex => $item) {
+                if ((bool) ($item['stock_managed'] ?? false)) {
+                    $childProductId = (int) ($item['product_id'] ?? 0);
+                    $childQty = $qty * (int) ($item['quantity'] ?? 1);
+                    $childAllocations = $allocations["{$index}_C_{$itemIndex}"] ?? [];
 
-                if (! $stock) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok produk tidak tersedia di lokasi sumber.');
-                }
-
-                if ((int) $stock->quantity < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok tidak cukup di lokasi sumber.');
-                }
-
-                if ($taxBucketUsed && (int) $stock->quantity_tax < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok pajak tidak cukup di lokasi sumber.');
-                }
-
-                if (! $taxBucketUsed && (int) $stock->quantity_non_tax < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok non-pajak tidak cukup di lokasi sumber.');
-                }
-
-                $assignedSerialsForChunk = $chunk['serial_numbers'] ?? null;
-
-                $dispatchDetail = DispatchDetail::query()->create([
-                    'dispatch_id' => $dispatch->id,
-                    'sale_id' => $sale->id,
-                    'tax_id' => $snapshotTaxId ?? $taxId,
-                    'product_id' => $productId,
-                    'bundle_id' => null,
-                    'dispatched_quantity' => $chunkQty,
-                    'location_id' => $chunkLocId,
-                    'serial_numbers' => $assignedSerialsForChunk ? json_encode($assignedSerialsForChunk) : null,
-                ]);
-
-                if ($assignedSerialsForChunk) {
-                    foreach ($assignedSerialsForChunk as $sn) {
-                        $snRecord = $serialRecords[$sn];
-                        $snRecord->update([
-                            'status' => 'SOLD',
-                            'dispatch_detail_id' => $dispatchDetail->id,
-                        ]);
-
-                        SerialNumberHistoryService::record(
-                            (int) $snRecord->id,
-                            'SOLD',
-                            $chunkLocId,
-                            $dispatchDetail
+                    if ($childAllocations === []) {
+                        throw new PosCheckoutValidationException(
+                            'STOCK_UNAVAILABLE',
+                            "Stok alokasi untuk produk anak #{$childProductId} dalam paket tidak ditemukan."
                         );
-
-                        SalesOrderSerialTracking::query()->create([
-                            'sale_id' => (int) $sale->id,
-                            'product_serial_number_id' => (int) $snRecord->id,
-                            'quantity_allocated' => 1,
-                            'dispatch_date' => now()->toDateTimeString(),
-                        ]);
                     }
+
+                    $this->recordStockMovement(
+                        $childProductId,
+                        $childQty,
+                        $childAllocations,
+                        $cashierUserId,
+                        $settingId,
+                        $checkoutId,
+                        $sale,
+                        $dispatch,
+                        null, // Tax is typically handled on the parent line in POS
+                        $bundleId,
+                        [] // Serial items in bundles not supported yet
+                    );
                 }
-
-                $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $settingId);
-
-                $previousSettingQty = (int) ProductStock::query()
-                    ->where('product_id', $productId)
-                    ->whereHas('location', fn($q) => $q->where('setting_id', $sourceSettingId))
-                    ->sum('quantity');
-
-                $previousLocationQty = (int) $stock->quantity;
-
-                $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
-                if ($taxBucketUsed) {
-                    $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $chunkQty);
-                } else {
-                    $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $chunkQty);
-                }
-                $stock->save();
-
-                $product->product_quantity = max(0, (int) $product->product_quantity - $chunkQty);
-                $product->save();
-
-                $afterSettingQty = $previousSettingQty - $chunkQty;
-                $afterLocationQty = (int) $stock->quantity;
-
-                Transaction::query()->create([
-                    'product_id' => $productId,
-                    'setting_id' => $sourceSettingId,
-                    'quantity' => -$chunkQty,
-                    'current_quantity' => $afterSettingQty,
-                    'broken_quantity' => 0,
-                    'location_id' => $chunkLocId,
-                    'user_id' => $cashierUserId,
-                    'reason' => 'POS checkout #' . $checkoutId,
-                    'type' => 'DISPATCH',
-                    'previous_quantity' => $previousSettingQty,
-                    'after_quantity' => $afterSettingQty,
-                    'previous_quantity_at_location' => $previousLocationQty,
-                    'after_quantity_at_location' => $afterLocationQty,
-                    'quantity_tax' => $taxBucketUsed ? $chunkQty : 0,
-                    'quantity_non_tax' => $taxBucketUsed ? 0 : $chunkQty,
-                    'broken_quantity_tax' => 0,
-                    'broken_quantity_non_tax' => 0,
-                ]);
             }
         }
 
@@ -425,6 +328,139 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         ];
     }
 
+    /**
+     * Record stock movement, transactions, and dispatch details for a product allocation chunk.
+     */
+    private function recordStockMovement(
+        int $productId,
+        int $qty,
+        array $lineAllocations,
+        int $cashierUserId,
+        int $settingId,
+        int $checkoutId,
+        Sale $sale,
+        Dispatch $dispatch,
+        ?int $lineTaxId,
+        ?int $bundleId = null,
+        array $serialRecords = []
+    ): void {
+        foreach ($lineAllocations as $chunk) {
+            $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
+            $chunkLocId = (int) ($chunk['source_location_id'] ?? 0);
+            $snapshot = $chunk['tax_policy_snapshot'] ?? [];
+            $taxBucketUsed = (bool) ($chunk['tax_bucket_used'] ?? false);
+            $snapshotTaxId = isset($snapshot['tax_id']) ? (int) $snapshot['tax_id'] : null;
+            $snapshotTaxId = $snapshotTaxId !== null && $snapshotTaxId > 0 ? $snapshotTaxId : null;
+
+            $stock = ProductStock::query()
+                ->where('product_id', $productId)
+                ->where('location_id', $chunkLocId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $stock) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk #{$productId} tidak tersedia di lokasi sumber.");
+            }
+
+            if ((int) $stock->quantity < $chunkQty) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk #{$productId} tidak cukup di lokasi sumber.");
+            }
+
+            if ($taxBucketUsed && (int) $stock->quantity_tax < $chunkQty) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok pajak produk #{$productId} tidak cukup di lokasi sumber.");
+            }
+
+            if (! $taxBucketUsed && (int) $stock->quantity_non_tax < $chunkQty) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok non-pajak produk #{$productId} tidak cukup di lokasi sumber.");
+            }
+
+            $assignedSerialsForChunk = $chunk['serial_numbers'] ?? null;
+
+            $dispatchDetail = DispatchDetail::query()->create([
+                'dispatch_id' => $dispatch->id,
+                'sale_id' => $sale->id,
+                'tax_id' => $snapshotTaxId ?? $lineTaxId,
+                'product_id' => $productId,
+                'bundle_id' => $bundleId,
+                'dispatched_quantity' => $chunkQty,
+                'location_id' => $chunkLocId,
+                'serial_numbers' => $assignedSerialsForChunk ? json_encode($assignedSerialsForChunk) : null,
+            ]);
+
+            if ($assignedSerialsForChunk) {
+                foreach ($assignedSerialsForChunk as $sn) {
+                    if (! isset($serialRecords[$sn])) {
+                        continue;
+                    }
+                    $snRecord = $serialRecords[$sn];
+                    $snRecord->update([
+                        'status' => 'SOLD',
+                        'dispatch_detail_id' => $dispatchDetail->id,
+                    ]);
+
+                    SerialNumberHistoryService::record(
+                        (int) $snRecord->id,
+                        'SOLD',
+                        $chunkLocId,
+                        $dispatchDetail
+                    );
+
+                    SalesOrderSerialTracking::query()->create([
+                        'sale_id' => (int) $sale->id,
+                        'product_serial_number_id' => (int) $snRecord->id,
+                        'quantity_allocated' => 1,
+                        'dispatch_date' => now()->toDateTimeString(),
+                    ]);
+                }
+            }
+
+            $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $settingId);
+
+            $previousSettingQty = (int) ProductStock::query()
+                ->where('product_id', $productId)
+                ->whereHas('location', fn($q) => $q->where('setting_id', $sourceSettingId))
+                ->sum('quantity');
+
+            $previousLocationQty = (int) $stock->quantity;
+
+            $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
+            if ($taxBucketUsed) {
+                $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $chunkQty);
+            } else {
+                $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $chunkQty);
+            }
+            $stock->save();
+
+            $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
+            if ($product) {
+                $product->product_quantity = max(0, (int) $product->product_quantity - $chunkQty);
+                $product->save();
+            }
+
+            $afterSettingQty = $previousSettingQty - $chunkQty;
+            $afterLocationQty = (int) $stock->quantity;
+
+            Transaction::query()->create([
+                'product_id' => $productId,
+                'setting_id' => $sourceSettingId,
+                'quantity' => -$chunkQty,
+                'current_quantity' => $afterSettingQty,
+                'broken_quantity' => 0,
+                'location_id' => $chunkLocId,
+                'user_id' => $cashierUserId,
+                'reason' => 'POS checkout #' . $checkoutId,
+                'type' => 'DISPATCH',
+                'previous_quantity' => $previousSettingQty,
+                'after_quantity' => $afterSettingQty,
+                'previous_quantity_at_location' => $previousLocationQty,
+                'after_quantity_at_location' => $afterLocationQty,
+                'quantity_tax' => $taxBucketUsed ? $chunkQty : 0,
+                'quantity_non_tax' => $taxBucketUsed ? 0 : $chunkQty,
+                'broken_quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+            ]);
+        }
+    }
 
 
     /**

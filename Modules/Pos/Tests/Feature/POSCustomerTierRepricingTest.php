@@ -15,6 +15,8 @@ use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
@@ -184,6 +186,44 @@ class POSCustomerTierRepricingTest extends TestCase
         $this->assertEquals(100000, $snapshot2['lines'][0]['unit_price'], 'Price should remain base for non-tier customer');
     }
 
+    public function test_bundle_line_price_includes_base_or_tier_price_plus_bundle_price(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER BUNDLE');
+
+        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BUNDLE-PARENT', 100000, 50000);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BUNDLE-CHILD', 20000, null);
+
+        $bundle = ProductBundle::query()->create([
+            'parent_product_id' => $parent->id,
+            'name' => 'Bundle Parent + Child',
+            'price' => 15000,
+        ]);
+
+        ProductBundleItem::query()->create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+        ]);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $parent->id,
+                'qty' => 1,
+                'bundle_id' => $bundle->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 115000)
+            ->assertJsonPath('cart_snapshot.lines.0.bundle_price', 15000);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $tierCustomer);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(65000, $snapshot['lines'][0]['unit_price'], 'Bundle line price should be tier price plus bundle price.');
+        $this->assertEquals(15000, $snapshot['lines'][0]['bundle_price'], 'Bundle price should be preserved separately for repricing.');
+    }
+
     // ==== HELPER METHODS ====
 
     private function createCheckoutContext(string $name): array
@@ -345,14 +385,20 @@ class POSCustomerTierRepricingTest extends TestCase
             ->assertOk();
     }
 
-    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
+    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty, ?int $bundleId = null): void
     {
+        $payload = [
+            'product_id' => $productId,
+            'qty' => $qty,
+        ];
+
+        if ($bundleId !== null) {
+            $payload['bundle_id'] = $bundleId;
+        }
+
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), [
-                'product_id' => $productId,
-                'qty' => $qty,
-            ])
+            ->postJson(route('pos.sell.cart.lines.store'), $payload)
             ->assertOk();
     }
 

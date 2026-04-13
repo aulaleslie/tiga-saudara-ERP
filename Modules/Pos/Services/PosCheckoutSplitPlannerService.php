@@ -64,9 +64,20 @@ class PosCheckoutSplitPlannerService
             }
 
             $lineTaxable = (int) ($line['tax_id'] ?? 0) > 0;
-            $lineChunks = (bool) ($line['serial_number_required'] ?? false)
-                ? $this->resolveSerialLineChunks($settingId, $line, $lineTaxable)
-                : $this->resolveNonSerialLineChunks($settingId, $line, $lineTaxable, $allocations[$lineIndex] ?? []);
+            $isStockManaged = (bool) ($line['stock_managed'] ?? true);
+            
+            // Try new bundle-aware parent key, fallback to legacy index
+            $myAllocations = $allocations["{$lineIndex}_P"] ?? ($allocations[$lineIndex] ?? []);
+
+            if (!$isStockManaged) {
+                // If not stock managed, it doesn't have an allocation record.
+                // We'll place it in the terminal setting group.
+                $lineChunks = $this->resolveTerminalLineChunks($settingId, $line, $lineTaxable);
+            } else {
+                $lineChunks = (bool) ($line['serial_number_required'] ?? false)
+                    ? $this->resolveSerialLineChunks($settingId, $line, $lineTaxable)
+                    : $this->resolveNonSerialLineChunks($settingId, $line, $lineTaxable, $myAllocations);
+            }
 
             $allocatedQty = array_sum(array_map(
                 static fn (array $chunk): int => max(0, (int) ($chunk['allocated_qty'] ?? 0)),
@@ -133,7 +144,7 @@ class PosCheckoutSplitPlannerService
                 if ((bool) ($line['serial_number_required'] ?? false)) {
                     $groupMap[$splitKey]['allocations'][$groupLineIndex] = [];
                 } else {
-                    $groupMap[$splitKey]['allocations'][$groupLineIndex] = [[
+                    $itemAllocations = [[
                         'source_location_id' => (int) $chunk['source_location_id'],
                         'source_setting_id' => (int) $chunk['source_setting_id'],
                         'allocated_qty' => $chunkQty,
@@ -145,6 +156,21 @@ class PosCheckoutSplitPlannerService
                             'tax_rate' => (float) ($chunk['tax_rate'] ?? 0),
                         ],
                     ]];
+                    
+                    $groupMap[$splitKey]['allocations'][$groupLineIndex] = $itemAllocations;
+                    $groupMap[$splitKey]['allocations']["{$groupLineIndex}_P"] = $itemAllocations;
+                }
+
+                // Map child allocations to this group if they exist
+                $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+                foreach ($bundleItems as $j => $bi) {
+                    $childKey = "{$lineIndex}_C_{$j}";
+                    if (isset($allocations[$childKey])) {
+                        // For simplicity in split groups, we provide child allocations to the group 
+                        // even if they are in a different setting. The Inline adapter will handle 
+                        // the actual movement.
+                        $groupMap[$splitKey]['allocations']["{$groupLineIndex}_C_{$j}"] = $allocations[$childKey];
+                    }
                 }
 
                 $groupMap[$splitKey]['_subtotal_minor'] += $chunkSubtotalMinor;
@@ -379,7 +405,50 @@ class PosCheckoutSplitPlannerService
             'line_subtotal' => $this->fromMinor($lineSubtotalMinor),
             'line_tax_total' => $this->fromMinor($lineTaxMinor),
             'line_total' => $this->fromMinor($lineSubtotalMinor),
+            'bundle_id' => isset($line['bundle_id']) ? (int) $line['bundle_id'] : null,
+            'bundle_items' => is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [],
         ];
+    }
+
+    /**
+     * Resolve a static chunk for terminal setting for non-stock managed items.
+     */
+    private function resolveTerminalLineChunks(int $settingId, array $line, bool $lineTaxable): array
+    {
+        $sourceIsPkp = $this->sourceIsPkp($settingId);
+        $candidateTaxId = (int) ($line['tax_id'] ?? 0);
+
+        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
+            $lineTaxable,
+            $sourceIsPkp,
+            $candidateTaxId
+        );
+
+        $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
+        
+        // Pick any location for this setting to satisfy schema requirements
+        $locationId = 0;
+        $setting = $this->settingById($settingId);
+        if ($setting) {
+             $location = \Modules\Setting\Entities\Location::where('setting_id', $settingId)->first();
+             $locationId = $location ? (int) $location->id : 0;
+        }
+
+        $splitKey = $this->buildSplitKey($settingId, $locationId, $taxBucket);
+
+        return [[
+            'split_key' => $splitKey,
+            'source_setting_id' => $settingId,
+            'source_location_id' => $locationId,
+            'tax_bucket' => $taxBucket,
+            'source_is_pkp' => $sourceIsPkp,
+            'effective_tax_id' => $effectiveTaxId,
+            'tax_name' => $taxName,
+            'tax_rate' => $taxRate,
+            'allocated_qty' => (int) ($line['qty'] ?? 0),
+            'serial_numbers' => [],
+            'tax_bucket_used' => $effectiveTaxId > 0,
+        ]];
     }
 
     private function resolveSourceSettingId(int $fallbackSettingId, int $locationId): int

@@ -14,6 +14,7 @@ use Modules\Pos\Events\PosCartUpdated;
 use Modules\Pos\Services\Exceptions\PosCartMutationException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
@@ -52,7 +53,7 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
-    public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null): array
+    public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null, ?int $bundleId = null): array
     {
         if ($qty < 1) {
             throw new DomainException('Kuantitas harus minimal 1.');
@@ -76,8 +77,23 @@ class PosCartService
             }
         }
 
+        // Resolve bundle if provided
+        $bundle = null;
+        if ($bundleId !== null && $bundleId > 0) {
+            $bundle = ProductBundle::query()
+                ->where('id', $bundleId)
+                ->where('parent_product_id', $productId)
+                ->with('items.product')
+                ->first();
+
+            if (! $bundle) {
+                throw new DomainException('Paket tidak ditemukan untuk produk ini.');
+            }
+        }
+
         // Resolve pricing: conversion price (if provided) or base product price
         $unitPrice = 0.0;
+        $bundlePrice = 0.0;
         $priceSource = 'BASE';
         $taxId = null;
         $taxName = null;
@@ -112,6 +128,19 @@ class PosCartService
             $taxId = $tax ? (int) $tax->id : null;
             $taxName = $tax ? (string) $tax->name : null;
             $taxRate = $tax ? (float) $tax->value : 0.0;
+        } elseif ($bundle !== null) {
+            $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
+
+            // Base bundled lines on normal product pricing, then add the configured bundle price.
+            $priceResolution = $this->resolveLinePrice($settingId, $product->id, $selectedCustomerId);
+            $baseUnitPrice = (float) ($priceResolution['unit_price'] ?? 0);
+            $bundlePrice = round((float) ($bundle->price ?? 0), 2);
+            $unitPrice = round($baseUnitPrice + $bundlePrice, 2);
+            $priceSource = 'BUNDLE';
+
+            $taxId = $priceResolution['tax_id'];
+            $taxName = $priceResolution['tax_name'];
+            $taxRate = (float) ($priceResolution['tax_rate'] ?? 0.0);
         } else {
             // Use base product pricing
             $priceRow = ProductPrice::query()
@@ -128,8 +157,8 @@ class PosCartService
         }
 
         // Build merge key to determine if we should merge with existing line
-        // Include conversion_id in key so base and conversion lines don't merge
-        $mergeKey = $this->buildMergeKey($product->id, $unitPrice, $taxId, $conversionId);
+        // Include conversion_id and bundle_id in key so different options don't merge
+        $mergeKey = $this->buildMergeKey($product->id, $unitPrice, $taxId, $conversionId, $bundleId);
 
         // Look for existing line with matching merge key (handles backwards compat + new format)
         $existingLineId = null;
@@ -169,6 +198,7 @@ class PosCartService
                 'product_name' => (string) $product->product_name,
                 'product_code' => (string) ($product->product_code ?? ''),
                 'barcode' => $product->barcode !== null ? (string) $product->barcode : null,
+                'stock_managed' => (bool) $product->stock_managed,
                 'serial_number_required' => (bool) $product->serial_number_required,
                 'assigned_serials' => [],
                 'qty' => $qty,
@@ -185,6 +215,16 @@ class PosCartService
                 'price_error' => null,
                 'conversion_id' => $conversionId,
                 'conversion_unit_name' => $conversionUnitName,
+                'bundle_id' => $bundleId,
+                'bundle_name' => $bundle ? (string) $bundle->name : null,
+                'bundle_price' => $bundlePrice,
+                'bundle_items' => $bundle ? $bundle->items->map(fn ($item) => [
+                    'product_id' => $item->product_id,
+                    'product_name' => $item->product->product_name,
+                    'quantity' => $item->quantity,
+                    'stock_managed' => (bool) $item->product->stock_managed,
+                    'serial_number_required' => (bool) $item->product->serial_number_required,
+                ])->toArray() : [],
             ];
         }
 
@@ -378,9 +418,14 @@ class PosCartService
 
             // Update line with new price and tax info
             $newUnitPrice = (float) ($priceResolution['unit_price'] ?? 0);
+            $bundlePrice = round((float) ($line['bundle_price'] ?? 0), 2);
+            if ((int) ($line['bundle_id'] ?? 0) > 0) {
+                $newUnitPrice = round($newUnitPrice + $bundlePrice, 2);
+            }
             $newTaxId = $priceResolution['tax_id'];
             $conversionIdForKey = (int) ($line['conversion_id'] ?? 0) > 0 ? (int) $line['conversion_id'] : null;
-            $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId, $conversionIdForKey);
+            $bundleIdForKey = (int) ($line['bundle_id'] ?? 0) > 0 ? (int) $line['bundle_id'] : null;
+            $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId, $conversionIdForKey, $bundleIdForKey);
 
             $line['unit_price'] = round($newUnitPrice, 2);
             $line['tax_id'] = $newTaxId;
@@ -1106,10 +1151,11 @@ class PosCartService
      * @param  float  $unitPrice
      * @param  int|null  $taxId
      * @param  int|null  $conversionId  Optional conversion ID to include in key
+     * @param  int|null  $bundleId  Optional bundle ID to include in key
      * @return string
      */
-    private function buildMergeKey(int $productId, float $unitPrice, ?int $taxId, ?int $conversionId = null): string
+    private function buildMergeKey(int $productId, float $unitPrice, ?int $taxId, ?int $conversionId = null, ?int $bundleId = null): string
     {
-        return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}:{$conversionId}";
+        return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}:{$conversionId}:{$bundleId}";
     }
 }

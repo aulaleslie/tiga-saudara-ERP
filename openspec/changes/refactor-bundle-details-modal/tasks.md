@@ -13,6 +13,6 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Verify modal opens with correct bundle data.
-- [ ] 3.2 Verify cart table layout remains stable.
-- [ ] 3.3 Verify mobile responsiveness of the modal table.
+- [x] 3.1 Verify modal opens with correct bundle data.
+- [x] 3.2 Verify cart table layout remains stable.
+- [x] 3.3 Verify mobile responsiveness of the modal table.

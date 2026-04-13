@@ -799,6 +799,64 @@
         border-color: #007bff !important;
     }
 
+    /* Bundle Selection Styles */
+    .pos-bundle-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        height: 100%;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+    }
+
+    .pos-bundle-card:hover {
+        border-color: #3b82f6;
+        background-color: #f8fafc;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .pos-bundle-card .bundle-name {
+        font-weight: 700;
+        font-size: 1rem;
+        color: #1e293b;
+        margin-bottom: 0.5rem;
+    }
+
+    .pos-bundle-card .bundle-price {
+        font-weight: 700;
+        font-size: 1.15rem;
+        color: #3b82f6;
+        margin-bottom: 0.75rem;
+    }
+
+    .pos-bundle-card .bundle-items {
+        font-size: 0.8rem;
+        color: #64748b;
+        flex-grow: 1;
+    }
+
+    .pos-bundle-card .bundle-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.25rem;
+        gap: 0.5rem;
+    }
+
+    .pos-bundle-card .bundle-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .pos-bundle-card .bundle-item-qty {
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
     .pos-customer-shell {
         height: 100%;
         display: flex;
@@ -1856,6 +1914,45 @@
         </div>
     </div>
 
+    <!-- Bundle Selection Modal -->
+    <div class="modal fade" id="pos-bundle-selection-modal" tabindex="-1" role="dialog" aria-labelledby="pos-bundle-selection-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem;">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title font-weight-bold" id="pos-bundle-selection-modal-label">Pilih Paket Penjualan</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="pos-bundle-modal-product-info" class="mb-4">
+                        <h4 id="pos-bundle-parent-name" class="font-weight-bold mb-1 text-primary"></h4>
+                        <p class="text-muted">Pilih paket kombinasi untuk mendapatkan harga khusus, atau lanjut dengan harga normal.</p>
+                    </div>
+                    
+                    <div id="pos-bundle-loading" class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Memuat...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Memuat pilihan paket...</p>
+                    </div>
+
+                    <div id="pos-bundle-error" class="alert alert-danger d-none"></div>
+
+                    <div id="pos-bundle-options" class="row g-3">
+                        <!-- Bundle options will be rendered here -->
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top-0" style="border-bottom-left-radius: 1rem; border-bottom-right-radius: 1rem;">
+                    <button type="button" class="btn btn-secondary font-weight-bold" data-dismiss="modal">Batal</button>
+                    <button type="button" id="pos-bundle-continue-normal" class="btn btn-primary px-4 font-weight-bold">
+                        Lanjut Harga Normal
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
     <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
@@ -1942,6 +2039,16 @@
             let pendingReduceLineId = null;
             let pendingReduceCurrentQty = null;
             let pendingReduceButton = null;
+
+            // Bundle Selection Modal elements
+            const bundleSelectionModal = document.getElementById('pos-bundle-selection-modal');
+            const bundleParentName = document.getElementById('pos-bundle-parent-name');
+            const bundleLoading = document.getElementById('pos-bundle-loading');
+            const bundleError = document.getElementById('pos-bundle-error');
+            const bundleOptions = document.getElementById('pos-bundle-options');
+            const bundleContinueNormal = document.getElementById('pos-bundle-continue-normal');
+            let pendingBundleProduct = null;
+            let pendingBundleSource = null;
 
             // Track pending approval requests on the client side
             const clientPendingApprovals = {}; // { lineId: { requestId, requestedQty, status, token } }
@@ -2879,11 +2986,18 @@
                     deleteButtonHtml = `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" title="Hapus" aria-label="Hapus">Hapus</button>`;
                 }
 
+                const bundleInfo = line.bundle_id
+                    ? `<div class="text-primary small font-weight-bold mt-1">
+                         <i class="fas fa-box-open mr-1"></i> Paket: ${escapeHtml(line.bundle_name)}
+                       </div>`
+                    : '';
+
                 return `
                     <tr data-line-id="${lineId}" class="${rowClass}">
                         <td class="pos-cart-product align-middle">
                             ${priceWarning}
                             <div class="name">${productName}${serialBadge}</div>
+                            ${bundleInfo}
                             <div class="meta">${productCode} | ${barcode}</div>
                         </td>
                         <td class="text-right align-middle">${formatPrice(line.unit_price || 0)}</td>
@@ -3243,7 +3357,117 @@
                 }
             }
 
-            async function addProductToCart(product, source) {
+            // Bundle Selection Functions
+            async function openBundleSelectionModal(product, source) {
+                pendingBundleProduct = product;
+                pendingBundleSource = source;
+                
+                if (bundleParentName) bundleParentName.textContent = product.product_name;
+                if (bundleLoading) bundleLoading.classList.remove('d-none');
+                if (bundleError) bundleError.classList.add('d-none');
+                if (bundleOptions) bundleOptions.innerHTML = '';
+                
+                $(bundleSelectionModal).modal('show');
+                
+                try {
+                    const response = await jsonRequest(`/pos/sell/products/${product.id}/bundles`, 'GET');
+                    if (bundleLoading) bundleLoading.classList.add('d-none');
+                    
+                    if (response && response.bundles) {
+                        renderBundleOptions(response.bundles);
+                    }
+                } catch (error) {
+                    if (bundleLoading) bundleLoading.classList.add('d-none');
+                    if (bundleError) {
+                        bundleError.textContent = error.message || 'Gagal memuat paket.';
+                        bundleError.classList.remove('d-none');
+                    }
+                }
+            }
+
+            function renderBundleOptions(bundles) {
+                if (!bundleOptions) return;
+                
+                bundleOptions.innerHTML = '';
+                
+                if (bundles.length === 0) {
+                    bundleOptions.innerHTML = '<div class="col-12 text-center py-4 text-muted">Tidak ada paket tersedia untuk produk ini.</div>';
+                    return;
+                }
+                
+                bundles.forEach(bundle => {
+                    const col = document.createElement('div');
+                    col.className = 'col-md-6 mb-3';
+                    
+                    const itemsHtml = bundle.items.map(item => `
+                        <div class="bundle-item">
+                            <span class="bundle-item-name">${escapeHtml(item.name)}</span>
+                            <span class="bundle-item-qty">x${item.quantity}</span>
+                        </div>
+                    `).join('');
+                    
+                    col.innerHTML = `
+                        <div class="pos-bundle-card js-select-bundle" data-bundle-id="${bundle.id}">
+                            <div class="bundle-name">${escapeHtml(bundle.name)}</div>
+                            <div class="bundle-price">${formatPrice(bundle.price)}</div>
+                            <div class="bundle-items border-top pt-2">
+                                ${itemsHtml}
+                            </div>
+                        </div>
+                    `;
+                    
+                    bundleOptions.appendChild(col);
+                });
+                
+                // Event listeners for bundle selection
+                bundleOptions.querySelectorAll('.js-select-bundle').forEach(el => {
+                    el.addEventListener('click', function() {
+                        const bundleId = this.dataset.bundleId;
+                        const bundle = bundles.find(b => String(b.id) === bundleId);
+                        if (bundle) {
+                            addBundleToCart(pendingBundleProduct, bundle, pendingBundleSource);
+                            $(bundleSelectionModal).modal('hide');
+                        }
+                    });
+                });
+            }
+
+            async function addBundleToCart(product, bundle, source) {
+                latestRequestId += 1;
+                clearResults();
+                if (searchInput) {
+                    clearSearchInput({ keepFocus: false });
+                }
+
+                try {
+                    const payload = {
+                        product_id: Number(product.id),
+                        qty: 1,
+                        bundle_id: Number(bundle.id)
+                    };
+
+                    const response = await jsonRequest(cartStoreLineEndpoint, 'POST', payload);
+                    if (!response) return;
+
+                    renderCart(response.cart_snapshot || null);
+                    if (searchInput) searchInput.focus();
+
+                    const msg = `Paket "${bundle.name}" ditambahkan.`;
+                    setSearchStatus(msg, 'text-success');
+                    setCartStatus('Keranjang berhasil diperbarui.', 'text-success');
+                } catch (error) {
+                    setCartStatus(error.message || 'Gagal menambahkan paket ke keranjang.', 'text-danger');
+                }
+            }
+
+            async function addProductToCart(product, source, options = {}) {
+                // If product is a bundle parent, show selection modal instead of adding directly
+                // skipBundleCheck is used when continuing without a bundle
+                if (!options.skipBundleCheck && (product.is_bundle_parent === 1 || product.is_bundle_parent === true)) {
+                    openBundleSelectionModal(product, source);
+                    return;
+                }
+
                 latestRequestId += 1;
                 clearResults();
                 if (searchInput) {
@@ -4278,6 +4502,34 @@
             let selectedSupervisor = null;
             let latestSupervisorRequestId = 0;
             let expectedCashLoadError = false;
+
+            // Bundle selection "continue normal" handler
+            if (bundleContinueNormal) {
+                bundleContinueNormal.addEventListener('click', async function() {
+                    if (pendingBundleProduct) {
+                        const product = pendingBundleProduct;
+                        const source = pendingBundleSource;
+                        pendingBundleProduct = null;
+                        pendingBundleSource = null;
+                        
+                        $(bundleSelectionModal).modal('hide');
+                        
+                        // Proceed with normal add by passing skipBundleCheck
+                        await addProductToCart(product, source, { skipBundleCheck: true });
+                    }
+                });
+            }
+
+            // Reset bundle state when modal hidden
+            if (typeof $ !== 'undefined') {
+                $(bundleSelectionModal).on('hidden.bs.modal', function() {
+                    pendingBundleProduct = null;
+                    pendingBundleSource = null;
+                    if (bundleLoading) bundleLoading.classList.add('d-none');
+                    if (bundleError) bundleError.classList.add('d-none');
+                    if (bundleOptions) bundleOptions.innerHTML = '';
+                });
+            }
 
             function showPickupStep1() {
                 pickupStep1.classList.remove('d-none');

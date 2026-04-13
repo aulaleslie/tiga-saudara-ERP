@@ -27,6 +27,7 @@ use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosPaymentMethodSearchService;
 use Modules\Pos\Services\PosRolePolicyService;
 use Modules\People\Entities\Customer;
+use Modules\Product\Entities\Product;
 
 class PosSellController extends Controller
 {
@@ -70,6 +71,35 @@ class PosSellController extends Controller
         );
 
         return response()->json($payload);
+    }
+
+    public function productBundles(Product $product): JsonResponse
+    {
+        $bundles = $product->bundles()
+            ->with(['items.product' => function ($query) {
+                $query->select('id', 'product_name', 'product_code', 'stock_managed', 'serial_number_required');
+            }])
+            ->get();
+
+        return response()->json([
+            'bundles' => $bundles->map(function ($bundle) {
+                return [
+                    'id' => $bundle->id,
+                    'name' => $bundle->name,
+                    'price' => (float) $bundle->price,
+                    'items' => $bundle->items->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'product_id' => $item->product_id,
+                            'name' => $item->product->product_name,
+                            'quantity' => (float) $item->quantity,
+                            'stock_managed' => (bool) $item->product->stock_managed,
+                            'serial_number_required' => (bool) $item->product->serial_number_required,
+                        ];
+                    }),
+                ];
+            }),
+        ]);
     }
 
     public function customerSearch(Request $request, PosCustomerSearchService $searchService): JsonResponse
@@ -180,7 +210,8 @@ class PosSellController extends Controller
                 $sessionId,
                 (int) $request->input('product_id'),
                 (int) ($request->input('qty', 1)),
-                $request->input('conversion_id') !== null ? (int) $request->input('conversion_id') : null
+                $request->input('conversion_id') !== null ? (int) $request->input('conversion_id') : null,
+                $request->input('bundle_id') !== null ? (int) $request->input('bundle_id') : null
             );
         } catch (DomainException $exception) {
             return response()->json([

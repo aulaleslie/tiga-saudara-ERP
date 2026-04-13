@@ -81,6 +81,8 @@ class PosScanResolverService
             && $serialRecord->product->stock_managed
             && $this->hasPriceForSetting($serialRecord->product->id, $settingId)
         ) {
+            $isBundleParent = $this->isBundleParent((int) $serialRecord->product->id);
+
             return [
                 'type' => 'serial_exact',
                 'serial' => [
@@ -96,6 +98,7 @@ class PosScanResolverService
                     'barcode' => $serialRecord->product->barcode !== null ? (string) $serialRecord->product->barcode : null,
                     'sale_price' => (float) ($serialRecord->product->product_price ?? 0),
                     'serial_number_required' => (bool) $serialRecord->product->serial_number_required,
+                    'is_bundle_parent' => $isBundleParent,
                 ],
             ];
         }
@@ -115,6 +118,7 @@ class PosScanResolverService
     private function formatProductExact(Product $product, int $settingId, ?ProductUnitConversion $conversion = null): array
     {
         $conversionMetadata = null;
+        $isBundleParent = $this->isBundleParent((int) $product->id);
 
         if ($conversion !== null) {
             // Look up the conversion price for this setting
@@ -151,10 +155,22 @@ class PosScanResolverService
                 'barcode' => $product->barcode !== null ? (string) $product->barcode : null,
                 'sale_price' => (float) ($product->product_price ?? 0),
                 'serial_number_required' => (bool) $product->serial_number_required,
+                'is_bundle_parent' => $isBundleParent,
                 'resolved_via' => $conversion !== null ? 'conversion_barcode' : 'product_barcode',
                 'conversion' => $conversionMetadata,
             ],
         ];
+    }
+
+    private function isBundleParent(int $productId): bool
+    {
+        if ($productId <= 0) {
+            return false;
+        }
+
+        return DB::table('product_bundles')
+            ->where('parent_product_id', $productId)
+            ->exists();
     }
 
     /**
