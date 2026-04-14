@@ -37,6 +37,7 @@
                             <td>
                                 <input
                                     type="number"
+                                    name="items[{{ $index }}][quantity]"
                                     wire:model="items.{{ $index }}.quantity"
                                     class="form-control"
                                     min="1">
@@ -55,8 +56,6 @@
     <!-- Hidden inputs to pass bundle items data when the parent form is submitted -->
     @foreach($items as $index => $item)
         <input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $item['product_id'] }}">
-        <input type="hidden" name="items[{{ $index }}][price]" value="{{ $item['price'] ?? 0 }}">
-        <input type="hidden" name="items[{{ $index }}][quantity]" value="{{ $item['quantity'] ?? 0}}">
     @endforeach
 
     <style>

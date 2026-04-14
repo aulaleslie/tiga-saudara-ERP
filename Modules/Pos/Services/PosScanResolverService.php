@@ -81,7 +81,7 @@ class PosScanResolverService
             && $serialRecord->product->stock_managed
             && $this->hasPriceForSetting($serialRecord->product->id, $settingId)
         ) {
-            $isBundleParent = $this->isBundleParent((int) $serialRecord->product->id);
+            $isBundleParent = $this->isBundleParent((int) $serialRecord->product->id, $settingId);
 
             return [
                 'type' => 'serial_exact',
@@ -118,7 +118,7 @@ class PosScanResolverService
     private function formatProductExact(Product $product, int $settingId, ?ProductUnitConversion $conversion = null): array
     {
         $conversionMetadata = null;
-        $isBundleParent = $this->isBundleParent((int) $product->id);
+        $isBundleParent = $this->isBundleParent((int) $product->id, $settingId);
 
         if ($conversion !== null) {
             // Look up the conversion price for this setting
@@ -162,7 +162,7 @@ class PosScanResolverService
         ];
     }
 
-    private function isBundleParent(int $productId): bool
+    private function isBundleParent(int $productId, int $settingId): bool
     {
         if ($productId <= 0) {
             return false;
@@ -170,6 +170,7 @@ class PosScanResolverService
 
         return DB::table('product_bundles')
             ->where('parent_product_id', $productId)
+            ->where('setting_id', $settingId)
             ->exists();
     }
 

@@ -83,6 +83,7 @@ class PosCartService
             $bundle = ProductBundle::query()
                 ->where('id', $bundleId)
                 ->where('parent_product_id', $productId)
+                ->where('setting_id', $settingId)
                 ->with('items.product')
                 ->first();
 

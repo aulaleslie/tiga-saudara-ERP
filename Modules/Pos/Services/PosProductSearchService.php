@@ -83,7 +83,7 @@ class PosProductSearchService
             ])
             ->selectRaw($availableQtyExpression . ' as available_qty')
             ->selectRaw('COALESCE(pp.sale_price, p.sale_price, 0) as sale_price')
-            ->selectRaw('CASE WHEN EXISTS (SELECT 1 FROM product_bundles pb WHERE pb.parent_product_id = p.id) THEN 1 ELSE 0 END as is_bundle_parent')
+            ->selectRaw('CASE WHEN EXISTS (SELECT 1 FROM product_bundles pb WHERE pb.parent_product_id = p.id AND pb.setting_id = ?) THEN 1 ELSE 0 END as is_bundle_parent', [$settingId])
             ->selectRaw('CASE WHEN ' . $barcodeExactExpr . ' THEN 1 ELSE 0 END as barcode_exact_match', [$normalizedQuery, $normalizedQuery])
             ->selectRaw('CASE WHEN ' . $skuExactExpr . ' THEN 1 ELSE 0 END as sku_exact_match', [$normalizedQuery])
             ->selectRaw('CASE WHEN ' . $barcodePartialExpr . ' THEN 1 ELSE 0 END as barcode_partial_match', [$likeQuery, $likeQuery])

@@ -28,6 +28,7 @@ use Modules\Pos\Services\PosPaymentMethodSearchService;
 use Modules\Pos\Services\PosRolePolicyService;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
+use App\Support\ProductBundleResolver;
 
 class PosSellController extends Controller
 {
@@ -75,11 +76,9 @@ class PosSellController extends Controller
 
     public function productBundles(Product $product): JsonResponse
     {
-        $bundles = $product->bundles()
-            ->with(['items.product' => function ($query) {
-                $query->select('id', 'product_name', 'product_code', 'stock_managed', 'serial_number_required');
-            }])
-            ->get();
+        $settingId = $this->currentSettingId();
+
+        $bundles = ProductBundleResolver::forProduct((int) $product->id, $settingId);
 
         return response()->json([
             'bundles' => $bundles->map(function ($bundle) {
