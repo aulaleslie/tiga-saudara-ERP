@@ -248,7 +248,7 @@
         <!-- Product Bundles -->
         <div class="card mt-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5>Paket Penjualan</h5>
+                <h5>Paket Penjualan {{ $activeSetting ? "- " . $activeSetting->company_name : '' }}</h5>
                 @can('products.bundle.create')
                     <a href="{{ route('products.bundle.create', $product->id) }}" class="btn btn-secondary btn-sm">Tambah
                         Paket</a>

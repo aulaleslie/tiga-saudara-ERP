@@ -25,4 +25,12 @@ class ProductBundle extends BaseModel
     {
         return $this->hasMany(ProductBundleItem::class, 'bundle_id');
     }
+
+    /**
+     * The setting that this bundle belongs to.
+     */
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class);
+    }
 }

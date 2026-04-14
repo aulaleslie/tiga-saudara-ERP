@@ -21,14 +21,11 @@ class ProductBundleController extends Controller
      * @param int $productId
      * @return View
      */
-    public function index(int $productId): View
+    public function index(int $productId): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.access'), 403);
-        $product = Product::findOrFail($productId);
-        // Load bundles along with their items and the bundled products
-        $bundles = $product->bundles()->with('items.product')->get();
 
-        return view('product::bundles.index', compact('product', 'bundles'));
+        return redirect()->route('products.show', $productId);
     }
 
     /**
@@ -44,8 +41,10 @@ class ProductBundleController extends Controller
         // Retrieve a list of products that can be bundled.
         // You might want to exclude the parent product itself.
         $products = Product::where('id', '!=', $productId)->get();
+        // 5.2 Pass settingId to view for display context
+        $settingId = session('setting_id');
 
-        return view('product::bundles.create', compact('product', 'products'));
+        return view('product::bundles.create', compact('product', 'products', 'settingId'));
     }
 
     /**
@@ -80,8 +79,9 @@ class ProductBundleController extends Controller
 
         DB::beginTransaction();
         try {
-            // Create the bundle header record
+            // 5.3 Include setting_id from session('setting_id')
             $bundle = ProductBundle::create([
+                'setting_id' => session('setting_id'),
                 'parent_product_id' => $productId,
                 'name' => $request->input('name'),
                 'description' => $request->input('description'),
@@ -111,8 +111,8 @@ class ProductBundleController extends Controller
     public function edit(Product $product, ProductBundle $bundle): View
     {
         abort_if(Gate::denies('products.bundle.edit'), 403);
-        // Optionally, ensure that the bundle actually belongs to the product.
-        if ($bundle->parent_product_id !== $product->id) {
+        // 5.4 Ensure that the bundle actually belongs to the product and the active setting.
+        if ($bundle->parent_product_id !== $product->id || $bundle->setting_id != session('setting_id')) {
             abort(404);
         }
 
@@ -129,6 +129,11 @@ class ProductBundleController extends Controller
     public function update(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.edit'), 403);
+        // 5.5 Verify bundle's setting_id matches active session
+        if ($bundle->setting_id != session('setting_id')) {
+            abort(404);
+        }
+
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -170,7 +175,7 @@ class ProductBundleController extends Controller
             }
 
             DB::commit();
-            return redirect()->route('products.bundle.index', $product->id)
+            return redirect()->route('products.show', $product->id)
                 ->with('success', 'Bundle updated successfully.');
         } catch (Exception $e) {
             DB::rollBack();
@@ -182,7 +187,8 @@ class ProductBundleController extends Controller
     public function destroy(Product $product, ProductBundle $bundle): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.delete'), 403);
-        if ($bundle->parent_product_id !== $product->id) {
+        // 5.6 Verify bundle's setting_id matches active session
+        if ($bundle->parent_product_id !== $product->id || $bundle->setting_id != session('setting_id')) {
             abort(404);
         }
 

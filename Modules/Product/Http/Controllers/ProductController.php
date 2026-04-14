@@ -192,7 +192,9 @@ class ProductController extends Controller
             }])
             ->get();
 
-        $bundles = $product->bundles()->with('items.product')->get();
+        $bundles = $product->bundles()->where('setting_id', $settingId)->with('items.product')->get();
+
+        $activeSetting = Setting::find($settingId);
 
         return view('product::products.show', compact(
             'product',
@@ -200,7 +202,8 @@ class ProductController extends Controller
             'productStocks',
             'bundles',
             'price',
-            'settingId'
+            'settingId',
+            'activeSetting'
         ));
     }
 

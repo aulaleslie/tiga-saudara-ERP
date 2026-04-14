@@ -181,6 +181,12 @@ class Product extends BaseModel implements HasMedia
         return $this->hasMany(ProductBundle::class, 'parent_product_id');
     }
 
+    /** Fetch bundles for a specific setting id. */
+    public function bundlesForSetting(int $settingId)
+    {
+        return $this->bundles()->where('setting_id', $settingId);
+    }
+
     public function bundledIn(): HasMany
     {
         return $this->hasMany(ProductBundleItem::class, 'product_id');
