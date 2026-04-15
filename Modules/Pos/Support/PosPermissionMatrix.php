@@ -24,13 +24,13 @@ final class PosPermissionMatrix
     {
         return [
             'owner' => [
-                'label' => 'Owner',
-                'description' => 'Mapped to Super Admin gate bypass. No separate owner-only permission bundle is maintained.',
+                'label' => 'Pemilik',
+                'description' => 'Dipetakan langsung ke akses Super Admin. Tidak ada paket hak akses terpisah yang dikelola untuk pemilik.',
                 'permissions' => [],
             ],
             'manager' => [
-                'label' => 'Manager',
-                'description' => 'Full POS oversight bundle with checkout authority, draft takeover, reports, reconciliation, approval queue, and administrative session controls.',
+                'label' => 'Manajer',
+                'description' => 'Paket pengawasan POS lengkap dengan otoritas checkout, ambil alih draf, laporan, rekonsiliasi, antrean persetujuan, dan kontrol sesi administratif.',
                 'permissions' => [
                     'pos.access',
                     'pos.sell',
@@ -55,8 +55,8 @@ final class PosPermissionMatrix
                 ],
             ],
             'cashier' => [
-                'label' => 'Cashier',
-                'description' => 'Checkout-authorized sell bundle for normal shell, handoff, and own-session operation without manager oversight screens.',
+                'label' => 'Kasir',
+                'description' => 'Paket penjualan dengan otoritas checkout untuk operasional normal, serah terima, dan pengelolaan sesi sendiri tanpa layar pengawasan manajer.',
                 'permissions' => [
                     'pos.access',
                     'pos.sell',
@@ -70,8 +70,8 @@ final class PosPermissionMatrix
                 ],
             ],
             'floor_staff' => [
-                'label' => 'Floor Staff',
-                'description' => 'Shell and handoff bundle for cart preparation, save/load draft continuation, and own-session operation without payment authority.',
+                'label' => 'Staf Lapangan',
+                'description' => 'Paket untuk persiapan keranjang dan serah terima draf, mendukung simpan/muat draf, dan operasional sesi sendiri tanpa otoritas pembayaran.',
                 'permissions' => [
                     'pos.access',
                     'pos.sell',
@@ -92,19 +92,19 @@ final class PosPermissionMatrix
     {
         return [
             'core_shell' => [
-                'label' => 'Core Shell Access',
+                'label' => 'Akses Inti POS',
                 'permissions' => ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.close'],
             ],
             'draft_handoff' => [
-                'label' => 'Draft Handoff',
+                'label' => 'Serah Terima Draf',
                 'permissions' => ['pos.transactions.view', 'pos.transactions.save', 'pos.transactions.load'],
             ],
             'checkout' => [
-                'label' => 'Checkout',
+                'label' => 'Pembayaran & Checkout',
                 'permissions' => ['pos.checkout.payment', 'pos.receipts.reprint'],
             ],
             'oversight' => [
-                'label' => 'Oversight',
+                'label' => 'Pengawasan & Manajerial',
                 'permissions' => [
                     'pos.sessions.view',
                     'pos.sessions.close-admin',
@@ -117,11 +117,11 @@ final class PosPermissionMatrix
                 ],
             ],
             'administration' => [
-                'label' => 'Administration',
+                'label' => 'Administrasi Terminal',
                 'permissions' => ['pos.terminals.access', 'pos.terminals.edit'],
             ],
             'exceptions' => [
-                'label' => 'Grouped Exceptions',
+                'label' => 'Pengecualian Hak Akses',
                 'permissions' => [
                     'pos.safeDrops.create',
                     'pos.cart.clear',

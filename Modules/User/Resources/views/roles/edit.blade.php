@@ -47,7 +47,7 @@
 
                             <div class="alert alert-info">
                                 <div class="font-weight-bold mb-2">Panduan Bundle POS</div>
-                                <div class="small mb-2">Bundle default POS sebaiknya mengikuti `manager`, `cashier`, atau `floor staff`. Override individual tetap dimungkinkan untuk kebutuhan khusus.</div>
+                                <div class="small mb-2">Bundle default POS sebaiknya mengikuti `manajer`, `kasir`, atau `staf lapangan`. Override individual tetap dimungkinkan untuk kebutuhan khusus.</div>
                                 <div class="row">
                                     @foreach($posGuidance['bundles'] as $bundle)
                                         <div class="col-lg-4 mb-2">

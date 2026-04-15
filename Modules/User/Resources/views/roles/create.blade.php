@@ -37,7 +37,7 @@
                     <div class="card mb-4">
                         <div class="card-body">
                             <div class="form-group mb-4">
-                                <label for="name">Role Name <span class="text-danger">*</span></label>
+                                <label for="name">Nama Peran <span class="text-danger">*</span></label>
                                 <input class="form-control" type="text" name="name" required value="{{ old('name') }}">
                             </div>
 
@@ -69,7 +69,7 @@
                             </div>
 
                             <div class="form-group mb-2">
-                                <label>Permissions <span class="text-danger">*</span></label>
+                                <label>Hak Akses <span class="text-danger">*</span></label>
                             </div>
 
                             <div class="form-group mb-3">

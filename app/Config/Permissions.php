@@ -32,7 +32,7 @@
  */
 
 return [
-    'Adjustments' => [
+    'Penyesuaian Stok' => [
         'adjustments.access' => 'Hak Akses',
         'adjustments.approval' => 'Persetujuan',
         'adjustments.breakage.approval' => 'Persetujuan Kerusakan',
@@ -48,7 +48,7 @@ return [
         'barcodes.print' => 'Cetak Barcode',
     ],
 
-    'Brands' => [
+    'Merek' => [
         'brands.access' => 'Hak Akses',
         'brands.create' => 'Buat',
         'brands.edit' => 'Ubah',
@@ -56,7 +56,7 @@ return [
         'brands.view' => 'Lihat',
     ],
 
-    'Businesses' => [
+    'Bisnis' => [
         'businesses.access' => 'Hak Akses',
         'businesses.create' => 'Buat',
         'businesses.edit' => 'Ubah',
@@ -64,14 +64,14 @@ return [
         'businesses.show' => 'Tampilkan',
     ],
 
-    'Categories' => [
+    'Kategori' => [
         'categories.access' => 'Hak Akses',
         'categories.create' => 'Buat',
         'categories.edit' => 'Ubah',
         'categories.delete' => 'Hapus',
     ],
 
-    'Chart of Accounts' => [
+    'Bagan Akun' => [
         'chartOfAccounts.access' => 'Hak Akses',
         'chartOfAccounts.create' => 'Buat',
         'chartOfAccounts.edit' => 'Ubah',
@@ -79,14 +79,14 @@ return [
         'chartOfAccounts.show' => 'Tampilkan',
     ],
 
-    'Currencies' => [
+    'Mata Uang' => [
         'currencies.access' => 'Hak Akses',
         'currencies.create' => 'Buat',
         'currencies.edit' => 'Ubah',
         'currencies.delete' => 'Hapus',
     ],
 
-    'Customers' => [
+    'Pelanggan' => [
         'customers.access' => 'Hak Akses',
         'customers.create' => 'Buat',
         'customers.edit' => 'Ubah',
@@ -94,21 +94,21 @@ return [
         'customers.show' => 'Tampilkan',
     ],
 
-    'Expense Categories' => [
+    'Kategori Pengeluaran' => [
         'expenseCategories.access' => 'Hak Akses',
         'expenseCategories.create' => 'Buat',
         'expenseCategories.edit' => 'Ubah',
         'expenseCategories.delete' => 'Hapus',
     ],
 
-    'Expenses' => [
+    'Pengeluaran' => [
         'expenses.access' => 'Hak Akses',
         'expenses.create' => 'Buat',
         'expenses.edit' => 'Ubah',
         'expenses.delete' => 'Hapus',
     ],
 
-    'Journals' => [
+    'Jurnal' => [
         'journals.access' => 'Hak Akses',
         'journals.create' => 'Buat',
         'journals.edit' => 'Ubah',
@@ -116,18 +116,18 @@ return [
         'journals.show' => 'Tampilkan',
     ],
 
-    'Locations' => [
+    'Lokasi' => [
         'locations.access' => 'Hak Akses',
         'locations.create' => 'Buat',
         'locations.edit' => 'Ubah',
     ],
 
-    'Sale Locations' => [
+    'Lokasi Penjualan' => [
         'saleLocations.access' => 'Hak Akses',
         'saleLocations.edit' => 'Ubah',
     ],
 
-    'Payment Methods & Terms' => [
+    'Metode & Syarat Pembayaran' => [
         'paymentMethods.access' => 'Hak Akses Metode Pembayaran',
         'paymentMethods.create' => 'Buat Metode Pembayaran',
         'paymentMethods.edit' => 'Ubah Metode Pembayaran',
@@ -138,11 +138,11 @@ return [
         'paymentTerms.delete' => 'Hapus Syarat Pembayaran',
     ],
 
-    'Price Points' => [
+    'Titik Harga' => [
         'pricePoints.access' => 'Hak Akses',
     ],
 
-    'Products' => [
+    'Produk' => [
         'products.access' => 'Hak Akses',
         'products.create' => 'Buat',
         'products.edit' => 'Ubah',
@@ -154,18 +154,18 @@ return [
         'products.bundle.delete' => 'Hapus Bundle',
     ],
 
-    'Profiles' => [
+    'Profil' => [
         'profiles.edit' => 'Ubah Profil',
     ],
 
-    'Quotations' => [
+    'Penawaran' => [
         'quotations.access' => 'Hak Akses',
         'quotations.create' => 'Buat',
         'quotations.edit' => 'Ubah',
         'quotations.sendMails' => 'Kirim Email',
     ],
 
-    'Purchases' => [
+    'Pembelian' => [
         'purchases.access' => 'Hak Akses',
         'purchases.create' => 'Buat',
         'purchases.import' => 'Impor',
@@ -182,33 +182,33 @@ return [
         'purchases.receive' => 'Terima',
     ],
 
-    'Purchase Reports' => [
+    'Laporan Pembelian' => [
         'purchaseReports.access' => 'Hak Akses',
         'purchaseReports.global.access' => 'Akses Global',
     ],
 
-    'Sale Reports' => [
+    'Laporan Penjualan' => [
         'saleReports.access' => 'Hak Akses',
         'saleReports.global.access' => 'Akses Global',
     ],
 
-    'Stock Mutation Reports' => [
+    'Laporan Mutasi Stok' => [
         'stockMutationReports.access' => 'Hak Akses',
         'stockMutationReports.global.access' => 'Akses Global',
     ],
 
-    'Inventory Valuation Reports' => [
+    'Laporan Valuasi Inventaris' => [
         'inventoryValuationReports.access' => 'Hak Akses',
     ],
 
-    'Purchase Payments' => [
+    'Pembayaran Pembelian' => [
         'purchasePayments.access' => 'Hak Akses',
         'purchasePayments.create' => 'Buat',
         'purchasePayments.edit' => 'Ubah',
         'purchasePayments.delete' => 'Hapus',
     ],
 
-    'Purchase Returns' => [
+    'Retur Pembelian' => [
         'purchaseReturns.access' => 'Hak Akses',
         'purchaseReturns.create' => 'Buat',
         'purchaseReturns.edit' => 'Ubah',
@@ -221,7 +221,7 @@ return [
         'purchaseReturns.dispatchExecute' => 'Eksekusi Pengiriman',
     ],
 
-    'Purchase Return Payments' => [
+    'Pembayaran Retur Pembelian' => [
         'purchaseReturnPayments.access' => 'Hak Akses',
         'purchaseReturnPayments.create' => 'Buat',
         'purchaseReturnPayments.edit' => 'Ubah',
@@ -229,7 +229,7 @@ return [
         'purchaseReturnPayments.show' => 'Tampilkan',
     ],
 
-    'Purchase Return Settlements' => [
+    'Penyelesaian Retur Pembelian' => [
         'purchaseReturnSettlements.access' => 'Hak Akses',
         'purchaseReturnSettlements.submit' => 'Kirim',
         'purchaseReturnSettlements.approve' => 'Setujui',
@@ -238,7 +238,7 @@ return [
         'purchaseReturnSettlements.receive' => 'Terima',
     ],
 
-    'Sale Return Settlements' => [
+    'Penyelesaian Retur Penjualan' => [
         'saleReturnSettlements.access' => 'Hak Akses',
         'saleReturnSettlements.submit' => 'Kirim',
         'saleReturnSettlements.approve' => 'Setujui',
@@ -249,7 +249,7 @@ return [
         'saleReturnSettlements.receive' => 'Terima',
     ],
 
-    'Reports & Settings' => [
+    'Laporan & Pengaturan' => [
         'reports.access' => 'Akses Laporan',
         'settings.access' => 'Akses Pengaturan',
         'settings.edit' => 'Ubah Pengaturan',
@@ -288,7 +288,7 @@ return [
         'pos.transactions.edit.any' => 'Ambil Alih Draft Transaksi',
     ],
 
-    'Stock Transfers' => [
+    'Transfer Stok' => [
         'stockTransfers.access' => 'Hak Akses',
         'stockTransfers.create' => 'Buat',
         'stockTransfers.edit' => 'Ubah',
@@ -299,7 +299,7 @@ return [
         'stockTransfers.approval' => 'Persetujuan',
     ],
 
-    'Suppliers' => [
+    'Pemasok' => [
         'suppliers.access' => 'Hak Akses',
         'suppliers.create' => 'Buat',
         'suppliers.edit' => 'Ubah',
@@ -307,21 +307,21 @@ return [
         'suppliers.show' => 'Tampilkan',
     ],
 
-    'Taxes' => [
+    'Pajak' => [
         'taxes.access' => 'Hak Akses',
         'taxes.create' => 'Buat',
         'taxes.edit' => 'Ubah',
         'taxes.delete' => 'Hapus',
     ],
 
-    'Units' => [
+    'Satuan' => [
         'units.access' => 'Hak Akses',
         'units.create' => 'Buat',
         'units.edit' => 'Ubah',
         'units.delete' => 'Hapus',
     ],
 
-    'Users & Roles' => [
+    'Pengguna & Peran' => [
         'users.access' => 'Hak Akses User',
         'users.create' => 'Buat User',
         'users.edit' => 'Ubah User',
@@ -332,7 +332,7 @@ return [
         'roles.delete' => 'Hapus Role',
     ],
 
-    'Sales' => [
+    'Penjualan' => [
         'sales.access' => 'Hak Akses',
         'sales.create' => 'Buat',
         'sales.import' => 'Impor',
@@ -343,7 +343,7 @@ return [
         'sales.approval' => 'Persetujuan',
     ],
 
-    'Sale Payments' => [
+    'Pembayaran Penjualan' => [
         'salePayments.access' => 'Hak Akses',
         'salePayments.create' => 'Buat',
         'salePayments.edit' => 'Ubah',
@@ -351,7 +351,7 @@ return [
         'salePayments.show' => 'Tampilkan',
     ],
 
-    'Sale Returns' => [
+    'Retur Penjualan' => [
         'saleReturns.access' => 'Hak Akses',
         'saleReturns.create' => 'Buat',
         'saleReturns.edit' => 'Ubah',
@@ -361,14 +361,14 @@ return [
         'saleReturns.receive' => 'Terima',
     ],
 
-    'Sale Return Payments' => [
+    'Pembayaran Retur Penjualan' => [
         'saleReturnPayments.access' => 'Hak Akses',
         'saleReturnPayments.create' => 'Buat',
         'saleReturnPayments.edit' => 'Ubah',
         'saleReturnPayments.delete' => 'Hapus',
     ],
 
-    'Global Search' => [
+    'Pencarian Global' => [
         'globalSalesSearch.access' => 'Cari Penjualan Global',
         'globalPurchaseAndSalesSearch.access' => 'Cari Pembelian & Penjualan Global',
     ],
