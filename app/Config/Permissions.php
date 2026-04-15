@@ -172,14 +172,14 @@ return [
         'purchases.edit' => 'Ubah',
         'purchases.delete' => 'Hapus',
         'purchases.show' => 'Tampilkan',
-        'purchases.receive' => 'Terima',
         'purchases.approval' => 'Persetujuan',
         'purchases.view' => 'Lihat',
     ],
 
-    'Purchase Receivings' => [
+    'Penerimaan Barang' => [
         'purchaseReceivings.access' => 'Hak Akses',
         'purchaseReceivings.approval' => 'Persetujuan',
+        'purchases.receive' => 'Terima',
     ],
 
     'Purchase Reports' => [

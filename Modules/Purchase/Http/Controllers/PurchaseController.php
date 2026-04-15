@@ -58,7 +58,7 @@ class PurchaseController extends Controller
      */
     public function receivingIndex(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('purchaseReceivings.access'), 403);
+        abort_unless(Gate::any(['purchaseReceivings.access', 'purchases.receive']), 403);
 
         $purchase = null;
 
@@ -75,7 +75,7 @@ class PurchaseController extends Controller
      */
     public function receivingsList(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('purchaseReceivings.access'), 403);
+        abort_unless(Gate::any(['purchaseReceivings.access', 'purchases.receive']), 403);
 
         return view('purchase::receiving.list');
     }
@@ -789,7 +789,7 @@ class PurchaseController extends Controller
 
     public function showReceivings($purchase_id, PurchaseReceivingsDataTable $dataTable)
     {
-        abort_if(Gate::denies('purchases.receive'), 403);
+        abort_if(Gate::denies('purchaseReceivings.access'), 403);
 
         $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);

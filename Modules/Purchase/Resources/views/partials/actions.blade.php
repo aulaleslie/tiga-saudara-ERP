@@ -159,9 +159,11 @@
                 @endif
 
                 @if ($data->status === 'APPROVED' || $data->status === 'RECEIVED_PARTIALLY')
+                    @can('purchases.receive')
                     <a href="{{ route('purchases.receive', $data->id) }}" class="dropdown-item text-primary" @click="open = false">
                         <i class="bi bi-box-arrow-in-down mr-2"></i> Menerima
                     </a>
+                    @endcan
                 @endif
             @endif
         </div>

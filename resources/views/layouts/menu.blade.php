@@ -303,7 +303,7 @@
     </li>
 @endcanany
 
-@canany(['purchases.access', 'purchaseReturns.access', 'purchaseReceivings.access'])
+@canany(['purchases.access', 'purchases.create', 'purchases.receive', 'purchaseReturns.access', 'purchaseReturns.create', 'purchaseReceivings.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('purchases.*') || request()->routeIs('purchase-payments*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-bag" style="line-height: 1;"></i> Pembelian
@@ -318,7 +318,7 @@
                 </li>
             @endcan
 
-            @can('purchases.create')
+            @can('purchases.access')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchases.index') ? 'c-active' : '' }}"
                        href="{{ route('purchases.index') }}">
@@ -327,7 +327,7 @@
                 </li>
             @endcan
 
-            @can('purchaseReceivings.access')
+            @canany(['purchaseReceivings.access', 'purchases.receive'])
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchases.receiving.*') ? 'c-active' : '' }}"
                        href="{{ route('purchases.receiving.index') }}">
@@ -336,7 +336,7 @@
                 </li>
             @endcan
 
-            @can('purchaseReceivings.access')
+            @canany(['purchaseReceivings.access', 'purchases.receive'])
                 @if(Route::has('receivings.list'))
                     <li class="c-sidebar-nav-item">
                         <a class="c-sidebar-nav-link {{ request()->routeIs('receivings.list') ? 'c-active' : '' }}"

@@ -16,26 +16,12 @@ class PermissionsTableSeeder extends Seeder
      */
     public function run()
     {
-        Model::unguard();
-
-        $permissions = [
-            'purchaseReturnSettlements.access',
-            'purchaseReturnSettlements.submit',
-            'purchaseReturnSettlements.approve',
-            'purchaseReturnSettlements.reject',
-            'purchaseReturnSettlements.execute',
-            'purchaseReturnSettlements.dispatch',
-            'purchaseReturnSettlements.receive',
-        ];
-
-        foreach ($permissions as $permission) {
-            Permission::firstOrCreate(['name' => $permission]);
-        }
-
-        // Assign to Super Admin (assuming ID 1 or role name 'Super Admin')
-        $role = Role::where('name', 'Super Admin')->first();
-        if ($role) {
-            $role->givePermissionTo($permissions);
-        }
+        /**
+         * Permissions for this module are now managed centrally in:
+         * 1. app/Config/Permissions.php (Definition)
+         * 2. Modules/User/Database/Seeders/PermissionsTableSeeder.php (Syncing)
+         *
+         * This seeder is neutralized to maintain a single source of truth.
+         */
     }
 }
