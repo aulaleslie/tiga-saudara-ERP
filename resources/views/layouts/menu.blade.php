@@ -239,7 +239,7 @@
     </li>
 @endif
 
-@canany(['sales.access', 'saleReturns.access'])
+@canany(['sales.access', 'saleReturns.access', 'salesDispatches.access', 'sales.dispatch'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('sales.*') || request()->routeIs('sale-payments*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-receipt" style="line-height: 1;"></i> Penjualan
@@ -265,6 +265,17 @@
                 </li>
             </ul>
         @endcan
+
+        @canany(['salesDispatches.access', 'sales.dispatch'])
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('sales.dispatches.index') ? 'c-active' : '' }}"
+                       href="{{ route('sales.dispatches.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-truck" style="line-height: 1;"></i> Pengiriman Barang
+                    </a>
+                </li>
+            </ul>
+        @endcanany
 
         @can('saleReturns.create')
             <ul class="c-sidebar-nav-dropdown-items">

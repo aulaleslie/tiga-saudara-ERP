@@ -133,7 +133,7 @@
                 @endcan
             @endif
             @can('sales.dispatch')
-                @if ($data->status === 'APPROVED' || $data->status === 'RECEIVED_PARTIALLY')
+                @if ($data->status === 'APPROVED' || $data->status === 'DISPATCHED PARTIALLY')
                     <a href="{{ route('sales.dispatch', $data->id) }}" class="dropdown-item text-primary">
                         <i class="bi bi-box-arrow-in-down mr-2"></i> Pengeluaran Barang
                     </a>

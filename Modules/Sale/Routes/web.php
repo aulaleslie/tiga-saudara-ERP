@@ -32,6 +32,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sales.invoicePdf');
 
     //Sales
+    Route::get('/sales/dispatches', [SaleController::class, 'dispatchIndex'])
+        ->name('sales.dispatches.index');
+
+    //Sales
     Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');
     Route::get('/sales/{sale}/dispatch', [SaleController::class, 'dispatch'])->name('sales.dispatch');
     Route::post('/dispatches/{dispatch}/approve', [SaleController::class, 'approveDispatch'])->name('dispatches.approve');

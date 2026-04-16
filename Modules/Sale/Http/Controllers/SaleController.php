@@ -61,6 +61,23 @@ class SaleController extends Controller
         return $dataTable->render('sale::index');
     }
 
+    /**
+     * Display the sales dispatch landing page.
+     */
+    public function dispatchIndex(Request $request): Factory|Application|View
+    {
+        abort_unless(Gate::any(['salesDispatches.access', 'sales.dispatch']), 403);
+
+        $sale = null;
+
+        if ($request->filled('sale_id')) {
+            $sale = Sale::withArchived()->findOrFail($request->input('sale_id'));
+            $this->ensureSaleBelongsToCurrentSetting($sale);
+        }
+
+        return view('sale::dispatch.filtered-index', compact('sale'));
+    }
+
 
     public function create(Request $request): Factory|\Illuminate\Foundation\Application|View|Application
     {
@@ -739,7 +756,7 @@ class SaleController extends Controller
 
     public function approveDispatch(Dispatch $dispatch): RedirectResponse
     {
-        abort_if(Gate::denies('sales.approval'), 403);
+        abort_if(Gate::denies('salesDispatches.approval'), 403);
         $this->ensureSaleBelongsToCurrentSetting($dispatch->sale);
 
         if (!$dispatch->isPending()) {
@@ -778,7 +795,7 @@ class SaleController extends Controller
 
     public function rejectDispatch(Request $request, Dispatch $dispatch): RedirectResponse
     {
-        abort_if(Gate::denies('sales.approval'), 403);
+        abort_if(Gate::denies('salesDispatches.approval'), 403);
         $this->ensureSaleBelongsToCurrentSetting($dispatch->sale);
 
         if (!$dispatch->isPending()) {

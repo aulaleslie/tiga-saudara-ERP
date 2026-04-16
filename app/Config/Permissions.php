@@ -182,6 +182,7 @@ return [
         'purchases.receive' => 'Terima',
     ],
 
+
     'Laporan Pembelian' => [
         'purchaseReports.access' => 'Hak Akses',
         'purchaseReports.global.access' => 'Akses Global',
@@ -338,9 +339,14 @@ return [
         'sales.import' => 'Impor',
         'sales.edit' => 'Ubah',
         'sales.delete' => 'Hapus',
-        'sales.dispatch' => 'Pengiriman',
         'sales.show' => 'Tampilkan',
         'sales.approval' => 'Persetujuan',
+    ],
+
+    'Pengiriman Barang' => [
+        'salesDispatches.access' => 'Hak Akses',
+        'salesDispatches.approval' => 'Persetujuan',
+        'sales.dispatch' => 'Kirim / Pengeluaran Barang',
     ],
 
     'Pembayaran Penjualan' => [

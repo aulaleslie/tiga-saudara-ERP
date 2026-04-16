@@ -254,7 +254,7 @@
                                                 </td>
                                                 <td class="d-print-none">
                                                     @if($dispatch->isPending())
-                                                        @can('sales.approval')
+                                                        @can('salesDispatches.approval')
                                                             <div class="btn-group">
                                                                 <form action="{{ route('dispatches.approve', $dispatch->id) }}" method="POST" class="d-inline">
                                                                     @csrf
