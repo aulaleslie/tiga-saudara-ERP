@@ -19,8 +19,10 @@ return new class extends Migration
         }
 
         Schema::table('pos_sessions', function (Blueprint $table) {
-            // Drop the old scoped constraint
-            $table->dropUnique('pos_sessions_user_active_unique');
+            // Drop the old scoped constraint if it exists
+            if (\Illuminate\Support\Facades\DB::getDriverName() !== 'sqlite') {
+                $table->dropUnique('pos_sessions_user_active_unique');
+            }
         });
 
         // Ensure no duplicates exist before applying the global unique constraint.

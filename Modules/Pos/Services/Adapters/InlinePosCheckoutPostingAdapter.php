@@ -228,7 +228,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     $dispatch,
                     $taxId,
                     $bundleId,
-                    $serialRecords
+                    $serialRecords instanceof \Illuminate\Support\Collection ? $serialRecords->all() : $serialRecords
                 );
             }
 

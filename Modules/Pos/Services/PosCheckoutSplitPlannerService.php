@@ -56,6 +56,7 @@ class PosCheckoutSplitPlannerService
         }
 
         $groupMap = [];
+        $childAllocationPools = [];
 
         foreach ($lines as $lineIndex => $line) {
             $qty = (int) ($line['qty'] ?? 0);
@@ -141,35 +142,47 @@ class PosCheckoutSplitPlannerService
                 $groupLineIndex = count($groupMap[$splitKey]['lines']);
                 $groupMap[$splitKey]['lines'][] = $groupLine;
 
-                if ((bool) ($line['serial_number_required'] ?? false)) {
-                    $groupMap[$splitKey]['allocations'][$groupLineIndex] = [];
-                } else {
-                    $itemAllocations = [[
-                        'source_location_id' => (int) $chunk['source_location_id'],
-                        'source_setting_id' => (int) $chunk['source_setting_id'],
-                        'allocated_qty' => $chunkQty,
-                        'tax_bucket_used' => (bool) ($chunk['tax_bucket_used'] ?? false),
-                        'tax_policy_snapshot' => [
-                            'source_is_pkp' => (bool) ($chunk['source_is_pkp'] ?? false),
-                            'tax_id' => (int) ($chunk['effective_tax_id'] ?? 0) > 0 ? (int) $chunk['effective_tax_id'] : null,
-                            'tax_name' => $chunk['tax_name'] ?? null,
-                            'tax_rate' => (float) ($chunk['tax_rate'] ?? 0),
-                        ],
-                    ]];
-                    
-                    $groupMap[$splitKey]['allocations'][$groupLineIndex] = $itemAllocations;
-                    $groupMap[$splitKey]['allocations']["{$groupLineIndex}_P"] = $itemAllocations;
-                }
+                $itemAllocations = [[
+                    'source_location_id' => (int) $chunk['source_location_id'],
+                    'source_setting_id' => (int) $chunk['source_setting_id'],
+                    'allocated_qty' => $chunkQty,
+                    'tax_bucket_used' => (bool) ($chunk['tax_bucket_used'] ?? false),
+                    'tax_policy_snapshot' => [
+                        'source_is_pkp' => (bool) ($chunk['source_is_pkp'] ?? false),
+                        'tax_id' => (int) ($chunk['effective_tax_id'] ?? 0) > 0 ? (int) $chunk['effective_tax_id'] : null,
+                        'tax_name' => $chunk['tax_name'] ?? null,
+                        'tax_rate' => (float) ($chunk['tax_rate'] ?? 0),
+                    ],
+                    'serial_numbers' => is_array($chunk['serial_numbers'] ?? null) ? $chunk['serial_numbers'] : [],
+                ]];
 
-                // Map child allocations to this group if they exist
+                $groupMap[$splitKey]['allocations'][$groupLineIndex] = $itemAllocations;
+                $groupMap[$splitKey]['allocations']["{$groupLineIndex}_P"] = $itemAllocations;
+
+                // Map and partition child allocations to this group if they exist
                 $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
                 foreach ($bundleItems as $j => $bi) {
                     $childKey = "{$lineIndex}_C_{$j}";
-                    if (isset($allocations[$childKey])) {
-                        // For simplicity in split groups, we provide child allocations to the group 
-                        // even if they are in a different setting. The Inline adapter will handle 
-                        // the actual movement.
-                        $groupMap[$splitKey]['allocations']["{$groupLineIndex}_C_{$j}"] = $allocations[$childKey];
+                    $childAllocations = $allocations[$childKey] ?? null;
+                    if (is_array($childAllocations)) {
+                        $qtyPerBundle = (int) ($bi['quantity'] ?? 1);
+                        $targetChildQty = $chunkQty * $qtyPerBundle;
+
+                        // Identify the child alocation pool for this line if not already done
+                        if (!isset($childAllocationPools[$lineIndex][$j])) {
+                            $childAllocationPools[$lineIndex][$j] = $childAllocations;
+                        }
+
+                        // Consume from the pool for this group
+                        [$partitioned, $remainingPool] = $this->consumeFromPool(
+                            $childAllocationPools[$lineIndex][$j],
+                            $targetChildQty
+                        );
+                        $childAllocationPools[$lineIndex][$j] = $remainingPool;
+
+                        if ($partitioned !== []) {
+                            $groupMap[$splitKey]['allocations']["{$groupLineIndex}_C_{$j}"] = $partitioned;
+                        }
                     }
                 }
 
@@ -270,7 +283,7 @@ class PosCheckoutSplitPlannerService
                     'tax_rate' => $taxRate,
                     'allocated_qty' => 0,
                     'serial_numbers' => [],
-                    'tax_bucket_used' => false,
+                    'tax_bucket_used' => $effectiveTaxId > 0,
                 ];
             }
 
@@ -612,6 +625,53 @@ class PosCheckoutSplitPlannerService
         }
 
         return $shares;
+    }
+
+    /**
+     * Consume a required quantity from an allocation pool.
+     * 
+     * @param array<int, array<string, mixed>> $pool
+     * @param int $requiredQty
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
+     */
+    private function consumeFromPool(array $pool, int $requiredQty): array
+    {
+        if ($requiredQty <= 0) {
+            return [[], $pool];
+        }
+
+        $partitioned = [];
+        $remainingPool = [];
+        $remainingToTake = $requiredQty;
+
+        foreach ($pool as $allocation) {
+            if ($remainingToTake <= 0) {
+                $remainingPool[] = $allocation;
+                continue;
+            }
+
+            $currentAllocQty = (int) ($allocation['allocated_qty'] ?? 0);
+            if ($currentAllocQty <= 0) {
+                continue;
+            }
+
+            $take = min($currentAllocQty, $remainingToTake);
+            
+            $match = $allocation;
+            $match['allocated_qty'] = $take;
+            $partitioned[] = $match;
+
+            $left = $currentAllocQty - $take;
+            if ($left > 0) {
+                $rem = $allocation;
+                $rem['allocated_qty'] = $left;
+                $remainingPool[] = $rem;
+            }
+
+            $remainingToTake -= $take;
+        }
+
+        return [$partitioned, $remainingPool];
     }
 
     private function toMinor(float $value): int

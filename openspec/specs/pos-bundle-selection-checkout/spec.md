@@ -64,3 +64,47 @@ When a selected bundle is posted through POS checkout, the parent product and ea
 - **WHEN** POS checkout finalizes a selected bundle whose parent product has `stock_managed = false` and a bundled child product has `stock_managed = true`
 - **THEN** checkout skips stock validation and deduction for the parent product
 - **AND** checkout validates stock sufficiency and deducts stock for the bundled child product
+### Requirement: Bundle parent add flows SHALL collect bundle intent before cart-line targeting
+The POS sell flow SHALL require every add action for a bundle-parent product to collect bundle intent before choosing an existing cart row or creating a new row. Bundle intent MUST be one of: selected bundle id, or explicit no-bundle continuation. This requirement applies to serial-tracked and non-serial products.
+
+#### Scenario: Serial scan asks bundle choice before appending to existing row
+- **WHEN** the cashier scans a serial number for a product that is a bundle parent and the cart already contains a row for the same parent product with a selected bundle
+- **THEN** the POS shell MUST present bundle selection or explicit no-bundle continuation before appending the scanned serial
+- **AND** the scanned serial MUST be appended only to the row matching the cashier's chosen bundle intent
+
+#### Scenario: Non-serial scan asks bundle choice before incrementing existing row
+- **WHEN** the cashier scans or adds a non-serial product that is a bundle parent and the cart already contains a row for the same parent product with a selected bundle
+- **THEN** the POS shell MUST present bundle selection or explicit no-bundle continuation before incrementing quantity
+- **AND** quantity MUST increase only on the row matching the cashier's chosen bundle intent
+
+#### Scenario: Different bundle choice creates or targets different row
+- **WHEN** the cart contains Product A with Bundle A and the cashier adds Product A again but chooses Bundle B
+- **THEN** the POS cart MUST keep Product A with Bundle B separate from Product A with Bundle A
+
+#### Scenario: No-bundle choice creates or targets normal row
+- **WHEN** the cart contains Product A with a selected bundle and the cashier adds Product A again but chooses to continue without a bundle
+- **THEN** the POS cart MUST create or target a normal Product A row without selected bundle metadata
+- **AND** the normal row MUST NOT merge into the selected-bundle row
+
+### Requirement: POS bundled checkout SHALL deduct child stock once per sold bundle unit
+When POS checkout finalizes a selected bundle with stock-managed child products, the system SHALL deduct bundle child stock according to the sold parent bundle quantity. Split posting MUST NOT cause bundle child stock to be deducted more times than the number of sold bundle units requires.
+
+#### Scenario: Single bundled serial parent deducts one child unit
+- **WHEN** POS checkout finalizes one stock-managed serial-tracked parent product with one selected bundle child quantity of one
+- **THEN** the parent product stock is deducted by one
+- **AND** the bundle child product stock is deducted by one
+
+#### Scenario: Two bundled serial parents split by source deduct two child units total
+- **WHEN** POS checkout finalizes two serial-tracked parent units in one bundled cart line and the assigned parent serials resolve into two split groups
+- **THEN** the parent product stock is deducted by two across the parent source groups
+- **AND** the bundle child product stock is deducted by two total across all posted groups
+- **AND** the bundle child product stock MUST NOT be deducted once per split group using the full original child quantity
+
+### Requirement: POS bundled checkout SHALL retain child source allocation ownership
+When bundle child stock is allocated from a source location, the final stock movement for that child product SHALL use the source location, source setting, and tax bucket selected by the stock resolver.
+
+#### Scenario: Child stock source remains resolver-selected during split posting
+- **WHEN** a bundled checkout line is split by the parent product source but the bundle child product is allocated from a separate source location
+- **THEN** the child product stock movement uses the child allocation source location and source setting
+- **AND** the child product stock bucket decremented matches the child allocation `tax_bucket_used` value
+

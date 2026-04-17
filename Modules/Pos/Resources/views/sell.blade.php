@@ -2049,6 +2049,7 @@
             const bundleContinueNormal = document.getElementById('pos-bundle-continue-normal');
             let pendingBundleProduct = null;
             let pendingBundleSource = null;
+            let pendingBundleSerial = null;
 
             // Track pending approval requests on the client side
             const clientPendingApprovals = {}; // { lineId: { requestId, requestedQty, status, token } }
@@ -2208,6 +2209,20 @@
                     }
                 }
                 return false;
+            }
+
+            function findCartLine(snapshot, productId, bundleId = null) {
+                if (!snapshot || !Array.isArray(snapshot.lines)) return null;
+
+                const normalizedProductId = Number(productId);
+                const normalizedBundleId = bundleId ? Number(bundleId) : null;
+
+                return snapshot.lines.find(line => {
+                    const lineProductId = Number(line.product_id);
+                    const lineBundleId = line.bundle_id ? Number(line.bundle_id) : null;
+
+                    return lineProductId === normalizedProductId && lineBundleId === normalizedBundleId;
+                });
             }
 
             // Task 4.1: Payment composer - add a payment row
@@ -3149,16 +3164,16 @@
                     return;
                 }
 
+                // If product is a bundle parent, always route through bundle selection flow
+                // regardless of existing cart lines.
+                if (product.is_bundle_parent === 1 || product.is_bundle_parent === true) {
+                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
+                    return;
+                }
+
                 if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
-                    // If no cart, add product first then append serial
-                    await addProductToCart(product, 'scan');
-                    // After product is added, the snapshot is updated, so find the new line
-                    if (currentSnapshot && Array.isArray(currentSnapshot.lines)) {
-                        const newLine = currentSnapshot.lines.find(line => line.product_id === product.id);
-                        if (newLine) {
-                            await appendSerialToLine(newLine.line_id, serial.serial_number);
-                        }
-                    }
+                    // If no cart, add product with the serial
+                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
                     return;
                 }
 
@@ -3179,14 +3194,8 @@
                 }
 
                 if (!targetLine) {
-                    // No existing line at all, add product first then append serial
-                    await addProductToCart(product, 'scan');
-                    if (currentSnapshot && Array.isArray(currentSnapshot.lines)) {
-                        const newLine = currentSnapshot.lines.find(line => line.product_id === product.id);
-                        if (newLine) {
-                            await appendSerialToLine(newLine.line_id, serial.serial_number);
-                        }
-                    }
+                    // No existing line at all, add product with the serial
+                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
                 } else {
                     // Found existing line (either with space or full), append serial to it
                     // Backend will now auto-increment qty if full
@@ -3358,9 +3367,10 @@
             }
 
             // Bundle Selection Functions
-            async function openBundleSelectionModal(product, source) {
+            async function openBundleSelectionModal(product, source, serialNumber = null) {
                 pendingBundleProduct = product;
                 pendingBundleSource = source;
+                pendingBundleSerial = serialNumber;
                 
                 if (bundleParentName) bundleParentName.textContent = product.product_name;
                 if (bundleLoading) bundleLoading.classList.remove('d-none');
@@ -3450,6 +3460,17 @@
                     if (!response) return;
 
                     renderCart(response.cart_snapshot || null);
+
+                    // Check for pending serial and append it to the new bundle line
+                    if (pendingBundleSerial && response.cart_snapshot) {
+                        const snapshot = response.cart_snapshot;
+                        const newLine = findCartLine(snapshot, product.id, bundle.id);
+                        if (newLine) {
+                             await appendSerialToLine(newLine.line_id, pendingBundleSerial);
+                        }
+                        pendingBundleSerial = null; // Clear it after use
+                    }
+
                     if (searchInput) searchInput.focus();
 
                     const msg = `Paket "${bundle.name}" ditambahkan.`;
@@ -3464,7 +3485,7 @@
                 // If product is a bundle parent, show selection modal instead of adding directly
                 // skipBundleCheck is used when continuing without a bundle
                 if (!options.skipBundleCheck && (product.is_bundle_parent === 1 || product.is_bundle_parent === true)) {
-                    openBundleSelectionModal(product, source);
+                    openBundleSelectionModal(product, source, options.serialNumber);
                     return;
                 }
 
@@ -3492,6 +3513,15 @@
                     }
 
                     renderCart(response.cart_snapshot || null);
+
+                    // Atomic serial appending for non-bundle paths
+                    if (options.serialNumber && response.cart_snapshot) {
+                        const snapshot = response.cart_snapshot;
+                        const newLine = findCartLine(snapshot, product.id, null);
+                        if (newLine) {
+                             await appendSerialToLine(newLine.line_id, options.serialNumber);
+                        }
+                    }
                     clearResults();
                     if (searchInput) {
                         searchInput.focus();
@@ -4509,13 +4539,19 @@
                     if (pendingBundleProduct) {
                         const product = pendingBundleProduct;
                         const source = pendingBundleSource;
+                        const serial = pendingBundleSerial; // Capture serial before hiding modal
+                        
                         pendingBundleProduct = null;
                         pendingBundleSource = null;
+                        pendingBundleSerial = null; // Clear it here manually
                         
                         $(bundleSelectionModal).modal('hide');
                         
-                        // Proceed with normal add by passing skipBundleCheck
-                        await addProductToCart(product, source, { skipBundleCheck: true });
+                        // Proceed with normal add by passing skipBundleCheck and the captured serial
+                        await addProductToCart(product, source, { 
+                            skipBundleCheck: true, 
+                            serialNumber: serial 
+                        });
                     }
                 });
             }
@@ -4525,6 +4561,7 @@
                 $(bundleSelectionModal).on('hidden.bs.modal', function() {
                     pendingBundleProduct = null;
                     pendingBundleSource = null;
+                    pendingBundleSerial = null;
                     if (bundleLoading) bundleLoading.classList.add('d-none');
                     if (bundleError) bundleError.classList.add('d-none');
                     if (bundleOptions) bundleOptions.innerHTML = '';
