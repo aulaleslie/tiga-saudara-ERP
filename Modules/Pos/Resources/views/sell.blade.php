@@ -66,6 +66,8 @@
 
     @include('pos::sell.modals.bundle_selection')
 
+    @include('pos::sell.modals.bundle_detail')
+
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
     <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
@@ -163,6 +165,19 @@
             let pendingBundleProduct = null;
             let pendingBundleSource = null;
             let pendingBundleSerial = null;
+
+            // Bundle Detail Modal elements
+            const bundleDetailModal = document.getElementById('pos-bundle-detail-modal');
+            const bundleDetailName = document.getElementById('pos-bundle-detail-name');
+            const bundleDetailParent = document.getElementById('pos-bundle-detail-parent');
+            const bundleDetailQty = document.getElementById('pos-bundle-detail-qty');
+            const bundleDetailBasePrice = document.getElementById('pos-bundle-detail-base-price');
+            const bundleDetailAddonPrice = document.getElementById('pos-bundle-detail-addon-price');
+            const bundleDetailUnitPrice = document.getElementById('pos-bundle-detail-unit-price');
+            const bundleDetailSubtotalLabel = document.getElementById('pos-bundle-detail-subtotal-label');
+            const bundleDetailLineTotal = document.getElementById('pos-bundle-detail-line-total');
+            const bundleDetailItems = document.getElementById('pos-bundle-detail-items');
+            const bundleDetailEmptyItems = document.getElementById('pos-bundle-detail-empty-items');
 
             // Track pending approval requests on the client side
             const clientPendingApprovals = {}; // { lineId: { requestId, requestedQty, status, token } }
@@ -1115,8 +1130,11 @@
                 }
 
                 const bundleInfo = line.bundle_id
-                    ? `<div class="text-primary small font-weight-bold mt-1">
-                         <i class="fas fa-box-open mr-1"></i> Paket: ${escapeHtml(line.bundle_name)}
+                    ? `<div class="text-primary mt-1">
+                         <button type="button" class="btn btn-link p-0 text-primary small font-weight-bold js-bundle-detail" 
+                                 data-line-id="${lineId}" style="text-decoration: none; border: none; background: none; font-size: inherit;">
+                             <i class="fas fa-box-open mr-1"></i> Paket: ${escapeHtml(line.bundle_name)}
+                         </button>
                        </div>`
                     : '';
 
@@ -1476,6 +1494,77 @@
                         serialModalStatus.className = 'small mb-3 text-danger';
                     }
                     setCartStatus(errorMessage, 'text-danger', true);
+                }
+            }
+
+            // Bundle Detail Function
+            function openBundleDetailModal(lineId) {
+                if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
+                    return;
+                }
+
+                const line = currentSnapshot.lines.find(l => Number(l.line_id) === Number(lineId));
+                if (!line || !line.bundle_id) {
+                    return;
+                }
+
+                // Render Header
+                if (bundleDetailName) bundleDetailName.textContent = line.bundle_name || '-';
+                if (bundleDetailParent) bundleDetailParent.textContent = line.product_name || '-';
+                if (bundleDetailQty) bundleDetailQty.textContent = line.qty || 0;
+
+                // Render Price Composition (derived per unit)
+                const unitPrice = Number(line.unit_price || 0);
+                const bundlePrice = Number(line.bundle_price || 0);
+                const basePrice = Math.max(0, unitPrice - bundlePrice);
+                const lineTotal = Number(line.line_total || 0);
+
+                if (bundleDetailBasePrice) bundleDetailBasePrice.textContent = formatPrice(basePrice);
+                if (bundleDetailAddonPrice) bundleDetailAddonPrice.textContent = '+ ' + formatPrice(bundlePrice);
+                if (bundleDetailUnitPrice) bundleDetailUnitPrice.textContent = formatPrice(unitPrice);
+                
+                // Update line total and subtotal label
+                if (bundleDetailSubtotalLabel) {
+                    bundleDetailSubtotalLabel.textContent = `Subtotal Baris (${line.qty} Unit)`;
+                }
+                if (bundleDetailLineTotal) {
+                    bundleDetailLineTotal.textContent = formatPrice(lineTotal);
+                }
+
+                // Render Items
+                if (bundleDetailItems) {
+                    bundleDetailItems.innerHTML = '';
+                    const items = Array.isArray(line.bundle_items) ? line.bundle_items : [];
+                    
+                    if (items.length > 0) {
+                        if (bundleDetailEmptyItems) bundleDetailEmptyItems.classList.add('d-none');
+                        
+                        items.forEach(item => {
+                            const li = document.createElement('li');
+                            li.className = 'list-group-item d-flex justify-content-between align-items-center border-0';
+                            
+                            const serialBadge = item.serial_number_required 
+                                ? '<span class="badge badge-warning ml-2" style="font-size: 0.7rem;">Wajib Serial</span>' 
+                                : '';
+                            
+                            const totalItemQty = (item.quantity || 0) * (line.qty || 1);
+                                
+                            li.innerHTML = `
+                                <div class="d-flex align-items-center">
+                                    <span class="font-weight-bold text-dark">${escapeHtml(item.product_name || '-')}</span>
+                                    ${serialBadge}
+                                </div>
+                                <span class="badge badge-light border font-weight-bold" style="font-size: 0.9rem;">x ${totalItemQty}</span>
+                            `;
+                            bundleDetailItems.appendChild(li);
+                        });
+                    } else {
+                        if (bundleDetailEmptyItems) bundleDetailEmptyItems.classList.remove('d-none');
+                    }
+                }
+
+                if (typeof $ !== 'undefined') {
+                    $(bundleDetailModal).modal('show');
                 }
             }
 
@@ -2340,6 +2429,12 @@
                             setCartStatus('Baris keranjang dihapus.', 'text-success');
                         }
                     });
+                    return;
+                }
+
+                if (button.classList.contains('js-bundle-detail')) {
+                    openBundleDetailModal(lineId);
+                    return;
                 }
 
                 // Handle Reduce Quantity button click (non-privileged users only)

@@ -22,6 +22,9 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Illuminate\Support\Facades\DB;
+use Modules\Setting\Entities\PaymentMethod;
+use Modules\Setting\Entities\SettingPosPaymentMethod;
 use Tests\TestCase;
 
 class POSBundleCartManagementTest extends TestCase
@@ -169,6 +172,29 @@ class POSBundleCartManagementTest extends TestCase
         $setting = $this->createSetting($name);
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
+
+        // Add at least one payment method for POS session
+        $coaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'Cash Account ' . $name,
+            'account_number' => 'CASH-' . $name,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        
+        $method = PaymentMethod::create([
+            'name' => 'Cash ' . $name,
+            'coa_id' => $coaId,
+            'is_cash' => true,
+        ]);
+        
+        SettingPosPaymentMethod::create([
+            'setting_id' => $setting->id,
+            'payment_method_id' => $method->id,
+            'is_enabled' => true,
+        ]);
+
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -293,6 +319,9 @@ class POSBundleCartManagementTest extends TestCase
             'quantity' => 100,
             'quantity_non_tax' => 100,
             'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
         ]);
 
         ProductPrice::query()->updateOrCreate([
@@ -349,5 +378,40 @@ class POSBundleCartManagementTest extends TestCase
             ->getJson(route('pos.sell.cart.show'))
             ->assertOk()
             ->json('cart_snapshot');
+    }
+
+    public function test_cart_snapshot_exposes_bundle_details_for_dialog(): void
+    {
+        $context = $this->createCheckoutContext('BUNDLE DIALOG');
+        
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000);
+        $item1 = $this->createStockedProduct($context['setting'], $context['location'], 'ITEM1', 0);
+        $item2 = $this->createStockedProduct($context['setting'], $context['location'], 'ITEM2', 0);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Complete Pack',
+            'price' => 25000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $item1->id, 'quantity' => 2]);
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $item2->id, 'quantity' => 1]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 2, $bundle->id);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $line = $snapshot['lines'][0];
+
+        $this->assertEquals('COMPLETE PACK', $line['bundle_name']);
+        $this->assertEquals(25000, $line['bundle_price']);
+        $this->assertEquals(125000, $line['unit_price']); // 100k + 25k
+        $this->assertEquals(250000, $line['line_total']); // 125k * 2
+        
+        $this->assertCount(2, $line['bundle_items']);
+        $this->assertEquals('ITEM1 NAME', $line['bundle_items'][0]['product_name']);
+        $this->assertEquals(2, $line['bundle_items'][0]['quantity']);
+        $this->assertEquals('ITEM2 NAME', $line['bundle_items'][1]['product_name']);
+        $this->assertEquals(1, $line['bundle_items'][1]['quantity']);
     }
 }

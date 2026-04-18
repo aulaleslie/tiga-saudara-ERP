@@ -1,9 +1,4 @@
-# bundle-presentation Specification
-
-## Purpose
-This specification defines how product bundle components are presented and viewed within the Product Cart interface.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Modal-based Bundle Detail Presentation
 The system SHALL provide a way to view product bundle components within the Product Cart without disrupting the table layout. For POS cart rows, this SHALL be implemented via a read-only modal overlay triggered when the user clicks the row's `Paket: <bundle name>` bundle label.
