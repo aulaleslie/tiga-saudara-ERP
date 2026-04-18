@@ -427,14 +427,11 @@ class SaleController extends Controller
         }
 
         // Aggregate from bundle items (assumes SaleBundleItem model exists)
-        $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->get();
+        $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
         foreach ($bundleItems as $bundleItem) {
             $pid = $bundleItem->product_id;
-            // Assume bundle item has a tax_id field or follow its sale detail's tax.
-            // For now, if SaleBundleItem doesn't have tax_id, we might need to look it up or default to null.
-            // Based on previous analysis, SaleBundleItem doesn't seem to have tax_id explicitly, 
-            // but the requirement says "Dispatch aggregation uses composite key".
-            $taxId = $bundleItem->tax_id ?? null;
+            // Inherit tax context from parent sale detail
+            $taxId = $bundleItem->inherited_tax_id;
             $bundleId = $bundleItem->bundle_id ?? 0;
             $key = $pid . '-' . $taxId . '-' . $bundleId;
 
@@ -522,10 +519,15 @@ class SaleController extends Controller
             }
 
             // Aggregate from bundle items
-            $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->get();
+            $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
             foreach ($bundleItems as $bundleItem) {
+                if (!$bundleItem->saleDetail) {
+                    $validator->errors()->add('bundle_items', "Item bundle {$bundleItem->name} tidak memiliki referensi baris induk yang valid.");
+                    continue;
+                }
+
                 $pid = $bundleItem->product_id;
-                $taxId = $bundleItem->tax_id ?? null;
+                $taxId = $bundleItem->inherited_tax_id;
                 $bundleId = $bundleItem->bundle_id ?? 0;
                 $key = $pid . '-' . $taxId . '-' . $bundleId;
                 if (!isset($aggregated[$key])) {

@@ -38,4 +38,12 @@ class SaleBundleItem extends BaseModel
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
+
+    /**
+     * Get the inherited tax_id from the parent sale detail.
+     */
+    public function getInheritedTaxIdAttribute(): ?int
+    {
+        return $this->saleDetail?->tax_id;
+    }
 }
