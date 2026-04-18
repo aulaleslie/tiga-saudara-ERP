@@ -101,9 +101,26 @@ class SaleReturnEligibilityService
                         'bundle_product_code' => $detail->product_code ?? null,
                         'bundle_quantity' => (int) $detail->quantity,
                         'component_quantity' => (int) $item->quantity,
+                        'component_price' => (float) $item->price,
                     ];
                 });
             })
+            ->concat(
+                SaleBundleItem::where('sale_id', $sale->id)
+                    ->whereNull('sale_detail_id')
+                    ->get()
+                    ->map(function (SaleBundleItem $item) {
+                        return [
+                            'product_id' => $item->product_id,
+                            'bundle_sale_detail_id' => null,
+                            'bundle_name' => 'Standalone Bundle Component',
+                            'bundle_product_code' => $item->line_group_key,
+                            'bundle_quantity' => 1,
+                            'component_quantity' => (int) $item->quantity,
+                            'component_price' => (float) $item->price,
+                        ];
+                    })
+            )
             ->filter(fn ($item) => ! empty($item['product_id']))
             ->groupBy('product_id');
 
@@ -117,12 +134,15 @@ class SaleReturnEligibilityService
                     return null;
                 }
 
-                /** @var \Modules\Sale\Entities\SaleDetails|null $saleDetail */
                 $saleDetail = optional($saleDetailsByProduct->get($detail->product_id))->first();
+
+                // Fallback: if no parent sale detail exists (e.g. standalone bundle row),
+                // try to resolve price from the bundle items context.
+                $bundleComponentContext = optional($bundleItems->get($detail->product_id))->first();
 
                 $unitPrice = $saleDetail
                     ? (float) ($saleDetail->unit_price ?? $saleDetail->price ?? 0)
-                    : 0.0;
+                    : (float) ($bundleComponentContext['component_price'] ?? 0.0);
 
                 $serialTotal = (int) ($serialCounts->get($detail->id) ?? 0);
                 $serialReturnedCount = (int) ($serialsReturned->get($detail->id) ?? 0);

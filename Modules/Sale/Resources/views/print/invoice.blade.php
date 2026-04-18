@@ -92,9 +92,11 @@
     @foreach($details as $detail)
         <tr>
             <td>
-                {{ $detail->product_name ?? ($detail->product->product_name ?? '-') }}
+                {{ $detail->product_name ?? $detail->name ?? ($detail->product->product_name ?? '-') }}
                 @if(!empty($detail->product_code))
                     <br><span class="small">{{ $detail->product_code }}</span>
+                @elseif(!empty($detail->line_group_key))
+                    <br><span class="small">{{ $detail->line_group_key }}</span>
                 @endif
             </td>
             <td class="text-center">{{ $detail->product->baseUnit->name ?? '-' }}</td>

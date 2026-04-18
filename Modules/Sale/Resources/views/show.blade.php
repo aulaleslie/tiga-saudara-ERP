@@ -81,6 +81,12 @@
                     </div>
                 </div>
 
+                @php
+                    $standaloneBundles = $sale->bundleItems->filter(fn($item) => is_null($item->sale_detail_id));
+                    $totalSaleTax = $sale->saleDetails->sum('product_tax_amount') + $standaloneBundles->sum('tax_amount');
+                    $totalSubTotal = $sale->saleDetails->sum('sub_total') + $standaloneBundles->sum('sub_total');
+                @endphp
+
                 <!-- Detail Penjualan -->
                 <div class="table-responsive-sm">
                     <table class="table table-striped">
@@ -90,7 +96,7 @@
                             <th class="align-middle">Harga Satuan</th>
                             <th class="align-middle">Kuantitas</th>
                             <th class="align-middle">Diskon</th>
-                            @if($sale->saleDetails->sum('product_tax_amount') > 0)
+                            @if($totalSaleTax > 0)
                                 <th class="align-middle">DPP</th>
                                 <th class="align-middle">Pajak %</th>
                             @endif
@@ -107,7 +113,7 @@
                                 <td class="align-middle">{{ format_currency($detail->price) }}</td>
                                 <td class="align-middle">{{ $detail->quantity }}</td>
                                 <td class="align-middle">{{ format_currency($detail->product_discount_amount) }}</td>
-                                @if($sale->saleDetails->sum('product_tax_amount') > 0)
+                                @if($totalSaleTax > 0)
                                     <td class="align-middle">
                                         {{ format_currency($detail->sub_total - $detail->product_tax_amount - $detail->product_discount_amount) }}
                                     </td>
@@ -121,7 +127,7 @@
                             {{-- Tampilkan bundle items jika ada --}}
                             @if($detail->bundleItems->isNotEmpty())
                                 <tr>
-                                    <td colspan="{{ $sale->saleDetails->sum('product_tax_amount') > 0 ? 7 : 5 }}">
+                                    <td colspan="{{ $totalSaleTax > 0 ? 7 : 5 }}">
                                         <div class="ms-4">
                                             <strong>Item Bundel:</strong>
                                             <table class="table table-sm table-bordered mt-2">
@@ -149,6 +155,38 @@
                                 </tr>
                             @endif
                         @endforeach
+
+                        {{-- Tampilkan standalone bundle items jika ada --}}
+                        @php
+                            $standaloneBundles = $sale->bundleItems->filter(fn($item) => is_null($item->sale_detail_id));
+                        @endphp
+                        @if($standaloneBundles->isNotEmpty())
+                            <tr class="table-info">
+                                <td colspan="{{ $totalSaleTax > 0 ? 7 : 5 }}">
+                                    <strong>Item Layanan / Bundel Terpisah:</strong>
+                                </td>
+                            </tr>
+                            @foreach($standaloneBundles as $bundle)
+                                <tr>
+                                    <td class="align-middle">
+                                        {{ $bundle->name }} <br>
+                                        <span class="badge bg-success">{{ $bundle->product->product_code ?? 'N/A' }}</span>
+                                    </td>
+                                    <td class="align-middle">{{ format_currency($bundle->price) }}</td>
+                                    <td class="align-middle">{{ $bundle->quantity }}</td>
+                                    <td class="align-middle">-</td>
+                                    @if($totalSaleTax > 0)
+                                        <td class="align-middle">
+                                            {{ format_currency($bundle->sub_total - $bundle->tax_amount) }}
+                                        </td>
+                                        <td class="align-middle">
+                                            {{ $bundle->tax ? $bundle->tax->value . '%' : '-' }}
+                                        </td>
+                                    @endif
+                                    <td class="align-middle">{{ format_currency($bundle->sub_total) }}</td>
+                                </tr>
+                            @endforeach
+                        @endif
                         </tbody>
                     </table>
                 </div>
@@ -157,8 +195,7 @@
                 <div class="row">
                     <div class="col-lg-4 col-sm-5 ml-md-auto">
                         @php
-                            $totalSaleTax = $sale->saleDetails->sum('product_tax_amount');
-                            $dppAmount = $sale->saleDetails->sum('sub_total') - $totalSaleTax - $sale->discount_amount;
+                            $dppAmount = $totalSubTotal - $totalSaleTax - $sale->discount_amount;
                         @endphp
                         <table class="table">
                             <tbody>

@@ -150,6 +150,7 @@ class SaleController extends Controller
 
         $sale->load([
             'saleDetails.bundleItems',
+            'bundleItems', // Standalone bundle items
             'saleDetails.tax',
             'saleDispatches.details',
             'saleDispatches.details.product',
@@ -1141,7 +1142,7 @@ class SaleController extends Controller
         $pdf = Pdf::loadView('sale::print.invoice', [
             'sale'          => $sale,
             'customer'      => $customer,
-            'details'       => $sale->saleDetails,  // show as entered; no grouping for invoice
+            'details'       => $sale->saleDetails->concat($sale->bundleItems->filter(fn($item) => is_null($item->sale_detail_id))),  // Concatenate standalone bundles
             'invoiceNumber' => $invoiceNumber,
             'tanggal'       => $tanggal,
             'jatuhTempo'    => $jatuhTempo,

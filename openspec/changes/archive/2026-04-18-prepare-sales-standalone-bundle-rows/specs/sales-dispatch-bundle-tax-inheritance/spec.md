@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Bundle dispatch tax context resolves parent-first with standalone fallback
 The system SHALL derive dispatch tax context for each bundle component from its parent `sale_details.sale_detail_id -> sale_details.tax_id` when a parent sale detail is linked. If `sale_detail_id` is absent, the system MUST resolve dispatch tax context from the bundle row's standalone self context and use that value when building dispatch composite keys.

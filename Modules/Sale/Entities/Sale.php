@@ -62,6 +62,11 @@ class Sale extends BaseModel
         return $this->hasMany(DispatchDetail::class, 'sale_id', 'id');
     }
 
+    public function bundleItems(): HasMany
+    {
+        return $this->hasMany(SaleBundleItem::class, 'sale_id', 'id');
+    }
+
     public function posCheckout(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(\Modules\Pos\Entities\PosCheckout::class, 'sale_id', 'id');
