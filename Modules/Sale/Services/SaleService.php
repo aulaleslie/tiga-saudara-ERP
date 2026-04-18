@@ -90,7 +90,7 @@ class SaleService
                 'discount_amount' => $data['discount_amount'] ?? 0,
                 'shipping_amount' => $data['shipping_amount'] ?? 0,
                 'paid_amount' => $data['paid_amount'] ?? 0,
-            ], SaleCartAggregator::aggregate($cartItems), $isPkp);
+            ], $cartItems, $isPkp);
             $header = $normalizedSale['header'];
 
             $sale = Sale::create([
@@ -192,7 +192,7 @@ class SaleService
                 'discount_amount' => $data['discount_amount'] ?? $sale->discount_amount,
                 'shipping_amount' => $data['shipping_amount'] ?? $sale->shipping_amount,
                 'paid_amount' => $data['paid_amount'] ?? $sale->paid_amount,
-            ], SaleCartAggregator::aggregate($cartItems), $isPkp);
+            ], $cartItems, $isPkp);
             $header = $normalizedSale['header'];
 
             if (round($header['due_amount'], 2) >= $header['total_amount']) {
@@ -273,14 +273,6 @@ class SaleService
                             'quantity' => $bundleItem['quantity'],
                             'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
                         ]);
-                    }
-                }
-
-                // Deduct stock if status changed to DISPATCHED
-                if (($data['status'] ?? '') == Sale::STATUS_DISPATCHED) {
-                    $product = Product::find($productId);
-                    if ($product) {
-                        $product->decrement('product_quantity', $cart_item->qty);
                     }
                 }
             }

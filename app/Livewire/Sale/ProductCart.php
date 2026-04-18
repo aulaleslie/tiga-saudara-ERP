@@ -92,6 +92,7 @@ class ProductCart extends Component
         } else {
             $this->global_discount = 0;
             $this->shipping = 0.00;
+            $this->is_tax_included = $this->isPkp;
             $this->check_quantity = [];
             $this->quantity = [];
             $this->unit_price = [];
@@ -114,8 +115,9 @@ class ProductCart extends Component
         $this->reconcileNonPkpSaleCartState();
         $this->reconcileMissingPkpTaxesInCart();
 
+        $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+
         if ($data) {
-            $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
             $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
             $this->dispatch('globalDiscountUpdated', (float) $this->global_discount);
             $this->dispatch('shippingUpdated', (float) $this->shipping);
@@ -577,7 +579,7 @@ class ProductCart extends Component
         $this->initializeCartItemAttributes($cartItem); // Initialize per-product tax
         $this->quantityBreakdowns[$cartItem->id] = $this->calculateConversionBreakdown(
             $product['id'],
-            $this->quantity[$cartItem->id] ?? $cart_Item->qty
+            $this->quantity[$cartItem->id] ?? $cartItem->qty
         );
 
         return $cartItem->rowId;

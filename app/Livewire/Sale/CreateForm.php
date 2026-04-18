@@ -53,6 +53,7 @@ class CreateForm extends Component
     {
         $this->idempotencyToken = $idempotencyToken;
         $this->isPkp = $this->isPkpEnabled();
+        $this->is_tax_included = $this->isPkp;
         $this->reference = 'SL';
         $this->date = now()->format('Y-m-d');
         $this->dueDate = now()->format('Y-m-d');

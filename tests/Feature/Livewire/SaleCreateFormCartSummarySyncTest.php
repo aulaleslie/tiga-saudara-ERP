@@ -3,6 +3,7 @@
 namespace Tests\Feature\Livewire;
 
 use App\Livewire\Sale\CreateForm;
+use App\Livewire\Sale\ProductCart;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -20,6 +21,80 @@ use Tests\TestCase;
 class SaleCreateFormCartSummarySyncTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_new_pkp_sale_defaults_tax_included_to_true(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $currency = Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = Setting::create([
+            'company_name' => 'PKP Sales Co',
+            'company_email' => 'pkp-sales@example.com',
+            'company_phone' => '123456',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => true,
+        ]);
+
+        session(['setting_id' => $setting->id]);
+
+        Livewire::test(CreateForm::class, ['idempotencyToken' => (string) Str::uuid()])
+            ->assertSet('isPkp', true)
+            ->assertSet('is_tax_included', true);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])
+            ->assertSet('isPkp', true)
+            ->assertSet('is_tax_included', true);
+    }
+
+    public function test_new_non_pkp_sale_defaults_tax_included_to_false(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $currency = Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = Setting::create([
+            'company_name' => 'Non PKP Sales Co',
+            'company_email' => 'non-pkp-sales@example.com',
+            'company_phone' => '123456',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => false,
+        ]);
+
+        session(['setting_id' => $setting->id]);
+
+        Livewire::test(CreateForm::class, ['idempotencyToken' => (string) Str::uuid()])
+            ->assertSet('isPkp', false)
+            ->assertSet('is_tax_included', false);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])
+            ->assertSet('isPkp', false)
+            ->assertSet('is_tax_included', false);
+    }
 
     public function test_sale_create_persists_cart_summary_state_from_product_cart_events(): void
     {

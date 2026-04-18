@@ -28,7 +28,6 @@
                                     :index="$rowKey"
                                     :key="$rowKey"
                                     :selected="$item['product_id']"
-                                    :exclude-product-id="$productId"
                                 />
                                 @error("items.$index.product_id")
                                 <div class="invalid-feedback">{{ $message }}</div>

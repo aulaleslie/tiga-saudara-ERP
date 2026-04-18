@@ -45,10 +45,10 @@ class DispatchApprovalTest extends TestCase
         $customer = Customer::factory()->create(['setting_id' => $setting->id, 'payment_term_id' => $paymentTerm->id]);
         
         Permission::firstOrCreate(['name' => 'sales.dispatch']);
-        Permission::firstOrCreate(['name' => 'sales.approval']);
+        Permission::firstOrCreate(['name' => 'salesDispatches.approval']);
         
         $user = User::factory()->create();
-        $user->givePermissionTo(['sales.dispatch', 'sales.approval']);
+        $user->givePermissionTo(['sales.dispatch', 'salesDispatches.approval']);
 
         $category = \Modules\Product\Entities\Category::create([
             'category_name' => 'Category', 

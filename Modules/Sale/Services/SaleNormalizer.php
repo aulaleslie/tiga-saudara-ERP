@@ -94,7 +94,7 @@ class SaleNormalizer
             : $this->roundMoney($subTotalBeforeTax);
 
         return [
-            'product_id' => (int) (data_get($detailInput, 'id') ?? data_get($detailInput, 'product_id') ?? $options['product_id'] ?? 0),
+            'product_id' => (int) ($options['product_id'] ?? data_get($detailInput, 'product_id') ?? data_get($detailInput, 'id') ?? 0),
             'product_name' => (string) (data_get($detailInput, 'name') ?? data_get($detailInput, 'product_name') ?? ''),
             'product_code' => (string) ($options['code'] ?? data_get($detailInput, 'product_code') ?? ''),
             'quantity' => $quantity,
