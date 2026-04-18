@@ -13,3 +13,14 @@ The system SHALL NOT silently swallow PKP tax validation errors by binding them 
 #### Scenario: Saving a cart with missing taxes
 - **WHEN** the user attempts to save a sale and the PKP validation confirms a missing tax ID on any cart item
 - **THEN** the system MUST emit a visible flash notification (e.g., dispatch 'notify' with type 'error') or bind the validation failure to a general level that halts processing and alerts the user immediately, rather than failing silently on the `paymentTermId` field.
+
+### Requirement: Dispatch tax bucket assignment preserves parent sale-line intent for bundle components
+The system SHALL preserve sale-line tax intent during dispatch by assigning each bundle component to the tax bucket implied by its parent sale detail tax status.
+
+#### Scenario: Bundled component under taxed sale detail
+- **WHEN** dispatch processing evaluates a bundle component whose parent sale detail is taxed
+- **THEN** stock checks and dispatch records for that component MUST use taxed bucket semantics.
+
+#### Scenario: Bundled component under non-tax sale detail
+- **WHEN** dispatch processing evaluates a bundle component whose parent sale detail is non-tax
+- **THEN** stock checks and dispatch records for that component MUST use non-tax bucket semantics.
