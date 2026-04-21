@@ -68,6 +68,7 @@
 
     @include('pos::sell.modals.bundle_detail')
     @include('pos::sell.modals.price_override')
+    @include('pos::sell.modals.checkout_mismatch')
 
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
@@ -204,6 +205,7 @@
             const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
             const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
+            const checkoutPreflightEndpoint = @json(route('pos.sell.checkout.preflight'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
@@ -1602,6 +1604,53 @@
 
                 if (typeof $ !== 'undefined') {
                     $(bundleDetailModal).modal('show');
+                }
+            }
+
+            function showMismatchModal(message, details) {
+                const modal = document.getElementById('pos-checkout-mismatch-modal');
+                const errorMessageElement = document.getElementById('pos-mismatch-error-message');
+                const tbody = document.getElementById('pos-mismatch-lines-body');
+
+                if (!modal || !tbody) return;
+
+                if (errorMessageElement) {
+                    errorMessageElement.textContent = message || 'Beberapa item di keranjang Anda tidak dapat diproses.';
+                }
+
+                tbody.innerHTML = '';
+
+                if (details.unfulfilled_lines) {
+                    details.unfulfilled_lines.forEach(line => {
+                        const tr = document.createElement('tr');
+                        const shortage = Number(line.shortage || 0);
+                        tr.innerHTML = `
+                            <td>
+                                <span class="product-name">${escapeHtml(line.product_name)}</span>
+                                <span class="product-meta">ID: ${line.product_id}</span>
+                            </td>
+                            <td class="text-center font-weight-bold">${line.requested_qty}</td>
+                            <td class="text-center text-success font-weight-bold">${line.allocated_qty}</td>
+                            <td class="text-center text-danger font-weight-bold">-${shortage}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else if (details.invalid_lines) {
+                    // Handle serial validation errors if they return line details
+                    details.invalid_lines.forEach(line => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td colspan="4">
+                                <span class="product-name text-danger">${escapeHtml(line.product_name || 'Produk')}</span>
+                                <span class="text-muted small">${escapeHtml(line.message || 'Serial invalid atau belum lengkap')}</span>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                if (typeof $ !== 'undefined') {
+                    $(modal).modal('show');
                 }
             }
 
@@ -3550,7 +3599,7 @@
             });
 
             if (btnCheckout) {
-                btnCheckout.addEventListener('click', function () {
+                btnCheckout.addEventListener('click', async function () {
                     if (requiresTerminalForCheckout) {
                         setCartStatus('Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.', 'text-danger');
                         return;
@@ -3561,7 +3610,36 @@
                         return;
                     }
 
-                    console.log('[CHECKOUT] Button clicked', { currentSnapshot, PosStagedPayment: typeof PosStagedPayment });
+                    console.log('[CHECKOUT] Preflight check initiated');
+                    const originalHtml = btnCheckout.innerHTML;
+                    btnCheckout.disabled = true;
+                    btnCheckout.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Validasi...';
+
+                    try {
+                        const preflight = await jsonRequest(checkoutPreflightEndpoint, 'POST');
+                        console.log('[CHECKOUT] Preflight success', preflight);
+                    } catch (error) {
+                        console.error('[CHECKOUT] Preflight failed', error);
+                        btnCheckout.disabled = false;
+                        btnCheckout.innerHTML = originalHtml;
+
+                        if (error.details && (error.details.unfulfilled_lines || error.details.invalid_lines)) {
+                            showMismatchModal(error.message, error.details);
+                        } else {
+                            setCartStatus(error.message || 'Validasi checkout gagal.', 'text-danger', true);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Gagal Validasi',
+                                text: error.message || 'Terdapat kendala pada stok atau serial produk Anda.',
+                            });
+                        }
+                        return;
+                    }
+
+                    btnCheckout.disabled = false;
+                    btnCheckout.innerHTML = originalHtml;
+
+                    console.log('[CHECKOUT] Proceeding to staged payment modal', { currentSnapshot, PosStagedPayment: typeof PosStagedPayment });
 
                     // Wire to staged payment flow using cart token and grand total
                     if (currentSnapshot && currentSnapshot.totals) {

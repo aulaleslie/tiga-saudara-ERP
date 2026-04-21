@@ -97,6 +97,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
         ->name('pos.sell.checkout.payment-chain.reset');
 
+    Route::post('/pos/sell/checkout/preflight', [PosSellController::class, 'checkoutPreflight'])
+        ->name('pos.sell.checkout.preflight');
+
     Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
         ->name('pos.sell.checkout.finalize');
 

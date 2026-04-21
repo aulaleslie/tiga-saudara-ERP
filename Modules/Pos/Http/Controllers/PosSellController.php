@@ -644,6 +644,39 @@ class PosSellController extends Controller
         ], 200);
     }
 
+    public function checkoutPreflight(
+        Request $request,
+        FinalizePosCheckoutService $finalizeService
+    ): JsonResponse {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
+        $settingId = $this->currentSettingId();
+        $activeSession = $request->attributes->get('pos_active_session');
+
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
+        try {
+            $result = $finalizeService->preflight($settingId, $activeSession);
+            return response()->json($result);
+        } catch (PosCheckoutValidationException $exception) {
+            $payload = [
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ];
+
+            $details = $exception->details();
+            if ($details !== []) {
+                $payload['details'] = $details;
+            }
+
+            return response()->json($payload, 422);
+        }
+    }
+
     public function checkoutFinalize(
         StorePosCheckoutFinalizeRequest $request,
         FinalizePosCheckoutService $finalizeService,

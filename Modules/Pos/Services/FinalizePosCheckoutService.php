@@ -180,6 +180,62 @@ class FinalizePosCheckoutService
     }
 
     /**
+     * Perform preflight validation to ensure cart is fulfillable before entering payment flow.
+     *
+     * @param  int  $settingId
+     * @param  PosSession  $activeSession
+     * @return array{status:string}
+     */
+    public function preflight(int $settingId, PosSession $activeSession): array
+    {
+        $sessionId = (int) $activeSession->id;
+        $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
+
+        $this->validateCartFulfillability($settingId, $cartSnapshot);
+
+        return ['status' => 'OK'];
+    }
+
+    /**
+     * Authoritatively validate that the cart can be fulfilled (serial numbers assigned and stock available).
+     *
+     * @param  int  $settingId
+     * @param  array<string, mixed>  $cartSnapshot
+     * @return array<string, mixed> The stock resolution payload (allocations, unfulfilled info).
+     * @throws PosCheckoutValidationException
+     */
+    public function validateCartFulfillability(int $settingId, array $cartSnapshot): array
+    {
+        $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+        if ($cartLines === []) {
+            throw new PosCheckoutValidationException('CART_EMPTY', 'Keranjang harus berisi setidaknya satu item baris.');
+        }
+
+        foreach ($cartLines as $line) {
+            if ((bool) ($line['serial_number_required'] ?? false)) {
+                $this->validateSerialAssignments($line, $settingId);
+            }
+        }
+
+        $linesForResolver = $this->buildStockResolverLines($cartLines);
+        $resolution = $this->stockResolver->resolve($settingId, $linesForResolver);
+
+        if (! empty($resolution['unfulfilled_lines'])) {
+            $failureDetails = $this->buildStockUnavailableDetailsPayload($resolution, $linesForResolver);
+
+            throw new PosCheckoutValidationException(
+                'STOCK_UNAVAILABLE',
+                'One or more items in the cart are no longer available in stock across allowed locations.',
+                [
+                    'unfulfilled_lines' => $failureDetails,
+                ]
+            );
+        }
+
+        return $resolution;
+    }
+
+    /**
      * @param  array<string, mixed>  $cartSnapshot
      * @param  array{method_code:?string,payment_method_id:?int,amount_paid:float,reference:?string}  $payment
      * @return array{subtotal:float,discount_total:float,tax_total:float,grand_total:float}
@@ -199,6 +255,9 @@ class FinalizePosCheckoutService
         }
 
         $settingId = (int) ($cartSnapshot['setting_id'] ?? 0);
+
+        // Individual serial validatiton is now part of validateCartFulfillability, 
+        // but we keep it here for legacy checkout flow consistency if needed.
         foreach ($lines as $line) {
             if ((bool) ($line['serial_number_required'] ?? false)) {
                 $this->validateSerialAssignments($line, $settingId);
@@ -543,20 +602,7 @@ class FinalizePosCheckoutService
                     throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Terminal checkout POS tidak ditemukan.');
                 }
 
-                $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
-                $lines = $this->buildStockResolverLines($cartLines);
-                $resolution = $this->stockResolver->resolve($settingId, $lines);
-                if (! empty($resolution['unfulfilled_lines'])) {
-                    $failureDetails = $this->buildStockUnavailableDetailsPayload($resolution, $lines);
-
-                    throw new PosCheckoutValidationException(
-                        'STOCK_UNAVAILABLE',
-                        'One or more items in the cart are no longer available in stock across allowed locations.',
-                        [
-                            'unfulfilled_lines' => $failureDetails,
-                        ]
-                    );
-                }
+                $resolution = $this->validateCartFulfillability($settingId, $cartSnapshot);
 
                 /** @var PosCheckout|null $lockedCheckout */
                 $lockedCheckout = PosCheckout::query()
@@ -1414,7 +1460,16 @@ class FinalizePosCheckoutService
         if (count($assigned) !== $qty) {
             throw new PosCheckoutValidationException(
                 'SERIAL_INVALID',
-                "Product $productName requires $qty serial number(s) but " . count($assigned) . " assigned."
+                "Product $productName requires $qty serial number(s) but " . count($assigned) . " assigned.",
+                [
+                    'invalid_lines' => [
+                        [
+                            'product_id' => $productId,
+                            'product_name' => $productName,
+                            'message' => "Membutuhkan $qty serial, hanya " . count($assigned) . " ditetapkan.",
+                        ]
+                    ]
+                ]
             );
         }
 
@@ -1427,14 +1482,32 @@ class FinalizePosCheckoutService
             if (! $record) {
                 throw new PosCheckoutValidationException(
                     'SERIAL_INVALID',
-                    "Serial number $sn for product $productName was not found."
+                    "Serial number $sn for product $productName was not found.",
+                    [
+                        'invalid_lines' => [
+                            [
+                                'product_id' => $productId,
+                                'product_name' => $productName,
+                                'message' => "Nomor seri $sn tidak ditemukan.",
+                            ]
+                        ]
+                    ]
                 );
             }
 
             if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
                 throw new PosCheckoutValidationException(
                     'SERIAL_INVALID',
-                    "Serial number $sn for product $productName is no longer available."
+                    "Serial number $sn for product $productName is no longer available.",
+                    [
+                        'invalid_lines' => [
+                            [
+                                'product_id' => $productId,
+                                'product_name' => $productName,
+                                'message' => "Nomor seri $sn sudah tidak tersedia (Status: {$record->status}).",
+                            ]
+                        ]
+                    ]
                 );
             }
         }

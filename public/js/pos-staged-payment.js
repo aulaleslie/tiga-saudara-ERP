@@ -482,15 +482,10 @@ window.PosStagedPayment = (function () {
                 resetStageForm();
                 renderPaymentChain();
                 updateRemainderDisplay();
-            } else if (data.remainder === 0) {
-                // Payment complete, calculate change
-                const changeAmount = Math.abs(data.remainder);
-                console.log('[PosStagedPayment] Payment complete! Change:', changeAmount);
-                handlePaymentComplete(changeAmount);
             } else {
-                // Overpayment - show change
-                console.log('[PosStagedPayment] Overpayment! Change:', Math.abs(data.remainder));
-                handlePaymentComplete(Math.abs(data.remainder));
+                // Payment complete or overpaid (data.remainder <= 0), proceed to authoritative finalization
+                console.log('[PosStagedPayment] Payment complete/overpaid, initiating checkout finalization', { remainder: data.remainder });
+                await finalizeCheckout();
             }
         } catch (error) {
             console.error('[PosStagedPayment] Error:', error);
