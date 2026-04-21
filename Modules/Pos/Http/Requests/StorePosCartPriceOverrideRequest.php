@@ -15,7 +15,7 @@ class StorePosCartPriceOverrideRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'unit_price' => ['required', 'numeric', 'gt:0'],
+            'unit_price' => ['required', 'numeric', 'gte:0'],
             'approval_token' => ['nullable', 'string', 'max:100'],
         ];
     }

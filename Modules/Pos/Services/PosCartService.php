@@ -482,8 +482,8 @@ class PosCartService
         ?string $approvalToken = null,
         ?User $user = null
     ): array {
-        if ($unitPrice <= 0) {
-            throw new DomainException('Harga satuan harus lebih besar dari nol.');
+        if ($unitPrice < 0) {
+            throw new DomainException('Harga satuan tidak boleh negatif.');
         }
 
         if (! $user) {
@@ -527,7 +527,7 @@ class PosCartService
             }
 
             $requestedUnitPrice = round((float) ($approvedRequest->request_payload['unit_price'] ?? 0), 2);
-            if ($requestedUnitPrice <= 0) {
+            if ($requestedUnitPrice < 0) {
                 throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
             }
 
@@ -543,8 +543,8 @@ class PosCartService
             );
         }
 
-        if ($targetUnitPrice <= 0) {
-            throw new DomainException('Harga satuan harus lebih besar dari nol.');
+        if ($targetUnitPrice < 0) {
+            throw new DomainException('Harga satuan tidak boleh negatif.');
         }
 
         $cart['lines'][$lineId] = array_merge($line, [
@@ -746,6 +746,9 @@ class PosCartService
             if ($req->request_payload) {
                 if (isset($req->request_payload['qty'])) {
                     $approvalData['requested_qty'] = (int) $req->request_payload['qty'];
+                }
+                if (isset($req->request_payload['unit_price'])) {
+                    $approvalData['requested_unit_price'] = (float) $req->request_payload['unit_price'];
                 }
             }
 

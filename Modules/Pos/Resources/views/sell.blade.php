@@ -67,6 +67,7 @@
     @include('pos::sell.modals.bundle_selection')
 
     @include('pos::sell.modals.bundle_detail')
+    @include('pos::sell.modals.price_override')
 
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
@@ -163,8 +164,18 @@
             const bundleOptions = document.getElementById('pos-bundle-options');
             const bundleContinueNormal = document.getElementById('pos-bundle-continue-normal');
             let pendingBundleProduct = null;
-            let pendingBundleSource = null;
             let pendingBundleSerial = null;
+
+            // Price Override Modal elements
+            const priceOverrideModal = document.getElementById('pos-price-override-modal');
+            const priceOverrideCurrent = document.getElementById('pos-price-override-current');
+            const priceOverrideNewInput = document.getElementById('pos-price-override-new');
+            const priceOverrideError = document.getElementById('pos-price-override-error');
+            const priceOverrideReason = document.getElementById('pos-price-override-reason');
+            const priceOverrideSubmit = document.getElementById('pos-price-override-submit');
+            let pendingPriceLineId = null;
+            let pendingPriceCurrentPrice = null;
+            let pendingPriceButton = null;
 
             // Bundle Detail Modal elements
             const bundleDetailModal = document.getElementById('pos-bundle-detail-modal');
@@ -210,7 +221,11 @@
               typeof roleCapabilities?.direct_permissions?.qty_reduce === 'boolean' ? roleCapabilities.direct_permissions.qty_reduce :
               false
             );
-            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ' (can_reduce_quantity: ' + roleCapabilities?.can_reduce_quantity + ')');
+            const canOverridePrice = Boolean(
+              typeof roleCapabilities?.direct_permissions?.price_override === 'boolean' ? roleCapabilities.direct_permissions.price_override :
+              false
+            );
+            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ', canOverridePrice: ' + canOverridePrice);
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
@@ -1129,6 +1144,23 @@
                     deleteButtonHtml = `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" title="Hapus" aria-label="Hapus">Hapus</button>`;
                 }
 
+                // Price Override Approval State
+                const priceOverrideReq = (line.pending_approvals || [])
+                    .slice()
+                    .sort((a, b) => b.request_id - a.request_id)
+                    .find(a => a.action_type === 'PRICE_OVERRIDE');
+                let priceBtnHtml = '';
+                if (priceOverrideReq) {
+                    if (priceOverrideReq.status === 'APPROVED') {
+                        const approvedPrice = priceOverrideReq.requested_unit_price || 0;
+                        priceBtnHtml = `<button type="button" class="btn btn-sm btn-success ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-approval-token="${priceOverrideReq.token || priceOverrideReq.approval_token || ''}" data-approved-price="${approvedPrice}" title="Lanjutkan: ${formatPrice(approvedPrice)}">✓ ${formatPrice(approvedPrice)}</button>`;
+                    } else {
+                        priceBtnHtml = `<button type="button" class="btn btn-sm btn-warning ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-approval-pending="${priceOverrideReq.request_id}" title="Periksa Persetujuan">Periksa</button>`;
+                    }
+                } else {
+                    priceBtnHtml = `<button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" title="Ubah Harga"><i class="bi bi-pencil-square"></i></button>`;
+                }
+
                 const bundleInfo = line.bundle_id
                     ? `<div class="text-primary mt-1">
                          <button type="button" class="btn btn-link p-0 text-primary small font-weight-bold js-bundle-detail" 
@@ -1146,7 +1178,12 @@
                             ${bundleInfo}
                             <div class="meta">${productCode} | ${barcode}</div>
                         </td>
-                        <td class="text-right align-middle">${formatPrice(line.unit_price || 0)}</td>
+                        <td class="text-right align-middle">
+                            <div class="d-flex align-items-center justify-content-end">
+                                <span>${formatPrice(line.unit_price || 0)}</span>
+                                ${priceBtnHtml}
+                            </div>
+                        </td>
                         ${qtyCell}
                         <td class="text-right align-middle" style="vertical-align: top;">
                             <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
@@ -2526,6 +2563,70 @@
                     return;
                 }
 
+                // Handle Price Override button click
+                if (button.classList.contains('js-price-edit')) {
+                    const pendingRequestId = button.getAttribute('data-approval-pending');
+                    const approvalToken = button.getAttribute('data-approval-token');
+                    const approvedPrice = Number(button.getAttribute('data-approved-price') || 0);
+
+                    if (pendingRequestId) {
+                        // Check approval status
+                        await ApprovalManager.checkApproval(button, '⏳ Periksa', pendingRequestId);
+                        await refreshCart();
+                    } else if (approvalToken) {
+                        // Approved - apply via wrapAction (requires final confirmation)
+                        const applyPriceUpdate = async (token) => {
+                            const payload = { unit_price: approvedPrice, approval_token: token };
+                            const response = await jsonRequest(getLineEndpoint(lineId) + '/price-override', 'POST', payload);
+                            if (!response) {
+                                throw new Error('Gagal memperbarui harga.');
+                            }
+
+                            delete clientPendingApprovals[lineId];
+                            renderCart(response.cart_snapshot || null);
+                            setCartStatus('Harga berhasil diperbarui.', 'text-success');
+                        };
+
+                        try {
+                            await ApprovalManager.wrapAction(
+                                button,
+                                '✓ Lanjutkan',
+                                'PRICE_OVERRIDE',
+                                'pos_cart_line',
+                                lineId,
+                                { unit_price: approvedPrice },
+                                applyPriceUpdate
+                            );
+                        } catch (error) {
+                            setCartStatus(error.message || 'Gagal memproses perubahan harga.', 'text-danger', true);
+                        }
+                    } else {
+                        // No pending approval - open modal
+                        const line = currentSnapshot.lines.find(l => Number(l.line_id) === lineId);
+                        if (!line) return;
+
+                        pendingPriceLineId = lineId;
+                        pendingPriceCurrentPrice = Number(line.unit_price || 0);
+                        pendingPriceButton = button;
+
+                        if (priceOverrideCurrent) priceOverrideCurrent.textContent = formatPrice(pendingPriceCurrentPrice);
+                        if (priceOverrideNewInput) {
+                            priceOverrideNewInput.value = pendingPriceCurrentPrice;
+                        }
+                        if (priceOverrideReason) priceOverrideReason.value = '';
+                        if (priceOverrideError) {
+                            priceOverrideError.textContent = '';
+                            priceOverrideError.style.display = 'none';
+                        }
+                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true; // Disabled because identical to current
+
+                        if (priceOverrideModal) {
+                            $(priceOverrideModal).modal('show');
+                        }
+                    }
+                    return;
+                }
+
                 // Handle Quantity Increment button (+ spinner button)
                 if (button.classList.contains('js-qty-increase')) {
                     const qtyInput = row.querySelector('.js-line-qty');
@@ -2611,6 +2712,32 @@
                     }
                 });
             }
+
+            if (priceOverrideNewInput) {
+                priceOverrideNewInput.addEventListener('input', function () {
+                    const newPrice = Number(this.value);
+                    if (isNaN(newPrice) || newPrice < 0) {
+                        if (priceOverrideError) {
+                            priceOverrideError.textContent = 'Harga tidak boleh negatif.';
+                            priceOverrideError.style.display = 'block';
+                        }
+                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true;
+                    } else if (newPrice === pendingPriceCurrentPrice) {
+                        if (priceOverrideError) {
+                            priceOverrideError.textContent = 'Harga tidak berubah.';
+                            priceOverrideError.style.display = 'block';
+                        }
+                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true;
+                    } else {
+                        if (priceOverrideError) {
+                            priceOverrideError.textContent = '';
+                            priceOverrideError.style.display = 'none';
+                        }
+                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = false;
+                    }
+                });
+            }
+
 
             if (reduceQtySubmit) {
                 reduceQtySubmit.addEventListener('click', async function () {
@@ -2698,6 +2825,73 @@
                 });
             }
 
+            if (priceOverrideSubmit) {
+                priceOverrideSubmit.addEventListener('click', async function () {
+                    if (!Number.isFinite(pendingPriceLineId) || pendingPriceLineId <= 0) {
+                        setCartStatus('Baris keranjang tidak valid.', 'text-danger', true);
+                        if (priceOverrideModal) $(priceOverrideModal).modal('hide');
+                        return;
+                    }
+
+                    const newPrice = Number(priceOverrideNewInput ? priceOverrideNewInput.value : 0);
+                    const reason = priceOverrideReason ? priceOverrideReason.value.trim() || null : null;
+
+                    if (isNaN(newPrice) || newPrice < 0 || newPrice === pendingPriceCurrentPrice) {
+                        return;
+                    }
+
+                    // Close modal
+                    if (priceOverrideModal) $(priceOverrideModal).modal('hide');
+
+                    const applyPriceUpdate = async (token) => {
+                        const payload = { unit_price: newPrice };
+                        if (token) payload.approval_token = token;
+
+                        const response = await jsonRequest(getLineEndpoint(pendingPriceLineId) + '/price-override', 'POST', payload);
+                        if (!response) {
+                            throw new Error('Gagal memperbarui harga.');
+                        }
+
+                        renderCart(response.cart_snapshot || null);
+                        setCartStatus('Harga berhasil diperbarui.', 'text-success');
+                    };
+
+                    try {
+                        const buttonForApproval = pendingPriceButton || priceOverrideSubmit;
+                        const originalButtonText = '<i class="bi bi-pencil-square"></i>';
+                        const lineIdForStorage = pendingPriceLineId;
+                        const requestedPriceForStorage = newPrice;
+
+                        await ApprovalManager.wrapAction(
+                            buttonForApproval,
+                            originalButtonText,
+                            'PRICE_OVERRIDE',
+                            'pos_cart_line',
+                            pendingPriceLineId,
+                            { unit_price: newPrice, reason: reason },
+                            applyPriceUpdate
+                        );
+
+                        const pendingRequestId = buttonForApproval.getAttribute('data-approval-pending');
+                        if (pendingRequestId) {
+                            clientPendingApprovals[lineIdForStorage] = {
+                                requestId: pendingRequestId,
+                                requestedPrice: requestedPriceForStorage,
+                                status: 'PENDING'
+                            };
+                            await refreshCart();
+                        }
+                    } catch (error) {
+                        setCartStatus(error.message || 'Gagal memproses permintaan perubahan harga.', 'text-danger', true);
+                    } finally {
+                        pendingPriceLineId = null;
+                        pendingPriceCurrentPrice = null;
+                        pendingPriceButton = null;
+                    }
+                });
+            }
+
+
             // Handle modal close/reset
             if (reduceQuantityModal) {
                 reduceQuantityModal.addEventListener('hidden.bs.modal', function () {
@@ -2710,6 +2904,19 @@
                     }
                 });
             }
+
+            if (priceOverrideModal) {
+                priceOverrideModal.addEventListener('hidden.bs.modal', function () {
+                    pendingPriceLineId = null;
+                    pendingPriceCurrentPrice = null;
+                    pendingPriceButton = null;
+                    if (priceOverrideError) {
+                        priceOverrideError.textContent = '';
+                        priceOverrideError.style.display = 'none';
+                    }
+                });
+            }
+
 
             // Cash Pickup Modal
             const pickupModalElement = document.getElementById('pos-cash-pickup-modal');
