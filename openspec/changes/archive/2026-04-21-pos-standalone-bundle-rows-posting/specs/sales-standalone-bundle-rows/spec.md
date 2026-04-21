@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Sales bundle rows SHALL support optional parent sale detail linkage
 The Sales domain SHALL allow bundle component rows to exist with or without a parent `sale_details` relation. Rows without a parent relation MUST remain valid through explicit standalone context fields, including rows persisted from POS checkout posting.

@@ -381,12 +381,13 @@ class ResolvePosStockAllocationsService
                 $sourceSettingId = $locInfo['source_setting_id'];
                 $sourceIsPkp = $locInfo['source_is_pkp'];
 
+                $effectiveTaxId = $taxId ?: ($stock->tax_id ?? null);
                 $tax = null;
-                if ($taxId !== null && $taxId > 0) {
-                    if (! isset($taxesCache[$taxId])) {
-                        $taxesCache[$taxId] = Tax::query()->find($taxId);
+                if ($effectiveTaxId !== null && $effectiveTaxId > 0) {
+                    if (! isset($taxesCache[$effectiveTaxId])) {
+                        $taxesCache[$effectiveTaxId] = Tax::query()->find($effectiveTaxId);
                     }
-                    $tax = $taxesCache[$taxId];
+                    $tax = $taxesCache[$effectiveTaxId];
                 }
 
                 $lineAllocations[] = [
@@ -396,7 +397,7 @@ class ResolvePosStockAllocationsService
                     'tax_bucket_used' => false,
                     'tax_policy_snapshot' => [
                         'source_is_pkp' => $sourceIsPkp,
-                        'tax_id' => $taxId,
+                        'tax_id' => $effectiveTaxId,
                         'tax_name' => $tax ? (string) $tax->name : null,
                         'tax_rate' => $tax ? (float) $tax->value : 0.0,
                     ],
@@ -430,12 +431,13 @@ class ResolvePosStockAllocationsService
                     $sourceSettingId = $locInfo['source_setting_id'];
                     $sourceIsPkp = $locInfo['source_is_pkp'];
 
+                    $effectiveTaxId = $taxId ?: ($stock->tax_id ?? null);
                     $tax = null;
-                    if ($taxId !== null && $taxId > 0) {
-                        if (! isset($taxesCache[$taxId])) {
-                            $taxesCache[$taxId] = Tax::query()->find($taxId);
+                    if ($effectiveTaxId !== null && $effectiveTaxId > 0) {
+                        if (! isset($taxesCache[$effectiveTaxId])) {
+                            $taxesCache[$effectiveTaxId] = Tax::query()->find($effectiveTaxId);
                         }
-                        $tax = $taxesCache[$taxId];
+                        $tax = $taxesCache[$effectiveTaxId];
                     }
 
                     $lineAllocations[] = [
@@ -445,7 +447,7 @@ class ResolvePosStockAllocationsService
                         'tax_bucket_used' => true,
                         'tax_policy_snapshot' => [
                             'source_is_pkp' => $sourceIsPkp,
-                            'tax_id' => $taxId,
+                            'tax_id' => $effectiveTaxId,
                             'tax_name' => $tax ? (string) $tax->name : null,
                             'tax_rate' => $tax ? (float) $tax->value : 0.0,
                         ],

@@ -7,6 +7,7 @@ use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Dispatch;
@@ -14,6 +15,7 @@ use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Product\Entities\ProductSerialNumber;
@@ -199,7 +201,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 2
             );
 
-            SaleDetails::query()->create([
+            $saleDetail = SaleDetails::query()->create([
                 'sale_id' => $sale->id,
                 'product_id' => $productId,
                 'product_name' => (string) ($line['product_name'] ?? ''),
@@ -232,13 +234,46 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 );
             }
 
-            // 3. Process Bundle Child Stock Deduction
+            // 3. Process Bundle Child Stock Deduction and Persistence
             foreach ($bundleItems as $itemIndex => $item) {
-                if ((bool) ($item['stock_managed'] ?? false)) {
-                    $childProductId = (int) ($item['product_id'] ?? 0);
-                    $childQty = $qty * (int) ($item['quantity'] ?? 1);
-                    $childAllocations = $allocations["{$index}_C_{$itemIndex}"] ?? [];
+                $childProductId = (int) ($item['product_id'] ?? 0);
+                $childQty = $qty * (int) ($item['quantity'] ?? 1);
+                $childAllocations = $allocations["{$index}_C_{$itemIndex}"] ?? [];
 
+                // Resolve child tax context from allocations where available
+                $childTaxId = null;
+                if ($childAllocations !== []) {
+                    $firstSnapshot = $childAllocations[0]['tax_policy_snapshot'] ?? [];
+                    $childTaxId = isset($firstSnapshot['tax_id']) ? (int) $firstSnapshot['tax_id'] : null;
+                    $childTaxId = ($childTaxId !== null && $childTaxId > 0) ? $childTaxId : null;
+                }
+
+                // Resolve bundle_item_id from product_bundle_items
+                $bundleItemRecordId = null;
+                if ($bundleId > 0) {
+                    $bundleItemRecordId = ProductBundleItem::query()
+                        ->where('bundle_id', $bundleId)
+                        ->where('product_id', $childProductId)
+                        ->value('id');
+                }
+
+                // Create SaleBundleItem record
+                SaleBundleItem::query()->create([
+                    'sale_id' => $sale->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'bundle_id' => $bundleId,
+                    'bundle_item_id' => $bundleItemRecordId,
+                    'product_id' => $childProductId,
+                    'name' => (string) ($item['product_name'] ?? ''),
+                    'quantity' => $childQty,
+                    'price' => 0, // POS bundle components are parent-priced by default
+                    'sub_total' => 0,
+                    'tax_id' => $childTaxId,
+                    'tax_amount' => 0,
+                    'line_group_key' => "pos-{$index}-{$itemIndex}",
+                ]);
+
+                if ((bool) ($item['stock_managed'] ?? false)) {
                     if ($childAllocations === []) {
                         throw new PosCheckoutValidationException(
                             'STOCK_UNAVAILABLE',
@@ -255,7 +290,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         $checkoutId,
                         $sale,
                         $dispatch,
-                        null, // Tax is typically handled on the parent line in POS
+                        $childTaxId, 
                         $bundleId,
                         [] // Serial items in bundles not supported yet
                     );
