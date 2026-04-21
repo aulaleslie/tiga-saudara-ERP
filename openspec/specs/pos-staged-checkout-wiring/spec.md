@@ -4,7 +4,7 @@
 TBD - created by archiving change enable-pos-multi-stage-payment-flow. Update Purpose after archive.
 ## Requirements
 ### Requirement: Activate staged payment from checkout button
-The "Pilih Pembayaran" button SHALL run checkout preflight validation before opening the multi-stage sequential payment modal. When cashier clicks the button, a cart-scoped token SHALL be generated (or reused if reload recovery), but the staged payment module SHALL only be opened after preflight success.
+The "Pilih Pembayaran" button SHALL run checkout preflight validation before opening the multi-stage sequential payment modal. When cashier clicks the button, a cart-scoped token SHALL be generated (or reused if reload recovery), but the staged payment module SHALL only be opened after preflight success. The client-side preflight error handling MUST preserve structured backend failure payload (`code`, `message`, `details`) so mismatch routing can use machine-readable diagnostics.
 
 #### Scenario: Fresh cart checkout with valid preflight
 - **WHEN** user adds items to cart, clicks "Pilih Pembayaran", and preflight returns success
@@ -14,6 +14,11 @@ The "Pilih Pembayaran" button SHALL run checkout preflight validation before ope
 - **WHEN** user clicks "Pilih Pembayaran" and preflight reports serial/stock mismatch
 - **THEN** staged payment modal MUST NOT open
 - **AND** POS shows mismatch dialog with actionable failing line details
+
+#### Scenario: Structured preflight payload is retained in UI error branch
+- **WHEN** preflight endpoint responds with non-2xx and body containing `details.unfulfilled_lines` or `details.invalid_lines`
+- **THEN** client checkout handler MUST receive `error.details` in structured form
+- **AND** mismatch dialog path MUST be selected instead of generic validation alert fallback
 
 #### Scenario: Reload during incomplete payment
 - **WHEN** user has committed 1+ payment stages and refreshes the page

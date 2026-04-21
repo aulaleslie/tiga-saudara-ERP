@@ -639,7 +639,11 @@
 
                 if (!response.ok) {
                     const errorMessage = body && body.message ? body.message : 'Permintaan gagal diproses.';
-                    throw new Error(errorMessage);
+                    const err = new Error(errorMessage);
+                    err.code = body && body.code ? body.code : null;
+                    err.details = body && body.details ? body.details : null;
+                    err.status = response.status;
+                    throw err;
                 }
 
                 return body;
@@ -1620,29 +1624,34 @@
 
                 tbody.innerHTML = '';
 
-                if (details.unfulfilled_lines) {
+                if (Array.isArray(details.unfulfilled_lines) && details.unfulfilled_lines.length > 0) {
                     details.unfulfilled_lines.forEach(line => {
                         const tr = document.createElement('tr');
-                        const shortage = Number(line.shortage || 0);
+                        const requested = Number(line.requested_qty || 0);
+                        const allocated = Number(line.allocated_qty || 0);
+                        const shortage = Math.max(0, requested - allocated);
+                        const displayName = line.product_name || line.product_code || ('Product #' + (line.product_id || '?'));
+                        
                         tr.innerHTML = `
-                            <td>
-                                <span class="product-name">${escapeHtml(line.product_name)}</span>
-                                <span class="product-meta">ID: ${line.product_id}</span>
-                            </td>
-                            <td class="text-center font-weight-bold">${line.requested_qty}</td>
-                            <td class="text-center text-success font-weight-bold">${line.allocated_qty}</td>
+                            <td class="product-name">${escapeHtml(displayName)}</td>
+                            <td class="text-center font-weight-bold">${requested}</td>
+                            <td class="text-center text-success font-weight-bold">${allocated}</td>
                             <td class="text-center text-danger font-weight-bold">-${shortage}</td>
                         `;
                         tbody.appendChild(tr);
                     });
-                } else if (details.invalid_lines) {
+                }
+                
+                if (Array.isArray(details.invalid_lines) && details.invalid_lines.length > 0) {
                     // Handle serial validation errors if they return line details
                     details.invalid_lines.forEach(line => {
                         const tr = document.createElement('tr');
+                        const displayName = line.product_name || line.product_code || ('Product #' + (line.product_id || '?'));
+                        
                         tr.innerHTML = `
                             <td colspan="4">
-                                <span class="product-name text-danger">${escapeHtml(line.product_name || 'Produk')}</span>
-                                <span class="text-muted small">${escapeHtml(line.message || 'Serial invalid atau belum lengkap')}</span>
+                                <span class="product-name text-danger">${escapeHtml(displayName)}</span>
+                                <span class="text-muted small d-block">${escapeHtml(line.message || 'Serial invalid atau belum lengkap')}</span>
                             </td>
                         `;
                         tbody.appendChild(tr);
@@ -1862,15 +1871,21 @@
 
                 // Render each result as a card in the grid
                 results.forEach((product) => {
+                    const availableQty = Number(product.available_qty || 0);
+                    const isOutOfStock = availableQty <= 0;
+
                     const card = document.createElement('button');
                     card.type = 'button';
-                    card.className = 'pos-search-card';
-                    card.style.cssText = 'display: block; width: 100%; text-align: left; padding: 1rem; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; transition: all 0.2s ease;';
+                    card.className = 'pos-search-card' + (isOutOfStock ? ' pos-search-card-disabled' : '');
+                    if (isOutOfStock) {
+                        card.disabled = true;
+                    }
 
                     const productName = escapeHtml(product.product_name);
                     const productCode = escapeHtml(product.product_code || '-');
                     const barcode = escapeHtml(product.barcode || '-');
                     const price = formatPrice(product.sale_price);
+                    const oosBadge = isOutOfStock ? '<div class="pos-search-card-oos-badge">Stok Kosong</div>' : '';
 
                     card.innerHTML = `
                         <!-- Image placeholder for future use -->
@@ -1881,43 +1896,48 @@
                         <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.75rem;">
                             <div>SKU: ${productCode}</div>
                             <div>Barcode: ${barcode}</div>
+                            <div class="${isOutOfStock ? 'text-danger font-weight-bold' : ''}">Stok: ${product.available_qty}</div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; align-items: center; font-weight: 500; padding-top: 0.75rem; border-top: 1px solid #eee;">
                             <div style="text-align: right;">
                                 <div style="font-size: 0.75rem; color: #999;">${price}</div>
                             </div>
-                        </div>\n                    `;
+                        </div>
+                        ${oosBadge}
+                    `;
 
-                    // Hover effect
-                    card.addEventListener('mouseenter', function () {
-                        this.style.borderColor = '#007bff';
-                        this.style.boxShadow = '0 0.125rem 0.25rem rgba(0,0,0,0.075)';
-                        this.style.backgroundColor = '#f8f9ff';
-                    });
-                    card.addEventListener('mouseleave', function () {
-                        this.style.borderColor = '#dee2e6';
-                        this.style.boxShadow = 'none';
-                        this.style.backgroundColor = 'white';
-                    });
+                    if (!isOutOfStock) {
+                        // Hover effect only for available items (disabled property handles OOS)
+                        card.addEventListener('mouseenter', function () {
+                            this.style.borderColor = '#007bff';
+                            this.style.boxShadow = '0 0.125rem 0.25rem rgba(0,0,0,0.075)';
+                            this.style.backgroundColor = '#f8f9ff';
+                        });
+                        card.addEventListener('mouseleave', function () {
+                            this.style.borderColor = '#dee2e6';
+                            this.style.boxShadow = 'none';
+                            this.style.backgroundColor = 'white';
+                        });
 
-                    card.addEventListener('click', async function () {
-                        // Close modal and let addProductToCart handle cleanup
-                        if (searchResultsModalElement) {
-                            try {
-                                if (typeof jQuery !== 'undefined') {
-                                    jQuery(searchResultsModalElement).modal('hide');
-                                } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                                    const modal = bootstrap.Modal.getInstance(searchResultsModalElement);
-                                    if (modal) {
-                                        modal.hide();
+                        card.addEventListener('click', async function () {
+                            // Close modal and let addProductToCart handle cleanup
+                            if (searchResultsModalElement) {
+                                try {
+                                    if (typeof jQuery !== 'undefined') {
+                                        jQuery(searchResultsModalElement).modal('hide');
+                                    } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                        const modal = bootstrap.Modal.getInstance(searchResultsModalElement);
+                                        if (modal) {
+                                            modal.hide();
+                                        }
                                     }
+                                } catch (e) {
+                                    console.error('Error closing modal:', e);
                                 }
-                            } catch (e) {
-                                console.error('Error closing modal:', e);
                             }
-                        }
-                        await addProductToCart(product, 'manual');
-                    });
+                            await addProductToCart(product, 'manual');
+                        });
+                    }
 
                     searchResultsModalContainer.appendChild(card);
                 });
@@ -1977,7 +1997,7 @@
 
             // Phase 3: Setup keyboard navigation for search results modal
             function setupSearchResultsModalKeyboard() {
-                const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.pos-search-card')) : [];
+                const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.pos-search-card:not(:disabled)')) : [];
                 if (items.length === 0) {
                     return;
                 }
@@ -3623,7 +3643,10 @@
                         btnCheckout.disabled = false;
                         btnCheckout.innerHTML = originalHtml;
 
-                        if (error.details && (error.details.unfulfilled_lines || error.details.invalid_lines)) {
+                        const hasUnfulfilled = Array.isArray(error.details?.unfulfilled_lines) && error.details.unfulfilled_lines.length > 0;
+                        const hasInvalid = Array.isArray(error.details?.invalid_lines) && error.details.invalid_lines.length > 0;
+
+                        if (error.details && (hasUnfulfilled || hasInvalid)) {
                             showMismatchModal(error.message, error.details);
                         } else {
                             setCartStatus(error.message || 'Validasi checkout gagal.', 'text-danger', true);

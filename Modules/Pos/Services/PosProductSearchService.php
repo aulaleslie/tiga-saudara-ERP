@@ -48,7 +48,6 @@ class PosProductSearchService
                     ->where('pp.setting_id', '=', $settingId);
             })
             ->where('p.stock_managed', true)
-            ->whereRaw($availableQtyExpression . ' > 0')
             ->where(function ($query) use (
                 $barcodeExactExpr,
                 $skuExactExpr,
@@ -167,9 +166,9 @@ class PosProductSearchService
             return $result;
         })->values();
 
-        $autoSelectMatch = $results->firstWhere('matched_by', 'barcode_exact');
+        $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'barcode_exact' && $r['available_qty'] > 0)->first();
         if (!$autoSelectMatch) {
-            $autoSelectMatch = $results->firstWhere('matched_by', 'conversion_barcode_exact');
+            $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'conversion_barcode_exact' && $r['available_qty'] > 0)->first();
         }
         $autoSelectProductId = null;
 
@@ -204,8 +203,13 @@ class PosProductSearchService
 
     private function availableQtyExpression(array $allowedLocationIds): string
     {
+        return 'COALESCE((' . $this->availableQtySubquery($allowedLocationIds) . '), 0)';
+    }
+
+    private function availableQtySubquery(array $allowedLocationIds): string
+    {
         $ids = implode(',', array_map('intval', $allowedLocationIds));
 
-        return 'COALESCE((SELECT SUM(ps.quantity) FROM product_stocks ps WHERE ps.product_id = p.id AND ps.location_id IN (' . $ids . ')), 0)';
+        return 'SELECT SUM(ps.quantity) FROM product_stocks ps WHERE ps.product_id = p.id AND ps.location_id IN (' . $ids . ')';
     }
 }

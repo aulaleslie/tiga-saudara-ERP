@@ -317,6 +317,7 @@ class POSProductSearchScanTest extends TestCase
         );
 
         ProductBundle::create([
+            'setting_id' => $setting->id,
             'parent_product_id' => $serialBundleParent->id,
             'name' => 'Paket Serial',
         ]);
@@ -349,13 +350,14 @@ class POSProductSearchScanTest extends TestCase
         );
 
         ProductBundle::create([
+            'setting_id' => $setting->id,
             'parent_product_id' => $bundleParent->id,
             'name' => 'Paket Scan',
         ]);
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->getJson(route('pos.sell.scan.resolve', ['q' => 'SCAN-BUNDLE-01']));
+            ->getJson(route('pos.sell.search.resolve', ['q' => 'SCAN-BUNDLE-01']));
 
         $response->assertOk();
         $response->assertJsonPath('type', 'product_exact');

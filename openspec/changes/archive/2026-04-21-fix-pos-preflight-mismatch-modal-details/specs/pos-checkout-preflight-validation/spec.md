@@ -1,20 +1,4 @@
-# pos-checkout-preflight-validation Specification
-
-## Purpose
-This specification defines the requirements for backend preflight validation of POS cart fulfillability and the associated frontend mismatch signaling.
-## Requirements
-### Requirement: Checkout preflight SHALL validate cart fulfillability before payment flow opens
-The POS system SHALL execute a backend preflight validation when cashier clicks `Pilih Pembayaran` and MUST only open staged payment modal when preflight returns success.
-
-#### Scenario: Preflight passes and payment flow opens
-- **WHEN** cashier clicks `Pilih Pembayaran` and all cart lines are valid for serial and stock fulfillment
-- **THEN** system SHALL return a successful preflight response
-- **AND** staged payment modal SHALL open using the existing cart token and grand total
-
-#### Scenario: Preflight fails and payment flow remains blocked
-- **WHEN** cashier clicks `Pilih Pembayaran` and one or more cart lines fail serial/stock validation
-- **THEN** system SHALL return a preflight failure response
-- **AND** staged payment modal MUST NOT open
+## MODIFIED Requirements
 
 ### Requirement: Preflight failure response SHALL include actionable mismatch details
 For preflight failures, backend SHALL return a structured payload that UI can render into a mismatch dialog without parsing human text. UI consumption of this contract MUST treat `requested_qty` and `allocated_qty` as canonical quantity diagnostics and MUST compute shortage deterministically when a dedicated shortage field is absent.
@@ -46,4 +30,3 @@ The POS UI SHALL show a dedicated mismatch dialog for preflight failures and SHA
 - **WHEN** a mismatch line has no `product_name` but includes `product_code` and/or `product_id`
 - **THEN** dialog SHALL still display an identifiable product label for cashier correction
 - **AND** line quantities SHALL remain visible for requested, allocated, and shortage context
-

@@ -141,7 +141,7 @@ class POSCheckoutPreflightTest extends TestCase
             ->assertJsonPath('code', 'SERIAL_INVALID');
     }
 
-    private function createCheckoutContext(string $name): array
+    protected function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', [
@@ -175,7 +175,7 @@ class POSCheckoutPreflightTest extends TestCase
         ];
     }
 
-    private function createSetting(string $name): Setting
+    protected function createSetting(string $name): Setting
     {
         $suffix = $this->sequence++;
 
@@ -196,7 +196,7 @@ class POSCheckoutPreflightTest extends TestCase
         ]);
     }
 
-    private function createUserForSetting(Setting $setting, string $roleName, array $permissions): User
+    protected function createUserForSetting(Setting $setting, string $roleName, array $permissions): User
     {
         $role = Role::firstOrCreate(['name' => strtoupper($roleName) . '-' . $setting->id], ['guard_name' => 'web']);
         $role->syncPermissions($permissions);
@@ -208,7 +208,7 @@ class POSCheckoutPreflightTest extends TestCase
         return $user;
     }
 
-    private function createTerminalForSetting(Setting $setting): PosTerminal
+    protected function createTerminalForSetting(Setting $setting): PosTerminal
     {
         $index = $this->sequence++;
 
@@ -239,7 +239,7 @@ class POSCheckoutPreflightTest extends TestCase
         return $terminal;
     }
 
-    private function createStockedProduct(
+    protected function createStockedProduct(
         Setting $setting,
         Location $location,
         string $code,
@@ -306,7 +306,7 @@ class POSCheckoutPreflightTest extends TestCase
         return $product;
     }
 
-    private function createSerialNumber(Product $product, Location $location, string $serialNumber): ProductSerialNumber
+    protected function createSerialNumber(Product $product, Location $location, string $serialNumber): ProductSerialNumber
     {
         return ProductSerialNumber::create([
             'product_id' => $product->id,
@@ -317,7 +317,7 @@ class POSCheckoutPreflightTest extends TestCase
         ]);
     }
 
-    private function seedPaymentMethods(Setting $setting): array
+    protected function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         
@@ -355,7 +355,7 @@ class POSCheckoutPreflightTest extends TestCase
         return $methods;
     }
 
-    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
+    protected function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
     {
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])

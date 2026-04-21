@@ -221,7 +221,7 @@ class FinalizePosCheckoutService
         $resolution = $this->stockResolver->resolve($settingId, $linesForResolver);
 
         if (! empty($resolution['unfulfilled_lines'])) {
-            $failureDetails = $this->buildStockUnavailableDetailsPayload($resolution, $linesForResolver);
+            $failureDetails = $this->buildStockUnavailableDetailsPayload($resolution, $cartLines);
 
             throw new PosCheckoutValidationException(
                 'STOCK_UNAVAILABLE',
@@ -1334,6 +1334,15 @@ class FinalizePosCheckoutService
             $line = is_array($lines[$lineIndex] ?? null) ? $lines[$lineIndex] : [];
             $detail = is_array($detailByIndex[$lineIndex] ?? null) ? $detailByIndex[$lineIndex] : [];
 
+            // Use detail's product info if available (from resolver), otherwise fall back to line
+            $productName = isset($detail['product_name'])
+                ? ($detail['product_name'] !== null ? (string) $detail['product_name'] : null)
+                : (isset($line['product_name']) ? (string) $line['product_name'] : null);
+
+            $productCode = isset($detail['product_code'])
+                ? ($detail['product_code'] !== null ? (string) $detail['product_code'] : null)
+                : (isset($line['product_code']) ? (string) $line['product_code'] : null);
+
             $payload[] = [
                 'line_index' => $lineIndex,
                 'line_id' => isset($detail['line_id'])
@@ -1342,9 +1351,8 @@ class FinalizePosCheckoutService
                 'product_id' => isset($detail['product_id'])
                     ? (int) $detail['product_id']
                     : (int) ($line['product_id'] ?? 0),
-                'product_code' => isset($detail['product_code'])
-                    ? ($detail['product_code'] !== null ? (string) $detail['product_code'] : null)
-                    : (isset($line['product_code']) ? (string) $line['product_code'] : null),
+                'product_name' => $productName,
+                'product_code' => $productCode,
                 'reason_code' => isset($detail['reason_code'])
                     ? (string) $detail['reason_code']
                     : 'INSUFFICIENT_STOCK',

@@ -1102,6 +1102,43 @@
         outline-offset: -1px;
     }
 
+    .pos-search-card-disabled {
+        opacity: 0.65;
+        cursor: not-allowed !important;
+        background-color: #f1f5f9 !important;
+        border-color: #e2e8f0 !important;
+        position: relative;
+        filter: grayscale(0.5);
+    }
+
+    .pos-search-card-disabled:hover,
+    .pos-search-card-disabled:focus {
+        border-color: #e2e8f0 !important;
+        box-shadow: none !important;
+        background-color: #f1f5f9 !important;
+        outline: none !important;
+    }
+
+    .pos-search-card-oos-badge {
+        position: absolute;
+        top: 40%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-12deg);
+        background-color: rgba(239, 68, 68, 0.9);
+        color: white;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0.25rem;
+        font-weight: 800;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 10;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
     @media (max-width: 640px) and (orientation: portrait) {
         .pos-shell {
             display: none;
