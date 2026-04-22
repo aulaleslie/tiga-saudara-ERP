@@ -1241,8 +1241,8 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
 
         $receivedNoteB = \Modules\Purchase\Entities\ReceivedNote::where('po_id', $purchaseB->id)->first();
         // Permission for approval
-        Permission::findOrCreate('purchaseReceivings.approval', 'web');
-        $this->user->givePermissionTo('purchaseReceivings.approval');
+        Permission::findOrCreate('purchases.receive.approval', 'web');
+        $this->user->givePermissionTo('purchases.receive.approval');
         
         $this->post(action([\Modules\Purchase\Http\Controllers\PurchaseController::class, 'approveReceiving'], $receivedNoteB->id));
 

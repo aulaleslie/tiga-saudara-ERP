@@ -82,7 +82,7 @@ class PurchaseApproveReactivatesReturnedSerialTest extends TestCase
         session(['setting_id' => $this->setting->id]);
         
         // Mock permissions - explicitly allow
-        \Illuminate\Support\Facades\Gate::define('purchaseReceivings.approval', fn() => true);
+        \Illuminate\Support\Facades\Gate::define('purchases.receive.approval', fn() => true);
     }
 
     private function createProduct()
@@ -184,7 +184,7 @@ class PurchaseApproveReactivatesReturnedSerialTest extends TestCase
         // 3. Approve the receiving
         // Bypass permission check by mocking? Or just assume actingAs(user) has all access?
         // Let's assume standard flow works. If permission fails, we'll see 403.
-        // We need to bypass Gate::denies('purchaseReceivings.approval')
+        // We need to bypass Gate::denies('purchases.receive.approval')
         // We can use partial mock or just grant permission if using Spatie permissions, but here it seems simple Gates.
         // Let's rely on standard actingAs user. If it fails, we'll strip middleware or mock gate.
 

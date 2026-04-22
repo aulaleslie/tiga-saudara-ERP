@@ -278,7 +278,7 @@ class PurchaseApproveConcurrencyConflictTest extends TestCase
             'email' => 'admin@test.com',
         ]);
         
-        $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'purchaseReceivings.approval']);
+        $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'purchases.receive.approval']);
         $user->givePermissionTo($permission);
         
         return $user;

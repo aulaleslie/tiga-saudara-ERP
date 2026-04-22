@@ -58,7 +58,7 @@ class PurchaseController extends Controller
      */
     public function receivingIndex(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_unless(Gate::any(['purchaseReceivings.access', 'purchases.receive']), 403);
+        abort_unless(Gate::any(['purchases.receive.access', 'purchases.receive']), 403);
 
         $purchase = null;
 
@@ -75,7 +75,7 @@ class PurchaseController extends Controller
      */
     public function receivingsList(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_unless(Gate::any(['purchaseReceivings.access', 'purchases.receive']), 403);
+        abort_unless(Gate::any(['purchases.receive.access', 'purchases.receive']), 403);
 
         return view('purchase::receiving.list');
     }
@@ -292,7 +292,7 @@ class PurchaseController extends Controller
 
     public function storeAttachments(Request $request, Purchase $purchase): RedirectResponse
     {
-        abort_if(Gate::denies('purchases.edit'), 403);
+        abort_if(Gate::denies('purchases.update'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $service = app(PurchaseAttachmentService::class);
@@ -340,7 +340,7 @@ class PurchaseController extends Controller
 
     public function destroyAttachment(Purchase $purchase, Media $media): RedirectResponse
     {
-        abort_if(Gate::denies('purchases.edit'), 403);
+        abort_if(Gate::denies('purchases.update'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         if ($media->collection_name !== 'attachments' || $media->model_id !== $purchase->id || $media->model_type !== Purchase::class) {
@@ -355,7 +355,7 @@ class PurchaseController extends Controller
 
     public function edit(Purchase $purchase)
     {
-        abort_if(Gate::denies('purchases.edit'), 403);
+        abort_if(Gate::denies('purchases.update'), 403);
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
@@ -435,7 +435,7 @@ class PurchaseController extends Controller
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
-        abort_if(Gate::denies('purchases.edit'), 403);
+        abort_if(Gate::denies('purchases.update'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         // Rule: Partially or Fully Received -> Hard Block
@@ -582,7 +582,7 @@ class PurchaseController extends Controller
 
     public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
-        abort_unless(Gate::any(['purchases.edit', 'purchases.approval']), 403);
+        abort_unless(Gate::any(['purchases.update', 'purchases.approval']), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
@@ -789,7 +789,7 @@ class PurchaseController extends Controller
 
     public function showReceivings($purchase_id, PurchaseReceivingsDataTable $dataTable)
     {
-        abort_if(Gate::denies('purchaseReceivings.access'), 403);
+        abort_if(Gate::denies('purchases.receive.access'), 403);
 
         $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
@@ -810,7 +810,7 @@ class PurchaseController extends Controller
      */
     public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse|\Illuminate\Http\Response
     {
-        abort_if(Gate::denies('purchaseReceivings.approval'), 403);
+        abort_if(Gate::denies('purchases.receive.approval'), 403);
 
         // Initial check
         if (!$receivedNote->isPending()) {
@@ -1137,7 +1137,7 @@ class PurchaseController extends Controller
      */
     public function rejectReceiving(Request $request, ReceivedNote $receivedNote): RedirectResponse
     {
-        abort_if(Gate::denies('purchaseReceivings.approval'), 403);
+        abort_if(Gate::denies('purchases.receive.approval'), 403);
 
         if (!$receivedNote->isPending()) {
             toast('Penerimaan ini sudah diproses sebelumnya.', 'error');

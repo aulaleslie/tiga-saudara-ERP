@@ -43,7 +43,7 @@
                         <div class="ml-auto d-flex flex-wrap align-items-center">
                             <span class="badge {{ $statusBadgeClass }} mr-2 mb-1">{{ $purchase_return->unified_status_label }}</span>
                             @if($dispatchStatus !== 'dispatched')
-                                @can('purchaseReturns.edit')
+                                @can('purchaseReturns.update')
                                     <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
@@ -61,7 +61,7 @@
                             @endif
 
                             @if($approvalStatus === 'rejected')
-                                @can('purchaseReturns.edit')
+                                @can('purchaseReturns.update')
                                     <form action="{{ route('purchase-returns.repropose', $purchase_return->id) }}" method="POST" class="d-inline">
                                         @csrf
                                         <button type="submit" class="btn btn-info btn-sm d-print-none mr-2 mb-1" onclick="return confirm('Ajukan ulang retur ini untuk persetujuan?')">

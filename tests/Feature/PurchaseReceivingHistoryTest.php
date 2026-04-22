@@ -30,7 +30,7 @@ class PurchaseReceivingHistoryTest extends TestCase
     {
         parent::setUp();
 
-        Permission::create(['name' => 'purchaseReceivings.approval']);
+        Permission::create(['name' => 'purchases.receive.approval']);
 
         Setting::create([
             'id' => 1,
@@ -45,7 +45,7 @@ class PurchaseReceivingHistoryTest extends TestCase
         ]);
 
         $this->user = User::factory()->create();
-        $this->user->givePermissionTo('purchaseReceivings.approval');
+        $this->user->givePermissionTo('purchases.receive.approval');
         $this->actingAs($this->user);
 
         $this->location = Location::create([

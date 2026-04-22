@@ -212,7 +212,7 @@
                         <div class="row mt-4">
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Lampiran:</h5>
-                                @can('purchases.edit')
+                                @can('purchases.update')
                                     @if(!$purchase->isArchived())
                                         <form action="{{ route('purchases.attachments.store', $purchase->id) }}"
                                           method="POST"
@@ -275,7 +275,7 @@
                                                     <a class="btn btn-sm btn-outline-secondary" href="{{ $media->getUrl() }}" download>
                                                         Download
                                                     </a>
-                                                    @can('purchases.edit')
+                                                    @can('purchases.update')
                                                         @if(!$purchase->isArchived())
                                                             <form method="POST"
                                                                   action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
@@ -311,7 +311,7 @@
                                                     <th>Lokasi</th>
                                                     <th>Total Diterima</th>
                                                     <th>Status</th>
-                                                    @can('purchaseReceivings.approval')
+                                                    @can('purchases.receive.approval')
                                                         <th>Aksi</th>
                                                     @endcan
                                                 </tr>
@@ -342,7 +342,7 @@
                                                                 <span class="badge badge-danger">Ditolak</span>
                                                             @endif
                                                         </td>
-                                                        @can('purchaseReceivings.approval')
+                                                        @can('purchases.receive.approval')
                                                             <td>
                                                                 @if($receivedNote->isPending())
                                                                     <form action="{{ route('receivings.approve', $receivedNote) }}" method="POST" class="d-inline approve-receiving-form" onsubmit="handleApproveReceiving(this, event); return false;">
@@ -395,7 +395,7 @@
 
                                                     <!-- Expandable Details Row -->
                                                     <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row d-none">
-                                                        <td colspan="{{ Gate::allows('purchaseReceivings.approval') ? 8 : 7 }}">
+                                                        <td colspan="{{ Gate::allows('purchases.receive.approval') ? 8 : 7 }}">
                                                             @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
                                                         </td>
                                                     </tr>
@@ -453,7 +453,7 @@
                                     <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
                                     <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
                                 </form>
-                                <a href="{{ route('purchases.edit', $purchase->id) }}" class="btn btn-primary">
+                                <a href="{{ route('purchases.update', $purchase->id) }}" class="btn btn-primary">
                                     <i class="bi bi-pencil mr-2"></i> Ubah
                                 </a>
                             @endif

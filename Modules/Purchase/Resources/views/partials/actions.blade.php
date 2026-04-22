@@ -65,7 +65,7 @@
                     @endif
                 @endcan
 
-                @can('purchases.edit')
+                @can('purchases.update')
                     @if($data->status === 'DRAFTED')
                         <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item" @click="open = false">
                             <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Ubah
@@ -74,13 +74,13 @@
                 @endcan
             @endif
 
-            @can('purchases.view')
+            @can('purchases.show')
                 <a href="{{ route('purchases.show', $data->id) }}" class="dropdown-item" @click="open = false">
                     <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Rincian
                 </a>
             @endcan
 
-            @can('purchases.edit')
+            @can('purchases.update')
                 <a href="{{ route('purchases.show', $data->id) }}#purchase-attachments" class="dropdown-item" @click="open = false">
                     <i class="bi bi-paperclip mr-2 text-secondary" style="line-height: 1;"></i> Lampiran
                 </a>

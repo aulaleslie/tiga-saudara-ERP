@@ -158,7 +158,7 @@ class PurchasesReturnController extends Controller
 
 
     public function edit(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
 
         // Rule: Dispatched -> Hard Block
         if (!is_null($purchase_return->return_dispatched_at)) {
@@ -195,7 +195,7 @@ class PurchasesReturnController extends Controller
 
 
     public function update(UpdatePurchaseReturnRequest $request, PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
 
         // Rule: Dispatched -> Hard Block
         if (!is_null($purchase_return->return_dispatched_at)) {
@@ -340,7 +340,7 @@ class PurchasesReturnController extends Controller
     }
 
     public function repropose(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
 
         if (Str::lower($purchase_return->approval_status) !== 'rejected') {
             abort(403, 'Hanya retur pembelian yang ditolak yang dapat diajukan ulang.');

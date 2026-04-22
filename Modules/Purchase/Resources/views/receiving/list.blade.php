@@ -30,7 +30,7 @@
                                         <th>Lokasi</th>
                                         <th>Total Item</th>
                                         <th>Status</th>
-                                        @can('purchaseReceivings.approval')
+                                        @can('purchases.receive.approval')
                                             <th>Aksi</th>
                                         @endcan
                                     </tr>
@@ -65,7 +65,7 @@
                                                     <span class="badge badge-danger" title="{{ $receivedNote->rejection_reason }}">Ditolak</span>
                                                 @endif
                                             </td>
-                                            @can('purchaseReceivings.approval')
+                                            @can('purchases.receive.approval')
                                                 <td>
                                                     @if($receivedNote->isPending())
                                                         <form action="{{ route('receivings.approve', $receivedNote) }}" method="POST" class="d-inline approve-receiving-form" onsubmit="handleApproveReceiving(this, event); return false;">
@@ -117,7 +117,7 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="{{ Gate::allows('purchaseReceivings.approval') ? 8 : 7 }}" class="text-center text-muted">
+                                            <td colspan="{{ Gate::allows('purchases.receive.approval') ? 8 : 7 }}" class="text-center text-muted">
                                                 Belum ada data penerimaan barang.
                                             </td>
                                         </tr>

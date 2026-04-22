@@ -40,7 +40,7 @@
              :style="`position: fixed; z-index: 1060; top: ${position.top}px; left: ${position.left}px; min-width: 200px; margin: 0; display: block;`"
              @click.away="open = false">
             
-            @can('purchaseReturns.edit')
+            @can('purchaseReturns.update')
                 @if($dispatchStatus !== 'dispatched')
                     <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item d-flex align-items-center">
                         <i class="bi bi-pencil text-primary me-2"></i> <span>Edit</span>
@@ -82,7 +82,7 @@
             @endif
 
             @if($approvalStatus === 'rejected')
-                @can('purchaseReturns.edit')
+                @can('purchaseReturns.update')
                     <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); if(confirm('Ajukan ulang retur ini?')) document.getElementById('repropose{{ $data->id }}').submit();">
                         <i class="bi bi-arrow-counterclockwise text-info me-2"></i> <span>Ajukan Ulang</span>
                     </a>

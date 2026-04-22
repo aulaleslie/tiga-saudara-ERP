@@ -57,8 +57,8 @@ class ReceiveSoldSerialNumberTest extends TestCase
         $this->user = User::factory()->create();
         
         Permission::findOrCreate('purchases.receive', 'web');
-        Permission::findOrCreate('purchaseReceivings.approval', 'web');
-        $this->user->givePermissionTo(['purchases.receive', 'purchaseReceivings.approval']);
+        Permission::findOrCreate('purchases.receive.approval', 'web');
+        $this->user->givePermissionTo(['purchases.receive', 'purchases.receive.approval']);
         
         $this->actingAs($this->user);
 
