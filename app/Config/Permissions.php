@@ -240,6 +240,43 @@ return [
         'purchaseReturnSettlements.receive' => 'Terima',
     ],
 
+    'Penjualan' => [
+        'sales.access' => 'Hak Akses',
+        'sales.create' => 'Buat',
+        'sales.import' => 'Impor',
+        'sales.edit' => 'Ubah',
+        'sales.approved.edit' => 'Ubah Penjualan Disetujui',
+        'sales.delete' => 'Hapus',
+        'sales.show' => 'Tampilkan',
+        'sales.approval' => 'Persetujuan',
+        'sales.archive' => 'Arsipkan',
+    ],
+
+    'Pengiriman Penjualan' => [
+        'salesDispatches.access' => 'Hak Akses',
+        'salesDispatches.approval' => 'Persetujuan',
+        'sales.dispatch' => 'Kirim / Pengeluaran Barang',
+    ],
+
+    'Pembayaran Penjualan' => [
+        'salePayments.access' => 'Hak Akses',
+        'salePayments.create' => 'Buat',
+        'salePayments.edit' => 'Ubah',
+        'salePayments.delete' => 'Hapus',
+        'salePayments.show' => 'Tampilkan',
+    ],
+
+    'Retur Penjualan' => [
+        'saleReturns.access' => 'Hak Akses',
+        'saleReturns.create' => 'Buat',
+        'saleReturns.edit' => 'Ubah',
+        'saleReturns.delete' => 'Hapus',
+        'saleReturns.show' => 'Tampilkan',
+        'saleReturns.approve' => 'Setujui',
+        'saleReturns.receive' => 'Terima',
+        'saleReturns.archive' => 'Arsipkan',
+    ],
+
     'Penyelesaian Retur Penjualan' => [
         'saleReturnSettlements.access' => 'Hak Akses',
         'saleReturnSettlements.submit' => 'Kirim',
@@ -250,6 +287,14 @@ return [
         'saleReturnSettlements.execute' => 'Eksekusi',
         'saleReturnSettlements.receive' => 'Terima',
     ],
+
+    'Pembayaran Retur Penjualan' => [
+        'saleReturnPayments.access' => 'Hak Akses',
+        'saleReturnPayments.create' => 'Buat',
+        'saleReturnPayments.edit' => 'Ubah',
+        'saleReturnPayments.delete' => 'Hapus',
+    ],
+
 
     'Laporan & Pengaturan' => [
         'reports.access' => 'Akses Laporan',
@@ -332,47 +377,6 @@ return [
         'roles.create' => 'Buat Role',
         'roles.edit' => 'Ubah Role',
         'roles.delete' => 'Hapus Role',
-    ],
-
-    'Penjualan' => [
-        'sales.access' => 'Hak Akses',
-        'sales.create' => 'Buat',
-        'sales.import' => 'Impor',
-        'sales.edit' => 'Ubah',
-        'sales.delete' => 'Hapus',
-        'sales.show' => 'Tampilkan',
-        'sales.approval' => 'Persetujuan',
-    ],
-
-    'Pengiriman Barang' => [
-        'salesDispatches.access' => 'Hak Akses',
-        'salesDispatches.approval' => 'Persetujuan',
-        'sales.dispatch' => 'Kirim / Pengeluaran Barang',
-    ],
-
-    'Pembayaran Penjualan' => [
-        'salePayments.access' => 'Hak Akses',
-        'salePayments.create' => 'Buat',
-        'salePayments.edit' => 'Ubah',
-        'salePayments.delete' => 'Hapus',
-        'salePayments.show' => 'Tampilkan',
-    ],
-
-    'Retur Penjualan' => [
-        'saleReturns.access' => 'Hak Akses',
-        'saleReturns.create' => 'Buat',
-        'saleReturns.edit' => 'Ubah',
-        'saleReturns.delete' => 'Hapus',
-        'saleReturns.show' => 'Tampilkan',
-        'saleReturns.approve' => 'Setujui',
-        'saleReturns.receive' => 'Terima',
-    ],
-
-    'Pembayaran Retur Penjualan' => [
-        'saleReturnPayments.access' => 'Hak Akses',
-        'saleReturnPayments.create' => 'Buat',
-        'saleReturnPayments.edit' => 'Ubah',
-        'saleReturnPayments.delete' => 'Hapus',
     ],
 
     'Pencarian Global' => [
