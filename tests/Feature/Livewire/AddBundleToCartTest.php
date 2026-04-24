@@ -80,6 +80,7 @@ class AddBundleToCartTest extends TestCase
 
         // Create a bundle for this product with bundle price 55,000
         $bundle = ProductBundle::create([
+            'setting_id' => $setting->id,
             'parent_product_id' => $product->id,
             'name' => 'FREE CHARGER',
             'price' => 55000.00,

@@ -259,7 +259,7 @@
                     @foreach($bundles as $bundle)
                         <div class="mb-4">
                             <h6>{{ $bundle->name }} <span
-                                    class="text-muted">({{ format_currency($bundle->price) }})</span></h6>
+                                    class="text-muted">({{ format_currency($bundle->bundle_sale_price ?? 0) }})</span></h6>
                             @if($bundle->description)
                                 <p>{{ $bundle->description }}</p>
                             @endif
@@ -269,6 +269,7 @@
                                     <tr>
                                         <th>Produk</th>
                                         <th>Jumlah</th>
+                                        <th>Harga Informasi Item</th>
                                     </tr>
                                     </thead>
                                     <tbody>
@@ -276,6 +277,7 @@
                                         <tr>
                                             <td>{{ $item->product->product_name }}</td>
                                             <td>{{ $item->quantity }}</td>
+                                            <td>{{ format_currency($item->informational_item_price ?? 0) }}</td>
                                         </tr>
                                     @endforeach
                                     </tbody>

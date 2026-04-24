@@ -50,13 +50,13 @@ class BundleTable extends Component
                     'product_id' => $it['product_id'] ?? null,
                     'product_name' => $productName ?? '',
                     'quantity' => $it['quantity'] ?? 1,
-                    'price' => $it['price'] ?? 0,
+                    'informational_item_price' => $it['informational_item_price'] ?? 0,
                     'search' => '',
                 ];
                 $this->rowKeys[] = $it['id'] ?? uniqid('item_', true);
             }
         } else {
-            $this->items = [['product_id' => null, 'product_name' => '', 'quantity' => 1, 'search' => '']];
+            $this->items = [['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => 0, 'search' => '']];
             $this->rowKeys = [uniqid('item_', true)];
         }
     }
@@ -66,7 +66,7 @@ class BundleTable extends Component
      */
     public function addItem(): void
     {
-        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'search' => ''];
+        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => 0, 'search' => ''];
         $this->rowKeys[] = uniqid('item_', true);
     }
 
@@ -116,17 +116,11 @@ class BundleTable extends Component
 
         $this->items[$index]['product_id'] = $product['id'];
         $this->items[$index]['product_name'] = $product['product_name'];
-    }
-
-    public function updatePrice($index): void
-    {
-        $price = $this->items[$index]['price'];
-
-        // If the entered price is not numeric, reset to 0; otherwise, cast to float.
-        if (!is_numeric($price)) {
-            $this->items[$index]['price'] = 0;
-        } else {
-            $this->items[$index]['price'] = (float)$price;
+        
+        $p = Product::find($product['id']);
+        if ($p) {
+            $priceStr = $p->salePrice(session('setting_id'));
+            $this->items[$index]['informational_item_price'] = $priceStr ? (float) str_replace(',', '', $priceStr) : 0;
         }
     }
 

@@ -29,11 +29,11 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="bundle_price">Harga Paket</label>
-                        <input type="text" name="price" id="bundle_price" class="form-control"
-                               value="{{ old('price', 0) }}">
+                        <label for="bundle_sale_price">Harga Jual Paket</label>
+                        <input type="text" name="bundle_sale_price" id="bundle_sale_price" class="form-control"
+                               value="{{ old('bundle_sale_price', $product->salePrice()) }}">
                         <small class="text-muted">
-                            Harga Paket akan menambah Harga Jual. Harga Jual saat ini adalah {{ format_currency($product->salePrice()) }}
+                            Harga Jual Paket adalah harga jual final untuk produk dan paket ini.
                         </small>
                     </div>
                 </div>
@@ -82,7 +82,7 @@
 @push('page_scripts')
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            const priceInput = document.getElementById('bundle_price');
+            const priceInput = document.getElementById('bundle_sale_price');
             const form = priceInput.closest('form');
 
             // Format number to Indonesian currency
@@ -99,7 +99,7 @@
             // Unformat: convert formatted to plain decimal string (e.g., "Rp 10.000,00" → "10000.00")
             const unformat = (value) => {
                 if (!value) return '';
-                return value.replace(/[^0-9,]/g, '')   // Remove non-numeric (keep comma)
+                return value.toString().replace(/[^0-9,]/g, '')   // Remove non-numeric (keep comma)
                     .replace(',', '.');        // Convert comma to dot for decimals
             };
 

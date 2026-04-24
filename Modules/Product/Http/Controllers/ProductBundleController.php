@@ -60,21 +60,25 @@ class ProductBundleController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'nullable|numeric|min:0',
+            'bundle_sale_price' => 'required|numeric|min:0',
             'active_from' => 'nullable|date',
             'active_to' => 'nullable|date|after_or_equal:active_from',
             'items' => 'required|array',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
+            'items.*.informational_item_price' => 'required|numeric|min:0',
         ], [
             'name.required' => 'Nama harus diisi.',
-            'price.numeric' => 'Harga bundle harus berupa angka.',
+            'bundle_sale_price.required' => 'Harga Jual Paket harus diisi.',
+            'bundle_sale_price.numeric' => 'Harga Jual Paket harus berupa angka.',
             'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
             'items.required' => 'Item harus diisi.',
             'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
+            'items.*.informational_item_price.required' => 'Setiap item harus punya Harga Informasi Item.',
+            'items.*.informational_item_price.numeric' => 'Harga Informasi Item harus berupa angka.',
         ]);
 
         DB::beginTransaction();
@@ -85,7 +89,7 @@ class ProductBundleController extends Controller
                 'parent_product_id' => $productId,
                 'name' => $request->input('name'),
                 'description' => $request->input('description'),
-                'price' => $request->input('price'),
+                'bundle_sale_price' => $request->input('bundle_sale_price'),
                 'active_from' => $request->input('active_from'),
                 'active_to' => $request->input('active_to'),
             ]);
@@ -95,6 +99,7 @@ class ProductBundleController extends Controller
                 $bundle->items()->create([
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
+                    'informational_item_price' => $item['informational_item_price'],
                 ]);
             }
 
@@ -137,21 +142,25 @@ class ProductBundleController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'nullable|numeric|min:0',
+            'bundle_sale_price' => 'required|numeric|min:0',
             'active_from' => 'nullable|date',
             'active_to' => 'nullable|date|after_or_equal:active_from',
             'items' => 'required|array',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
+            'items.*.informational_item_price' => 'required|numeric|min:0',
         ], [
             'name.required' => 'Nama harus diisi.',
-            'price.numeric' => 'Harga bundle harus berupa angka.',
+            'bundle_sale_price.required' => 'Harga Jual Paket harus diisi.',
+            'bundle_sale_price.numeric' => 'Harga Jual Paket harus berupa angka.',
             'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
             'items.required' => 'Item harus diisi.',
             'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
+            'items.*.informational_item_price.required' => 'Setiap item harus punya Harga Informasi Item.',
+            'items.*.informational_item_price.numeric' => 'Harga Informasi Item harus berupa angka.',
         ]);
 
         DB::beginTransaction();
@@ -160,7 +169,7 @@ class ProductBundleController extends Controller
             $bundle->update([
                 'name'        => $request->input('name'),
                 'description' => $request->input('description'),
-                'price'       => $request->input('price'),
+                'bundle_sale_price' => $request->input('bundle_sale_price'),
                 'active_from' => $request->input('active_from'),
                 'active_to'   => $request->input('active_to'),
             ]);
@@ -171,6 +180,7 @@ class ProductBundleController extends Controller
                 $bundle->items()->create([
                     'product_id' => $item['product_id'],
                     'quantity'   => $item['quantity'],
+                    'informational_item_price' => $item['informational_item_price'],
                 ]);
             }
 

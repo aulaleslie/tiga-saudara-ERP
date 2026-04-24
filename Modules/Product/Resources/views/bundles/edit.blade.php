@@ -20,11 +20,11 @@
                 </div>
                 <div class="col-md-3">
                     <div class="form-group">
-                        <label for="bundle_price">Harga Paket</label>
-                        <input type="number" name="price" id="bundle_price" class="form-control"
-                               step="0.01" min="0" value="{{ old('price', $bundle->price ?? 0) }}">
+                        <label for="bundle_sale_price">Harga Jual Paket</label>
+                        <input type="number" name="bundle_sale_price" id="bundle_sale_price" class="form-control"
+                               step="0.01" min="0" value="{{ old('bundle_sale_price', $bundle->bundle_sale_price ?? $parentProduct->salePrice()) }}">
                         <small class="text-muted">
-                            Harga Paket akan menambah Harga Jual. Harga Jual saat ini adalah {{ format_currency($parentProduct->salePrice()) }}
+                            Harga Jual Paket adalah harga jual final untuk produk dan paket ini.
                         </small>
                     </div>
                 </div>

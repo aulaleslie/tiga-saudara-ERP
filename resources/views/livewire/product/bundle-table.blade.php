@@ -9,13 +9,13 @@
                     <i class="bi bi-plus"></i> Tambah
                 </button>
             </div>
-
             <div class="table-responsive" style="overflow-x: auto; overflow-y: visible;">
                 <table class="table table-bordered">
                     <thead>
                     <tr>
                         <th>Produk</th>
                         <th>Jumlah (min 1)</th>
+                        <th>Harga Informasi Item</th>
                         <th class="text-end" style="white-space: nowrap;">Aksi</th>
                     </tr>
                     </thead>
@@ -41,6 +41,15 @@
                                     class="form-control"
                                     min="1">
                             </td>
+                            <td>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    name="items[{{ $index }}][informational_item_price]"
+                                    wire:model="items.{{ $index }}.informational_item_price"
+                                    class="form-control"
+                                    min="0">
+                            </td>
                             <td class="text-end">
                                 <button type="button" class="btn btn-danger" wire:click="removeItem('{{ $rowKey }}')">Hapus</button>
                             </td>
@@ -55,6 +64,8 @@
     <!-- Hidden inputs to pass bundle items data when the parent form is submitted -->
     @foreach($items as $index => $item)
         <input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $item['product_id'] }}">
+        <input type="hidden" name="items[{{ $index }}][quantity]" value="{{ $item['quantity'] }}">
+        <input type="hidden" name="items[{{ $index }}][informational_item_price]" value="{{ $item['informational_item_price'] ?? 0 }}">
     @endforeach
 
     <style>
