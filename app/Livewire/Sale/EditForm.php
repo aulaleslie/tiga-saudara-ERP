@@ -117,21 +117,25 @@ class EditForm extends Component
 
             $bundleItems = [];
             foreach ($detail->bundleItems as $b) {
+                // Task 3.2: Normalize hydrated component prices to non-billable 0.
                 $bundleItems[] = [
                     'bundle_id'      => $b->bundle_id,
                     'bundle_item_id' => $b->bundle_item_id,
                     'product_id'     => $b->product_id,
                     'name'           => $b->name,
-                    'price'          => $b->price,
+                    'price'          => 0.0,
                     'quantity_per_bundle' => $detail->quantity > 0 ? (float) ($b->quantity / $detail->quantity) : (float) $b->quantity,
                     'quantity'       => $b->quantity,
-                    'sub_total'      => $b->sub_total,
+                    'sub_total'      => 0.0,
                 ];
             }
-            $bundleTotal = (float) collect($bundleItems)->sum('sub_total');
+            // Task 1.2/3.2: Bundle add-on price is now 0.0 for selected bundles.
+            $bundleTotal = 0.0;
+
             $normalizedUnitPrice = (float) $detail->unit_price;
             $normalizedPrice = (float) $detail->price;
             if (! $this->isPkp && $detail->quantity > 0) {
+                // Reversal logic still applies but bundleTotal is now 0 for new bundles.
                 $parentSubTotalBeforeTax = max(0, $subtotalBeforeTax - $bundleTotal);
                 $normalizedUnitPrice = round(($parentSubTotalBeforeTax / $detail->quantity) + (float) $detail->product_discount_amount, 2);
                 $normalizedPrice = $normalizedUnitPrice;
@@ -139,6 +143,12 @@ class EditForm extends Component
             $options['bundle_items'] = $bundleItems;
             $options['bundle_price'] = $bundleTotal;
             $options['unit_price'] = $normalizedUnitPrice;
+
+            // Task 1.3: Add stable metadata for bundled rows.
+            if (!empty($bundleItems)) {
+                $options['is_bundled_row'] = true;
+                $options['bundle_id'] = $bundleItems[0]['bundle_id'];
+            }
 
             // pass options as array, not object
             Cart::instance('sale')->add([

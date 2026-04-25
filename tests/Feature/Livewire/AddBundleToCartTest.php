@@ -78,12 +78,14 @@ class AddBundleToCartTest extends TestCase
             'sale_price' => 5500000.00,
         ]);
 
-        // Create a bundle for this product with bundle price 55,000
+        // Task 1.1: Create a bundle with bundle_sale_price (e.g. 5,000,000)
+        // Legacy add-on price is ignored for sales totals now.
         $bundle = ProductBundle::create([
             'setting_id' => $setting->id,
             'parent_product_id' => $product->id,
-            'name' => 'FREE CHARGER',
-            'price' => 55000.00,
+            'name' => 'DEAL PACKAGE',
+            'bundle_sale_price' => 5000000.00,
+            'price' => 55000.00, // legacy add-on
         ]);
 
         // Add one item to bundle (use an existing or new product)
@@ -101,6 +103,7 @@ class AddBundleToCartTest extends TestCase
             'bundle_id' => $bundle->id,
             'product_id' => $bundleItemProduct->id,
             'quantity' => 1,
+            'informational_item_price' => 100000.00,
         ]);
 
         // Ensure cart is empty
@@ -124,14 +127,25 @@ class AddBundleToCartTest extends TestCase
 
         $row = $cartContent->first();
 
-        // The displayed/row price should be the parent product unit price (5,500,000)
-        $this->assertEquals(5500000.00, (float) $row->price);
+        // Task 1.1: The row price should be the bundle_sale_price (5,000,000)
+        $this->assertEquals(5000000.00, (float) $row->price);
 
-        // options.bundle_price should hold the bundle amount (55,000)
-        $this->assertEquals(55000.00, (float) ($row->options->bundle_price ?? 0));
+        // Task 1.2: options.bundle_price (legacy add-on) should be 0.0
+        $this->assertEquals(0.00, (float) ($row->options->bundle_price ?? 0));
 
-        // options.sub_total should be parent + bundle = 5,555,000
-        $this->assertEquals(5555000.00, (float) ($row->options->sub_total ?? 0));
+        // options.sub_total should match row price = 5,000,000 (parent product price is bypassed)
+        // In PKP mode, sub_total includes tax if is_tax_included is true.
+        // Tax is 11% on 5,000,000.
+        // If tax included: sub_total = 5,000,000.
+        // Actually the code uses calculateSubtotalAndTax.
+        $this->assertEquals(5000000.00, (float) ($row->options->sub_total ?? 0));
+
+        // Task 1.3: Verify metadata
+        $this->assertTrue($row->options->is_bundled_row);
+        $this->assertEquals($bundle->id, $row->options->bundle_id);
+
+        // Task 1.4/4.2: Verify informational price in bundle items
+        $this->assertEquals(100000.00, (float) $row->options->bundle_items[0]['informational_item_price']);
 
         // PKP flow should auto-select tax and compute DPP immediately
         $this->assertSame($defaultTax->id, (int) ($row->options->product_tax ?? 0));

@@ -1,21 +1,5 @@
 ## ADDED Requirements
 
-### Requirement: Sales cart uses setting-scoped product prices for new lines
-When a product is added to the sales cart on create or edit pages, the system SHALL derive the line's base and tier pricing from the active setting's `product_prices` record for that product.
-
-#### Scenario: Add existing product before customer selection
-- **WHEN** a user opens the sales create or sales edit page
-- **AND** no customer tier is currently selected
-- **AND** the user adds an existing product to the sales cart
-- **THEN** the cart line SHALL use the active setting's base `sale_price` as the displayed unit price
-- **AND** the cart SHALL retain the corresponding `sale_price`, `tier_1_price`, and `tier_2_price` metadata for later repricing
-
-#### Scenario: Missing legacy product sale columns do not change sales line pricing
-- **WHEN** a product's legacy `products.sale_price`, `tier_1_price`, and `tier_2_price` columns are empty, zero, or stale
-- **AND** the active setting has a valid `product_prices` row for that product
-- **THEN** the sales cart SHALL use the `product_prices` values
-- **AND** the legacy product columns SHALL NOT override the cart line pricing
-
 ### Requirement: Sales bundled rows initialize from configured bundle sale price
 When a user selects a product bundle in Sales create or Sales edit cart flows, the system SHALL initialize the parent cart row's unit price from `product_bundles.bundle_sale_price` and treat that value as the billable price for the parent product plus selected bundle.
 
@@ -36,40 +20,14 @@ When a user selects a product bundle in Sales create or Sales edit cart flows, t
 - **THEN** the cart SHALL preserve the edited parent row price as the billable unit price
 - **AND** the row subtotal and sale total SHALL recalculate from the edited parent row price
 
-### Requirement: Selecting a customer reprices existing sales cart lines
-When an active sales customer is selected or changed, the sales cart SHALL re-evaluate existing non-bundled lines against the customer's tier and update line pricing accordingly. Cart rows with selected bundles SHALL preserve their current parent row price and SHALL NOT be repriced from customer tier prices while the bundle remains selected.
-
-#### Scenario: Existing customer selected after products already added
-- **WHEN** one or more products already exist in the sales cart
-- **AND** the user selects an existing customer with tier `WHOLESALER` or `RESELLER`
-- **THEN** each existing non-bundled cart line SHALL be repriced using that customer's tier price from the active setting's `product_prices` row
-- **AND** each repriced non-bundled line's subtotal metadata SHALL be recalculated from the new unit price
-- **AND** each existing bundled cart line SHALL preserve its current parent row price
-
-#### Scenario: Customer without tier selected after products already added
-- **WHEN** one or more products already exist in the sales cart
-- **AND** the user selects a customer without a pricing tier
-- **THEN** each existing non-bundled cart line SHALL use the active setting's base `sale_price`
-- **AND** any prior tier-based repricing SHALL be removed from non-bundled rows
-- **AND** each existing bundled cart line SHALL preserve its current parent row price
-
-### Requirement: Customer quick-add selection triggers the same repricing flow
-When a customer is created from the sales page and becomes the active customer selection, the sales cart SHALL execute the same repricing behavior as if the user had selected an existing customer from the dropdown.
-
-#### Scenario: Quick-add customer with wholesaler tier
-- **WHEN** a user has one or more products in the sales cart
-- **AND** the user creates a new customer from the sales page with tier `WHOLESALER`
-- **AND** that customer becomes the selected sales customer
-- **THEN** the sales cart SHALL reprice existing lines to the active setting's `tier_1_price`
-
-#### Scenario: Quick-add customer with reseller tier
-- **WHEN** a user has one or more products in the sales cart
-- **AND** the user creates a new customer from the sales page with tier `RESELLER`
-- **AND** that customer becomes the selected sales customer
-- **THEN** the sales cart SHALL reprice existing lines to the active setting's `tier_2_price`
-
 ### Requirement: Sales bundled rows SHALL bypass automatic product repricing
 When a Sales cart row has a selected bundle, the system SHALL preserve the row's current parent row price during customer, quantity, tax, discount, and cart reconciliation flows instead of replacing it with customer tier pricing or cascading quantity pricing.
+
+#### Scenario: Customer tier selection does not reprice bundled rows
+- **WHEN** a Sales cart contains a bundled row with a current parent row price
+- **AND** the user selects or changes a customer with tier `WHOLESALER` or `RESELLER`
+- **THEN** the bundled row SHALL keep its current parent row price
+- **AND** only non-bundled rows SHALL be eligible for customer tier repricing
 
 #### Scenario: Quantity change preserves bundled row unit price
 - **WHEN** a Sales cart row has a selected bundle
@@ -101,6 +59,25 @@ When Sales creates, updates, hydrates, or persists a sale with selected bundle c
 - **WHEN** Sales create or update persists `sale_bundle_items` for a selected bundle
 - **THEN** the persisted bundle component rows SHALL not contain billable subtotal amounts that accumulate into sale totals
 - **AND** billable amounts SHALL remain represented by the parent `sale_details` row
+
+## MODIFIED Requirements
+
+### Requirement: Selecting a customer reprices existing sales cart lines
+When an active sales customer is selected or changed, the sales cart SHALL re-evaluate existing non-bundled lines against the customer's tier and update line pricing accordingly. Cart rows with selected bundles SHALL preserve their current parent row price and SHALL NOT be repriced from customer tier prices while the bundle remains selected.
+
+#### Scenario: Existing customer selected after products already added
+- **WHEN** one or more products already exist in the sales cart
+- **AND** the user selects an existing customer with tier `WHOLESALER` or `RESELLER`
+- **THEN** each existing non-bundled cart line SHALL be repriced using that customer's tier price from the active setting's `product_prices` row
+- **AND** each repriced non-bundled line's subtotal metadata SHALL be recalculated from the new unit price
+- **AND** each existing bundled cart line SHALL preserve its current parent row price
+
+#### Scenario: Customer without tier selected after products already added
+- **WHEN** one or more products already exist in the sales cart
+- **AND** the user selects a customer without a pricing tier
+- **THEN** each existing non-bundled cart line SHALL use the active setting's base `sale_price`
+- **AND** any prior tier-based repricing SHALL be removed from non-bundled rows
+- **AND** each existing bundled cart line SHALL preserve its current parent row price
 
 ### Requirement: Sales edit cart hydration preserves current pricing semantics
 When an existing sale is opened in edit mode, the cart SHALL hydrate pricing metadata from the same setting-scoped source used for newly added sales lines. For existing sale lines with selected bundle components, the cart SHALL hydrate the parent row's persisted sale detail price as the current editable bundled row price and SHALL treat component item prices as non-billable context.

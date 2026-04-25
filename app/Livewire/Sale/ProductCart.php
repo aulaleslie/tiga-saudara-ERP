@@ -272,6 +272,11 @@ class ProductCart extends Component
 
     private function resolveNonPkpUnitPrice($cartItem): float
     {
+        // Task 2.4: Bypassing reverse-recalculation for bundled rows to preserve authority.
+        if ($cartItem->options->is_bundled_row ?? false) {
+            return (float) $cartItem->price;
+        }
+
         $quantity = max(1, (int) $cartItem->qty);
         $bundlePrice = (float) ($cartItem->options->bundle_price ?? 0);
         $subTotalBeforeTax = (float) ($cartItem->options->sub_total_before_tax ?? $cartItem->options->sub_total ?? ($cartItem->price * $quantity));
@@ -451,22 +456,36 @@ class ProductCart extends Component
                     'tier_2_price' => $cart_item->options->tier_2_price ?? $cart_item->price,
                 ];
 
-                // First, get the new unit price using the calculate() method.
-                // This returns the price for a single unit based on the customer's tier.
-                $newPriceCalc = $this->calculate($product);
-                $resolvedPrices = $newPriceCalc['resolved_prices'] ?? $this->resolveProductPricing($product);
-
-                // Apply cascading price logic if needed (override unit price)
-                if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
-                    $productId = $cart_item->options->product_id;
-                    $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
-                    $defaultUnitPrice = $newPriceCalc['unit_price']; // use initial tier-based price
-                    $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
-                    $newPriceCalc['unit_price'] = $cascadedResult['price'];
-                    $newPriceCalc['price'] = $cascadedResult['price'];
-                    $this->priceBreakdowns[$cart_item->id] = $cascadedResult['breakdown'];
+                // Task 2.1: Bypassing repricing for bundled rows.
+                if ($cart_item->options->is_bundled_row ?? false) {
+                    $newPriceCalc = [
+                        'unit_price' => $cart_item->price,
+                        'price' => $cart_item->price,
+                    ];
+                    $resolvedPrices = [
+                        'sale_price' => $cart_item->options->sale_price,
+                        'tier_1_price' => $cart_item->options->tier_1_price,
+                        'tier_2_price' => $cart_item->options->tier_2_price,
+                    ];
+                    $this->priceBreakdowns[$cart_item->id] = '';
                 } else {
-                    $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
+                    // First, get the new unit price using the calculate() method.
+                    // This returns the price for a single unit based on the customer's tier.
+                    $newPriceCalc = $this->calculate($product);
+                    $resolvedPrices = $newPriceCalc['resolved_prices'] ?? $this->resolveProductPricing($product);
+
+                    // Apply cascading price logic if needed (override unit price)
+                    if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
+                        $productId = $cart_item->options->product_id;
+                        $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
+                        $defaultUnitPrice = $newPriceCalc['unit_price']; // use initial tier-based price
+                        $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
+                        $newPriceCalc['unit_price'] = $cascadedResult['price'];
+                        $newPriceCalc['price'] = $cascadedResult['price'];
+                        $this->priceBreakdowns[$cart_item->id] = $cascadedResult['breakdown'];
+                    } else {
+                        $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
+                    }
                 }
 
                 $this->unit_price[$cart_item->id] = $newPriceCalc['unit_price'];
@@ -692,9 +711,9 @@ class ProductCart extends Component
 
         $selectedBundleItems = [];
 
-        // Prefer the bundle's configured price (Harga Paket). If not set, fall back
-        // to summing individual bundle item prices (legacy behavior).
-        $bundleTotal = $bundle->price !== null ? (float) $bundle->price : 0.0;
+        // Task 1.1 & 1.2: Use bundle_sale_price as the authoritative bundle price.
+        // Legacy add-on pricing (bundle->price) is no longer used for Sales totals.
+        $bundleTotal = 0.0;
 
         foreach ($bundle->items as $bundleItem) {
             // For create flow we do not use individual bundle item prices for
@@ -703,29 +722,20 @@ class ProductCart extends Component
             // represents the package value.
             $initialQuantity = (int) $bundleItem->quantity;
 
+            // Task 1.4: Bundle components are non-billable (price/subtotal 0).
+            // Task 4.2: We include informational_item_price for UI context.
             $selectedBundleItems[] = [
-                'bundle_id'           => $bundle->id,
-                'bundle_item_id'      => $bundleItem->id,
-                'product_id'          => $bundleItem->product->id,
-                'name'                => $bundleItem->product->product_name,
+                'bundle_id'                => $bundle->id,
+                'bundle_item_id'           => $bundleItem->id,
+                'product_id'               => $bundleItem->product->id,
+                'name'                     => $bundleItem->product->product_name,
                 // price intentionally 0 to avoid double-counting
-                'price'               => 0.0,
-                'quantity'            => $initialQuantity,
-                'quantity_per_bundle' => $initialQuantity,
-                'sub_total'           => 0.0,
+                'price'                    => 0.0,
+                'quantity'                 => $initialQuantity,
+                'quantity_per_bundle'      => $initialQuantity,
+                'sub_total'                => 0.0,
+                'informational_item_price' => (float) ($bundleItem->informational_item_price ?? 0),
             ];
-
-            // If bundle has no explicit price, accumulate item prices as fallback.
-            if ($bundle->price === null) {
-                if ($bundleItem->price !== null) {
-                    $itemPrice = (float) $bundleItem->price;
-                } else {
-                    $itemPricing = $this->resolveProductPricing($bundleItem->product);
-                    $itemPrice = $this->determineTierPrice($itemPricing);
-                }
-
-                $bundleTotal += round($itemPrice * $initialQuantity, 2);
-            }
         }
 
         $bundleTotal = round($bundleTotal, 2);
@@ -742,7 +752,11 @@ class ProductCart extends Component
             $parentCalculated = $this->calculate($this->pendingProduct);
             $parentResolved = $parentCalculated['resolved_prices'] ?? $this->resolveProductPricing($this->pendingProduct);
 
-            $parentUnitPrice = $parentCalculated['unit_price'] ?? $parentCalculated['price'] ?? 0.0;
+            // Task 1.1: Initialize parent row price from bundle_sale_price if set.
+            $parentUnitPrice = $bundle->bundle_sale_price !== null
+                ? (float) $bundle->bundle_sale_price
+                : ($parentCalculated['unit_price'] ?? $parentCalculated['price'] ?? 0.0);
+
             $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($this->pendingProduct['id'] ?? 0), $this->pendingProduct);
             $parentTaxCalculation = $this->calculateSubtotalAndTax(
                 $parentUnitPrice,
@@ -779,6 +793,9 @@ class ProductCart extends Component
                     'bundle_price' => $bundleTotal,
                     'bundle_items' => $selectedBundleItems,
                     'bundle_name' => $bundle->name,
+                    // Task 1.3: Add metadata to detect bundled rows in recalculation paths.
+                    'is_bundled_row' => true,
+                    'bundle_id' => $bundle->id,
                 ]
             ]);
 
@@ -882,7 +899,8 @@ class ProductCart extends Component
 
         $row_id = $cart_item->rowId; // Sync to current rowId
 
-        if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
+        // Task 2.2: Bypassing cascading quantity repricing for bundled rows.
+        if (!($cart_item->options->is_bundled_row ?? false) && !in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
             $productId = $cart_item->options->product_id;
             $qty = $this->quantity[$id] ?? $cart_item->qty;
 

@@ -143,9 +143,9 @@
                                                 @foreach($detail->bundleItems as $bundle)
                                                     <tr>
                                                         <td>{{ $bundle->name }}</td>
-                                                        <td>{{ format_currency($bundle->price) }}</td>
+                                                        <td>{{ ($bundle->price > 0) ? format_currency($bundle->price) : '-' }}</td>
                                                         <td>{{ $bundle->quantity }}</td>
-                                                        <td>{{ format_currency($bundle->sub_total) }}</td>
+                                                        <td>{{ ($bundle->sub_total > 0) ? format_currency($bundle->sub_total) : '-' }}</td>
                                                     </tr>
                                                 @endforeach
                                                 </tbody>

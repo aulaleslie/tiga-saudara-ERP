@@ -13,9 +13,11 @@
                     <div class="col-md-6">
                         <strong>Nama Paket:</strong> {{ $selectedBundle['name'] }}
                     </div>
-                    <div class="col-md-6 text-md-right">
-                        <strong>Harga Paket:</strong> {{ format_currency($selectedBundle['price']) }}
-                    </div>
+                    @if(($selectedBundle['price'] ?? 0) > 0)
+                        <div class="col-md-6 text-md-right">
+                            <strong>Harga Paket:</strong> {{ format_currency($selectedBundle['price']) }}
+                        </div>
+                    @endif
                 </div>
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped">
@@ -23,6 +25,7 @@
                             <tr>
                                 <th>Nama Barang</th>
                                 <th class="text-center">Jumlah</th>
+                                <th class="text-right">Harga Info</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -30,10 +33,13 @@
                                 <tr>
                                     <td>{{ $item['name'] }}</td>
                                     <td class="text-center">{{ $item['quantity'] }}</td>
+                                    <td class="text-right text-muted">
+                                        {{ format_currency($item['informational_item_price'] ?? 0) }}
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="2" class="text-center">Tidak ada item dalam paket ini.</td>
+                                    <td colspan="3" class="text-center">Tidak ada item dalam paket ini.</td>
                                 </tr>
                             @endforelse
                         </tbody>

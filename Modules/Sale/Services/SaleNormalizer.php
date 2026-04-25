@@ -216,15 +216,18 @@ class SaleNormalizer
         foreach ($bundleItems as $bundleItem) {
             $bundleItem = is_array($bundleItem) ? $bundleItem : (array) $bundleItem;
 
+            $bundleId = $this->normalizeNullableInt($bundleItem['bundle_id'] ?? null);
+
             $normalized[] = [
-                'bundle_id' => $this->normalizeNullableInt($bundleItem['bundle_id'] ?? null),
+                'bundle_id' => $bundleId,
                 'bundle_item_id' => $this->normalizeNullableInt($bundleItem['bundle_item_id'] ?? null),
                 'product_id' => $this->normalizeNullableInt($bundleItem['product_id'] ?? null),
                 'name' => (string) ($bundleItem['name'] ?? ''),
-                'price' => $this->roundMoney($this->toFloat($bundleItem['price'] ?? 0)),
+                // Task 3.3/3.4: Selected bundle components are non-billable.
+                'price' => $bundleId ? 0.0 : $this->roundMoney($this->toFloat($bundleItem['price'] ?? 0)),
                 'quantity' => $this->toFloat($bundleItem['quantity'] ?? 0),
                 'quantity_per_bundle' => $this->toFloat($bundleItem['quantity_per_bundle'] ?? 0),
-                'sub_total' => $this->roundMoney($this->toFloat($bundleItem['sub_total'] ?? 0)),
+                'sub_total' => $bundleId ? 0.0 : $this->roundMoney($this->toFloat($bundleItem['sub_total'] ?? 0)),
                 'tax_id' => $this->normalizeNullableInt($bundleItem['tax_id'] ?? null),
             ];
         }
