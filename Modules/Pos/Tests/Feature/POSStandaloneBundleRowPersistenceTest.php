@@ -189,7 +189,7 @@ class POSStandaloneBundleRowPersistenceTest extends TestCase
             'setting_id' => $setting->id,
             'parent_product_id' => $parent->id,
             'name' => 'TEST BUNDLE',
-            'price' => 50000,
+            'bundle_sale_price' => 150000, 'price' => 50000,
         ]);
 
         $child = null;
@@ -210,7 +210,7 @@ class POSStandaloneBundleRowPersistenceTest extends TestCase
             ProductBundleItem::create([
                 'bundle_id' => $bundle->id,
                 'product_id' => $child->id,
-                'quantity' => 1,
+                'quantity' => 1, 'informational_item_price' => 20000,
             ]);
         }
 

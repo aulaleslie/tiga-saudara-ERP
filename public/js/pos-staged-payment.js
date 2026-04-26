@@ -620,7 +620,7 @@ window.PosStagedPayment = (function () {
             const changeAmount = Math.abs(data.change_total || 0);
             console.log('[PosStagedPayment] Checkout finalized! Change:', changeAmount);
 
-            handlePaymentComplete(changeAmount);
+            handlePaymentComplete(changeAmount, data);
         } catch (error) {
             console.error('[PosStagedPayment] Finalize error:', error);
             showError('Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message);
@@ -630,7 +630,7 @@ window.PosStagedPayment = (function () {
     }
 
     // Task 6.5: Handle payment completion
-    function handlePaymentComplete(changeAmount) {
+    function handlePaymentComplete(changeAmount, finalizedCheckout = {}) {
         state = States.COMPLETE;
         console.log('[PosStagedPayment] Payment complete, change:', changeAmount);
 
@@ -644,7 +644,7 @@ window.PosStagedPayment = (function () {
         // Invoke the completion callback if registered
         if (onCompleteCallback) {
             console.log('[PosStagedPayment] Calling onCompleteCallback');
-            onCompleteCallback(changeAmount);
+            onCompleteCallback(changeAmount, finalizedCheckout);
         }
     }
 

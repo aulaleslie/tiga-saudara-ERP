@@ -167,7 +167,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'quantity' => 18, // 20 -> 18
         ]);
 
-        $this->assertDatabaseCount('transactions', 4); // 2 parent + 2 child
+        $this->assertDatabaseCount('transactions', 3); // 2 parent + 1 child (batched)
     }
 
     private function createBundleSplitContext(): array
@@ -240,7 +240,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'setting_id' => $setting->id,
             'parent_product_id' => $parent->id,
             'name' => 'SERIAL BUNDLE',
-            'price' => 50000,
+            'bundle_sale_price' => 150000, 'price' => 50000,
         ]);
 
         ProductBundleItem::create([
@@ -382,7 +382,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'setting_id' => $setting->id,
             'parent_product_id' => $parent->id,
             'name' => 'SERIAL BUNDLE',
-            'price' => 50000,
+            'bundle_sale_price' => 150000, 'price' => 50000,
         ]);
 
         ProductBundleItem::create([

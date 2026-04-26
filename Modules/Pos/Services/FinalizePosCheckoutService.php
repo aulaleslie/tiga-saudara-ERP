@@ -1280,7 +1280,7 @@ class FinalizePosCheckoutService
                         'product_code' => null, // Name/code not strictly needed for resolver but good for logs
                         'product_name' => isset($item['product_name']) ? (string) $item['product_name'] : null,
                         'qty' => $qty * (int) ($item['quantity'] ?? 1),
-                        'tax_id' => null, // Child items don't inherit parent tax for stock bucket resolution
+                        'tax_id' => $taxId, // Child items inherit parent tax for stock bucket resolution
                         'serial_number_required' => (bool) ($item['serial_number_required'] ?? false),
                         'assigned_serials' => [], // Bundled serials not yet supported in POS frontend
                     ];

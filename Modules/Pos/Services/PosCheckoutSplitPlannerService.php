@@ -3,9 +3,11 @@
 namespace Modules\Pos\Services;
 
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 
 class PosCheckoutSplitPlannerService
@@ -96,19 +98,161 @@ class PosCheckoutSplitPlannerService
             $lineDiscountMinor = $this->toMinor((float) ($line['line_discount_amount'] ?? 0));
             $billDiscountMinor = $this->toMinor((float) ($line['bill_discount_amount'] ?? 0));
 
-            $lineSubtotalShares = $this->allocateMinorByQuantity($lineChunks, $lineSubtotalMinor, $qty);
+            // Phase 2: Bundle revenue decomposition
+            $bundleId = (int) ($line['bundle_id'] ?? 0);
+            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            $childParts = [];
+            $totalChildAllocationsMinor = 0;
+
+            if ($bundleId > 0 && $bundleItems !== []) {
+                foreach ($bundleItems as $j => $bi) {
+                    $itemQty = $qty * (int) ($bi['quantity'] ?? 1);
+                    $allocPrice = $this->resolveComponentAllocationAmount($settingId, $bi);
+                    $itemAllocMinor = $this->toMinor($allocPrice * (int) ($bi['quantity'] ?? 1) * $qty);
+
+                    $totalChildAllocationsMinor += $itemAllocMinor;
+
+                    $childKey = "{$lineIndex}_C_{$j}";
+                    $childAllocations = $allocations[$childKey] ?? null;
+
+                    if ($bi['stock_managed'] && is_array($childAllocations)) {
+                        $childParts[$childKey] = [
+                            'allocations' => $childAllocations,
+                            'total_minor' => $itemAllocMinor,
+                            'total_qty' => $itemQty,
+                        ];
+                    } else {
+                        // Stockless component - allocate to first non-PKP source
+                        $nonPkpSource = $this->findFirstNonPkpSource($settingId);
+                        if (! $nonPkpSource) {
+                            throw new PosCheckoutValidationException(
+                                'STOCKLESS_BUNDLE_ALLOCATION_FAILED',
+                                "Gagal mengalokasikan pendapatan untuk komponen stokless '{$bi['product_name']}'. Tidak ada lokasi sumber non-PKP yang dikonfigurasi."
+                            );
+                        }
+
+                        $sourceSettingId = (int) $nonPkpSource->setting_id;
+                        $sourceLocationId = (int) $nonPkpSource->location_id;
+                        $sourceIsPkp = false;
+
+                        // Resolve tax candidate: parent line tax first, then active/default sale tax
+                        $candidateTaxId = $line['tax_id'] ?? null;
+                        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
+                            $lineTaxable,
+                            $sourceIsPkp,
+                            (int) $candidateTaxId
+                        );
+
+                        $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
+                        $splitKey = $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket);
+
+                        $childParts[$childKey] = [
+                            'is_stockless' => true,
+                            'split_key' => $splitKey,
+                            'source_setting_id' => $sourceSettingId,
+                            'source_location_id' => $sourceLocationId,
+                            'tax_bucket' => $taxBucket,
+                            'effective_tax_id' => $effectiveTaxId,
+                            'tax_name' => $taxName,
+                            'tax_rate' => $taxRate,
+                            'total_minor' => $itemAllocMinor,
+                        ];
+                    }
+                }
+            }
+
+            $parentResidualMinor = $lineSubtotalMinor - $totalChildAllocationsMinor;
+            if ($parentResidualMinor < 0) {
+                $productName = $line['product_name'] ?? ('Produk #' . $line['product_id']);
+                throw new PosCheckoutValidationException(
+                    'BUNDLE_RESIDUAL_NEGATIVE',
+                    "Harga paket '{$productName}' tidak mencukupi untuk menutupi alokasi komponen. (Residual: " . ($parentResidualMinor / 100) . ")"
+                );
+            }
+
+            // Distribute parent residual and child allocations across their chunks/groups
+            $parentResidualShares = $this->allocateMinorByQuantity($lineChunks, $parentResidualMinor, $qty);
             $lineDiscountShares = $this->allocateMinorByQuantity($lineChunks, $lineDiscountMinor, $qty);
             $billDiscountShares = $this->allocateMinorByQuantity($lineChunks, $billDiscountMinor, $qty);
 
+            // Group everything by splitKey
+            $lineRevenueByGroup = []; // splitKey -> { subtotalMinor, discountMinor, billDiscountMinor, parentQty, taxInfo, ... }
+
+            // 1. Assign parent shares
             foreach ($lineChunks as $chunkIndex => $chunk) {
                 $splitKey = (string) $chunk['split_key'];
+                if (! isset($lineRevenueByGroup[$splitKey])) {
+                    $lineRevenueByGroup[$splitKey] = $this->initLineGroup($chunk);
+                }
 
+                $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $parentResidualShares[$chunkIndex];
+                $lineRevenueByGroup[$splitKey]['discount_minor'] += $lineDiscountShares[$chunkIndex];
+                $lineRevenueByGroup[$splitKey]['bill_discount_minor'] += $billDiscountShares[$chunkIndex];
+                $lineRevenueByGroup[$splitKey]['parent_qty'] += (int) $chunk['allocated_qty'];
+                $lineRevenueByGroup[$splitKey]['parent_chunks'][] = $chunk;
+            }
+
+            // 2. Assign child shares
+            foreach ($childParts as $childKey => $part) {
+                if (isset($part['is_stockless'])) {
+                    $splitKey = $part['split_key'];
+                    if (! isset($lineRevenueByGroup[$splitKey])) {
+                        $lineRevenueByGroup[$splitKey] = $this->initLineGroup($part);
+                    }
+                    $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $part['total_minor'];
+                } else {
+                    $childShares = $this->allocateMinorByQuantity($part['allocations'], $part['total_minor'], $part['total_qty']);
+                    foreach ($part['allocations'] as $chunkIndex => $chunk) {
+                        $sourceLocationId = (int) ($chunk['source_location_id'] ?? 0);
+                        $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $this->resolveSourceSettingId($settingId, $sourceLocationId));
+                        $sourceIsPkp = (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
+
+                        // Bundle allocation tax uses parent/default context, falling back to chunk tax if line is untaxed.
+                        $candidateTaxId = (int) ($line['tax_id'] ?? 0);
+                        if ($candidateTaxId <= 0 && isset($chunk['tax_policy_snapshot']['tax_id'])) {
+                            $candidateTaxId = (int) $chunk['tax_policy_snapshot']['tax_id'];
+                        }
+
+                        $effectiveLineTaxable = $lineTaxable || ($candidateTaxId > 0);
+
+                        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($effectiveLineTaxable, $sourceIsPkp, $candidateTaxId);
+
+                        $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
+                        $splitKey = $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket);
+
+                        if (! isset($lineRevenueByGroup[$splitKey])) {
+                            $lineRevenueByGroup[$splitKey] = $this->initLineGroup([
+                                'source_setting_id' => $sourceSettingId,
+                                'source_location_id' => $sourceLocationId,
+                                'tax_bucket' => $taxBucket,
+                                'effective_tax_id' => $effectiveTaxId,
+                                'tax_name' => $taxName,
+                                'tax_rate' => $taxRate,
+                            ]);
+                        }
+
+                        $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $childShares[$chunkIndex];
+                        $lineRevenueByGroup[$splitKey]['child_allocations'][$childKey][] = array_merge($chunk, [
+                            'allocated_minor' => $childShares[$chunkIndex],
+                            'tax_policy_snapshot' => [
+                                'source_is_pkp' => $sourceIsPkp,
+                                'tax_id' => $effectiveTaxId,
+                                'tax_name' => $taxName,
+                                'tax_rate' => $taxRate,
+                            ]
+                        ]);
+                    }
+                }
+            }
+
+            // 3. Finalize groups for this line and add to groupMap
+            foreach ($lineRevenueByGroup as $splitKey => $rev) {
                 if (! isset($groupMap[$splitKey])) {
                     $groupMap[$splitKey] = [
                         'split_key' => $splitKey,
-                        'source_setting_id' => (int) $chunk['source_setting_id'],
-                        'source_location_id' => (int) $chunk['source_location_id'],
-                        'tax_bucket' => (string) $chunk['tax_bucket'],
+                        'source_setting_id' => (int) $rev['source_setting_id'],
+                        'source_location_id' => (int) $rev['source_location_id'],
+                        'tax_bucket' => (string) $rev['tax_bucket'],
                         '_subtotal_minor' => 0,
                         '_discount_minor' => 0,
                         '_tax_minor' => 0,
@@ -118,72 +262,83 @@ class PosCheckoutSplitPlannerService
                     ];
                 }
 
-                $chunkQty = max(0, (int) ($chunk['allocated_qty'] ?? 0));
-                $chunkSubtotalMinor = (int) ($lineSubtotalShares[$chunkIndex] ?? 0);
-                $chunkLineDiscountMinor = (int) ($lineDiscountShares[$chunkIndex] ?? 0);
-                $chunkBillDiscountMinor = (int) ($billDiscountShares[$chunkIndex] ?? 0);
-                $chunkTaxMinor = ((int) ($chunk['effective_tax_id'] ?? 0) > 0)
-                    ? $this->extractIncludedTaxMinor($chunkSubtotalMinor, (float) ($chunk['tax_rate'] ?? 0))
+                $chunkSubtotalMinor = $rev['subtotal_minor'];
+                $chunkLineDiscountMinor = $rev['discount_minor'];
+                $chunkBillDiscountMinor = $rev['bill_discount_minor'];
+                $chunkTaxMinor = ($rev['effective_tax_id'] > 0)
+                    ? $this->extractIncludedTaxMinor($chunkSubtotalMinor, (float) $rev['tax_rate'])
                     : 0;
+
+                $revSerials = [];
+                foreach ($rev['parent_chunks'] as $pc) {
+                    if (isset($pc['serial_numbers']) && is_array($pc['serial_numbers'])) {
+                        foreach ($pc['serial_numbers'] as $sn) {
+                            $revSerials[] = $sn;
+                        }
+                    }
+                }
 
                 $groupLine = $this->buildGroupLine(
                     line: $line,
-                    qty: $chunkQty,
-                    taxId: (int) ($chunk['effective_tax_id'] ?? 0) ?: null,
-                    taxName: $chunk['tax_name'] ?? null,
-                    taxRate: (float) ($chunk['tax_rate'] ?? 0),
+                    qty: $qty, // We use full cart qty but owner-specific price to reconcile totals.
+                    taxId: $rev['effective_tax_id'] > 0 ? $rev['effective_tax_id'] : null,
+                    taxName: $rev['tax_name'],
+                    taxRate: (float) $rev['tax_rate'],
                     lineSubtotalMinor: $chunkSubtotalMinor,
                     lineDiscountMinor: $chunkLineDiscountMinor,
                     billDiscountMinor: $chunkBillDiscountMinor,
                     lineTaxMinor: $chunkTaxMinor,
-                    serialNumbers: is_array($chunk['serial_numbers'] ?? null) ? $chunk['serial_numbers'] : []
+                    serialNumbers: $revSerials
                 );
+
+                // Fix: if we have multiple groups for the same line, the qty of 10 might look like 10 in every group.
+                // However, split posting creates owner-specific Sales. One owner might own 7/10 parent stock.
+                // Usually, we want the sum of quantities to match 10.
+                // If it's a bundle, an owner might only own a component but not the parent.
+                // We'll follow the pattern: qty reflects the logical count of "parent units" affected by this owner.
+                // For parent chunks, use their allocated qty. For purely child-owning groups, use the full parent qty (as they "fulfilled" that component for all bundles).
+                // Wait, if an owner owns a component for all 10 bundles, they get 10 * ChildAlloc. Subtotal is correct. Qty 10 is correct.
+                // If an owner owns 7/10 parent units, they get 7/10 * Residual. Qty 7 is correct.
+                // If an owner owns BOTH 7/10 parent AND 10/10 child, they get (7/10 Residual + 10/10 ChildAlloc). Qty should be?
+                // Probably 10, as they are involved in all 10 bundles.
+                
+                $finalGroupLineQty = $rev['parent_qty'] > 0 ? $rev['parent_qty'] : $qty;
+                $groupLine['qty'] = $finalGroupLineQty;
+                $groupLine['unit_price'] = $this->fromMinor((int) round($chunkSubtotalMinor / $finalGroupLineQty));
+
+                // If this group didn't fulfill any parent stock, mark it as non-stock-managed 
+                // and non-serial-tracked so it skips validation and movement for the parent.
+                if ($rev['parent_qty'] <= 0) {
+                    $groupLine['stock_managed'] = false;
+                    $groupLine['serial_number_required'] = false;
+                }
 
                 $groupLineIndex = count($groupMap[$splitKey]['lines']);
                 $groupMap[$splitKey]['lines'][] = $groupLine;
 
-                $itemAllocations = [[
-                    'source_location_id' => (int) $chunk['source_location_id'],
-                    'source_setting_id' => (int) $chunk['source_setting_id'],
-                    'allocated_qty' => $chunkQty,
-                    'tax_bucket_used' => (bool) ($chunk['tax_bucket_used'] ?? false),
-                    'tax_policy_snapshot' => [
-                        'source_is_pkp' => (bool) ($chunk['source_is_pkp'] ?? false),
-                        'tax_id' => (int) ($chunk['effective_tax_id'] ?? 0) > 0 ? (int) $chunk['effective_tax_id'] : null,
-                        'tax_name' => $chunk['tax_name'] ?? null,
-                        'tax_rate' => (float) ($chunk['tax_rate'] ?? 0),
-                    ],
-                    'serial_numbers' => is_array($chunk['serial_numbers'] ?? null) ? $chunk['serial_numbers'] : [],
-                ]];
-
+                // Build allocations for this group line
+                $itemAllocations = [];
+                foreach ($rev['parent_chunks'] as $pc) {
+                    $itemAllocations[] = [
+                        'source_location_id' => (int) $pc['source_location_id'],
+                        'source_setting_id' => (int) $pc['source_setting_id'],
+                        'allocated_qty' => (int) $pc['allocated_qty'],
+                        'tax_bucket_used' => (bool) ($pc['tax_bucket_used'] ?? false),
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => (bool) ($pc['source_is_pkp'] ?? false),
+                            'tax_id' => (int) ($pc['effective_tax_id'] ?? 0) > 0 ? (int) $pc['effective_tax_id'] : null,
+                            'tax_name' => $pc['tax_name'] ?? null,
+                            'tax_rate' => (float) ($pc['tax_rate'] ?? 0),
+                        ],
+                        'serial_numbers' => is_array($pc['serial_numbers'] ?? null) ? $pc['serial_numbers'] : [],
+                    ];
+                }
+                
                 $groupMap[$splitKey]['allocations'][$groupLineIndex] = $itemAllocations;
                 $groupMap[$splitKey]['allocations']["{$groupLineIndex}_P"] = $itemAllocations;
-
-                // Map and partition child allocations to this group if they exist
-                $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
-                foreach ($bundleItems as $j => $bi) {
-                    $childKey = "{$lineIndex}_C_{$j}";
-                    $childAllocations = $allocations[$childKey] ?? null;
-                    if (is_array($childAllocations)) {
-                        $qtyPerBundle = (int) ($bi['quantity'] ?? 1);
-                        $targetChildQty = $chunkQty * $qtyPerBundle;
-
-                        // Identify the child alocation pool for this line if not already done
-                        if (!isset($childAllocationPools[$lineIndex][$j])) {
-                            $childAllocationPools[$lineIndex][$j] = $childAllocations;
-                        }
-
-                        // Consume from the pool for this group
-                        [$partitioned, $remainingPool] = $this->consumeFromPool(
-                            $childAllocationPools[$lineIndex][$j],
-                            $targetChildQty
-                        );
-                        $childAllocationPools[$lineIndex][$j] = $remainingPool;
-
-                        if ($partitioned !== []) {
-                            $groupMap[$splitKey]['allocations']["{$groupLineIndex}_C_{$j}"] = $partitioned;
-                        }
-                    }
+                
+                foreach ($rev['child_allocations'] as $childKey => $allocs) {
+                    $groupMap[$splitKey]['allocations']["{$groupLineIndex}_C_" . explode('_C_', $childKey)[1]] = $allocs;
                 }
 
                 $groupMap[$splitKey]['_subtotal_minor'] += $chunkSubtotalMinor;
@@ -682,5 +837,55 @@ class PosCheckoutSplitPlannerService
     private function fromMinor(int $value): float
     {
         return round($value / 100, 2);
+    }
+
+    private function initLineGroup(array $chunk): array
+    {
+        return [
+            'source_setting_id' => $chunk['source_setting_id'],
+            'source_location_id' => $chunk['source_location_id'],
+            'tax_bucket' => $chunk['tax_bucket'],
+            'effective_tax_id' => $chunk['effective_tax_id'],
+            'tax_name' => $chunk['tax_name'],
+            'tax_rate' => $chunk['tax_rate'],
+            'subtotal_minor' => 0,
+            'discount_minor' => 0,
+            'bill_discount_minor' => 0,
+            'parent_qty' => 0,
+            'parent_chunks' => [],
+            'child_allocations' => [],
+        ];
+    }
+
+    private function resolveComponentAllocationAmount(int $settingId, array $item): float
+    {
+        // 2.1 Resolve from informational_item_price
+        $infoPrice = (float) ($item['informational_item_price'] ?? 0);
+        if ($infoPrice > 0) {
+            return $infoPrice;
+        }
+
+        // 2.2 Fallback to active-setting product sale price
+        $productId = (int) $item['product_id'];
+        $activePrice = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting($settingId)
+            ->value('sale_price');
+
+        return (float) ($activePrice ?? 0);
+    }
+
+    private function findFirstNonPkpSource(int $settingId): ?SettingSaleLocation
+    {
+        $locationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+        return SettingSaleLocation::query()
+            ->where('setting_id', $settingId)
+            ->whereIn('location_id', $locationIds)
+            ->where('is_enabled', true)
+            ->whereHas('setting', fn($q) => $q->where('is_pkp', false))
+            ->with('setting:id,is_pkp')
+            ->orderBy('position')
+            ->first();
     }
 }

@@ -3800,59 +3800,40 @@
                     PosStagedPayment.loadPaymentMethods();
                 }
 
-                // Set onComplete callback to trigger finalize
-                PosStagedPayment.setOnComplete(async function(changeAmount) {
+                // Set onComplete callback after staged payment has already finalized checkout
+                PosStagedPayment.setOnComplete(async function(changeAmount, finalizedCheckout) {
                     const gratitudeModal = document.getElementById('pos-gratitude-modal');
                     const gratitudeBtn = document.getElementById('pos-gratitude-continue-btn');
+                    const checkoutId = finalizedCheckout?.payload?.checkout?.id
+                        || finalizedCheckout?.checkout?.id
+                        || finalizedCheckout?.pos_checkout_id;
+
+                    if (checkoutId) {
+                        window.lastCheckoutId = checkoutId;
+                        if (shortcutReprintBtn) shortcutReprintBtn.disabled = false;
+                    }
 
                     console.log('[GRATITUDE SETUP] Button found:', !!gratitudeBtn, 'Button element:', gratitudeBtn);
 
                     if (gratitudeBtn) {
-                        gratitudeBtn.addEventListener('click', async function(e) {
+                        gratitudeBtn.onclick = async function(e) {
                             console.log('[GRATITUDE] Button clicked!');
                             e.preventDefault();
 
-                            // Call finalize endpoint
                             try {
-                                console.log('[GRATITUDE] Finalizing with cart_token:', currentSnapshot?.staged_payment_token);
+                                $(gratitudeModal).modal('hide');
 
-                                const response = await fetch('/pos/sell/checkout/finalize', {
-                                    method: 'POST',
-                                    headers: {
-                                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                                        'Content-Type': 'application/json',
-                                    },
-                                    body: JSON.stringify({
-                                        cart_token: currentSnapshot?.staged_payment_token,
-                                        idempotency_key: 'FINALIZE-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                                    }),
-                                });
-
-                                const data = await response.json();
-                                console.log('[GRATITUDE] Finalize response:', { status: response.status, ok: response.ok, data });
-
-                                if (response.ok && response.status === 201) {
-                                    // Success: close modal, open receipt, refresh cart
-                                    $(gratitudeModal).modal('hide');
-
-                                    // Open receipt in new tab - check for checkout ID in different possible locations
-                                    const checkoutId = data.payload?.checkout?.id || data.checkout?.id || data.pos_checkout_id;
-                                    if (checkoutId) {
-                                        window.open(`/pos/sell/checkout/${checkoutId}/receipt`, '_blank');
-                                    }
-
-                                    // Refresh cart to clear it
-                                    await refreshCart();
-                                } else {
-                                    // Show error
-                                    console.error('[GRATITUDE] Finalize failed:', data);
-                                    alert('Gagal menyelesaikan pembayaran: ' + (data.message || 'Kesalahan tidak diketahui'));
+                                if (checkoutId) {
+                                    window.open(`/pos/sell/checkout/${checkoutId}/receipt`, '_blank');
                                 }
+
+                                await refreshCart();
+                                setCartStatus('Transaksi berhasil diselesaikan.', 'text-success');
                             } catch (error) {
-                                console.error('[GRATITUDE] Error during finalize:', error);
+                                console.error('[GRATITUDE] Error after finalized checkout:', error);
                                 alert('Terjadi kesalahan: ' + error.message);
                             }
-                        });
+                        };
                     }
                 });
 

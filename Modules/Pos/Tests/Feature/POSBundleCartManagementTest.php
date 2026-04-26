@@ -105,7 +105,8 @@ class POSBundleCartManagementTest extends TestCase
             'parent_product_id' => $parent->id,
             'setting_id' => $context['setting']->id,
             'name' => 'Bundle A',
-            'price' => 10000,
+            'bundle_sale_price' => 110000,
+            'price' => 10000, // legacy
         ]);
 
         // Add Product + Bundle A twice
@@ -392,7 +393,8 @@ class POSBundleCartManagementTest extends TestCase
             'parent_product_id' => $parent->id,
             'setting_id' => $context['setting']->id,
             'name' => 'Complete Pack',
-            'price' => 25000,
+            'bundle_sale_price' => 125000,
+            'price' => 25000, // legacy
         ]);
 
         ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $item1->id, 'quantity' => 2]);

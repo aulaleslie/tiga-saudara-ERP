@@ -240,6 +240,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $childQty = $qty * (int) ($item['quantity'] ?? 1);
                 $childAllocations = $allocations["{$index}_C_{$itemIndex}"] ?? [];
 
+                // During split posting, a group may not fulfill all bundle components.
+                // We skip persistence and stock movement for components not allocated to this group.
+                if ($childAllocations === [] && (bool) ($item['stock_managed'] ?? true)) {
+                    continue;
+                }
+
                 // Resolve child tax context from allocations where available
                 $childTaxId = null;
                 if ($childAllocations !== []) {

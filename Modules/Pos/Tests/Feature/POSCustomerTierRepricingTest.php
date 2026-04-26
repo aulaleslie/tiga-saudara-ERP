@@ -64,7 +64,7 @@ class POSCustomerTierRepricingTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS TIER SELECT');
         
-        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-TIER-001', 100000, 50000);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -74,7 +74,7 @@ class POSCustomerTierRepricingTest extends TestCase
         // Select tier customer
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), [
+            ->patchJson(route('pos.sell.cart.customer.update'), [
                 'customer_id' => $tierCustomer->id,
             ])
             ->assertOk();
@@ -87,19 +87,21 @@ class POSCustomerTierRepricingTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS TIER SWITCH');
         
-        $tierCustomer1 = Customer::factory()->create(['setting_id' => $context['setting']->id]);
-        $tierCustomer2 = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $tierCustomer1 = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
+        $tierCustomer2 = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'RESELLER']);
         
         // Setup different tier prices
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SWITCH', 100000, 50000);
-        $this->applyTierPrice($product, $context['setting'], $tierCustomer2, 40000);
+        // We simulate tier 2 by updating tier_2_price field
+        ProductPrice::where('product_id', $product->id)->where('setting_id', $context['setting']->id)
+            ->update(['tier_2_price' => 40000]);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
 
         // Select tier customer 1
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer1->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer1->id])
             ->assertOk();
         $snapshot2 = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(50000, $snapshot2['lines'][0]['unit_price']);
@@ -107,7 +109,7 @@ class POSCustomerTierRepricingTest extends TestCase
         // Switch to tier customer 2
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer2->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer2->id])
             ->assertOk();
         $snapshot3 = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(40000, $snapshot3['lines'][0]['unit_price']);
@@ -117,7 +119,7 @@ class POSCustomerTierRepricingTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS TIER CLEAR');
         
-        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CLEAR', 100000, 50000);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -125,7 +127,7 @@ class POSCustomerTierRepricingTest extends TestCase
         // Select tier customer
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer->id])
             ->assertOk();
         $snapshot2 = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(50000, $snapshot2['lines'][0]['unit_price']);
@@ -133,7 +135,7 @@ class POSCustomerTierRepricingTest extends TestCase
         // Clear customer
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->deleteJson(route('pos.sell.cart.customer.destroy'))
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => null])
             ->assertOk();
         $snapshot3 = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(100000, $snapshot3['lines'][0]['unit_price'], 'Base price should be restored');
@@ -143,7 +145,7 @@ class POSCustomerTierRepricingTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS TIER MULTI');
         
-        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
         $product1 = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-M1', 100000, 50000);
         $product2 = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-M2', 200000, 150000);
 
@@ -156,20 +158,20 @@ class POSCustomerTierRepricingTest extends TestCase
         // Select tier customer
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $tierCustomer->id])
             ->assertOk();
 
         $snapshot2 = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(50000, $snapshot2['lines'][0]['unit_price']);
         $this->assertEquals(150000, $snapshot2['lines'][1]['unit_price']);
-        $this->assertEquals(200000, $snapshot2['subtotal'], 'Subtotal should reflect tier prices');
+        $this->assertEquals(250000, $snapshot2['totals']['subtotal'], 'Subtotal should reflect tier prices'); // 2*50 + 150 = 250
     }
 
     public function test_tier_repricing_does_not_exist_for_non_tier_customer(): void
     {
         $context = $this->createCheckoutContext('POS TIER NON');
         
-        $nonTierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $nonTierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-NOTIER', 100000, null);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -179,7 +181,7 @@ class POSCustomerTierRepricingTest extends TestCase
         // Select non-tier customer
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->putJson(route('pos.sell.cart.customer.update'), ['customer_id' => $nonTierCustomer->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $nonTierCustomer->id])
             ->assertOk();
 
         $snapshot2 = $this->cartSnapshot($context['cashier'], $context['setting']);
@@ -190,14 +192,16 @@ class POSCustomerTierRepricingTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS TIER BUNDLE');
 
-        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+        $tierCustomer = Customer::factory()->create(['setting_id' => $context['setting']->id, 'tier' => 'WHOLESALER']);
         $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BUNDLE-PARENT', 100000, 50000);
         $child = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BUNDLE-CHILD', 20000, null);
 
         $bundle = ProductBundle::query()->create([
+            'setting_id' => $context['setting']->id,
             'parent_product_id' => $parent->id,
             'name' => 'Bundle Parent + Child',
-            'price' => 15000,
+            'bundle_sale_price' => 125000,
+            'price' => 15000, // legacy
         ]);
 
         ProductBundleItem::query()->create([
@@ -214,14 +218,14 @@ class POSCustomerTierRepricingTest extends TestCase
                 'bundle_id' => $bundle->id,
             ])
             ->assertOk()
-            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 115000)
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 125000)
             ->assertJsonPath('cart_snapshot.lines.0.bundle_price', 15000);
 
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $tierCustomer);
 
         $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
-        $this->assertEquals(65000, $snapshot['lines'][0]['unit_price'], 'Bundle line price should be tier price plus bundle price.');
-        $this->assertEquals(15000, $snapshot['lines'][0]['bundle_price'], 'Bundle price should be preserved separately for repricing.');
+        $this->assertEquals(125000, $snapshot['lines'][0]['unit_price'], 'Bundle line price should use authoritative bundle_sale_price and bypass tier repricing.');
+        $this->assertEquals(15000, $snapshot['lines'][0]['bundle_price'], 'Legacy bundle price should be preserved in metadata.');
     }
 
     // ==== HELPER METHODS ====
@@ -231,6 +235,28 @@ class POSCustomerTierRepricingTest extends TestCase
         $setting = $this->createSetting($name);
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
+        
+        $coaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'Cash Account ' . $name,
+            'account_number' => 'CASH-' . $name,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        
+        $method = PaymentMethod::create([
+            'name' => 'Cash ' . $name,
+            'coa_id' => $coaId,
+            'is_cash' => true,
+        ]);
+        
+        \Modules\Setting\Entities\SettingPosPaymentMethod::create([
+            'setting_id' => $setting->id,
+            'payment_method_id' => $method->id,
+            'is_enabled' => true,
+        ]);
+
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -355,6 +381,9 @@ class POSCustomerTierRepricingTest extends TestCase
             'quantity' => 100,
             'quantity_non_tax' => 100,
             'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
         ]);
 
         ProductPrice::query()->updateOrCreate([

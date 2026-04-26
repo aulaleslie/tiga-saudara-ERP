@@ -132,13 +132,12 @@ class PosCartService
         } elseif ($bundle !== null) {
             $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
 
-            // Base bundled lines on normal product pricing, then add the configured bundle price.
-            $priceResolution = $this->resolveLinePrice($settingId, $product->id, $selectedCustomerId);
-            $baseUnitPrice = (float) ($priceResolution['unit_price'] ?? 0);
+            // Use the final bundle_sale_price instead of legacy parent + add-on price.
+            $unitPrice = round((float) ($bundle->bundle_sale_price ?? 0), 2);
             $bundlePrice = round((float) ($bundle->price ?? 0), 2);
-            $unitPrice = round($baseUnitPrice + $bundlePrice, 2);
             $priceSource = 'BUNDLE';
 
+            $priceResolution = $this->resolveLinePrice($settingId, $product->id, $selectedCustomerId);
             $taxId = $priceResolution['tax_id'];
             $taxName = $priceResolution['tax_name'];
             $taxRate = (float) ($priceResolution['tax_rate'] ?? 0.0);
@@ -225,6 +224,7 @@ class PosCartService
                     'quantity' => $item->quantity,
                     'stock_managed' => (bool) $item->product->stock_managed,
                     'serial_number_required' => (bool) $item->product->serial_number_required,
+                    'informational_item_price' => (float) ($item->informational_item_price ?? 0),
                 ])->toArray() : [],
             ];
         }
@@ -399,8 +399,9 @@ class PosCartService
         foreach ($cart['lines'] as $lineId => $line) {
             $priceSource = (string) ($line['price_source'] ?? 'BASE');
 
-            // Skip OVERRIDE lines - keep existing price
-            if ($priceSource === 'OVERRIDE') {
+            // Skip OVERRIDE or BUNDLE lines - keep existing price.
+            // Bundled row prices are authoritative and bypass customer tier repricing.
+            if ($priceSource === 'OVERRIDE' || $priceSource === 'BUNDLE') {
                 $repricedLines[$lineId] = $line;
                 continue;
             }
