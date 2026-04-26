@@ -334,9 +334,9 @@
         
         {{-- Task 2.3, 2.4, 2.5: Footer updates --}}
         <div class="tail-print-history" style="margin-top: 2mm;">
-            {{ $receiptData['business_name'] }}
+            Harga Sudah Termasuk PPN
             <br>
-            {{ $displayDate }}
+            Terima Kasih Telah Berbelanja
         </div>
     </div>
 </div>
