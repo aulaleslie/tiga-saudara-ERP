@@ -115,14 +115,15 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->get(route('pos.transactions.receipt', $transaction));
         $response->assertStatus(200);
-        $response->assertSee('Terakhir dicetak oleh');
-        $response->assertSee($user->name);
+        $response->assertDontSee('Terakhir dicetak oleh');
+        $response->assertSee($setting->company_name);
 
         // Reprint (logs as REPRINT)
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->post(route('pos.transactions.receipt.reprint', $transaction));
         $response->assertStatus(200);
-        $response->assertSee('Terakhir dicetak oleh');
+        $response->assertDontSee('Terakhir dicetak oleh');
+        $response->assertSee($setting->company_name);
     }
 
     public function test_transaction_receipt_shows_customer_name_when_available(): void

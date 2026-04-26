@@ -62,6 +62,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.checkout.payment',
+            'pos.transactions.view',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -180,6 +181,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.checkout.payment',
+            'pos.transactions.view',
         ]);
 
         $sourceLocation = Location::create([
@@ -276,6 +278,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.checkout.payment',
+            'pos.transactions.view',
         ]);
 
         $locA = Location::create([
@@ -456,6 +459,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'document_prefix' => $documentPrefix,
             'sale_prefix_document' => $salePrefix,
             'pos_enabled' => true,
+            'pos_transactions_enabled' => true,
             'is_pkp' => true,
         ]);
     }
@@ -592,5 +596,60 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
         return $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.checkout.finalize'), $payload);
+    }
+    public function test_receipt_shows_bundle_composition_for_split_bundle_checkout(): void
+    {
+        // Task 5.1 & 5.5: Add coverage for receipt and transaction detail bundle display
+        $context = $this->createBundleSplitContext();
+        $product = $context['product'];
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $serials = $context['serials'];
+
+        // Add the same parent product as two separate receipt rows:
+        // two units with a bundle and one unit without a bundle.
+        $bundledLineId = $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2, $bundle->id);
+        $this->assignSerials($context['cashier'], $context['setting'], $bundledLineId, [
+            $serials[0]->serial_number,
+            $serials[1]->serial_number,
+        ]);
+
+        $plainLineId = $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->assignSerials($context['cashier'], $context['setting'], $plainLineId, [$serials[2]->serial_number]);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $finalizeResponse = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-RECEIPT-BUNDLE-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 500000,
+            ],
+        ]);
+        $finalizeResponse->assertStatus(201);
+        $posCheckoutId = $finalizeResponse->json('pos_checkout_id');
+        $transactionId = \Modules\Pos\Entities\PosCheckout::find($posCheckoutId)->pos_transaction_id;
+
+        // 1. Verify POS Receipt shows bundle component
+        $receiptResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->get(route('pos.transactions.receipt', ['transaction' => $transactionId]));
+        
+        $receiptResponse->assertStatus(200);
+        $receiptResponse->assertSee($product->product_name);
+        $receiptResponse->assertSee($child->product_name);
+        $receiptResponse->assertSee('x2'); // component qty belongs only to the bundled row
+        $receiptResponse->assertSee($context['setting']->company_name);
+        $this->assertSame(1, substr_count($receiptResponse->getContent(), $child->product_name));
+
+        // 2. Verify Transaction Detail shows bundle component
+        $detailResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->get(route('pos.transactions.show', ['transaction' => $transactionId]));
+            
+        $detailResponse->assertStatus(200);
+        $detailResponse->assertSee($product->product_name);
+        $detailResponse->assertSee($child->product_name);
+        $detailResponse->assertSee('x2');
+        $this->assertSame(1, substr_count($detailResponse->getContent(), $child->product_name));
     }
 }

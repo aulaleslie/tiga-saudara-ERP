@@ -173,7 +173,7 @@ class PosTransactionController extends Controller
      * GET /pos/transactions/{transaction}
      * Show transaction detail.
      */
-    public function show(PosTransaction $transaction, Request $request): Renderable
+    public function show(PosTransaction $transaction, Request $request, PosReceiptService $receiptService): Renderable
     {
         $settingId = $this->currentSettingId();
         abort_if(
@@ -183,10 +183,16 @@ class PosTransactionController extends Controller
         );
         $this->assertSettingScope($transaction, $settingId);
 
-        $transaction->load(['lines.serials', 'owner', 'customer']);
+        $transaction->load([
+            'lines.serials',
+            'owner',
+            'customer',
+            'completedCheckout.checkoutSales.sale.saleDetails.bundleItems.product',
+        ]);
 
         return view('pos::transactions.show', [
             'transaction' => $transaction,
+            'bundleCompositionByLine' => $receiptService->bundleCompositionByTransactionLine($transaction),
             'cancelApproval' => $this->serializeCancelApproval(
                 $this->transactionCancelApprovalMap([$transaction->id], (int) $request->user()->id)->get((int) $transaction->id)
             ),

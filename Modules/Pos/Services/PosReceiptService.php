@@ -24,10 +24,11 @@ class PosReceiptService
             'sale.customer',
             'sale.saleDetails.product.unit',
             'sale.saleDetails.product.baseUnit',
-            'transaction.lines.conversion.unit', // Task 1.1: Load unit breakdown details
-            'transaction.lines.product.unit', // Load base unit details
-            'transaction.lines.product.baseUnit', // Load base unit details
-            'payments.paymentMethod', // Task 5.3: Load multi-payment details
+            'transaction.lines.conversion.unit',
+            'transaction.lines.product.unit',
+            'transaction.lines.product.baseUnit',
+            'payments.paymentMethod',
+            'checkoutSales.sale.saleDetails.bundleItems.product', // Task 1.1: Load split bundle context
         ]);
 
         $setting = $checkout->setting;
@@ -49,6 +50,7 @@ class PosReceiptService
             foreach ($allTransactions as $transaction) {
                 // Ensure lines are loaded
                 $transaction->loadMissing('lines.conversion.unit', 'lines.product.unit', 'lines.product.baseUnit');
+                $bundleCompositionByLine = $this->bundleCompositionByTransactionLine($transaction);
                 
                 foreach ($transaction->lines as $line) {
                 $unitBreakdown = null;
@@ -80,6 +82,8 @@ class PosReceiptService
                 // Simple subtotal calculation for receipt display
                 $lineSubtotal = ($line->qty * $line->unit_price) - (float)($line->line_discount_value ?? 0);
 
+                $composition = $bundleCompositionByLine[(int) $line->id] ?? [];
+
                 $lines[] = [
                     'product_name' => $line->product_name_snapshot,
                     'qty' => (float)$line->qty,
@@ -87,6 +91,7 @@ class PosReceiptService
                     'discount' => (float)($line->line_discount_value ?? 0),
                     'sub_total' => $lineSubtotal,
                     'unit_breakdown' => $unitBreakdown,
+                    'bundle_composition' => $composition, // Task 1.2 & 1.3
                 ];
             }
         }
@@ -143,9 +148,9 @@ class PosReceiptService
             'business_name' => $setting->company_name ?? 'Business',
             'business_address' => $setting->company_address,
             'business_phone' => $setting->company_phone,
-            'business_email' => $setting->company_email, // Task 1.5: Add business email
+            'business_email' => $setting->company_email,
             'receipt_number' => $checkout->receipt_number,
-            'date' => $checkout->finalized_at ? $checkout->finalized_at->format('d-m-Y H:i') : now()->format('d-m-Y H:i'),
+            'date' => ($checkout->finalized_at ?: $checkout->created_at)->format('d-m-Y H:i'), // Task 1.5
             'customer_name' => $customerName,
             'cashier_name' => $checkout->cashier ? $checkout->cashier->name : 'N/A',
             'terminal_name' => $terminal ? $terminal->name : 'N/A',
@@ -221,6 +226,143 @@ class PosReceiptService
     }
 
     /**
+     * Resolve customer-facing bundle composition for each transaction line.
+     *
+     * Completed split checkouts can persist bundle component context on a
+     * different generated Sales document from the parent receipt line. Match
+     * those components only to bundled transaction lines and consume each
+     * persisted bundle group once so non-bundled rows for the same product do
+     * not inherit bundle components.
+     */
+    public function bundleCompositionByTransactionLine(PosTransaction $transaction): array
+    {
+        $transaction->loadMissing([
+            'lines',
+            'completedCheckout.checkoutSales.sale.saleDetails.bundleItems.product',
+        ]);
+
+        $saleCompositionGroups = $transaction->completedCheckout instanceof PosCheckout
+            ? $this->bundleCompositionGroupsByProduct($transaction->completedCheckout)
+            : [];
+
+        $compositionByLine = [];
+
+        foreach ($transaction->lines as $line) {
+            $lineId = (int) $line->id;
+            $compositionByLine[$lineId] = [];
+
+            if (! $this->isBundleTransactionLine($line)) {
+                continue;
+            }
+
+            $composition = $this->consumeMatchingBundleComposition(
+                $saleCompositionGroups,
+                (int) $line->product_id,
+                (float) $line->qty
+            );
+
+            if (empty($composition)) {
+                $composition = $this->compositionFromLineMeta($line->line_meta ?? []);
+            }
+
+            $compositionByLine[$lineId] = $composition;
+        }
+
+        return $compositionByLine;
+    }
+
+    /**
+     * @return array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float}>}>>
+     */
+    private function bundleCompositionGroupsByProduct(PosCheckout $checkout): array
+    {
+        $groups = [];
+
+        foreach ($checkout->checkoutSales as $checkoutSale) {
+            if (! $checkoutSale->sale) {
+                continue;
+            }
+
+            foreach ($checkoutSale->sale->saleDetails as $detail) {
+                if ($detail->bundleItems->isEmpty()) {
+                    continue;
+                }
+
+                $items = [];
+                foreach ($detail->bundleItems as $bundleItem) {
+                    $key = (string) ($bundleItem->product_id ?: $bundleItem->name);
+
+                    if (! isset($items[$key])) {
+                        $items[$key] = [
+                            'name' => $bundleItem->name ?? $bundleItem->product?->product_name ?? 'Unknown Component',
+                            'qty' => 0.0,
+                        ];
+                    }
+
+                    $items[$key]['qty'] += (float) $bundleItem->quantity;
+                }
+
+                $groups[(int) $detail->product_id][] = [
+                    'parent_qty' => (float) $detail->quantity,
+                    'items' => array_values($items),
+                ];
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param  array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float}>}>>  $groups
+     * @return array<int, array{name: string, qty: float}>
+     */
+    private function consumeMatchingBundleComposition(array &$groups, int $productId, float $lineQty): array
+    {
+        if (empty($groups[$productId])) {
+            return [];
+        }
+
+        foreach ($groups[$productId] as $index => $group) {
+            if (abs(((float) $group['parent_qty']) - $lineQty) < 0.0001) {
+                unset($groups[$productId][$index]);
+                $groups[$productId] = array_values($groups[$productId]);
+
+                return $group['items'];
+            }
+        }
+
+        $group = array_shift($groups[$productId]);
+
+        return $group['items'] ?? [];
+    }
+
+    private function isBundleTransactionLine($line): bool
+    {
+        $meta = $line->line_meta ?? [];
+
+        return ! empty($meta['bundle_items'])
+            || strtoupper((string) ($meta['price_source'] ?? '')) === 'BUNDLE';
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     * @return array<int, array{name: string, qty: float}>
+     */
+    private function compositionFromLineMeta(array $meta): array
+    {
+        $composition = [];
+
+        foreach (($meta['bundle_items'] ?? []) as $item) {
+            $composition[] = [
+                'name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
+                'qty' => (float) ($item['quantity'] ?? $item['qty'] ?? 0),
+            ];
+        }
+
+        return $composition;
+    }
+
+    /**
      * Get data required to render the receipt view for a draft transaction.
      */
     public function getTransactionReceiptData(PosTransaction $transaction): array
@@ -282,6 +424,17 @@ class PosReceiptService
             // Simple subtotal calculation for receipt display
             $lineSubtotal = ($line->qty * $line->unit_price) - (float)($line->line_discount_value ?? 0);
 
+            // Task 1.3: Draft/loaded transaction bundle context
+            $composition = [];
+            if (!empty($line->line_meta['bundle_items'])) {
+                foreach ($line->line_meta['bundle_items'] as $item) {
+                    $composition[] = [
+                        'name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
+                        'qty' => (float)($item['quantity'] ?? $item['qty'] ?? 0),
+                    ];
+                }
+            }
+
             $lines[] = [
                 'product_name' => $line->product_name_snapshot,
                 'qty' => (float)$line->qty,
@@ -289,6 +442,7 @@ class PosReceiptService
                 'discount' => (float)($line->line_discount_value ?? 0),
                 'sub_total' => $lineSubtotal,
                 'unit_breakdown' => $unitBreakdown,
+                'bundle_composition' => $composition,
             ];
         }
 
@@ -301,7 +455,7 @@ class PosReceiptService
             'business_phone' => $setting->company_phone,
             'business_email' => $setting->company_email,
             'receipt_number' => $transaction->code,
-            'date' => $transaction->created_at->format('d-m-Y H:i'),
+            'date' => $transaction->created_at->format('d-m-Y H:i'), // Consistent transaction time
             'customer_name' => $customerName,
             'cashier_name' => $transaction->owner ? $transaction->owner->name : 'N/A',
             'terminal_name' => 'N/A',

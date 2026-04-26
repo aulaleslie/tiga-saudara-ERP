@@ -111,6 +111,16 @@
                                 <td>
                                     <div class="font-weight-bold">{{ $line->product_name_snapshot }}</div>
                                     <div class="small text-muted">{{ $line->product_code_snapshot ?? '-' }}</div>
+                                    @php
+                                        $bundleItems = $bundleCompositionByLine[(int) $line->id] ?? [];
+                                    @endphp
+                                    @if(!empty($bundleItems))
+                                        <div class="mt-1 pl-3 border-left">
+                                            @foreach($bundleItems as $item)
+                                                <div class="small text-info">- {{ $item['name'] ?? $item['product_name'] ?? 'Unknown' }} x{{ (float)($item['qty'] ?? $item['quantity'] ?? 0) }}</div>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="text-right">{{ rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.') }}</td>
                                 <td class="text-right">{{ number_format($unitPrice, 2, ',', '.') }}</td>

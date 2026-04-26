@@ -271,6 +271,12 @@
                                 <br>
                                 <span class="small">Diskon: -{{ format_currency($line['discount']) }}</span>
                             @endif
+                            @if(!empty($line['bundle_composition']))
+                                @foreach($line['bundle_composition'] as $item)
+                                    <br>
+                                    <span class="small" style="font-weight: 400;">&nbsp;&nbsp;- {{ $item['name'] }} x{{ (float)$item['qty'] }}</span>
+                                @endforeach
+                            @endif
                         </td>
                         <td style="text-align:right">{{ number_format((float) $line['sub_total'], 0, ',', '.') }}</td>
                     </tr>
@@ -323,22 +329,15 @@
             </tbody>
         </table>
 
-        <div class="centered" style="margin-top: 8px;">
-            <span class="small">Harga sudah termasuk PPN</span>
-        </div>
-        <div class="centered" style="margin-top: 5px;">
-            <span class="small">{{ $receiptData['footer_text'] }}</span>
-        </div>
         <div class="receipt-tail-space"></div>
         <div class="receipt-tail-line"></div>
-        @if($hasPrintHistory)
-            @php
-                $lastPrintedAt = \Carbon\Carbon::parse($receiptData['print_history']['last_printed_at'])->format('d-m-Y H:i:s');
-            @endphp
-            <div class="tail-print-history">
-                Terakhir dicetak oleh {{ $receiptData['print_history']['last_printer'] }} pada {{ $lastPrintedAt }}
-            </div>
-        @endif
+        
+        {{-- Task 2.3, 2.4, 2.5: Footer updates --}}
+        <div class="tail-print-history" style="margin-top: 2mm;">
+            {{ $receiptData['business_name'] }}
+            <br>
+            {{ $displayDate }}
+        </div>
     </div>
 </div>
 </body>
