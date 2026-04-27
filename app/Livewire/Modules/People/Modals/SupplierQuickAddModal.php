@@ -26,6 +26,7 @@ class SupplierQuickAddModal extends Component
     public $account_number;
     public $account_holder;
     public $payment_term_id;
+    public int $formResetVersion = 1;
 
     public $listeners = [
         'openSupplierModal' => 'openModal',
@@ -59,6 +60,9 @@ class SupplierQuickAddModal extends Component
         $this->account_number = '';
         $this->account_holder = '';
         $this->payment_term_id = '';
+        $this->formResetVersion++;
+        $this->resetErrorBag();
+        $this->resetValidation();
     }
 
     public function save()

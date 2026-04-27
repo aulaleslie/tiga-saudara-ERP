@@ -15,7 +15,7 @@
                                 </button>
                             </div>
                         @endif
-                        <form>
+                        <form wire:key="supplier-form-{{ $formResetVersion }}">
                             <div class="row">
                                 <div class="col-md-12 mb-2">
                                     <h6 class="text-muted">Informasi Umum</h6>

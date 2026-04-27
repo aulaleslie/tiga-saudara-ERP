@@ -11,6 +11,7 @@ class PaymentTermQuickAddModal extends Component
     public $showModal = false;
     public $name = '';
     public $longevity = 0;
+    public int $formResetVersion = 1;
 
     protected $listeners = [
         'openPaymentTermModal' => 'openModal'
@@ -74,6 +75,8 @@ class PaymentTermQuickAddModal extends Component
     {
         $this->name = '';
         $this->longevity = 0;
+        $this->formResetVersion++;
+        $this->resetErrorBag();
         $this->resetValidation();
     }
 

@@ -15,6 +15,7 @@ class TaxQuickAddModal extends Component
     public $product_id = null; // Track which product row is requesting the tax
     public $requester = null; // Track which dropdown requested the tax quick-add
     public $listenEvent = 'openTaxModal';
+    public int $formResetVersion = 1;
 
     public function getListeners()
     {
@@ -97,6 +98,8 @@ class TaxQuickAddModal extends Component
         $this->is_default = false;
         $this->product_id = null;
         $this->requester = null;
+        $this->formResetVersion++;
+        $this->resetErrorBag();
         $this->resetValidation();
     }
 

@@ -9,7 +9,7 @@
                 </div>
 
                 <div class="modal-body">
-                    <form wire:submit.prevent="save">
+                    <form wire:submit.prevent="save" wire:key="payment-term-form-{{ $formResetVersion }}">
                         <div class="mb-3">
                             <label for="payment_term_name" class="form-label">Nama <span class="text-danger">*</span></label>
                             <input

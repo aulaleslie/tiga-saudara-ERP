@@ -92,6 +92,7 @@ class ProductQuickAddModal extends Component
             'tier_2_price',
             'purchase_tax_id',
             'sale_tax_id',
+            'stock_managed',
         ]);
 
         $this->conversions = [];

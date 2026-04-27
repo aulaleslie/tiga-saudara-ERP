@@ -83,7 +83,7 @@
                                            disabled>
                                     <label for="modal_is_purchased"><strong>Saya Beli Barang Ini</strong></label>
 
-                                    <div class="row mt-3">
+                                    <div class="row mt-3" wire:key="purchase-price-container-{{ $formResetVersion }}">
                                         <div class="col-md-6">
                                             <label class="form-label">Harga Beli <span class="text-danger">*</span></label>
                                             <input
@@ -128,7 +128,7 @@
                                     <label for="modal_is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
                                     @if($is_sold)
-                                        <div class="row mt-3">
+                                        <div class="row mt-3" wire:key="sale-price-container-{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual @if($context === 'sale')<span class="text-danger">*</span>@endif</label>
                                                 <input
@@ -161,7 +161,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="row">
+                                        <div class="row" wire:key="tier-1-price-container-{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual Partai Besar</label>
                                                 <input
@@ -182,7 +182,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="row">
+                                        <div class="row" wire:key="tier-2-price-container-{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual Reseller</label>
                                                 <input
@@ -313,7 +313,7 @@
                                                                             <input type="text" class="form-control {{ $errors->has('conversions.' . $index . '.barcode') ? 'is-invalid' : '' }}" wire:model="conversions.{{ $index }}.barcode" placeholder="Barcode">
                                                                             @error('conversions.' . $index . '.barcode') <span class="invalid-feedback d-block"><strong>{{ $message }}</strong></span> @enderror
                                                                         </td>
-                                                                        <td>
+                                                                        <td wire:key="conv-price-{{ $rowKey }}-{{ $formResetVersion }}">
                                                                             <input
                                                                                 type="text"
                                                                                 class="form-control conversion-price-input {{ $errors->has('conversions.' . $index . '.price') ? 'is-invalid' : '' }}"
