@@ -26,7 +26,7 @@
                             <td style="min-width: 220px;">
                                 <livewire:modules.product.product-search-dropdown
                                     :index="$rowKey"
-                                    :key="$rowKey"
+                                    wire:key="psd-{{ $rowKey }}"
                                     :selected="$item['product_id']"
                                 />
                                 @error("items.$index.product_id")
@@ -37,7 +37,7 @@
                                 <input
                                     type="number"
                                     name="items[{{ $index }}][quantity]"
-                                    wire:model="items.{{ $index }}.quantity"
+                                    wire:model.blur="items.{{ $index }}.quantity"
                                     class="form-control"
                                     min="1">
                             </td>
@@ -46,7 +46,7 @@
                                     type="number"
                                     step="0.01"
                                     name="items[{{ $index }}][informational_item_price]"
-                                    wire:model="items.{{ $index }}.informational_item_price"
+                                    wire:model.blur="items.{{ $index }}.informational_item_price"
                                     class="form-control"
                                     min="0">
                             </td>

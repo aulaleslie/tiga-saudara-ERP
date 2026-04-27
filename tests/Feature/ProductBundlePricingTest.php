@@ -178,4 +178,26 @@ class ProductBundlePricingTest extends TestCase
         $response->assertDontSee('3.000,00');
         $response->assertDontSee('1.500,00');
     }
+    public function test_livewire_bundle_table_removes_correct_row()
+    {
+        Livewire::test(BundleTable::class, ['productId' => $this->parentProduct->id])
+            ->call('addItem') // index 1
+            ->call('addItem') // index 2
+            // Now we have 3 rows. Let's find the middle one's key.
+            ->tap(function ($lw) {
+                $rowKeys = $lw->get('rowKeys');
+                $middleKey = $rowKeys[1];
+                
+                // Set some data for surviving rows
+                $lw->set('items.0.product_id', 101);
+                $lw->set('items.2.product_id', 103);
+                
+                $lw->call('removeItem', $middleKey);
+                
+                // surviving items should be 101 and 103 (at index 0 and 1 now due to array_values)
+                $lw->assertCount('items', 2);
+                $lw->assertSet('items.0.product_id', 101);
+                $lw->assertSet('items.1.product_id', 103);
+            });
+    }
 }
