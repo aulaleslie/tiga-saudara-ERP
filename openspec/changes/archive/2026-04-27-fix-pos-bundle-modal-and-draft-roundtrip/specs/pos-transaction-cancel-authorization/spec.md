@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Mutable POS transaction cancellation MUST require explicit cancel authority
 
@@ -50,14 +50,3 @@ The system SHALL expose transaction cancellation approval through the same inter
 - **WHEN** a transaction cancel approval request is rejected, expired, or explicitly discarded by the requester
 - **THEN** the system MUST leave the POS transaction in its prior status
 - **AND** the UI MUST clear the pending cancellation state without applying the destructive action
-
-### Requirement: Immutable POS transactions MUST remain non-cancellable
-The system SHALL reject cancellation attempts for immutable POS transactions even when the acting user has direct void authority or an approval token.
-
-#### Scenario: Completed transaction cannot be cancelled with void authority
-- **WHEN** a user with `pos.void` attempts to cancel a completed POS transaction
-- **THEN** the system MUST reject the cancellation request
-
-#### Scenario: Completed transaction cannot be cancelled with approval token
-- **WHEN** a user presents an approval token to cancel a completed POS transaction
-- **THEN** the system MUST reject the cancellation request

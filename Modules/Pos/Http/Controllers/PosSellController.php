@@ -85,7 +85,8 @@ class PosSellController extends Controller
                 return [
                     'id' => $bundle->id,
                     'name' => $bundle->name,
-                    'price' => (float) $bundle->price,
+                    'price' => (float) ($bundle->bundle_sale_price ?? 0),
+                    'legacy_price' => (float) ($bundle->price ?? 0),
                     'items' => $bundle->items->map(function ($item) {
                         return [
                             'id' => $item->id,

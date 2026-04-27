@@ -154,4 +154,41 @@ class POSTransactionCancelTest extends PosTransactionFeatureTestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'TRANSACTION_NOT_CANCELLABLE');
     }
+    public function test_loaded_transaction_cannot_be_cancelled(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN CANCEL LOADED');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL LOADED USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+            'pos.transactions.view',
+            'pos.void',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-LOADED-001']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
+
+        // Load it
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        // Attempt cancel
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'TRANSACTION_NOT_CANCELLABLE');
+
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'status' => PosTransaction::STATUS_LOADED,
+        ]);
+    }
 }

@@ -39,6 +39,10 @@ class PosTransactionSnapshotMapper
                     'price_source' => $line['price_source'] ?? 'BASE',
                     'merge_key' => $line['merge_key'] ?? null,
                     'conversion_unit_name' => $line['conversion_unit_name'] ?? null,
+                    'bundle_id' => $line['bundle_id'] ?? null,
+                    'bundle_name' => $line['bundle_name'] ?? null,
+                    'bundle_price' => $line['bundle_price'] ?? null,
+                    'bundle_items' => $line['bundle_items'] ?? null,
                 ];
 
                 $dbLine = PosTransactionLine::create([
@@ -141,6 +145,10 @@ class PosTransactionSnapshotMapper
                 'price_error' => null,
                 'conversion_id' => $dbLine->conversion_id,
                 'conversion_unit_name' => $lineMeta['conversion_unit_name'] ?? null,
+                'bundle_id' => $lineMeta['bundle_id'] ?? null,
+                'bundle_name' => $lineMeta['bundle_name'] ?? null,
+                'bundle_price' => $lineMeta['bundle_price'] ?? null,
+                'bundle_items' => $lineMeta['bundle_items'] ?? [],
             ];
 
             $nextLineId++;
@@ -197,6 +205,7 @@ class PosTransactionSnapshotMapper
                     'tax_rate' => round((float) $line->tax_rate_snapshot, 4),
                     'line_discount_type' => (string) $line->line_discount_type,
                     'line_discount_value' => round((float) $line->line_discount_value, 2),
+                    'bundle_id' => $line->line_meta['bundle_id'] ?? null,
                     'serials' => $line->serials
                         ->pluck('serial_number')
                         ->map(fn ($serial): string => (string) $serial)

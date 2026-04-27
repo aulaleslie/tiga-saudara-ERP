@@ -164,7 +164,7 @@
             };
 
             const canCancelRow = (row) => {
-                if (!row || (row.status !== 'DRAFT' && row.status !== 'LOADED')) {
+                if (!row || row.status !== 'DRAFT') {
                     return false;
                 }
 

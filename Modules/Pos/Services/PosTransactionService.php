@@ -250,13 +250,10 @@ class PosTransactionService
         User $user,
         ?string $approvalToken = null
     ): PosTransaction {
-        if (! in_array($transaction->status, [
-            PosTransaction::STATUS_DRAFT,
-            PosTransaction::STATUS_LOADED,
-        ], true)) {
+        if ($transaction->status !== PosTransaction::STATUS_DRAFT) {
             throw new PosTransactionValidationException(
                 'TRANSACTION_NOT_CANCELLABLE',
-                'Hanya transaksi draft atau loaded yang dapat dibatalkan.'
+                'Hanya transaksi draft yang dapat dibatalkan.'
             );
         }
 

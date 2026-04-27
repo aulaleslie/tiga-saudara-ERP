@@ -12,7 +12,7 @@
 
 @section('content')
     @php
-        $isLoadable = in_array($transaction->status, ['DRAFT', 'LOADED'], true);
+        $isLoadable = $transaction->status === 'DRAFT';
         $canRequestCancel = auth()->user()->can('pos.sell');
     @endphp
 

@@ -146,7 +146,7 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
             ->assertForbidden();
     }
 
-    public function test_can_reload_loaded_transaction_status(): void
+    public function test_cannot_reload_loaded_transaction(): void
     {
         $setting = $this->createSetting('BIZ POS TXN RELOAD');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
@@ -173,9 +173,10 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
 
         app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
 
+        // Transition from LOADED to LOADED is now forbidden to ensure concurrency lock
         $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
-            ->assertOk()
-            ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED);
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'TRANSACTION_NOT_LOADABLE');
     }
 
     public function test_cannot_load_cancelled_transaction(): void
