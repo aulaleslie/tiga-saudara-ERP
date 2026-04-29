@@ -103,3 +103,12 @@ The `POST /pos/sell/checkout/finalize` flow SHALL only complete for users whose 
 #### Scenario: Manager finalizes during operational intervention
 - **WHEN** a user in the supported `manager` bundle completes checkout for an authorized transaction, including from a session without terminal assignment
 - **THEN** the system MUST allow finalization without relying on owner-only bypass
+
+### Requirement: Accurate Split Ownership for Bundles
+
+#### Scenario: Group owns only bundle components
+- **WHEN** a POS checkout is split and a group owns bundle components but 0 units of the parent product.
+- **THEN** the resulting SaleDetail row for the parent product must have quantity 0 and unit price 0.
+- **AND** the SaleDetail row must have a subtotal equal to the sum of its owned bundle components.
+- **AND** the parent row must be marked as not stock managed to avoid duplicate inventory deductions.
+

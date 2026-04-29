@@ -123,7 +123,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $bundleId = isset($line['bundle_id']) ? (int) $line['bundle_id'] : null;
             $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
 
-            if ($productId <= 0 || $qty <= 0) {
+            if ($productId <= 0 || $qty < 0) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Baris checkout tidak valid.');
             }
 
@@ -176,24 +176,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $unitPrice = round((float) ($line['unit_price'] ?? 0), 2);
             $lineSubtotal = round((float) ($line['line_subtotal'] ?? ($unitPrice * $qty)), 2);
 
-            $lineSubtotalMinor = $this->toMinor($lineSubtotal);
-            $linePostedTaxMinor = 0;
-
-            if ($parentAllocations !== []) {
-                $chunkGrossMinor = $this->allocateMinorByQuantity($parentAllocations, $lineSubtotalMinor, $qty);
-                foreach ($parentAllocations as $chunkIndex => $chunk) {
-                    $snapshot = $chunk['tax_policy_snapshot'] ?? [];
-                    if ((bool) ($snapshot['source_is_pkp'] ?? false)) {
-                        $taxRate = (float) ($snapshot['tax_rate'] ?? 0);
-                        $linePostedTaxMinor += $this->extractIncludedTaxMinor(
-                            (int) ($chunkGrossMinor[$chunkIndex] ?? 0),
-                            $taxRate
-                        );
-                    }
-                }
-            }
-            
-            $linePostedTax = $this->fromMinor($linePostedTaxMinor);
+            $linePostedTax = (float) ($line['line_tax_total'] ?? 0);
             $totalPostedTaxTotal += $linePostedTax;
 
             $lineDiscount = round(
@@ -242,16 +225,33 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
                 // During split posting, a group may not fulfill all bundle components.
                 // We skip persistence and stock movement for components not allocated to this group.
-                if ($childAllocations === [] && (bool) ($item['stock_managed'] ?? true)) {
+                if ($childAllocations === []) {
                     continue;
                 }
 
+                $childAllocatedQty = array_sum(array_column($childAllocations, 'allocated_qty'));
+                $childAllocatedMinor = array_sum(array_column($childAllocations, 'allocated_minor'));
+                $childUnitPrice = $childAllocatedQty > 0 ? $this->fromMinor((int) round($childAllocatedMinor / $childAllocatedQty)) : 0;
+
                 // Resolve child tax context from allocations where available
                 $childTaxId = null;
+                $childTaxAmount = 0;
                 if ($childAllocations !== []) {
                     $firstSnapshot = $childAllocations[0]['tax_policy_snapshot'] ?? [];
                     $childTaxId = isset($firstSnapshot['tax_id']) ? (int) $firstSnapshot['tax_id'] : null;
                     $childTaxId = ($childTaxId !== null && $childTaxId > 0) ? $childTaxId : null;
+
+                    // Sum up tax contributions from all child allocations
+                    foreach ($childAllocations as $ca) {
+                        $caSnapshot = $ca['tax_policy_snapshot'] ?? [];
+                        if ((bool) ($caSnapshot['source_is_pkp'] ?? false)) {
+                            $caTaxRate = (float) ($caSnapshot['tax_rate'] ?? 0);
+                            $childTaxAmount += $this->fromMinor($this->extractIncludedTaxMinor(
+                                (int) ($ca['allocated_minor'] ?? 0),
+                                $caTaxRate
+                            ));
+                        }
+                    }
                 }
 
                 // Resolve bundle_item_id from product_bundle_items
@@ -271,11 +271,11 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'bundle_item_id' => $bundleItemRecordId,
                     'product_id' => $childProductId,
                     'name' => (string) ($item['product_name'] ?? ''),
-                    'quantity' => $childQty,
-                    'price' => 0, // POS bundle components are parent-priced by default
-                    'sub_total' => 0,
+                    'quantity' => $childAllocatedQty,
+                    'price' => $childUnitPrice,
+                    'sub_total' => $this->fromMinor($childAllocatedMinor),
                     'tax_id' => $childTaxId,
-                    'tax_amount' => 0,
+                    'tax_amount' => round($childTaxAmount, 2),
                     'line_group_key' => "pos-{$index}-{$itemIndex}",
                 ]);
 

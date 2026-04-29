@@ -199,7 +199,21 @@ class PosCheckoutSplitPlannerService
                     if (! isset($lineRevenueByGroup[$splitKey])) {
                         $lineRevenueByGroup[$splitKey] = $this->initLineGroup($part);
                     }
+
                     $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $part['total_minor'];
+                    $lineRevenueByGroup[$splitKey]['child_allocations'][$childKey][] = [
+                        'source_setting_id' => $part['source_setting_id'],
+                        'source_location_id' => $part['source_location_id'],
+                        'allocated_qty' => $qty * (int) ($bundleItems[explode('_C_', $childKey)[1]]['quantity'] ?? 1),
+                        'allocated_minor' => $part['total_minor'],
+                        'tax_bucket_used' => (bool) ($part['effective_tax_id'] > 0),
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => false,
+                            'tax_id' => $part['effective_tax_id'],
+                            'tax_name' => $part['tax_name'],
+                            'tax_rate' => $part['tax_rate'],
+                        ]
+                    ];
                 } else {
                     $childShares = $this->allocateMinorByQuantity($part['allocations'], $part['total_minor'], $part['total_qty']);
                     foreach ($part['allocations'] as $chunkIndex => $chunk) {
@@ -302,9 +316,11 @@ class PosCheckoutSplitPlannerService
                 // If an owner owns BOTH 7/10 parent AND 10/10 child, they get (7/10 Residual + 10/10 ChildAlloc). Qty should be?
                 // Probably 10, as they are involved in all 10 bundles.
                 
-                $finalGroupLineQty = $rev['parent_qty'] > 0 ? $rev['parent_qty'] : $qty;
+                $finalGroupLineQty = $rev['parent_qty'];
                 $groupLine['qty'] = $finalGroupLineQty;
-                $groupLine['unit_price'] = $this->fromMinor((int) round($chunkSubtotalMinor / $finalGroupLineQty));
+                $groupLine['unit_price'] = $finalGroupLineQty > 0 
+                    ? $this->fromMinor((int) round($chunkSubtotalMinor / $finalGroupLineQty))
+                    : 0;
 
                 // If this group didn't fulfill any parent stock, mark it as non-stock-managed 
                 // and non-serial-tracked so it skips validation and movement for the parent.
