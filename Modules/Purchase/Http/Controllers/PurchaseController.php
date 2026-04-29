@@ -896,6 +896,7 @@ class PurchaseController extends Controller
                 DB::transaction(function () use ($receivedNote) {
                     $receivedNote->lockForUpdate();
                     $purchase = $receivedNote->purchase;
+                    $settingLocationIds = Location::where('setting_id', $purchase->setting_id)->pluck('id');
                     
                     // Load received note details with purchase details
                     $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
@@ -935,6 +936,9 @@ class PurchaseController extends Controller
                             // Capture previous stock
                             $previous_quantity = $product->product_quantity;
                             $previous_quantity_at_location = $productStock->quantity;
+                            $previous_quantity_for_setting = ProductStock::where('product_id', $product->id)
+                                ->whereIn('location_id', $settingLocationIds)
+                                ->sum('quantity');
 
                             // Increment stock quantity
                             $productStock->increment('quantity', $receivedQuantity);
@@ -950,6 +954,7 @@ class PurchaseController extends Controller
                             // Capture after stock
                             $after_quantity = $product->product_quantity;
                             $after_quantity_at_location = $productStock->quantity;
+                            $after_quantity_for_setting = $previous_quantity_for_setting + $receivedQuantity;
 
                             // Update Last Purchase Price
                             $product->update(['last_purchase_price' => $purchaseDetail->price]);
@@ -993,14 +998,14 @@ class PurchaseController extends Controller
                                 'product_id' => $purchaseDetail->product_id,
                                 'setting_id' => session('setting_id'),
                                 'quantity' => $receivedQuantity,
-                                'current_quantity' => $after_quantity,
+                                'current_quantity' => $after_quantity_for_setting,
                                 'broken_quantity' => 0,
                                 'location_id' => $receivedNote->location_id,
                                 'user_id' => auth()->id(),
                                 'reason' => 'Diterima dari Pembelian #' . $purchase->reference . ' (Disetujui)',
                                 'type' => 'BUY',
-                                'previous_quantity' => $previous_quantity,
-                                'after_quantity' => $after_quantity,
+                                'previous_quantity' => $previous_quantity_for_setting,
+                                'after_quantity' => $after_quantity_for_setting,
                                 'previous_quantity_at_location' => $previous_quantity_at_location,
                                 'after_quantity_at_location' => $after_quantity_at_location,
                                 'quantity_non_tax' => $purchaseDetail->tax_id ? 0 : $receivedQuantity,
