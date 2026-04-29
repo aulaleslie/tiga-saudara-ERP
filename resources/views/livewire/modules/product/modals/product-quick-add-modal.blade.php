@@ -30,15 +30,15 @@
                     <div class="card border-0 shadow-sm mb-3">
                         <div class="card-body">
                             <div class="form-row">
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-6 mb-3" wire:key="quick-product-name-container-{{ $formResetVersion }}">
                                     <label class="form-label">Nama Produk <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" wire:model="product_name" placeholder="Nama Produk">
+                                    <input type="text" class="form-control" wire:model="product_name" placeholder="Nama Produk" wire:key="quick-product-name-input-{{ $formResetVersion }}">
                                     @error('product_name') <span class="text-danger">{{ $message }}</span> @enderror
                                 </div>
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-6 mb-3" wire:key="quick-product-code-container-{{ $formResetVersion }}">
                                     <label class="form-label">Kode Produk</label>
-                                    <input type="text" class="form-control" wire:model="product_code" placeholder="Auto-generate jika kosong">
-                                    <small class="form-text text-muted">Biarkan kosong untuk auto-generate (SKU-000001, SKU-000002, dll.)</small>
+                                    <input type="text" class="form-control" wire:model="product_code" placeholder="Auto-generate jika kosong" wire:key="quick-product-code-input-{{ $formResetVersion }}">
+                                    <small class="form-text text-muted">Biarkan kosong for auto-generate (SKU-000001, SKU-000002, dll.)</small>
                                     @error('product_code') <span class="text-danger">{{ $message }}</span> @enderror
                                 </div>
                             </div>
@@ -123,7 +123,8 @@
                                     <input type="checkbox"
                                            id="modal_is_sold"
                                            wire:model.live="is_sold"
-                                           @disabled($context === 'sale')>
+                                           @disabled($context === 'sale')
+                                           wire:key="quick-product-is-sold-check-{{ $formResetVersion }}">
                                     <label for="modal_is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
                                     <div
