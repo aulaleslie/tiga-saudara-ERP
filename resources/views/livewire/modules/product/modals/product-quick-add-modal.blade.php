@@ -55,7 +55,7 @@
                                         :error="$errors->first('category_id')"
                                         modal-event="openNestedCategoryModal"
                                         dispatch-to="modules.product.modals.product-quick-add-modal"
-                                        wire:key="'quick-product-category-'.$formResetVersion"
+                                        wire:key="quick-product-category-{{ $formResetVersion }}"
                                     />
                                 </div>
                                 <div class="col-md-6 mb-3">
@@ -69,7 +69,7 @@
                                         :error="$errors->first('brand_id')"
                                         modal-event="openNestedBrandModal"
                                         dispatch-to="modules.product.modals.product-quick-add-modal"
-                                        wire:key="'quick-product-brand-'.$formResetVersion"
+                                        wire:key="quick-product-brand-{{ $formResetVersion }}"
                                     />
                                 </div>
                             </div>
@@ -84,7 +84,7 @@
                                     <label for="modal_is_purchased"><strong>Saya Beli Barang Ini</strong></label>
 
                                     <div class="row mt-3" wire:key="purchase-price-container-{{ $formResetVersion }}">
-                                        <div class="col-md-6">
+                                        <div class="col-md-6 mb-3">
                                             <label class="form-label">Harga Beli <span class="text-danger">*</span></label>
                                             <input
                                                 type="text"
@@ -111,7 +111,7 @@
                                                 :error="$errors->first('purchase_tax_id')"
                                                 modal-event="openNestedTaxModal"
                                                 dispatch-to="modules.product.modals.product-quick-add-modal"
-                                                wire:key="'quick-product-tax-buy-'.$formResetVersion"
+                                                wire:key="quick-product-tax-buy-{{ $formResetVersion }}"
                                             />
                                         </div>
                                     </div>
@@ -123,12 +123,14 @@
                                     <input type="checkbox"
                                            id="modal_is_sold"
                                            wire:model.live="is_sold"
-                                           wire:key="sale-checkbox-{{ $formResetVersion }}"
                                            @disabled($context === 'sale')>
                                     <label for="modal_is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
-                                    @if($is_sold)
-                                        <div class="row mt-3" wire:key="sale-price-container-{{ $formResetVersion }}">
+                                    <div
+                                        class="mt-3 {{ $is_sold ? '' : 'd-none' }}"
+                                        wire:key="sale-price-section-v{{ $formResetVersion }}"
+                                    >
+                                        <div class="row" wire:key="sale-price-container-v{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual @if($context === 'sale')<span class="text-danger">*</span>@endif</label>
                                                 <input
@@ -141,6 +143,7 @@
                                                     x-on:blur="onBlur($event)"
                                                     inputmode="decimal"
                                                     autocomplete="off"
+                                                    @disabled(!$is_sold)
                                                 >
                                                 @error('sale_price') <span class="text-danger">{{ $message }}</span> @enderror
                                             </div>
@@ -156,12 +159,13 @@
                                                     :error="$errors->first('sale_tax_id')"
                                                     modal-event="openNestedTaxModal"
                                                     dispatch-to="modules.product.modals.product-quick-add-modal"
-                                                    wire:key="'quick-product-tax-sell-'.$formResetVersion"
+                                                    wire:key="quick-product-tax-sell-v{{ $formResetVersion }}-{{ $is_sold ? 'on' : 'off' }}"
+                                                    :disabled="!$is_sold"
                                                 />
                                             </div>
                                         </div>
 
-                                        <div class="row" wire:key="tier-1-price-container-{{ $formResetVersion }}">
+                                        <div class="row mt-3" wire:key="tier-1-price-container-v{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual Partai Besar</label>
                                                 <input
@@ -174,6 +178,7 @@
                                                     x-on:blur="onBlur($event)"
                                                     inputmode="decimal"
                                                     autocomplete="off"
+                                                    @disabled(!$is_sold)
                                                 >
                                                 @error('tier_1_price') <span class="text-danger">{{ $message }}</span> @enderror
                                                 @if($context === 'sale')
@@ -182,7 +187,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="row" wire:key="tier-2-price-container-{{ $formResetVersion }}">
+                                        <div class="row mt-3" wire:key="tier-2-price-container-v{{ $formResetVersion }}">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Harga Jual Reseller</label>
                                                 <input
@@ -195,6 +200,7 @@
                                                     x-on:blur="onBlur($event)"
                                                     inputmode="decimal"
                                                     autocomplete="off"
+                                                    @disabled(!$is_sold)
                                                 >
                                                 @error('tier_2_price') <span class="text-danger">{{ $message }}</span> @enderror
                                                 @if($context === 'sale')
@@ -202,7 +208,7 @@
                                                 @endif
                                             </div>
                                         </div>
-                                    @endif
+                                    </div>
                                 </div>
                             </div>
 
@@ -256,7 +262,7 @@
                                             width="100%"
                                             :disabled="!$stock_managed"
                                             dispatch-to="modules.product.modals.product-quick-add-modal"
-                                            wire:key="'quick-product-base-unit-'.$formResetVersion"
+                                            wire:key="quick-product-base-unit-{{ $formResetVersion }}"
                                         />
                                     </div>
                                     <div class="col-md-6 mb-3">
@@ -302,7 +308,7 @@
                                                                                 modal-event="openNestedUnitModal"
                                                                                 width="220px"
                                                                                 dispatch-to="modules.product.modals.product-quick-add-modal"
-                                                                                wire:key="'conv-unit-'.$rowKey.'-'.$formResetVersion"
+                                                                                wire:key="conv-unit-{{ $rowKey }}-{{ $formResetVersion }}"
                                                                             />
                                                                         </td>
                                                                         <td>
@@ -434,10 +440,19 @@
                 init() {
                     const raw = parseCurrency(initial);
                     this.display = formatCurrency(raw);
+
+                    // Add watch to sync when Livewire property changes (e.g. cleared by PHP)
+                    $wire.$watch(field, (value) => {
+                        const raw = parseCurrency(value);
+                        this.display = formatCurrency(raw);
+                    });
                 },
                 updateWire(raw) {
                     if (!field || !this.$wire) return;
-                    this.$wire.set(field, raw);
+                    // Only update if value actually changed to avoid cycles
+                    if (parseCurrency(this.$wire.get(field)) !== raw) {
+                        this.$wire.set(field, raw);
+                    }
                 },
                 onFocus(event) {
                     const raw = parseCurrency(event.target.value);
