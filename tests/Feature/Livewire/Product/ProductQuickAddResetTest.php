@@ -66,6 +66,9 @@ class ProductQuickAddResetTest extends TestCase
             ->set('sale_price', 1000)
             ->set('tier_1_price', 900)
             ->set('tier_2_price', 800)
+            ->set('serial_number_required', true)
+            ->set('product_stock_alert', 10)
+            ->set('barcode', '123456789')
             ->call('save');
 
         $component->assertHasNoErrors();
@@ -74,7 +77,10 @@ class ProductQuickAddResetTest extends TestCase
         // because the modal might be reopened.
         $component->assertSet('product_name', null)
             ->assertSet('is_sold', false)
-            ->assertSet('sale_price', null);
+            ->assertSet('sale_price', null)
+            ->assertSet('serial_number_required', false)
+            ->assertSet('product_stock_alert', null)
+            ->assertSet('barcode', null);
             
         $this->assertGreaterThan(1, $component->get('formResetVersion'));
     }

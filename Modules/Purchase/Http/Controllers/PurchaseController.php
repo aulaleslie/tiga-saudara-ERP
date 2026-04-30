@@ -753,6 +753,7 @@ class PurchaseController extends Controller
                         'quantity_received' => $receivedQuantity,
                         'po_detail_id' => $detail->id,
                         'pending_serial_numbers' => $pendingSerials,
+                        'note' => $data['notes'][$detail->id] ?? null,
                     ]);
 
                     // Serial numbers will be committed to product_serial_numbers table on approval

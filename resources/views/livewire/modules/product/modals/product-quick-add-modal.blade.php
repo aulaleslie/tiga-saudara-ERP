@@ -230,22 +230,23 @@
                                     </div>
                                 </div>
 
-                                <div class="form-row mt-2">
+                                <div class="form-row mt-2" wire:key="quick-product-sn-container-{{ $formResetVersion }}">
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <input type="checkbox"
                                                    id="serial_number_required"
                                                    wire:model.live="serial_number_required"
-                                                   @disabled(!$stock_managed)>
+                                                   @disabled(!$stock_managed)
+                                                   wire:key="quick-product-sn-input-{{ $formResetVersion }}">
                                             <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="form-row mt-2">
+                                <div class="form-row mt-2" wire:key="quick-product-stock-alert-container-{{ $formResetVersion }}">
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">Peringatan Jumlah Stok</label>
-                                        <input type="number" class="form-control" wire:model="product_stock_alert" min="0" @disabled(!$stock_managed)>
+                                        <input type="number" class="form-control" wire:model="product_stock_alert" min="0" @disabled(!$stock_managed) wire:key="quick-product-stock-alert-input-{{ $formResetVersion }}">
                                         @error('product_stock_alert') <span class="text-danger">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
@@ -266,9 +267,9 @@
                                             wire:key="quick-product-base-unit-{{ $formResetVersion }}"
                                         />
                                     </div>
-                                    <div class="col-md-6 mb-3">
+                                    <div class="col-md-6 mb-3" wire:key="quick-product-barcode-container-{{ $formResetVersion }}">
                                         <label class="form-label">Barcode Unit Utama</label>
-                                        <input type="text" class="form-control" wire:model="barcode" @disabled(!$stock_managed)>
+                                        <input type="text" class="form-control" wire:model="barcode" @disabled(!$stock_managed) wire:key="quick-product-barcode-input-{{ $formResetVersion }}">
                                         @error('barcode') <span class="text-danger">{{ $message }}</span> @enderror
                                     </div>
                                 </div>

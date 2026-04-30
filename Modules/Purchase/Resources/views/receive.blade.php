@@ -163,7 +163,7 @@
 
                             <!-- Submit Button -->
                             <div class="text-right mt-3">
-                                <button type="submit" class="btn btn-primary" onclick="this.disabled=true; this.form.submit();">Konfirmasi Penerimaan</button>
+                                <button type="button" id="submit-btn" class="btn btn-primary" onclick="validateForm(this)">Konfirmasi Penerimaan</button>
                             </div>
                         </form>
                     </div>
@@ -185,6 +185,22 @@
                 updateDerivedQuantity(detailId);
             });
         });
+
+        function validateForm(btn) {
+            let totalReceived = 0;
+            document.querySelectorAll('input[name^="received["]').forEach(input => {
+                totalReceived += parseInt(input.value) || 0;
+            });
+
+            if (totalReceived <= 0) {
+                alert('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Memproses...';
+            btn.form.submit();
+        }
 
         function handleSerialKeydown(event, detailId, productId) {
             if (event.key === 'Enter') {

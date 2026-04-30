@@ -28,10 +28,16 @@
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="form-group">
+                    <div class="form-group" x-data="currencyField('', @js(old('bundle_sale_price', $product->salePrice())), productCurrency)">
                         <label for="bundle_sale_price">Harga Jual Paket</label>
-                        <input type="text" name="bundle_sale_price" id="bundle_sale_price" class="form-control"
-                               value="{{ old('bundle_sale_price', $product->salePrice()) }}">
+                        <input type="text" id="bundle_sale_price" class="form-control"
+                               x-model="display"
+                               x-on:focus="onFocus($event)"
+                               x-on:input="onInput($event)"
+                               x-on:blur="onBlur($event)"
+                               inputmode="decimal"
+                               autocomplete="off">
+                        <input type="hidden" name="bundle_sale_price" :value="raw">
                         <small class="text-muted">
                             Harga Jual Paket adalah harga jual final untuk produk dan paket ini.
                         </small>
@@ -78,51 +84,3 @@
         </form>
     </div>
 @endsection
-
-@push('page_scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const priceInput = document.getElementById('bundle_sale_price');
-            const form = priceInput.closest('form');
-
-            // Format number to Indonesian currency
-            const formatToRupiah = (value) => {
-                const number = parseFloat(value.replace(/[^0-9.,]/g, '').replace(',', '.'));
-                if (isNaN(number)) return '';
-                return new Intl.NumberFormat('id-ID', {
-                    style: 'currency',
-                    currency: 'IDR',
-                    minimumFractionDigits: 2
-                }).format(number);
-            };
-
-            // Unformat: convert formatted to plain decimal string (e.g., "Rp 10.000,00" → "10000.00")
-            const unformat = (value) => {
-                if (!value) return '';
-                return value.toString().replace(/[^0-9,]/g, '')   // Remove non-numeric (keep comma)
-                    .replace(',', '.');        // Convert comma to dot for decimals
-            };
-
-            // On blur → show formatted
-            priceInput.addEventListener('blur', function () {
-                const unformatted = unformat(this.value);
-                this.value = formatToRupiah(unformatted);
-            });
-
-            // On focus → show plain number
-            priceInput.addEventListener('focus', function () {
-                this.value = unformat(this.value);
-            });
-
-            // On submit → set input value to plain decimal before sending to backend
-            form.addEventListener('submit', function () {
-                priceInput.value = unformat(priceInput.value);
-            });
-
-            // Format price once on page load
-            if (priceInput.value) {
-                priceInput.value = formatToRupiah(priceInput.value);
-            }
-        });
-    </script>
-@endpush

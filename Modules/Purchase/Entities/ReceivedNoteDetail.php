@@ -16,6 +16,7 @@ class ReceivedNoteDetail extends BaseModel
         'po_detail_id',
         'quantity_received',
         'pending_serial_numbers',
+        'note',
     ];
 
     protected $casts = [

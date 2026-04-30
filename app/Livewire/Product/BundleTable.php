@@ -8,6 +8,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Setting\Entities\Setting;
 
 class BundleTable extends Component
 {
@@ -50,13 +52,13 @@ class BundleTable extends Component
                     'product_id' => $it['product_id'] ?? null,
                     'product_name' => $productName ?? '',
                     'quantity' => $it['quantity'] ?? 1,
-                    'informational_item_price' => $it['informational_item_price'] ?? 0,
+                    'informational_item_price' => $it['informational_item_price'] ?? null,
                     'search' => '',
                 ];
                 $this->rowKeys[] = $it['id'] ?? uniqid('item_', true);
             }
         } else {
-            $this->items = [['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => 0, 'search' => '']];
+            $this->items = [['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => null, 'search' => '']];
             $this->rowKeys = [uniqid('item_', true)];
         }
     }
@@ -66,7 +68,7 @@ class BundleTable extends Component
      */
     public function addItem(): void
     {
-        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => 0, 'search' => ''];
+        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => null, 'search' => ''];
         $this->rowKeys[] = uniqid('item_', true);
     }
 
@@ -117,11 +119,30 @@ class BundleTable extends Component
         $this->items[$index]['product_id'] = $product['id'];
         $this->items[$index]['product_name'] = $product['product_name'];
         
-        $p = Product::find($product['id']);
-        if ($p) {
-            $priceStr = $p->salePrice(session('setting_id'));
-            $this->items[$index]['informational_item_price'] = $priceStr ? (float) str_replace(',', '', $priceStr) : 0;
-        }
+        $settingId = $this->resolveActiveSettingId();
+        $price = ProductPrice::query()
+            ->where('product_id', $product['id'])
+            ->where('setting_id', $settingId)
+            ->value('sale_price');
+
+        Log::info('BundleTable updateProductRow', [
+            'product_id' => $product['id'],
+            'setting_id' => $settingId,
+            'resolved_price' => $price,
+        ]);
+
+        $this->items[$index]['informational_item_price'] = $price !== null ? (float) $price : null;
+    }
+
+    private function resolveActiveSettingId(): int
+    {
+        $user = auth()->user();
+
+        return (int) (
+            session('setting_id')
+            ?? optional($user?->settings()->select('settings.id')->first())->id
+            ?? Setting::query()->min('id')
+        );
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application

@@ -4,6 +4,7 @@ namespace Modules\Product\Livewire;
 
 use Livewire\Component;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Setting;
 
 class ProductSearchDropdown extends Component
 {
@@ -70,11 +71,16 @@ class ProductSearchDropdown extends Component
             return;
         }
 
-        $query = Product::query()->where('stock_managed', true)
+        $query = Product::query()
             ->where(function ($q) {
                 $q->where('product_name', 'like', '%' . $this->search . '%')
                   ->orWhere('product_code', 'like', '%' . $this->search . '%');
             });
+
+        $activeSettingId = $this->resolveActiveSettingId();
+        if ($activeSettingId) {
+            $query->where('setting_id', $activeSettingId);
+        }
 
         if ($this->excludeProductId) {
             $query->where('id', '!=', $this->excludeProductId);
@@ -82,6 +88,17 @@ class ProductSearchDropdown extends Component
 
         $this->query_count = (clone $query)->count();
         $this->search_results = $query->take($this->how_many)->get();
+    }
+
+    private function resolveActiveSettingId(): int
+    {
+        $user = auth()->user();
+
+        return (int) (
+            session('setting_id')
+            ?? optional($user?->settings()->select('settings.id')->first())->id
+            ?? Setting::query()->min('id')
+        );
     }
 
     public function select($id): void

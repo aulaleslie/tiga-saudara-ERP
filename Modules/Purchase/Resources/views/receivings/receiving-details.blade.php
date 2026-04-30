@@ -6,6 +6,7 @@
             <th>Produk</th>
             <th>Jumlah</th>
             <th>Serial Numbers</th>
+            <th>Catatan</th>
         </tr>
         </thead>
         <tbody>
@@ -56,7 +57,6 @@
                             ];
                         }))->sortBy('serial_number');
                     @endphp
-
                     @if($allSerials->isNotEmpty())
                         <ul class="list-unstyled mb-0">
                             @foreach($allSerials as $serial)
@@ -76,6 +76,7 @@
                         <span class="text-muted">-</span>
                     @endif
                 </td>
+                <td>{{ $detail->note ?? '-' }}</td>
             </tr>
         @endforeach
         </tbody>

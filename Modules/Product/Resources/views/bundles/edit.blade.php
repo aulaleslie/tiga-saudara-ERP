@@ -19,10 +19,16 @@
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="form-group">
+                    <div class="form-group" x-data="currencyField('', @js(old('bundle_sale_price', $bundle->bundle_sale_price ?? $parentProduct->salePrice())), productCurrency)">
                         <label for="bundle_sale_price">Harga Jual Paket</label>
-                        <input type="number" name="bundle_sale_price" id="bundle_sale_price" class="form-control"
-                               step="0.01" min="0" value="{{ old('bundle_sale_price', $bundle->bundle_sale_price ?? $parentProduct->salePrice()) }}">
+                        <input type="text" id="bundle_sale_price" class="form-control"
+                               x-model="display"
+                               x-on:focus="onFocus($event)"
+                               x-on:input="onInput($event)"
+                               x-on:blur="onBlur($event)"
+                               inputmode="decimal"
+                               autocomplete="off">
+                        <input type="hidden" name="bundle_sale_price" :value="raw">
                         <small class="text-muted">
                             Harga Jual Paket adalah harga jual final untuk produk dan paket ini.
                         </small>

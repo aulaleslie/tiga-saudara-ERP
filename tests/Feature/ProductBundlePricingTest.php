@@ -13,19 +13,21 @@ use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Setting\Entities\Setting;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class ProductBundlePricingTest extends TestCase
 {
     use RefreshDatabase;
+    private User $user;
 
     protected function setUp(): void
     {
         parent::setUp();
         Gate::before(fn() => true);
 
-        $user = User::factory()->create();
-        $this->actingAs($user);
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
 
         $currency = \Modules\Currency\Entities\Currency::create([
             'currency_name' => 'Rupiah',
@@ -131,6 +133,42 @@ class ProductBundlePricingTest extends TestCase
             ])
             ->assertSet('items.0.product_id', $this->itemProduct->id)
             ->assertSet('items.0.informational_item_price', 25000.00); // from setup sale_price
+    }
+
+    public function test_livewire_bundle_table_resolves_price_from_user_active_setting_when_session_missing(): void
+    {
+        $secondarySetting = Setting::create([
+            'company_name' => 'Secondary Co',
+            'company_email' => 'secondary@example.com',
+            'company_phone' => '98765',
+            'notification_email' => 'secondary-notify@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'left',
+            'company_address' => 'Secondary Addr',
+            'footer_text' => 'Secondary Footer',
+            'is_pkp' => true,
+        ]);
+
+        $roleId = Role::query()->value('id') ?? Role::create(['name' => 'TEST ROLE'])->id;
+        $this->user->settings()->attach($secondarySetting->id, ['role_id' => $roleId]);
+        session()->forget('setting_id');
+
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->itemProduct->id, 'setting_id' => $this->setting->id],
+            ['sale_price' => 0]
+        );
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->itemProduct->id, 'setting_id' => $secondarySetting->id],
+            ['sale_price' => 33333]
+        );
+
+        Livewire::test(BundleTable::class, ['productId' => $this->parentProduct->id])
+            ->set('rowKeys.0', 'item_5')
+            ->call('updateProductRow', [
+                'index' => 'item_5',
+                'product' => $this->itemProduct->toArray(),
+            ])
+            ->assertSet('items.0.informational_item_price', 33333.00);
     }
 
     public function test_surfaces_do_not_expose_legacy_harga_paket()
