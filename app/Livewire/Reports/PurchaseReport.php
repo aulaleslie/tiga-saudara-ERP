@@ -21,7 +21,9 @@ class PurchaseReport extends Component
 {
     use WithPagination;
 
-    public $startDate, $endDate, $supplierId, $withTax, $selectedTag;
+    public $startDate, $endDate, $withTax;
+    public $supplierIds = [];
+    public $tagIds = [];
     public $status, $paymentStatus;
     public $filterTriggered = false;
     public $isGlobal = false;
@@ -37,6 +39,34 @@ class PurchaseReport extends Component
 
     protected $listeners = ['supplierSelected', 'tagSelected'];
 
+    public function selectSupplier($id)
+    {
+        if (!in_array($id, $this->supplierIds)) {
+            $this->supplierIds[] = $id;
+        }
+        $this->supplierSearch = '';
+        $this->supplierOptions = [];
+    }
+
+    public function removeSupplier($id)
+    {
+        $this->supplierIds = array_diff($this->supplierIds, [$id]);
+    }
+
+    public function selectTag($id)
+    {
+        if (!in_array($id, $this->tagIds)) {
+            $this->tagIds[] = $id;
+        }
+        $this->tagSearch = '';
+        $this->tagOptions = [];
+    }
+
+    public function removeTag($id)
+    {
+        $this->tagIds = array_diff($this->tagIds, [$id]);
+    }
+
     public function mount($isGlobal = false)
     {
         $this->isGlobal = $isGlobal;
@@ -47,7 +77,6 @@ class PurchaseReport extends Component
 
     public function updatedSupplierSearch($value)
     {
-        $this->supplierId = null; // Clear selection when search changes
         
         if (strlen($value) < 2) {
             $this->supplierOptions = [];
@@ -56,6 +85,7 @@ class PurchaseReport extends Component
 
         $this->supplierOptions = Supplier::query()
             ->when(!$this->isGlobal, fn($q) => $q->where('setting_id', $this->settingId))
+            ->when(!empty($this->supplierIds), fn($q) => $q->whereNotIn('id', $this->supplierIds))
             ->where('supplier_name', 'like', '%' . $value . '%')
             ->limit(10)
             ->get(['id', 'supplier_name'])
@@ -64,7 +94,6 @@ class PurchaseReport extends Component
 
     public function updatedTagSearch($value)
     {
-        $this->selectedTag = null; // Clear selection when search changes
 
         if (strlen($value) < 2) {
             $this->tagOptions = [];
@@ -73,6 +102,7 @@ class PurchaseReport extends Component
 
         $locale = app()->getLocale();
         $this->tagOptions = Tag::query()
+            ->when(!empty($this->tagIds), fn($q) => $q->whereNotIn('id', $this->tagIds))
             ->where("name->$locale", 'like', '%' . $value . '%')
             ->limit(10)
             ->get(['id', 'name'])
@@ -155,9 +185,9 @@ class PurchaseReport extends Component
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
-            'supplierId' => $this->supplierId,
+            'supplierIds' => $this->supplierIds,
             'withTax' => $this->withTax,
-            'selectedTag' => $this->selectedTag,
+            'tagIds' => $this->tagIds,
             'status' => $this->status,
             'paymentStatus' => $this->paymentStatus,
             'isGlobal' => $this->isGlobal,

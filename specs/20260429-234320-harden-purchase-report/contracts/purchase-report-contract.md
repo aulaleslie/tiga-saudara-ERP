@@ -8,14 +8,14 @@ Internal web interface contract for Livewire purchase report and export actions.
 - Filters:
   - `startDate` (required date)
   - `endDate` (required date, >= `startDate`)
-  - `supplierId` (optional, existing supplier)
+  - `supplierIds` (optional array, existing suppliers)
   - `withTax` (optional, `0|1`)
-  - `selectedTag` (optional, existing tag)
+  - `selectedTags` (optional array, existing tags)
   - `status` (optional, allowed purchase status)
   - `paymentStatus` (optional, `Paid|Partial|Unpaid` canonicalized)
 
 ## Searchable Dropdown Contract (Supplier/Tag)
-- Applies to: `supplierId` and `selectedTag` controls only.
+- Applies to: `supplierIds` and `selectedTags` controls only.
 - Trigger behavior:
   - Do not call server before 2 characters are entered.
   - Apply 300ms debounce before each lookup request.
@@ -25,15 +25,23 @@ Internal web interface contract for Livewire purchase report and export actions.
 - Response contract:
   - `items`: array of `{ id, label }`
   - Optional empty array when no match.
+- Interaction contract:
+  - Must support multi-select.
+  - Each selected item displayed as a dismissible pill.
+  - On clicking a suggestion: add pill, clear search input, close dropdown immediately.
 - Constraints:
   - Full supplier/tag option sets must not be preloaded in initial page payload.
   - Lookup results must be scoped consistently with current user visibility rules.
+
+## Standard Select Contract
+- Applies to: Pajak, Status, Status Pembayaran.
+- Styling: Must use the `form-control` CSS class for consistency with the CoreUI theme.
 
 ## Validation Rules
 - Reject invalid date formats.
 - Reject `endDate < startDate` with user-readable message.
 - Reject out-of-set status, payment status, and tax flag values.
-- Reject nonexistent supplier/tag references.
+- Reject nonexistent supplier/tag references in arrays.
 
 ## Output Contract (On-screen)
 - On success:

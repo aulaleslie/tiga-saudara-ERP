@@ -26,7 +26,7 @@
                 @if(strlen($supplierSearch) >= 2)
                     <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1050; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                         @forelse($supplierOptions as $option)
-                            <button type="button" wire:click="$set('supplierId', {{ $option['id'] }}); $set('supplierSearch', '{{ $option['supplier_name'] }}'); $set('supplierOptions', [])" 
+                            <button type="button" wire:click="selectSupplier({{ $option['id'] }})" 
                                     class="list-group-item list-group-item-action small py-2 d-flex justify-content-between align-items-center">
                                 <span>{{ $option['supplier_name'] }}</span>
                                 <small class="text-muted">ID: {{ $option['id'] }}</small>
@@ -38,14 +38,15 @@
                         @endforelse
                     </div>
                 @endif
-                <input type="hidden" wire:model="supplierId">
-                @if($supplierId)
-                    <div class="mt-1">
-                        <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
-                            <i class="bi bi-check-circle-fill me-1" style="font-size: 0.7rem;"></i>
-                            Terpilih
-                            <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="$set('supplierId', null); $set('supplierSearch', '')"></button>
-                        </span>
+                @if(count($supplierIds) > 0)
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        @foreach($supplierIds as $id)
+                            <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
+                                <i class="bi bi-check-circle-fill me-1" style="font-size: 0.7rem;"></i>
+                                ID: {{ $id }}
+                                <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="removeSupplier({{ $id }})"></button>
+                            </span>
+                        @endforeach
                     </div>
                 @endif
                 <div class="position-absolute end-0 top-0 mt-1 me-2 pt-1" wire:loading wire:target="supplierSearch">
@@ -55,7 +56,7 @@
         </div>
         <div class="col-md-2">
             <label class="form-label small">Pajak</label>
-            <select wire:model="withTax" class="form-select">
+            <select wire:model="withTax" class="form-control">
                 <option value="">-- Semua --</option>
                 <option value="1">Dengan Pajak</option>
                 <option value="0">Tanpa Pajak</option>
@@ -74,7 +75,7 @@
                                 $nameData = is_string($option['name']) ? json_decode($option['name'], true) : $option['name'];
                                 $tagName = $nameData[$locale] ?? ($nameData['en'] ?? (is_array($nameData) ? reset($nameData) : $nameData));
                             @endphp
-                            <button type="button" wire:click="$set('selectedTag', {{ $option['id'] }}); $set('tagSearch', '{{ $tagName }}'); $set('tagOptions', [])" 
+                            <button type="button" wire:click="selectTag({{ $option['id'] }})" 
                                     class="list-group-item list-group-item-action small py-2 d-flex justify-content-between align-items-center">
                                 <span>{{ $tagName }}</span>
                                 <small class="text-muted">ID: {{ $option['id'] }}</small>
@@ -86,14 +87,15 @@
                         @endforelse
                     </div>
                 @endif
-                <input type="hidden" wire:model="selectedTag">
-                @if($selectedTag)
-                    <div class="mt-1">
-                        <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
-                            <i class="bi bi-tag-fill me-1" style="font-size: 0.7rem;"></i>
-                            Terpilih
-                            <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="$set('selectedTag', null); $set('tagSearch', '')"></button>
-                        </span>
+                @if(count($tagIds) > 0)
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        @foreach($tagIds as $id)
+                            <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
+                                <i class="bi bi-tag-fill me-1" style="font-size: 0.7rem;"></i>
+                                ID: {{ $id }}
+                                <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="removeTag({{ $id }})"></button>
+                            </span>
+                        @endforeach
                     </div>
                 @endif
                 <div class="position-absolute end-0 top-0 mt-1 me-2 pt-1" wire:loading wire:target="tagSearch">
@@ -106,7 +108,7 @@
     <div class="row g-2 mb-3">
         <div class="col-md-3">
             <label class="form-label small">Status</label>
-            <select wire:model="status" class="form-select">
+            <select wire:model="status" class="form-control">
                 <option value="">-- Semua Status --</option>
                 @foreach($statuses as $key => $label)
                     <option value="{{ $key }}">{{ $label }}</option>
@@ -115,7 +117,7 @@
         </div>
         <div class="col-md-3">
             <label class="form-label small">Status Pembayaran</label>
-            <select wire:model="paymentStatus" class="form-select">
+            <select wire:model="paymentStatus" class="form-control">
                 <option value="">-- Semua --</option>
                 <option value="PAID">Lunas</option>
                 <option value="UNPAID">Belum Dibayar</option>

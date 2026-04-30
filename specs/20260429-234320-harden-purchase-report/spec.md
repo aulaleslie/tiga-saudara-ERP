@@ -16,6 +16,12 @@
 - Q: Which report dropdowns should be upgraded for scale-friendly search UX? → A: Upgrade Supplier and Tag dropdowns to searchable server-side typeahead; keep other dropdowns as standard selects.
 - Q: What trigger behavior should searchable dropdowns use to balance responsiveness and server load? → A: Use server-side typeahead with minimum 2 characters and 300ms debounce before querying.
 
+### Session 2026-04-30
+
+- Q: Should Supplier and Tag filter controls support selecting multiple values (multi-select with pills), or remain single-select? → A: Multi-select: users can add multiple suppliers/tags as dismissible pills, query uses `whereIn`.
+- Q: How should Pajak, Status, and Status Pembayaran dropdowns be styled for consistency? → A: Use `form-control` class only (standard CoreUI styled select), consistent with existing ERP conventions.
+- Q: When a suggestion is clicked in the Supplier/Tag typeahead, what should happen to the dropdown and search input? → A: Close dropdown immediately, clear search input, add pill. User types again to add more.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Generate Valid On-Screen Purchase Report (Priority: P1)
@@ -91,12 +97,14 @@ As a user, I want invalid or contradictory filter inputs to be blocked with clea
 - **FR-013**: The system MUST include all purchase statuses in default report results, while still supporting explicit status-based filtering.
 - **FR-014**: The system MUST derive payment completion and related payment-status validity from active payment transactions only, excluding cancelled, deleted, or invalidated payments.
 - **FR-015**: When header payment fields conflict with active payment transactions, the active payment transactions MUST be treated as the source of truth for report validity.
-- **FR-016**: The system MUST provide searchable Supplier and Tag filter controls using server-side typeahead queries and MUST NOT preload the full supplier/tag option sets.
+- **FR-016**: The system MUST provide searchable Supplier and Tag filter controls using server-side typeahead queries with multi-select capability. Each selected item MUST be displayed as a dismissible pill. The query MUST use `whereIn` for multiple selected values. The system MUST NOT preload the full supplier/tag option sets.
 - **FR-017**: The searchable Supplier and Tag controls MUST trigger server-side lookup only after at least 2 typed characters and a 300ms debounce interval.
+- **FR-018**: The Pajak, Status, and Status Pembayaran standard select controls MUST use the `form-control` CSS class to match the existing CoreUI theme conventions across the ERP.
+- **FR-019**: When a user clicks a suggestion in the Supplier or Tag typeahead dropdown, the system MUST immediately close the dropdown, clear the search input, and display the selected item as a dismissible pill. The user types again to search and add additional selections.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Purchase Report Filter**: User-selected criteria used to constrain report output, including date range, supplier, tax flag, tag, status, payment status, and scope mode.
+- **Purchase Report Filter**: User-selected criteria used to constrain report output, including date range, supplier(s) (multi-select), tax flag, tag(s) (multi-select), status, payment status, and scope mode.
 - **Purchase Report Result Row**: A single purchase transaction summary returned by the report and used in screen and export outputs.
 - **Purchase Lifecycle Signal**: Canonical state indicators that describe purchase progression from creation/edit, approval, receiving, and payment completion.
 - **Report Scope Context**: Access boundary determining whether the user sees only their permitted setting/cabang data or global cross-setting data.
@@ -105,7 +113,7 @@ As a user, I want invalid or contradictory filter inputs to be blocked with clea
 ## Data Authority Policy
 
 To satisfy FR-011 and FR-012, the following fields are defined as authoritative:
-- **Active Lifecycle Fields**: `status` (from `purchases`), `is_tax_included`, `supplier_id`, and `date`.
+- **Active Lifecycle Fields**: `status` (from `purchases`), `is_tax_included`, `supplier_id` (filterable as multi-select array), and `date`.
 - **Payment Source of Truth**: Sum of `amount` from the `purchase_payments` table where `status` is active (ignoring any legacy `payment_status` or `paid_amount` columns on the `purchases` table itself).
 - **Legacy Fields (Ignore for Filtering)**: Any columns prefixed with `old_`, `legacy_`, or deprecated custom fields identified in `research.md`.
 

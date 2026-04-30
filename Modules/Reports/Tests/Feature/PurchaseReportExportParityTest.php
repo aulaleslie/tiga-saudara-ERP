@@ -109,9 +109,9 @@ class PurchaseReportExportParityTest extends TestCase
         $export = new \App\Exports\PurchaseReportExport([
             'startDate' => $startDate,
             'endDate' => $endDate,
-            'supplierId' => null,
+            'supplierIds' => [],
             'withTax' => null,
-            'selectedTag' => null,
+            'tagIds' => [],
             'status' => null,
             'paymentStatus' => null,
             'isGlobal' => false,
@@ -132,7 +132,7 @@ class PurchaseReportExportParityTest extends TestCase
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
             ->call('applyFilters')
-            ->set('supplierId', 999) // Change filter
+            ->set('supplierIds', [999]) // Change filter
             ->call('exportCsv')
             ->assertDispatched('alert');
     }

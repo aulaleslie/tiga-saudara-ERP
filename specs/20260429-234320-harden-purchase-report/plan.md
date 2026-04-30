@@ -5,7 +5,7 @@
 
 ## Summary
 
-Harden purchase report generation so on-screen and export outputs are validated, scope-safe, and snapshot-consistent, while upgrading high-cardinality Supplier and Tag filters to server-side searchable typeahead (`minChars=2`, `debounce=300ms`) to keep the report usable at future scale.
+Harden purchase report generation so on-screen and export outputs are validated, scope-safe, and snapshot-consistent. Upgrade Supplier and Tag filters to **multi-select pill-based typeahead** (`minChars=2`, `debounce=300ms`, dismiss-on-select, `whereIn` queries) and ensure Pajak/Status/Status Pembayaran standard selects are styled consistently with CoreUI `form-control` conventions.
 
 ## Technical Context
 
@@ -16,18 +16,18 @@ Harden purchase report generation so on-screen and export outputs are validated,
 **Target Platform**: Web application (server-rendered Blade + Livewire)  
 **Project Type**: Modular Laravel ERP (nwidart modules + app layer)  
 **Performance Goals**: Preserve current report and export responsiveness; searchable Supplier/Tag controls must avoid full option preload and stay responsive on datasets >=1,000 rows  
-**Constraints**: Must reuse existing module/patterns, enforce setting/global scope, preserve purchase/payment invariants, and apply typeahead query guards (`minChars=2`, `300ms` debounce)  
-**Scale/Scope**: Purchase report page and its export flows (Excel/CSV/PDF), plus Supplier/Tag filter UX and focused report tests
+**Constraints**: Must reuse existing module/patterns, enforce setting/global scope, preserve purchase/payment invariants, apply typeahead query guards (`minChars=2`, `300ms` debounce), use CoreUI `form-control` class for standard selects, implement multi-select pill interaction for Supplier/Tag  
+**Scale/Scope**: Purchase report page and its export flows (Excel/CSV/PDF), plus Supplier/Tag multi-select filter UX, standard select styling, and focused report tests
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - Brownfield First: PASS. Changes extend current report behavior and UI controls without replacing module boundaries.
-- Domain and Data Integrity: PASS. Scope, lifecycle status, and active-payment source-of-truth remain explicit.
-- Laravel Pattern Fidelity: PASS. Work stays in Laravel/Livewire/Eloquent and existing Reports module patterns.
-- Verification Proportional to Risk: PASS. Plan includes focused feature tests for validation/export parity/typeahead behavior and manual checks.
-- Spec Traceability: PASS. Artifacts map to FR-001..FR-017 and SC-001..SC-005.
+- Domain and Data Integrity: PASS. Scope, lifecycle status, and active-payment source-of-truth remain explicit. Multi-select supplier/tag filters use existing `whereIn`/`whereHas` Eloquent patterns.
+- Laravel Pattern Fidelity: PASS. Work stays in Laravel/Livewire/Eloquent and existing Reports module patterns. Multi-select uses dedicated Livewire action methods (not inline `$set` chaining). Standard selects use `form-control` class consistent with CoreUI conventions.
+- Verification Proportional to Risk: PASS. Plan includes focused feature tests for validation/export parity/typeahead/multi-select behavior and manual checks.
+- Spec Traceability: PASS. Artifacts map to FR-001..FR-019 and SC-001..SC-005.
 
 ## Project Structure
 
@@ -55,7 +55,10 @@ app/
 │   └── PurchaseReportExport.php
 └── Services/
     └── Reports/
-        └── (shared filter/query/snapshot logic)
+        ├── PurchaseReportFilterData.php
+        ├── PurchaseReportValidator.php
+        ├── PurchaseReportQueryService.php
+        └── PurchaseReportSnapshotService.php
 
 Modules/
 ├── Reports/
@@ -74,11 +77,11 @@ Modules/Reports/Tests/Feature/
 └── purchase report hardening and export parity coverage
 ```
 
-**Structure Decision**: Keep implementation inside existing `app/` and `Modules/Reports` boundaries; introduce `app/Services/Reports/*` only for shared validation/query/snapshot/typeahead logic to remove duplication across Livewire and export paths.
+**Structure Decision**: Keep implementation inside existing `app/` and `Modules/Reports` boundaries; shared validation/query/snapshot/typeahead logic lives in `app/Services/Reports/*`. Multi-select state management handled within the Livewire component using array properties and dedicated action methods.
 
 ## Phase 0: Research Output
 
-Completed in `specs/20260429-234320-harden-purchase-report/research.md` with decisions for shared report pipeline, snapshot-gated exports, strict validation, active payment signal derivation, and scale-safe Supplier/Tag typeahead.
+Completed in `specs/20260429-234320-harden-purchase-report/research.md` with decisions for shared report pipeline, snapshot-gated exports, strict validation, active payment signal derivation, scale-safe Supplier/Tag multi-select typeahead, CoreUI dropdown styling, and dismiss-on-select interaction.
 
 ## Phase 1: Design Output
 

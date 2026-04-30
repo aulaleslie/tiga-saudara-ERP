@@ -41,3 +41,18 @@
 - Rationale: Aligns with constitution principles on pattern fidelity and proportional verification.
 - Alternatives considered:
   - Introduce a new standalone reporting module: rejected, unnecessary abstraction for this feature.
+
+## Decision 7: Multi-select pill-based UI for Supplier and Tag typeahead (FR-016, FR-019)
+- Decision: Upgrade Supplier and Tag filters from single-select to multi-select with pill-based display. Use Livewire array properties (`$supplierIds`, `$selectedTags`) instead of scalar properties. Each selected item renders as a dismissible pill showing the item name. Selection uses dedicated Livewire action methods (`selectSupplier`, `removeSupplier`, `selectTag`, `removeTag`) instead of inline `$set` chaining. Query layer uses `whereIn` / `whereHas` with arrays.
+- Rationale: FR-016 clarification (Session 2026-04-30) requires multi-select; FR-019 requires dismiss-on-select + clear input + add pill interaction. Using dedicated methods follows Livewire 3 best practices and avoids race conditions from chained `$set` calls.
+- Alternatives considered:
+  - Keep single-select with pill display: rejected per clarification answer.
+  - Keep dropdown open after selection for rapid multi-add: rejected per clarification answer.
+  - Inline `$set` chaining in Blade: rejected, unreliable in Livewire 3 and violates Laravel Pattern Fidelity.
+
+## Decision 8: CoreUI `form-control` styling for standard select dropdowns (FR-018)
+- Decision: Replace `form-select` class with `form-control` on Pajak, Status, and Status Pembayaran `<select>` elements to match the existing CoreUI theme conventions used across the ERP.
+- Rationale: FR-018 clarification (Session 2026-04-30). The app uses CoreUI (`@import '@coreui/coreui/scss/coreui'`) and existing styled selects in other modules use `form-control`. Using `form-select` alone renders as unstyled browser-default on some CoreUI builds.
+- Alternatives considered:
+  - Dual class `form-select form-control`: rejected, simpler to use the one convention already working.
+  - Custom CSS for `form-select`: rejected, adds maintenance burden when `form-control` already works.

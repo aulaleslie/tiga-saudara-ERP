@@ -24,9 +24,11 @@ class PurchaseReportValidator
         $validator = Validator::make($data, [
             'startDate' => 'required|date',
             'endDate' => 'required|date|after_or_equal:startDate',
-            'supplierId' => 'nullable|exists:suppliers,id',
+            'supplierIds' => 'nullable|array',
+            'supplierIds.*' => 'exists:suppliers,id',
             'withTax' => 'nullable|in:1,0',
-            'selectedTag' => 'nullable|exists:tags,id',
+            'tagIds' => 'nullable|array',
+            'tagIds.*' => 'exists:tags,id',
             'status' => 'nullable|in:' . implode(',', $allowedStatuses),
             'paymentStatus' => 'nullable|in:PAID,PARTIAL,UNPAID,paid,partial,unpaid',
             'isGlobal' => 'boolean',

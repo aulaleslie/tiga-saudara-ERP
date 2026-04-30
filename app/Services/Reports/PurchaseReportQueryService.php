@@ -21,16 +21,16 @@ class PurchaseReportQueryService
         $query->where('date', '>=', $filter->startDate)
             ->where('date', '<=', $filter->endDate);
 
-        if ($filter->supplierId) {
-            $query->where('supplier_id', $filter->supplierId);
+        if (!empty($filter->supplierIds)) {
+            $query->whereIn('supplier_id', $filter->supplierIds);
         }
 
         if ($filter->withTax !== null && $filter->withTax !== '') {
             $query->where('is_tax_included', $filter->withTax);
         }
 
-        if ($filter->selectedTag) {
-            $query->whereHas('tags', fn($q) => $q->where('tags.id', $filter->selectedTag));
+        if (!empty($filter->tagIds)) {
+            $query->whereHas('tags', fn($q) => $q->whereIn('tags.id', $filter->tagIds));
         }
 
         if ($filter->status) {

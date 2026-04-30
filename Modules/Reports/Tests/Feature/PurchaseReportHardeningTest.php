@@ -269,9 +269,9 @@ class PurchaseReportHardeningTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('supplierId', 99999)
+            ->set('supplierIds', [99999])
             ->call('applyFilters')
-            ->assertHasErrors(['supplierId']);
+            ->assertHasErrors(['supplierIds.*']);
     }
 
     /** @test */
@@ -280,9 +280,9 @@ class PurchaseReportHardeningTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('selectedTag', 99999)
+            ->set('tagIds', [99999])
             ->call('applyFilters')
-            ->assertHasErrors(['selectedTag']);
+            ->assertHasErrors(['tagIds.*']);
     }
 
     /** @test */
