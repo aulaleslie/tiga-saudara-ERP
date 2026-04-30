@@ -1,88 +1,149 @@
 <div>
-    <div class="row g-2 mb-3">
-        <div class="col">
-            <label class="form-label small">Tanggal Mulai</label>
-            <input type="date" wire:model.defer="startDate" class="form-control">
-        </div>
-        <div class="col">
-            <label class="form-label small">Tanggal Akhir</label>
-            <input type="date" wire:model.defer="endDate" class="form-control">
-        </div>
-        <div class="col">
-            <label class="form-label small">Pemasok</label>
-            <select wire:model.defer="supplierId" class="form-control">
-                <option value="">-- Semua Pemasok --</option>
-                @foreach($suppliers as $supplier)
-                    <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
                 @endforeach
-            </select>
+            </ul>
         </div>
-        <div class="col">
+    @endif
+
+    <div class="row g-2 mb-3">
+        <div class="col-md-2">
+            <label class="form-label small">Tanggal Mulai</label>
+            <input type="date" wire:model="startDate" class="form-control">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small">Tanggal Akhir</label>
+            <input type="date" wire:model="endDate" class="form-control">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Pemasok</label>
+            <div class="position-relative">
+                <input type="text" wire:model.live.debounce.300ms="supplierSearch" 
+                       class="form-control" placeholder="Cari Pemasok (min 2 karakter)...">
+                @if(strlen($supplierSearch) >= 2)
+                    <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1050; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        @forelse($supplierOptions as $option)
+                            <button type="button" wire:click="$set('supplierId', {{ $option['id'] }}); $set('supplierSearch', '{{ $option['supplier_name'] }}'); $set('supplierOptions', [])" 
+                                    class="list-group-item list-group-item-action small py-2 d-flex justify-content-between align-items-center">
+                                <span>{{ $option['supplier_name'] }}</span>
+                                <small class="text-muted">ID: {{ $option['id'] }}</small>
+                            </button>
+                        @empty
+                            <div class="list-group-item disabled small py-3 text-center text-muted">
+                                <i class="bi bi-search me-1"></i> Tidak ada pemasok ditemukan
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+                <input type="hidden" wire:model="supplierId">
+                @if($supplierId)
+                    <div class="mt-1">
+                        <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
+                            <i class="bi bi-check-circle-fill me-1" style="font-size: 0.7rem;"></i>
+                            Terpilih
+                            <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="$set('supplierId', null); $set('supplierSearch', '')"></button>
+                        </span>
+                    </div>
+                @endif
+                <div class="position-absolute end-0 top-0 mt-1 me-2 pt-1" wire:loading wire:target="supplierSearch">
+                    <div class="spinner-border spinner-border-sm text-primary" style="width: 0.8rem; height: 0.8rem;" role="status"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
             <label class="form-label small">Pajak</label>
-            <select wire:model.defer="withTax" class="form-control">
+            <select wire:model="withTax" class="form-select">
                 <option value="">-- Semua --</option>
                 <option value="1">Dengan Pajak</option>
                 <option value="0">Tanpa Pajak</option>
             </select>
         </div>
-        <div class="col">
+        <div class="col-md-3">
             <label class="form-label small">Tag</label>
-            <select wire:model.defer="selectedTag" class="form-control">
-                <option value="">-- Semua Tag --</option>
-                @foreach($tags as $tag)
-                    <option value="{{ $tag->id }}">{{ json_decode($tag->name)->en ?? '' }}</option>
-                @endforeach
-            </select>
+            <div class="position-relative">
+                <input type="text" wire:model.live.debounce.300ms="tagSearch" 
+                       class="form-control" placeholder="Cari Tag (min 2 karakter)...">
+                @if(strlen($tagSearch) >= 2)
+                    <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1050; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        @forelse($tagOptions as $option)
+                            @php 
+                                $locale = app()->getLocale();
+                                $nameData = is_string($option['name']) ? json_decode($option['name'], true) : $option['name'];
+                                $tagName = $nameData[$locale] ?? ($nameData['en'] ?? (is_array($nameData) ? reset($nameData) : $nameData));
+                            @endphp
+                            <button type="button" wire:click="$set('selectedTag', {{ $option['id'] }}); $set('tagSearch', '{{ $tagName }}'); $set('tagOptions', [])" 
+                                    class="list-group-item list-group-item-action small py-2 d-flex justify-content-between align-items-center">
+                                <span>{{ $tagName }}</span>
+                                <small class="text-muted">ID: {{ $option['id'] }}</small>
+                            </button>
+                        @empty
+                            <div class="list-group-item disabled small py-3 text-center text-muted">
+                                <i class="bi bi-search me-1"></i> Tidak ada tag ditemukan
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+                <input type="hidden" wire:model="selectedTag">
+                @if($selectedTag)
+                    <div class="mt-1">
+                        <span class="badge rounded-pill bg-primary d-inline-flex align-items-center px-2 py-1 shadow-sm">
+                            <i class="bi bi-tag-fill me-1" style="font-size: 0.7rem;"></i>
+                            Terpilih
+                            <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.5rem" wire:click="$set('selectedTag', null); $set('tagSearch', '')"></button>
+                        </span>
+                    </div>
+                @endif
+                <div class="position-absolute end-0 top-0 mt-1 me-2 pt-1" wire:loading wire:target="tagSearch">
+                    <div class="spinner-border spinner-border-sm text-primary" style="width: 0.8rem; height: 0.8rem;" role="status"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="row g-2 mb-3">
-        <div class="col">
+        <div class="col-md-3">
             <label class="form-label small">Status</label>
-            <select wire:model.defer="status" class="form-control">
+            <select wire:model="status" class="form-select">
                 <option value="">-- Semua Status --</option>
                 @foreach($statuses as $key => $label)
                     <option value="{{ $key }}">{{ $label }}</option>
                 @endforeach
             </select>
         </div>
-        <div class="col">
+        <div class="col-md-3">
             <label class="form-label small">Status Pembayaran</label>
-            <select wire:model.defer="paymentStatus" class="form-control">
+            <select wire:model="paymentStatus" class="form-select">
                 <option value="">-- Semua --</option>
-                <option value="Paid">Lunas</option>
-                <option value="Unpaid">Belum Dibayar</option>
-                <option value="Partial">Sebagian</option>
+                <option value="PAID">Lunas</option>
+                <option value="UNPAID">Belum Dibayar</option>
+                <option value="PARTIAL">Sebagian</option>
             </select>
         </div>
-        <div class="col-auto d-flex align-items-end">
+        <div class="col-md-6 d-flex align-items-end justify-content-end gap-2">
             <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
                 <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
                 <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Tampilkan Laporan
             </button>
-        </div>
-        <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success">
+            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-outline-success">
                 <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Export Excel
+                <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Excel
             </button>
-        </div>
-        <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary">
+            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-outline-secondary">
                 <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                <i wire:loading.remove wire:target="exportCsv" class="bi bi-filetype-csv"></i> Export CSV
+                <i wire:loading.remove wire:target="exportCsv" class="bi bi-filetype-csv"></i> CSV
             </button>
-        </div>
-        <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportPdf" wire:loading.attr="disabled" class="btn btn-danger">
+            <button wire:click="exportPdf" wire:loading.attr="disabled" class="btn btn-outline-danger">
                 <span wire:loading wire:target="exportPdf" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                <i wire:loading.remove wire:target="exportPdf" class="bi bi-file-earmark-pdf"></i> Export PDF
+                <i wire:loading.remove wire:target="exportPdf" class="bi bi-file-earmark-pdf"></i> PDF
             </button>
         </div>
     </div>
 
-    <div class="table-responsive">
-        <table class="table table-bordered table-striped">
+    <div class="table-responsive shadow-sm rounded">
+        <table class="table table-hover table-bordered mb-0">
             <thead class="table-light">
             <tr>
                 <th>Tanggal</th>
@@ -95,39 +156,50 @@
                 <th class="text-end">Sisa Tagihan</th>
             </tr>
             </thead>
-            <tbody>
+            <tbody class="bg-white">
             @if($filterTriggered)
                 @forelse($purchases as $p)
                     <tr>
-                        <td>{{ $p->date }}</td>
-                        <td>{{ $p->reference }}</td>
-                        <td>{{ $p->supplier->nickname ?? $p->supplier->supplier_name ?? '-' }}</td>
+                        <td>{{ date('d/m/Y', strtotime($p->date)) }}</td>
+                        <td><span class="fw-bold">{{ $p->reference }}</span></td>
+                        <td>{{ $p->supplier->supplier_name ?? '-' }}</td>
                         <td>
                             <span class="badge bg-secondary">
-                                {{ $statuses[$p->status] ?? ucfirst(str_replace('_', ' ', strtolower($p->status))) }}
+                                {{ $statuses[$p->status] ?? $p->status }}
                             </span>
                         </td>
                         <td>
-                            @if(strtolower($p->payment_status) === 'paid')
+                            @php
+                                $paid = $p->purchasePayments()->where('status', 'ACTIVE')->sum('amount');
+                                $due = $p->total_amount - $paid;
+                                $effectivePaymentStatus = $due <= 0 ? 'PAID' : ($paid > 0 ? 'PARTIAL' : 'UNPAID');
+                            @endphp
+                            @if($effectivePaymentStatus === 'PAID')
                                 <span class="badge bg-success">Lunas</span>
-                            @elseif(strtolower($p->payment_status) === 'partial')
-                                <span class="badge bg-warning">Sebagian</span>
+                            @elseif($effectivePaymentStatus === 'PARTIAL')
+                                <span class="badge bg-warning text-dark">Sebagian</span>
                             @else
                                 <span class="badge bg-danger">Belum Dibayar</span>
                             @endif
                         </td>
-                        <td class="text-end">{{ number_format($p->total_amount, 2) }}</td>
-                        <td class="text-end">{{ number_format($p->tax_amount, 2) }}</td>
-                        <td class="text-end">{{ number_format($p->due_amount, 2) }}</td>
+                        <td class="text-end fw-bold text-primary">{{ number_format($p->total_amount, 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format($p->tax_amount, 0, ',', '.') }}</td>
+                        <td class="text-end text-danger">{{ number_format($due, 0, ',', '.') }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center">Tidak ada data pembelian untuk periode ini.</td>
+                        <td colspan="8" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                            Tidak ada data pembelian yang sesuai dengan filter ini.
+                        </td>
                     </tr>
                 @endforelse
             @else
                 <tr>
-                    <td colspan="8" class="text-center">Klik "Tampilkan Laporan" untuk menampilkan data.</td>
+                    <td colspan="8" class="text-center py-5 text-muted">
+                        <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
+                        Silakan atur filter dan klik <strong>Tampilkan Laporan</strong>.
+                    </td>
                 </tr>
             @endif
             </tbody>
@@ -135,6 +207,8 @@
     </div>
 
     @if($filterTriggered && $purchases instanceof \Illuminate\Pagination\LengthAwarePaginator)
-        {{ $purchases->links() }}
+        <div class="mt-3">
+            {{ $purchases->links() }}
+        </div>
     @endif
 </div>

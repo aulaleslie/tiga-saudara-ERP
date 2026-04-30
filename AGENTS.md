@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-[plan.md](file:///home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/specs/20260429-230139-fix-product-quick-add-reset/plan.md)
+[plan.md](file:///home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/specs/20260429-234320-harden-purchase-report/plan.md)
 <!-- SPECKIT END -->
 
 ## Brownfield Context

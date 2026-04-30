@@ -2,78 +2,70 @@
 
 namespace App\Exports;
 
+use App\Services\Reports\PurchaseReportFilterData;
+use App\Services\Reports\PurchaseReportQueryService;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Events\AfterSheet;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchasePayment;
 
 class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
 {
-    protected array $filters;
+    protected PurchaseReportFilterData $filterData;
 
     public function __construct(array $filters)
     {
-        $this->filters = $filters;
+        $this->filterData = PurchaseReportFilterData::fromArray($filters);
     }
 
     public function collection(): Collection
     {
-        $settingId = session('setting_id');
-        $startDate = $this->filters['startDate'] ?? null;
-        $endDate = $this->filters['endDate'] ?? null;
-        $supplierId = $this->filters['supplierId'] ?? null;
-        $withTax = $this->filters['withTax'] ?? null;
-        $selectedTag = $this->filters['selectedTag'] ?? null;
-        $status = $this->filters['status'] ?? null;
-        $paymentStatus = $this->filters['paymentStatus'] ?? null;
-        $isGlobal = $this->filters['isGlobal'] ?? false;
+        $queryService = app(PurchaseReportQueryService::class);
+        $purchases = $queryService->build($this->filterData)->get();
 
-        return Purchase::with('supplier')
-            ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId))
-            ->when($startDate, fn($q) => $q->where('date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->where('date', '<=', $endDate))
-            ->when($supplierId, fn($q) => $q->where('supplier_id', $supplierId))
-            ->when($withTax !== null && $withTax !== '', fn($q) => $q->where('is_tax_included', $withTax))
-            ->when($selectedTag, fn($q) => $q->whereHas('tags', fn($tq) => $tq->where('tags.id', $selectedTag)))
-            ->when($status, fn($q) => $q->where('status', $status))
-            ->when($paymentStatus, fn($q) => $q->where('payment_status', $paymentStatus))
-            ->get()
-            ->map(fn($p) => [
+        return $purchases->map(function ($p) {
+            $paid = $p->purchasePayments()->where('status', PurchasePayment::STATUS_ACTIVE)->sum('amount') / 100;
+            $due = $p->total_amount - $paid;
+            $effectivePaymentStatus = $due <= 0 ? 'PAID' : ($paid > 0 ? 'PARTIAL' : 'UNPAID');
+
+            return [
                 'Tanggal' => date('d/m/Y', strtotime($p->date)),
                 'No. Referensi' => $p->reference,
                 'Pemasok' => $p->supplier->supplier_name ?? '-',
                 'Status' => $this->translateStatus($p->status),
-                'Status Pembayaran' => $this->translatePaymentStatus($p->payment_status),
+                'Status Pembayaran' => $this->translatePaymentStatus($effectivePaymentStatus),
                 'Total' => $p->total_amount,
                 'Pajak' => $p->tax_amount,
                 'Termasuk Pajak' => $p->is_tax_included ? 'Ya' : 'Tidak',
-                'Sisa Tagihan' => $p->due_amount,
-            ]);
+                'Sisa Tagihan' => $due,
+            ];
+        });
     }
 
     private function translateStatus($status): string
     {
         return match ($status) {
-            'DRAFTED' => 'Draft',
-            'WAITING_APPROVAL' => 'Menunggu Persetujuan',
-            'APPROVED' => 'Disetujui',
-            'REJECTED' => 'Ditolak',
-            'RECEIVED PARTIALLY' => 'Diterima Sebagian',
-            'RECEIVED' => 'Diterima',
-            'RETURNED' => 'Diretur',
-            'RETURNED PARTIALLY' => 'Diretur Sebagian',
+            Purchase::STATUS_DRAFTED => 'Draft',
+            Purchase::STATUS_WAITING_APPROVAL => 'Menunggu Persetujuan',
+            Purchase::STATUS_APPROVED => 'Disetujui',
+            Purchase::STATUS_REJECTED => 'Ditolak',
+            Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
+            Purchase::STATUS_RECEIVED => 'Diterima',
+            Purchase::STATUS_RETURNED => 'Diretur',
+            Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
             default => $status ?? '-',
         };
     }
 
     private function translatePaymentStatus($status): string
     {
-        return match (strtolower($status ?? '')) {
-            'paid' => 'Lunas',
-            'unpaid' => 'Belum Dibayar',
-            'partial' => 'Sebagian',
+        return match (strtoupper($status ?? '')) {
+            'PAID' => 'Lunas',
+            'UNPAID' => 'Belum Dibayar',
+            'PARTIAL' => 'Sebagian',
             default => $status ?? '-',
         };
     }
@@ -95,8 +87,8 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
 
     public function registerEvents(): array
     {
-        $startDate = $this->filters['startDate'] ?? '-';
-        $endDate = $this->filters['endDate'] ?? '-';
+        $startDate = $this->filterData->startDate;
+        $endDate = $this->filterData->endDate;
 
         return [
             AfterSheet::class => function (AfterSheet $event) use ($startDate, $endDate) {
