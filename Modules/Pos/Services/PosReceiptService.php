@@ -294,6 +294,7 @@ class PosReceiptService
 
                     if (! isset($items[$key])) {
                         $items[$key] = [
+                            'component_key' => $key,
                             'name' => $bundleItem->name ?? $bundleItem->product?->product_name ?? 'Unknown Component',
                             'qty' => 0.0,
                         ];
@@ -322,18 +323,51 @@ class PosReceiptService
             return [];
         }
 
-        foreach ($groups[$productId] as $index => $group) {
-            if (abs(((float) $group['parent_qty']) - $lineQty) < 0.0001) {
-                unset($groups[$productId][$index]);
-                $groups[$productId] = array_values($groups[$productId]);
+        $selectedItems = [];
+        $currentQty = 0.0;
+        $consumedIndices = [];
 
-                return $group['items'];
+        foreach ($groups[$productId] as $index => $group) {
+            $pQty = (float) $group['parent_qty'];
+
+            // Stop if we already reached the target quantity and this group has its own parent quantity.
+            // Component-only groups (p_qty = 0) are still collected if they follow/interleave.
+            if ($currentQty >= $lineQty - 0.0001 && $pQty > 0.0001) {
+                break;
             }
+
+            $currentQty += $pQty;
+            foreach ($group['items'] as $item) {
+                $key = (string) ($item['component_key'] ?? $item['name']);
+                if (! isset($selectedItems[$key])) {
+                    $selectedItems[$key] = [
+                        'component_key' => $key,
+                        'name' => $item['name'],
+                        'qty' => 0.0,
+                    ];
+                }
+                $selectedItems[$key]['qty'] += (float) $item['qty'];
+            }
+            $consumedIndices[] = $index;
         }
 
-        $group = array_shift($groups[$productId]);
+        if (empty($consumedIndices)) {
+            return [];
+        }
 
-        return $group['items'] ?? [];
+        // Remove consumed groups from the available pool
+        foreach (array_reverse($consumedIndices) as $index) {
+            unset($groups[$productId][$index]);
+        }
+        $groups[$productId] = array_values($groups[$productId]);
+
+        return array_values(array_map(
+            static fn (array $item): array => [
+                'name' => $item['name'],
+                'qty' => $item['qty'],
+            ],
+            $selectedItems
+        ));
     }
 
     private function isBundleTransactionLine($line): bool

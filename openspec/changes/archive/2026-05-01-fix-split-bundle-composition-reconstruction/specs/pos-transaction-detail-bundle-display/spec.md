@@ -1,9 +1,4 @@
-# pos-transaction-detail-bundle-display Specification
-
-## Purpose
-Ensures that POS transaction detail pages accurately show the composition of product bundles, including both draft state and completed checkout state.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Transaction detail shows bundle composition
 The POS transaction detail page SHALL show complete bundle component information beneath bundled parent transaction rows when bundle composition context is available.
@@ -32,12 +27,3 @@ The POS transaction detail page SHALL show complete bundle component information
 #### Scenario: Non-bundled transaction remains unchanged
 - **WHEN** a POS transaction line has no bundle composition context
 - **THEN** the transaction detail page MUST render the line without any bundle component section
-
-### Requirement: Persistence of Bundle Item Revenue
-
-#### Scenario: Bundle item pricing in split sales
-- **WHEN** a SaleBundleItem is created during a POS split checkout.
-- **THEN** it must be persisted with the actual price and subtotal allocated to that owner.
-- **AND** the bundle item quantity must reflect the actual quantity provided by that owner.
-- **AND** the "Sales Show" view must display these prices and subtotals accurately.
-

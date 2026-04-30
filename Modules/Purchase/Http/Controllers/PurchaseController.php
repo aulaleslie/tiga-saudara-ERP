@@ -794,7 +794,17 @@ class PurchaseController extends Controller
 
         $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
-        return $dataTable->render('purchase::receivings.index', compact('purchase'));
+
+        $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
+            ->with([
+                'purchase',
+                'location',
+                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetails.productSerialNumbers'
+            ])
+            ->get();
+
+        return $dataTable->render('purchase::receivings.index', compact('purchase', 'receivedNotes'));
     }
 
     private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void

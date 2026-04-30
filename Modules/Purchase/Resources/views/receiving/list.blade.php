@@ -38,7 +38,12 @@
                                 </thead>
                                 <tbody>
                                     @php
-                                        $receivings = \Modules\Purchase\Entities\ReceivedNote::with(['purchase', 'location', 'receivedNoteDetails'])
+                                        $receivings = \Modules\Purchase\Entities\ReceivedNote::with([
+                                            'purchase',
+                                            'location',
+                                            'receivedNoteDetails.purchaseDetail',
+                                            'receivedNoteDetails.productSerialNumbers'
+                                        ])
                                             ->whereHas('purchase', function($q) {
                                                 $settingId = session('setting_id');
                                                 if ($settingId) {
