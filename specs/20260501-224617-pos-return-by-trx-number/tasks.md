@@ -47,7 +47,7 @@
 - [ ] T017 Implement `PosReturnSubmissionService` skeleton for snapshot validation, line normalization, Sales Return creation hooks, and POS Return persistence in `app/Support/PosReturn/PosReturnSubmissionService.php`
 - [ ] T018 Implement `PosReturnLifecycleService` skeleton for approve, reject, receive, cash refund, replacement dispatch, and wrapper status sync in `app/Support/PosReturn/PosReturnLifecycleService.php`
 - [ ] T019 Register POS return routes matching `contracts/pos-return-contract.md` in `Modules/Pos/Routes/web.php`
-- [ ] T020 Implement empty controller actions with permission gates and dependency injection in `Modules/Pos/Http/Controllers/PosReturnController.php`
+- [ ] T020 Implement empty controller actions with per-action permission gates, rechecked at each state-changing request, and dependency injection in `Modules/Pos/Http/Controllers/PosReturnController.php`
 
 **Checkpoint**: Database, entities, permissions, routes, and service entry points exist for story implementation.
 
@@ -65,6 +65,7 @@
 - [ ] T022 [P] [US1] Add successful transaction-code and receipt-number lookup tests in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
 - [ ] T023 [P] [US1] Add blocked lookup tests for unknown, non-posted, cancelled, cross-setting, and fully returned transactions in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
 - [ ] T024 [P] [US1] Add Livewire snapshot rendering tests for header, owner groups, payments, dispatch status, returnable lines, and hash in `tests/Feature/Livewire/PosReturn/PosReturnCreateFormTest.php`
+- [ ] T092 [P] [US1] Add permission revocation tests between snapshot lookup and return submission in `Modules/Pos/Tests/Feature/POSReturnRouteAuthorizationTest.php`
 
 ### Implementation for User Story 1
 
@@ -129,7 +130,9 @@
 - [ ] T054 [P] [US3] Add receive-after-approval and receive-before-approval block tests in `Modules/Pos/Tests/Feature/POSReturnReceivingWorkflowTest.php`
 - [ ] T055 [P] [US3] Add cash refund allowed/blocked option tests in `Modules/Pos/Tests/Feature/POSReturnCashRefundWorkflowTest.php`
 - [ ] T056 [P] [US3] Add replacement dispatch allowed/blocked option tests in `Modules/Pos/Tests/Feature/POSReturnReplacementDispatchWorkflowTest.php`
+- [ ] T090 [P] [US3] Add replacement dispatch stock-availability block tests for unavailable or insufficient stock at the original owner/location in `Modules/Pos/Tests/Feature/POSReturnReplacementDispatchWorkflowTest.php`
 - [ ] T057 [P] [US3] Add post-approval edit/delete block tests in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
+- [ ] T093 [P] [US3] Add permission revocation tests before approve, receive, cash-refund, and replacement-dispatch lifecycle actions in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
 - [ ] T085 [P] [US3] Add audited archive/cancel workflow tests for approved-before-receiving returns and blocked received/settled/dispatched returns in `Modules/Pos/Tests/Feature/POSReturnArchiveCancelWorkflowTest.php`
 
 ### Implementation for User Story 3
@@ -138,6 +141,7 @@
 - [ ] T059 [US3] Implement receive behavior by delegating to linked Sales Return receiving logic and syncing POS wrapper status in `app/Support/PosReturn/PosReturnLifecycleService.php`
 - [ ] T060 [US3] Implement manual cash refund settlement guard and cap logic for cash returns in `app/Support/PosReturn/PosReturnLifecycleService.php`
 - [ ] T061 [US3] Implement replacement dispatch guard for product replacement returns in `app/Support/PosReturn/PosReturnLifecycleService.php`
+- [ ] T091 [US3] Implement replacement dispatch stock-availability guard for the original owner/location before dispatch in `app/Support/PosReturn/PosReturnLifecycleService.php`
 - [ ] T086 [US3] Implement audited archive/cancel behavior with actor, timestamp, reason, linked Sales Return state handling, and inventory/financial mutation guards in `app/Support/PosReturn/PosReturnLifecycleService.php`
 - [ ] T062 [US3] Implement approve, reject, receive, cash-refund, and dispatch controller actions in `Modules/Pos/Http/Controllers/PosReturnController.php`
 - [ ] T087 [US3] Implement archive/cancel controller action, permission gate, reason validation, redirect flow, and user-facing lifecycle errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
