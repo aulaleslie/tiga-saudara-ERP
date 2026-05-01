@@ -1,0 +1,1 @@
+Review <checklists/dir> against spec.md, plan.md, data-model.md, and tasks.md. Mark passing checklist items complete, leave failing items unchecked, and summarize any gaps.

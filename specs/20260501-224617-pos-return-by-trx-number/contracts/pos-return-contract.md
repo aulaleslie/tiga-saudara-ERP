@@ -12,7 +12,7 @@ Internal web interface contract for POS return lookup, submission, approval, rec
   - Shows transaction-number lookup and return form.
 - `POST /pos/returns/lookup`
   - Permission: `pos.returns.create`
-  - Resolves a POS transaction or receipt number and returns the source snapshot.
+  - Resolves a POS transaction or receipt number and returns the source snapshot only when exactly one active posted transaction/checkout match exists.
 - `POST /pos/returns`
   - Permission: `pos.returns.create`
   - Creates and submits a POS Return from a valid snapshot.
@@ -46,7 +46,7 @@ Internal web interface contract for POS return lookup, submission, approval, rec
 ## Lookup Input Contract
 - `transaction_number` (required string)
   - Accepts POS transaction code and POS receipt number.
-  - Lookup must trim whitespace and compare within current setting/scope.
+  - Lookup must trim whitespace, compare within current setting/scope, and reject zero or multiple active posted matches.
 
 ## Lookup Success Output
 - `transaction`
@@ -62,11 +62,14 @@ Internal web interface contract for POS return lookup, submission, approval, rec
   - Includes `source_setting_id`, `source_location_id`, `tax_bucket`, sale reference, dispatch ids, and paid allocation
 - `returnable_lines`
   - Array of products/components with original sale id, sale detail id, dispatch detail id, owner/location, tax id, dispatched quantity, cumulative returned quantity, still-returnable quantity, unit price, line amount, serial requirement, serial options, and bundle context
+  - Stock-managed lines include dispatch/inventory context.
+  - Stockless bundle component lines include audit/monetary context and no inventory-reduction instruction.
 - `snapshot_hash`
   - Canonical hash that must be posted back during submission
 
 ## Lookup Failure Contract
 - Unknown transaction number: block with user-facing correction message.
+- Multiple active posted matches for the entered number: block with an ambiguity correction message.
 - Draft, loaded, cancelled, failed, or unposted transaction: block with non-posted transaction message.
 - Out-of-scope transaction: block without exposing protected transaction details.
 - Fully returned transaction: block with no-returnable-quantity message.
@@ -85,6 +88,7 @@ Internal web interface contract for POS return lookup, submission, approval, rec
   - `quantity`
   - `serial_number_ids` (required for serial-tracked quantities)
   - `bundle_group_key` when line is part of a bundle return
+  - `stock_behavior`: `stock_managed | stockless`
 
 ## Submit Validation Contract
 - User still has `pos.returns.create`.
@@ -92,9 +96,11 @@ Internal web interface contract for POS return lookup, submission, approval, rec
 - Server-rebuilt source snapshot hash matches submitted hash.
 - At least one line has positive quantity.
 - Each quantity is <= still-returnable dispatched quantity.
-- Active cumulative returns cannot exceed original dispatched quantity.
+- Stockless bundle component quantity is <= original sold component quantity and cannot create inventory or dispatch reduction.
+- Active non-reversed cumulative returns cannot exceed original dispatched/sold quantity.
 - Bundle groups include all required components proportionally.
 - Return option is exactly one of the two supported options.
+- A stale snapshot is rejected when transaction/checkout status, generated sales, dispatch details or quantities, active prior returns, bundle composition, serial assignment, owner/location/tax mapping, or payment allocation changed after lookup.
 
 ## Lifecycle Contract
 - Approval must occur before receiving.
@@ -107,9 +113,12 @@ Internal web interface contract for POS return lookup, submission, approval, rec
   - Allows replacement dispatch only.
   - Blocks cash refund settlement.
   - Dispatch source must match original source setting/location.
+  - Replacement product/SKU must match the returned product/SKU.
+  - Replacement dispatch quantity must equal the received returned quantity.
 - Direct edit/delete is blocked after approval.
 - Receiving permanently blocks direct edit/delete.
 - All lifecycle actions record actor and timestamp.
+- Submit, approve, receive, cash refund, and replacement dispatch are atomic database operations. Failure rolls back the full action; non-rollbackable external effects block completion and require audited manual correction.
 
 ## UI Contract
 - POS Return screens should follow existing Sales Return information hierarchy:
