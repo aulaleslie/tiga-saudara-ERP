@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-[plan.md](file:///home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/specs/20260429-234320-harden-purchase-report/plan.md)
+[plan.md](file:///home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/specs/20260501-224617-pos-return-by-trx-number/plan.md)
 <!-- SPECKIT END -->
 
 ## Brownfield Context
