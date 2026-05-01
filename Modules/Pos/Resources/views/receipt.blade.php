@@ -277,6 +277,10 @@
                                     <span class="small" style="font-weight: 400;">&nbsp;&nbsp;- {{ $item['name'] }} x{{ (float)$item['qty'] }}</span>
                                 @endforeach
                             @endif
+                            @if(!empty($line['assigned_serials']))
+                                <br>
+                                <span class="small" style="font-weight: 400;">&nbsp;&nbsp;SN: {{ implode(', ', $line['assigned_serials']) }}</span>
+                            @endif
                         </td>
                         <td style="text-align:right">{{ number_format((float) $line['sub_total'], 0, ',', '.') }}</td>
                     </tr>

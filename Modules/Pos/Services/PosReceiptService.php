@@ -92,6 +92,7 @@ class PosReceiptService
                     'sub_total' => $lineSubtotal,
                     'unit_breakdown' => $unitBreakdown,
                     'bundle_composition' => $composition, // Task 1.2 & 1.3
+                    'assigned_serials' => $line->line_meta['assigned_serials'] ?? [],
                 ];
             }
         }
@@ -477,6 +478,7 @@ class PosReceiptService
                 'sub_total' => $lineSubtotal,
                 'unit_breakdown' => $unitBreakdown,
                 'bundle_composition' => $composition,
+                'assigned_serials' => $line->line_meta['assigned_serials'] ?? [],
             ];
         }
 

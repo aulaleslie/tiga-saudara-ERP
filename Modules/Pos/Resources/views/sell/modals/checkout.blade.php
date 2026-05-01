@@ -36,7 +36,8 @@
 
                             <!-- Task 4.1: Payment Composer Section -->
                             <div class="form-group mb-3">
-                                <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
+                                <label class="font-weight-bold d-block mb-1">Metode Pembayaran</label>
+                                <small class="text-info d-block mb-2">Catatan: Untuk multi payment, silakan masukkan pembayaran non-tunai (transfer/debit/kredit) terlebih dahulu, dan pembayaran tunai (cash) di akhir.</small>
                                 <!-- Payment method search/picker -->
                                 <div class="position-relative">
                                     <input type="text" id="pos-checkout-method-search" class="form-control"

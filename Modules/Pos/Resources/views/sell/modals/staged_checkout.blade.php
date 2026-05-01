@@ -29,7 +29,8 @@
 
                     <!-- Task 3.2: Payment Method Selection -->
                     <div class="form-group mb-3">
-                        <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
+                        <label class="font-weight-bold d-block mb-1">Metode Pembayaran</label>
+                        <small class="text-info d-block mb-2">Catatan: Untuk multi payment, silakan masukkan pembayaran non-tunai (transfer/debit/kredit) terlebih dahulu, dan pembayaran tunai (cash) di akhir.</small>
                         <div class="position-relative">
                             <!-- Task 1.1: Ensure payment method input has opaque white background with visible border
                                  Uses !important to override Bootstrap modal CSS that may render background as transparent.

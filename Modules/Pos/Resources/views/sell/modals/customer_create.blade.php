@@ -21,7 +21,7 @@
                             <input type="text" id="pos-new-customer-phone" class="form-control" placeholder="Masukkan nomor telepon">
                         </div>
 
-                        <div class="form-group mb-0">
+                        <div class="form-group mb-0 d-none">
                             <label for="pos-new-customer-tier" class="font-weight-bold">Tier Pelanggan <span class="text-muted font-weight-normal">(Opsional)</span></label>
                             <select id="pos-new-customer-tier" class="form-control">
                                 <!-- Options populated from Constants -->
