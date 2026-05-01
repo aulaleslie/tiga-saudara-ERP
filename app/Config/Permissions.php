@@ -335,6 +335,17 @@ return [
         'pos.transactions.edit.any' => 'Ambil Alih Draft Transaksi',
     ],
 
+    'Retur POS' => [
+        'pos.returns.view' => 'Lihat',
+        'pos.returns.create' => 'Buat',
+        'pos.returns.edit' => 'Ubah',
+        'pos.returns.delete' => 'Hapus',
+        'pos.returns.approve' => 'Setujui',
+        'pos.returns.receive' => 'Terima',
+        'pos.returns.settle' => 'Penyelesaian',
+        'pos.returns.dispatch' => 'Pengiriman',
+    ],
+
     'Transfer Stok' => [
         'stockTransfers.access' => 'Hak Akses',
         'stockTransfers.create' => 'Buat',

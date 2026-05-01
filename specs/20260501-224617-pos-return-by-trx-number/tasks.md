@@ -17,10 +17,10 @@
 
 **Purpose**: Prepare shared POS return directories, permissions, and operator navigation.
 
-- [ ] T001 [P] Create POS return directory placeholders in `Modules/Pos/Services/`, `Modules/Pos/Resources/views/returns/`, `app/Livewire/PosReturn/`, `resources/views/livewire/pos-return/`, and `app/Support/PosReturn/`
-- [ ] T002 [P] Register `pos.returns.view`, `pos.returns.create`, `pos.returns.edit`, `pos.returns.delete`, `pos.returns.approve`, `pos.returns.receive`, `pos.returns.settle`, and `pos.returns.dispatch` permission labels in `app/Config/Permissions.php`
-- [ ] T003 [P] Add POS return permission groups and role matrix mappings in `Modules/Pos/Support/PosPermissionMatrix.php`
-- [ ] T004 [P] Add POS return menu entry visibility and active-state rules in `resources/views/layouts/menu.blade.php`
+- [x] T001 [P] Create POS return directory placeholders in `Modules/Pos/Services/`, `Modules/Pos/Resources/views/returns/`, `app/Livewire/PosReturn/`, `resources/views/livewire/pos-return/`, and `app/Support/PosReturn/`
+- [x] T002 [P] Register `pos.returns.view`, `pos.returns.create`, `pos.returns.edit`, `pos.returns.delete`, `pos.returns.approve`, `pos.returns.receive`, `pos.returns.settle`, and `pos.returns.dispatch` permission labels in `app/Config/Permissions.php`
+- [x] T003 [P] Add POS return permission groups and role matrix mappings in `Modules/Pos/Support/PosPermissionMatrix.php`
+- [x] T004 [P] Add POS return menu entry visibility and active-state rules in `resources/views/layouts/menu.blade.php`
 
 ---
 
@@ -30,23 +30,23 @@
 
 **Critical**: No user story implementation should begin until this phase is complete.
 
-- [ ] T005 Create `pos_returns` table migration with transaction, checkout, snapshot, lifecycle, option, total, audit, status, and lookup indexes in `Modules/Pos/Database/Migrations/2026_05_01_000001_create_pos_returns_table.php`
-- [ ] T006 Create `pos_return_lines` table migration with sale, dispatch, owner, location, tax, serial, bundle, stock behavior, quantity, money, and linkage indexes in `Modules/Pos/Database/Migrations/2026_05_01_000002_create_pos_return_lines_table.php`
-- [ ] T007 Create nullable Sales Return POS linkage migration with `pos_return_id`, POS source metadata, compatible indexes, and dependency-safe rollback in `Modules/Pos/Database/Migrations/2026_05_01_000003_add_pos_return_link_columns_to_sale_returns_table.php`
-- [ ] T008 Create nullable Sale Return Detail POS linkage migration with `pos_return_line_id`, `bundle_group_key`, `stock_behavior`, compatible indexes, and dependency-safe rollback in `Modules/Pos/Database/Migrations/2026_05_01_000004_add_pos_return_line_link_columns_to_sale_return_details_table.php`
-- [ ] T009 [P] Implement `PosReturn` model constants, casts, fillable fields, scopes, and relationships in `Modules/Pos/Entities/PosReturn.php`
-- [ ] T010 [P] Implement `PosReturnLine` model constants, casts, fillable fields, and relationships in `Modules/Pos/Entities/PosReturnLine.php`
-- [ ] T011 Extend `SaleReturn` with POS return relationships, fillable fields, casts, and source metadata accessors in `Modules/SalesReturn/Entities/SaleReturn.php`
-- [ ] T012 Extend `SaleReturnDetail` with POS return line relationship, bundle group metadata, and stock behavior casts in `Modules/SalesReturn/Entities/SaleReturnDetail.php`
-- [ ] T013 [P] Add migration and relationship tests for POS return tables and Sales Return links in `Modules/Pos/Tests/Feature/POSReturnModelRelationshipTest.php`
-- [ ] T014 [P] Add permission registration and POS role matrix tests in `Modules/Pos/Tests/Feature/POSReturnPermissionMatrixTest.php`
-- [ ] T015 Implement active cumulative return quantity guard skeleton in `app/Support/PosReturn/PosReturnQuantityGuard.php`
-- [ ] T016 Implement POS return lookup service skeleton and DTO shape in `Modules/Pos/Services/PosReturnLookupService.php`
-- [ ] T017 Implement source snapshot builder skeleton with canonical hash contract in `Modules/Pos/Services/PosReturnSnapshotService.php`
-- [ ] T018 Implement submission service skeleton for validation, line normalization, Sales Return creation, and persistence in `Modules/Pos/Services/PosReturnSubmissionService.php`
-- [ ] T019 Implement lifecycle service skeleton for approve, reject, receive, payment return settlement, replacement dispatch, archive/cancel, and status sync in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T020 Register POS return routes from `contracts/pos-return-contract.md` in `Modules/Pos/Routes/web.php`
-- [ ] T021 Implement controller action shells with per-action permission gates and service injection in `Modules/Pos/Http/Controllers/PosReturnController.php`
+- [x] T005 Create `pos_returns` table migration with transaction, checkout, snapshot, lifecycle, option, total, audit, status, and lookup indexes in `Modules/Pos/Database/Migrations/2026_05_01_000001_create_pos_returns_table.php`
+- [x] T006 Create `pos_return_lines` table migration with sale, dispatch, owner, location, tax, serial, bundle, stock behavior, quantity, money, and linkage indexes in `Modules/Pos/Database/Migrations/2026_05_01_000002_create_pos_return_lines_table.php`
+- [x] T007 Create nullable Sales Return POS linkage migration with `pos_return_id`, POS source metadata, compatible indexes, and dependency-safe rollback in `Modules/Pos/Database/Migrations/2026_05_01_000003_add_pos_return_link_columns_to_sale_returns_table.php`
+- [x] T008 Create nullable Sale Return Detail POS linkage migration with `pos_return_line_id`, `bundle_group_key`, `stock_behavior`, compatible indexes, and dependency-safe rollback in `Modules/Pos/Database/Migrations/2026_05_01_000004_add_pos_return_line_link_columns_to_sale_return_details_table.php`
+- [x] T009 [P] Implement `PosReturn` model constants, casts, fillable fields, scopes, and relationships in `Modules/Pos/Entities/PosReturn.php`
+- [x] T010 [P] Implement `PosReturnLine` model constants, casts, fillable fields, and relationships in `Modules/Pos/Entities/PosReturnLine.php`
+- [x] T011 Extend `SaleReturn` with POS return relationships, fillable fields, casts, and source metadata accessors in `Modules/SalesReturn/Entities/SaleReturn.php`
+- [x] T012 Extend `SaleReturnDetail` with POS return line relationship, bundle group metadata, and stock behavior casts in `Modules/SalesReturn/Entities/SaleReturnDetail.php`
+- [x] T013 [P] Add migration and relationship tests for POS return tables and Sales Return links in `Modules/Pos/Tests/Feature/POSReturnModelRelationshipTest.php`
+- [x] T014 [P] Add permission registration and POS role matrix tests in `Modules/Pos/Tests/Feature/POSReturnPermissionMatrixTest.php`
+- [x] T015 Implement active cumulative return quantity guard skeleton in `app/Support/PosReturn/PosReturnQuantityGuard.php`
+- [x] T016 Implement POS return lookup service skeleton and DTO shape in `Modules/Pos/Services/PosReturnLookupService.php`
+- [x] T017 Implement source snapshot builder skeleton with canonical hash contract in `Modules/Pos/Services/PosReturnSnapshotService.php`
+- [x] T018 Implement submission service skeleton for validation, line normalization, Sales Return creation, and persistence in `Modules/Pos/Services/PosReturnSubmissionService.php`
+- [x] T019 Implement lifecycle service skeleton for approve, reject, receive, payment return settlement, replacement dispatch, archive/cancel, and status sync in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T020 Register POS return routes from `contracts/pos-return-contract.md` in `Modules/Pos/Routes/web.php`
+- [x] T021 Implement controller action shells with per-action permission gates and service injection in `Modules/Pos/Http/Controllers/PosReturnController.php`
 
 **Checkpoint**: Database, entities, permissions, routes, and service entry points exist for story implementation.
 
@@ -60,23 +60,23 @@
 
 ### Tests for User Story 1
 
-- [ ] T022 [P] [US1] Add route authorization tests for `/pos/returns`, `/pos/returns/create`, and `/pos/returns/lookup` in `Modules/Pos/Tests/Feature/POSReturnRouteAuthorizationTest.php`
-- [ ] T023 [P] [US1] Add successful transaction-code and receipt-number lookup tests in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
-- [ ] T024 [P] [US1] Add blocked lookup tests for unknown, non-posted, cancelled, cross-setting, ambiguous, and fully returned transactions in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
-- [ ] T025 [P] [US1] Add Livewire snapshot rendering tests for header, owner groups, payments, dispatch status, returnable lines, and hash in `tests/Feature/Livewire/PosReturn/PosReturnCreateFormTest.php`
+- [x] T022 [P] [US1] Add route authorization tests for `/pos/returns`, `/pos/returns/create`, and `/pos/returns/lookup` in `Modules/Pos/Tests/Feature/POSReturnRouteAuthorizationTest.php`
+- [x] T023 [P] [US1] Add successful transaction-code and receipt-number lookup tests in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
+- [x] T024 [P] [US1] Add blocked lookup tests for unknown, non-posted, cancelled, cross-setting, ambiguous, and fully returned transactions in `Modules/Pos/Tests/Feature/POSReturnLookupTest.php`
+- [x] T025 [P] [US1] Add Livewire snapshot rendering tests for header, owner groups, payments, dispatch status, returnable lines, and hash in `tests/Feature/Livewire/PosReturn/PosReturnCreateFormTest.php`
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Implement completed POS transaction and receipt lookup with exact-one-match and setting visibility checks in `Modules/Pos/Services/PosReturnLookupService.php`
-- [ ] T027 [US1] Build snapshot transaction header, customer, checkout, cashier/session, payment summary, and owner groups in `Modules/Pos/Services/PosReturnSnapshotService.php`
-- [ ] T028 [US1] Build returnable line snapshot from generated sales, sale details, dispatch details, serials, bundles, and active return quantities in `Modules/Pos/Services/PosReturnSnapshotService.php`
-- [ ] T029 [US1] Add stable canonical source snapshot hashing and stale metadata generation in `Modules/Pos/Services/PosReturnSnapshotService.php`
-- [ ] T030 [US1] Implement `lookup()` response handling and user-facing failure messages in `Modules/Pos/Http/Controllers/PosReturnController.php`
-- [ ] T031 [P] [US1] Implement POS return list Livewire component for index display in `app/Livewire/PosReturn/PosReturnTable.php`
-- [ ] T032 [US1] Implement transaction number lookup state, validation, and snapshot assignment in `app/Livewire/PosReturn/PosReturnCreateForm.php`
-- [ ] T033 [US1] Render lookup form, immutable source snapshot, owner groups, payment summary, and returnable lines in `resources/views/livewire/pos-return/pos-return-create-form.blade.php`
-- [ ] T034 [P] [US1] Create POS return index page using the Livewire table in `Modules/Pos/Resources/views/returns/index.blade.php`
-- [ ] T035 [P] [US1] Create POS return create page using the Livewire create form in `Modules/Pos/Resources/views/returns/create.blade.php`
+- [x] T026 [US1] Implement completed POS transaction and receipt lookup with exact-one-match and setting visibility checks in `Modules/Pos/Services/PosReturnLookupService.php`
+- [x] T027 [US1] Build snapshot transaction header, customer, checkout, cashier/session, payment summary, and owner groups in `Modules/Pos/Services/PosReturnSnapshotService.php`
+- [x] T028 [US1] Build returnable line snapshot from generated sales, sale details, dispatch details, serials, bundles, and active return quantities in `Modules/Pos/Services/PosReturnSnapshotService.php`
+- [x] T029 [US1] Add stable canonical source snapshot hashing and stale metadata generation in `Modules/Pos/Services/PosReturnSnapshotService.php`
+- [x] T030 [US1] Implement `lookup()` response handling and user-facing failure messages in `Modules/Pos/Http/Controllers/PosReturnController.php`
+- [x] T031 [P] [US1] Implement POS return list Livewire component for index display in `app/Livewire/PosReturn/PosReturnTable.php`
+- [x] T032 [US1] Implement transaction number lookup state, validation, and snapshot assignment in `app/Livewire/PosReturn/PosReturnCreateForm.php`
+- [x] T033 [US1] Render lookup form, immutable source snapshot, owner groups, payment summary, and returnable lines in `resources/views/livewire/pos-return/pos-return-create-form.blade.php`
+- [x] T034 [P] [US1] Create POS return index page using the Livewire table in `Modules/Pos/Resources/views/returns/index.blade.php`
+- [x] T035 [P] [US1] Create POS return create page using the Livewire create form in `Modules/Pos/Resources/views/returns/create.blade.php`
 
 **Checkpoint**: User Story 1 is functional and testable without submitting a return.
 

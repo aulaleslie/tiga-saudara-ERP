@@ -52,6 +52,14 @@ final class PosPermissionMatrix
                     'pos.transactions.save',
                     'pos.transactions.load',
                     'pos.transactions.edit.any',
+                    'pos.returns.view',
+                    'pos.returns.create',
+                    'pos.returns.edit',
+                    'pos.returns.delete',
+                    'pos.returns.approve',
+                    'pos.returns.receive',
+                    'pos.returns.settle',
+                    'pos.returns.dispatch',
                 ],
             ],
             'cashier' => [
@@ -67,6 +75,8 @@ final class PosPermissionMatrix
                     'pos.transactions.view',
                     'pos.transactions.save',
                     'pos.transactions.load',
+                    'pos.returns.view',
+                    'pos.returns.create',
                 ],
             ],
             'floor_staff' => [
@@ -130,6 +140,19 @@ final class PosPermissionMatrix
                     'pos.overrides.price',
                     'pos.overrides.discount',
                     'pos.void',
+                ],
+            ],
+            'returns' => [
+                'label' => 'Retur POS',
+                'permissions' => [
+                    'pos.returns.view',
+                    'pos.returns.create',
+                    'pos.returns.edit',
+                    'pos.returns.delete',
+                    'pos.returns.approve',
+                    'pos.returns.receive',
+                    'pos.returns.settle',
+                    'pos.returns.dispatch',
                 ],
             ],
         ];

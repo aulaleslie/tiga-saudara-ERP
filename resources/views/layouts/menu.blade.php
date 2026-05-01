@@ -236,6 +236,16 @@
                 </li>
             </ul>
         @endif
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.returns.view'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.returns.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.returns.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-arrow-return-left" style="line-height: 1;"></i> Retur POS
+                    </a>
+                </li>
+            </ul>
+        @endif
     </li>
 @endif
 

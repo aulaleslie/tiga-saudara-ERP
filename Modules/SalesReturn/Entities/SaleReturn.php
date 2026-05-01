@@ -12,6 +12,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use App\Traits\Archivable;
+use Modules\Pos\Entities\PosReturn;
 
 class SaleReturn extends BaseModel
 {
@@ -32,6 +33,11 @@ class SaleReturn extends BaseModel
         'received_at'      => 'datetime',
         'archived_at'      => 'datetime',
     ];
+
+    public function posReturn(): BelongsTo
+    {
+        return $this->belongsTo(PosReturn::class, 'pos_return_id');
+    }
 
     public function saleReturnDetails(): Builder|HasMany|SaleReturn
     {

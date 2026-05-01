@@ -9,6 +9,7 @@ use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
+use Modules\Pos\Entities\PosReturnLine;
 
 class SaleReturnDetail extends BaseModel
 {
@@ -25,6 +26,11 @@ class SaleReturnDetail extends BaseModel
         'product_tax_amount'      => 'decimal:2',
         'serial_number_ids'       => 'array',
     ];
+
+    public function posReturnLine(): BelongsTo
+    {
+        return $this->belongsTo(PosReturnLine::class, 'pos_return_line_id');
+    }
 
     const METHOD_PRODUCT_REPAIR = 'REPAIR';
     const METHOD_UNPROCESSED = 'UNPROCESSED';

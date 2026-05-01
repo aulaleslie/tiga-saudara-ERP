@@ -10,6 +10,45 @@ use Modules\Pos\Http\Controllers\PosReconciliationController;
 use Modules\Pos\Http\Controllers\PosCartApprovalController;
 use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
 use Modules\Pos\Http\Controllers\PosTransactionController;
+use Modules\Pos\Http\Controllers\PosReturnController;
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.returns.view']], function () {
+    Route::get('/pos/returns', [PosReturnController::class, 'index'])->name('pos.returns.index');
+    Route::get('/pos/returns/data', [PosReturnController::class, 'data'])->name('pos.returns.data');
+    Route::get('/pos/returns/{return}', [PosReturnController::class, 'show'])->name('pos.returns.show')->whereNumber('return');
+
+    Route::group(['middleware' => ['can:pos.returns.create']], function () {
+        Route::get('/pos/returns/create', [PosReturnController::class, 'create'])->name('pos.returns.create');
+        Route::get('/pos/returns/lookup', [PosReturnController::class, 'lookup'])->name('pos.returns.lookup');
+        Route::post('/pos/returns', [PosReturnController::class, 'store'])->name('pos.returns.store');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.edit']], function () {
+        Route::get('/pos/returns/{return}/edit', [PosReturnController::class, 'edit'])->name('pos.returns.edit')->whereNumber('return');
+        Route::put('/pos/returns/{return}', [PosReturnController::class, 'update'])->name('pos.returns.update')->whereNumber('return');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.delete']], function () {
+        Route::delete('/pos/returns/{return}', [PosReturnController::class, 'destroy'])->name('pos.returns.destroy')->whereNumber('return');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.approve']], function () {
+        Route::post('/pos/returns/{return}/approve', [PosReturnController::class, 'approve'])->name('pos.returns.approve')->whereNumber('return');
+        Route::post('/pos/returns/{return}/reject', [PosReturnController::class, 'reject'])->name('pos.returns.reject')->whereNumber('return');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.receive']], function () {
+        Route::post('/pos/returns/{return}/receive', [PosReturnController::class, 'receive'])->name('pos.returns.receive')->whereNumber('return');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.settle']], function () {
+        Route::post('/pos/returns/{return}/settle', [PosReturnController::class, 'settle'])->name('pos.returns.settle')->whereNumber('return');
+    });
+
+    Route::group(['middleware' => ['can:pos.returns.dispatch']], function () {
+        Route::post('/pos/returns/{return}/dispatch', [PosReturnController::class, 'dispatch'])->name('pos.returns.dispatch')->whereNumber('return');
+    });
+});
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.view']], function () {
     Route::get('/pos/sessions', [PosSessionController::class, 'index'])->name('pos.sessions.index');
