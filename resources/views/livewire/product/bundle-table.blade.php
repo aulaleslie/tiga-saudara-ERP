@@ -48,6 +48,7 @@
                                 <input
                                     type="text"
                                     class="form-control price-mask {{ ($item['informational_item_price'] === null && $item['product_id']) || $errors->has("items.$index.informational_item_price") ? 'is-invalid' : '' }}"
+                                    wire:key="bundle-price-{{ $rowKey }}-{{ $item['product_id'] }}-{{ $item['informational_item_price'] }}"
                                     x-data="currencyField('items.{{ $index }}.informational_item_price', @js($item['informational_item_price']), productCurrency)"
                                     x-model="display"
                                     x-on:focus="onFocus($event)"
