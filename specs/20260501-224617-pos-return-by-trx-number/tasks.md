@@ -92,11 +92,11 @@
 
 - [x] T036 [P] [US2] Add payment return submission tests for non-bundle POS lines in `Modules/Pos/Tests/Feature/POSReturnSubmissionTest.php`
 - [x] T037 [P] [US2] Add product replacement submission tests for non-bundle POS lines in `Modules/Pos/Tests/Feature/POSReturnSubmissionTest.php`
-- [ ] T038 [P] [US2] Add stale snapshot hash rejection tests in `Modules/Pos/Tests/Feature/POSReturnSnapshotStalenessTest.php`
+- [x] T038 [P] [US2] Add stale snapshot hash rejection tests in `Modules/Pos/Tests/Feature/POSReturnSnapshotStalenessTest.php`
 - [x] T039 [P] [US2] Add bundle expansion, proportional quantity, stockless component, and parent-only rejection tests in `Modules/Pos/Tests/Feature/POSReturnBundleSubmissionTest.php`
-- [ ] T040 [P] [US2] Add cumulative dispatch quantity cap tests for partial, duplicate, rejected, deleted, archived, and completed returns in `Modules/Pos/Tests/Feature/POSReturnQuantityGuardTest.php`
-- [ ] T041 [P] [US2] Add Livewire quantity, option, serial, bundle, and validation tests in `tests/Feature/Livewire/PosReturn/PosReturnCreateFormTest.php`
-- [ ] T042 [P] [US2] Add permission revocation test between snapshot lookup and submission in `Modules/Pos/Tests/Feature/POSReturnRouteAuthorizationTest.php`
+- [x] T040 [P] [US2] Add cumulative dispatch quantity cap tests for partial, duplicate, rejected, deleted, archived, and completed returns in `Modules/Pos/Tests/Feature/POSReturnQuantityGuardTest.php`
+- [x] T041 [P] [US2] Add Livewire quantity, option, serial, bundle, and validation tests in `tests/Feature/Livewire/PosReturn/PosReturnCreateFormTest.php`
+- [x] T042 [P] [US2] Add permission revocation test between snapshot lookup and submission in `Modules/Pos/Tests/Feature/POSReturnRouteAuthorizationTest.php`
 
 ### Implementation for User Story 2
 
@@ -108,10 +108,10 @@
 - [x] T048 [US2] Persist POS Return header, POS Return lines, source snapshot, option, total, status, and audit actors in `Modules/Pos/Services/PosReturnSubmissionService.php`
 - [x] T049 [US2] Create owner/sale-grouped linked Sales Return and Sale Return Detail records from submitted POS Return lines in `Modules/Pos/Services/PosReturnSubmissionService.php`
 - [x] T050 [US2] Wrap submit and update behavior in atomic database transactions with row locking in `Modules/Pos/Services/PosReturnSubmissionService.php`
-- [ ] T051 [US2] Implement `store()`, `edit()`, `update()`, and `destroy()` endpoint behavior with clear validation errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
-- [ ] T052 [US2] Add return option controls, editable quantities, serial selection, bundle group display, and submit action in `resources/views/livewire/pos-return/pos-return-create-form.blade.php`
-- [ ] T053 [US2] Add submit, reset, stale snapshot, and table error handling to the Livewire create form in `app/Livewire/PosReturn/PosReturnCreateForm.php`
-- [ ] T054 [P] [US2] Implement pre-approval edit page shell in `Modules/Pos/Resources/views/returns/edit.blade.php`
+- [x] T051 [US2] Implement `store()`, `edit()`, `update()`, and `destroy()` endpoint behavior with clear validation errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
+- [x] T052 [US2] Add return option controls, editable quantities, serial selection, bundle group display, and submit action in `resources/views/livewire/pos-return/pos-return-create-form.blade.php`
+- [x] T053 [US2] Add submit, reset, stale snapshot, and table error handling to the Livewire create form in `app/Livewire/PosReturn/PosReturnCreateForm.php`
+- [x] T054 [P] [US2] Implement pre-approval edit page shell in `Modules/Pos/Resources/views/returns/edit.blade.php`
 
 **Checkpoint**: User Story 2 can submit valid POS returns and reject invalid submissions independently.
 

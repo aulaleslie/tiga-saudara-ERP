@@ -64,8 +64,8 @@ class PosReturnSubmissionService
                 'customer_id' => $transaction->customer_id,
                 'customer_name' => $transaction->customer_id ? (optional($transaction->customer)->customer_name ?? '-') : 'Walk-in Customer',
                 'return_option' => $data['return_option'],
-                'status' => PosReturn::STATUS_PENDING_APPROVAL,
-                'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+                'status' => $data['status'] ?? PosReturn::STATUS_PENDING_APPROVAL,
+                'approval_status' => $data['approval_status'] ?? PosReturn::APPROVAL_STATUS_PENDING,
                 'source_snapshot' => $currentSnapshot,
                 'source_snapshot_hash' => $currentSnapshot['hash'],
                 'total_amount' => 0, // Will be updated
@@ -175,6 +175,55 @@ class PosReturnSubmissionService
             }
 
             return $posReturn;
+        });
+    }
+
+    public function update(PosReturn $posReturn, array $data)
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
+        
+        if ($posReturn->status !== PosReturn::STATUS_DRAFT && $posReturn->status !== PosReturn::STATUS_PENDING_APPROVAL) {
+            throw new \Exception('Hanya retur berstatus draft atau menunggu persetujuan yang dapat diubah.');
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($posReturn, $data) {
+            // Delete old associated records
+            $posReturn->lines()->delete();
+            $posReturn->saleReturns()->delete();
+            
+            // Re-use logic from store but on existing model
+            $currentSnapshot = $data['source_snapshot'] ?? $posReturn->source_snapshot;
+            $currentHash = $data['source_snapshot_hash'] ?? $posReturn->source_snapshot_hash;
+
+            // Validate hash
+            if ($currentHash !== $posReturn->source_snapshot_hash) {
+                // If hash changed, we might need to re-validate everything
+                // but for now we assume snapshot is same unless provided
+            }
+
+            $totalAmount = 0;
+            foreach ($data['lines'] as $lineData) {
+                $saleDetail = SaleDetails::with(['sale', 'product'])->find($lineData['sale_detail_id']);
+                if (!$saleDetail) continue;
+
+                $checkoutSale = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)
+                    ->where('sale_id', $saleDetail->sale_id)
+                    ->first();
+
+                if (!$checkoutSale) continue;
+
+                $line = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], $lineData);
+                $totalAmount += $line->line_total;
+            }
+
+            $posReturn->update([
+                'return_option' => $data['return_option'] ?? $posReturn->return_option,
+                'status' => $data['status'] ?? $posReturn->status,
+                'approval_status' => $data['approval_status'] ?? $posReturn->approval_status,
+                'total_amount' => $totalAmount,
+            ]);
+
+            return $posReturn->refresh();
         });
     }
 

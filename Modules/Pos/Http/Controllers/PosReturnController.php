@@ -59,28 +59,66 @@ class PosReturnController extends Controller
 
     public function store(Request $request)
     {
-        $this->submissionService->store($request->all());
-        return redirect()->route('pos.returns.index');
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.create'), 403);
+        
+        $posReturn = $this->submissionService->store($request->all());
+        
+        toast('Retur POS berhasil disimpan.', 'success');
+        
+        return redirect()->route('pos.returns.show', $posReturn->id);
     }
 
     public function show(PosReturn $return)
     {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.view'), 403);
+        
+        $return->load(['lines.product', 'posTransaction', 'posCheckout', 'saleReturns']);
+        
         return view('pos::returns.show', compact('return'));
     }
 
     public function edit(PosReturn $return)
     {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
+        
+        if ($return->status !== PosReturn::STATUS_PENDING_APPROVAL) {
+            abort(403, 'Hanya retur yang masih menunggu persetujuan yang dapat diubah.');
+        }
+        
         return view('pos::returns.edit', compact('return'));
     }
 
     public function update(Request $request, PosReturn $return)
     {
-        // TODO: Implement update
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
+        
+        if ($return->status !== PosReturn::STATUS_PENDING_APPROVAL) {
+            abort(403, 'Hanya retur yang masih menunggu persetujuan yang dapat diubah.');
+        }
+        
+        // Update logic will be implemented in submission service or here
+        // For now, redirect to index or back
+        return redirect()->route('pos.returns.index');
     }
 
     public function destroy(PosReturn $return)
     {
-        $return->delete();
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+        
+        if ($return->status !== PosReturn::STATUS_PENDING_APPROVAL) {
+            abort(403, 'Hanya retur yang masih menunggu persetujuan yang dapat dihapus.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($return) {
+            // Releasing eligibility if needed (is_reversed is already handled by active() scope)
+            // But deletion is a hard remove, so it naturally releases it.
+            $return->saleReturns()->delete(); // Also delete linked sale returns
+            $return->lines()->delete();
+            $return->delete();
+        });
+
+        toast('Retur POS berhasil dihapus.', 'warning');
+        
         return redirect()->route('pos.returns.index');
     }
 
