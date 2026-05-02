@@ -48,7 +48,30 @@ composer test:fresh-sqlite -- --filter=POSReturn
 - Measure the 3-minute intake target with production-like data, a trained authorized return intake user, and a standard 25-line receipt; include lookup, snapshot review, quantity/option entry, and submit.
 - During the first full reporting period after release, review support/audit findings for ownership-mismatch incidents; success requires zero confirmed cases where quantity, owner, sale, dispatch, location, or tax context differs from the original POS-generated sale.
 
-## 5. Files expected to change in implementation
+## 5. UAT evidence notes
+- Record each SC-001 through SC-006 execution with: scenario id, operator, setting/location, lookup identifier used, option selected, expected outcome, actual outcome, and pass/fail.
+- For ambiguous, unauthorized, stale-snapshot, and fully-returned cases, copy the exact user-facing error message into the notes so validation can confirm the final wording.
+- For split-owner and bundle scenarios, include the generated sale reference, dispatch detail reference, owner/location mapping, and any serial numbers reviewed during the check.
+- For rejected, archived, or cancelled flows, record the actor, timestamp, and entered reason to confirm the audit trail remains operator-visible.
+
+## 6. Timed intake note template
+Use this format when executing SC-006 in staging:
+
+```text
+Date:
+Operator:
+Receipt / transaction:
+Line count:
+Lookup start time:
+Snapshot reviewed time:
+Quantity / option entry complete time:
+Submit complete time:
+Total elapsed:
+Pass / fail against 3-minute target:
+Blocking observations:
+```
+
+## 7. Files expected to change in implementation
 - `app/Config/Permissions.php`
 - `Modules/Pos/Support/PosPermissionMatrix.php`
 - `Modules/Pos/Routes/web.php`
@@ -64,7 +87,9 @@ composer test:fresh-sqlite -- --filter=POSReturn
 - `Modules/Pos/Tests/Feature/POSReturn*.php`
 - `tests/Feature/Livewire/PosReturn/*`
 
-## 6. Residual risk notes
+## 8. Residual risk notes
 - The plan intentionally reuses Sales Return receiving/settlement/dispatch logic. Implementation tasks must verify that linked multi-sale POS returns cannot leave the POS wrapper in a partially advanced status without an audit trail.
 - Serial-tracked POS returns require focused test coverage because serial state is mutated by Sales Return receiving.
 - Replacement from non-original owner/location is out of scope unless a separate transfer/override path is completed before dispatch.
+- Automated coverage now guards audit stamping and lookup query count, but broader POS Return regression still needs a consolidated verification pass before this feature can be considered fully closed.
+- Manual staging evidence remains required for SC-001 through SC-006 because transaction ambiguity, operator timing, and production-like receipt complexity are not fully representable in the focused PHPUnit slice.

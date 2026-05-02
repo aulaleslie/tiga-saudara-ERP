@@ -67,7 +67,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
         $this->session = $this->openSession($this->setting, $this->terminal, $this->user);
     }
 
-    protected function createApprovedReturn()
+    protected function createApprovedReturn(string $returnOption = PosReturn::OPTION_CASH_RETURN)
     {
         $transaction = PosTransaction::create([
             'setting_id' => $this->setting->id,
@@ -157,7 +157,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
 
         $data = [
             'pos_transaction_id' => $transaction->id,
-            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'return_option' => $returnOption,
             'source_snapshot' => $snapshot,
             'source_snapshot_hash' => $snapshot['hash'],
             'lines' => [
@@ -301,9 +301,8 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
     /** @test */
     public function it_can_settle_a_replacement_return()
     {
-        // 1. Create an approved return and update it to replacement option
-        $posReturn = $this->createApprovedReturn();
-        $posReturn->update(['return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT]);
+        // 1. Create an approved replacement return
+        $posReturn = $this->createApprovedReturn(PosReturn::OPTION_PRODUCT_REPLACEMENT);
         
         $this->actingAsInSetting($this->receiver, $this->setting);
         $this->lifecycleService->receive($posReturn->id);

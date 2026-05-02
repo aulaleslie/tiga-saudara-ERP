@@ -148,7 +148,6 @@ class PosReturnSubmissionService
                     'approval_status' => 'pending',
                     'payment_status' => 'Unpaid',
                     'payment_method' => 'CASH',
-                    'created_by' => Auth::id(),
                 ]);
 
                 foreach ($lines as $returnLine) {
@@ -229,6 +228,7 @@ class PosReturnSubmissionService
                 'status' => $data['status'] ?? $posReturn->status,
                 'approval_status' => $data['approval_status'] ?? $posReturn->approval_status,
                 'total_amount' => $totalAmount,
+                'updated_by' => Auth::id(),
             ]);
 
             return $posReturn->refresh();

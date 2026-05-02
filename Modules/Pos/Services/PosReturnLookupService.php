@@ -15,48 +15,45 @@ class PosReturnLookupService
      */
     public function lookup(string $identifier): ?array
     {
-        if (empty($identifier)) {
+        $identifier = trim($identifier);
+
+        if ($identifier === '') {
             return null;
         }
 
         $settingId = settings()->id;
 
-        // Try lookup by transaction code
-        $transaction = PosTransaction::where('setting_id', $settingId)
-            ->where('code', $identifier)
+        $transaction = PosTransaction::query()
+            ->with(['completedCheckout' => function ($query) {
+                $query->select('id', 'pos_transaction_id', 'setting_id', 'receipt_number', 'status');
+            }])
+            ->where('setting_id', $settingId)
             ->where('status', PosTransaction::STATUS_COMPLETED)
+            ->where(function ($query) use ($identifier, $settingId) {
+                $query->where('code', $identifier)
+                    ->orWhereHas('completedCheckout', function ($checkoutQuery) use ($identifier, $settingId) {
+                        $checkoutQuery->where('setting_id', $settingId)
+                            ->where('receipt_number', $identifier)
+                            ->where('status', PosCheckout::STATUS_POSTED);
+                    });
+            })
             ->first();
 
-        if ($transaction) {
-            $checkout = $transaction->completedCheckout;
-            if ($checkout && $checkout->status === PosCheckout::STATUS_POSTED) {
-                return [
-                    'pos_transaction_id' => $transaction->id,
-                    'pos_checkout_id' => $checkout->id,
-                    'transaction_code' => $transaction->code,
-                    'receipt_number' => $checkout->receipt_number,
-                ];
-            }
+        if (! $transaction) {
+            return null;
         }
 
-        // Try lookup by receipt number
-        $checkout = PosCheckout::where('setting_id', $settingId)
-            ->where('receipt_number', $identifier)
-            ->where('status', PosCheckout::STATUS_POSTED)
-            ->first();
+        $checkout = $transaction->completedCheckout;
 
-        if ($checkout) {
-            $transaction = $checkout->transaction;
-            if ($transaction && $transaction->status === PosTransaction::STATUS_COMPLETED) {
-                return [
-                    'pos_transaction_id' => $transaction->id,
-                    'pos_checkout_id' => $checkout->id,
-                    'transaction_code' => $transaction->code,
-                    'receipt_number' => $checkout->receipt_number,
-                ];
-            }
+        if (! $checkout || $checkout->status !== PosCheckout::STATUS_POSTED) {
+            return null;
         }
 
-        return null;
+        return [
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => $checkout->receipt_number,
+        ];
     }
 }

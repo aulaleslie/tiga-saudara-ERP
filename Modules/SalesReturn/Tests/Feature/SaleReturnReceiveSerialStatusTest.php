@@ -182,6 +182,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $saleReturn = SaleReturn::create([
             'sale_id' => $sale->id,
             'setting_id' => 1,
+            'reference' => 'SR-RET-001',
             'customer_id' => $customer->id,
             'customer_name' => $customer->customer_name,
             'location_id' => $location->id,

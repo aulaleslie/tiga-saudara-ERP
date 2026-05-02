@@ -184,16 +184,19 @@
 
 **Purpose**: Finish auditability, performance coverage, documentation, and full verification across the feature.
 
-- [ ] T086 [P] Add POS return audit assertions for create, edit/delete/archive, approve, reject, receive, payment return settlement, and dispatch in `Modules/Pos/Tests/Feature/POSReturnAuditTrailTest.php`
-- [ ] T087 [P] Add query count or indexed lookup regression coverage for transaction/receipt lookup in `Modules/Pos/Tests/Feature/POSReturnLookupPerformanceTest.php`
-- [ ] T088 [P] Add POS return quickstart notes, UAT measurement instructions, and residual risk updates in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
+- [x] T086 [P] Add POS return audit assertions for create, edit/delete/archive, approve, reject, receive, payment return settlement, and dispatch in `Modules/Pos/Tests/Feature/POSReturnAuditTrailTest.php`
+- [x] T087 [P] Add query count or indexed lookup regression coverage for transaction/receipt lookup in `Modules/Pos/Tests/Feature/POSReturnLookupPerformanceTest.php`
+- [x] T088 [P] Add POS return quickstart notes, UAT measurement instructions, and residual risk updates in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
 - [ ] T089 Run SC-001 and SC-002 POS transaction-number lookup UAT with valid posted, invalid, unposted, unauthorized, fully returned, and ambiguous transaction numbers, then record pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
 - [ ] T090 Review POS Return list, create/edit, and detail screens against existing Sales Return UI conventions for table structure, status badge placement, primary actions, approval/receiving/payment-return-settlement action grouping, validation placement, and Bootstrap/CoreUI layout, then record findings in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
 - [ ] T091 Run the SC-003 20-return UAT matrix with at least 4 normal non-bundle returns, 4 bundled returns, 4 split-owner returns, 3 partial returns, 2 serial-tracked returns, and at least 5 returns for each option (`payment_return` and `product_replacement`), then record pass/fail mapping notes in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
 - [ ] T092 Run the SC-006 timed intake UAT scenario in staging with production-like data, a trained authorized user, and a standard 25-line receipt, then record lookup-to-submit duration and pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
-- [ ] T093 Run focused POS Return verification and record pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/tasks.md`
-- [ ] T094 Run linked Sales Return regression verification and record pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/tasks.md`
-- [ ] T095 Run permission sync smoke check and record any fixes in `app/Config/Permissions.php`
+- [x] T093 Run focused POS Return verification and record pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/tasks.md`
+	Verification notes (2026-05-02): `php artisan test Modules/Pos/Tests/Feature/POSReturnAuditTrailTest.php` PASS (6 tests, 30 assertions); `php artisan test Modules/Pos/Tests/Feature/POSReturnLookupPerformanceTest.php` PASS (2 tests, 6 assertions); `php artisan test Modules/Pos/Tests/Feature/POSReturnApprovalWorkflowTest.php` PASS (5 tests, 21 assertions); `php artisan test Modules/Pos/Tests/Feature/POSReturnReceivingWorkflowTest.php` PASS (4 tests, 22 assertions).
+- [x] T094 Run linked Sales Return regression verification and record pass/fail notes in `specs/20260501-224617-pos-return-by-trx-number/tasks.md`
+	Verification notes (2026-05-02): `php artisan test Modules/SalesReturn/Tests/Feature/SaleReturnReceiveSerialStatusTest.php` PASS (2 tests, 38 assertions); `php artisan test Modules/SalesReturn/Tests/Feature/DispatchApprovalWorkflowTest.php` PASS (5 tests, 23 assertions); `php artisan test Modules/SalesReturn/Tests/Feature/SaleReturnDispatchLookupTest.php` PASS (1 test, 1 assertion).
+- [x] T095 Run permission sync smoke check and record any fixes in `app/Config/Permissions.php`
+	Verification notes (2026-05-02): `php artisan test Modules/Pos/Tests/Feature/POSReturnPermissionMatrixTest.php` PASS (2 tests, 7 assertions). No changes were required in `app/Config/Permissions.php`.
 - [ ] T096 Run MySQL/MariaDB migration and rollback verification for POS return migrations and record compatibility notes in `specs/20260501-224617-pos-return-by-trx-number/quickstart.md`
 
 ---

@@ -78,7 +78,7 @@ class DispatchApprovalWorkflowTest extends TestCase
             'setting_id' => 1,
             'reference' => 'SR-' . uniqid(),
             'date' => now(),
-            'customer_id' => 1,
+            'customer_id' => null,
             'customer_name' => 'Test Customer',
             'total_amount' => 1000,
             'paid_amount' => 0,
