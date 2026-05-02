@@ -49,6 +49,8 @@ class SaleReturn extends BaseModel
         'rejection_reason',
         'settled_at',
         'settled_by',
+        'received_at',
+        'received_by',
     ];
 
     protected $casts = [
@@ -145,5 +147,30 @@ class SaleReturn extends BaseModel
     public function returnGoods(): HasMany
     {
         return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
+    }
+
+    /**
+     * Get the settlement items associated with this return.
+     */
+    public function settlementItems(): HasMany
+    {
+        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_id', 'id');
+    }
+
+    /**
+     * Get the settlement status of the return.
+     */
+    public function getSettlementStatusAttribute(): string
+    {
+        $items = $this->settlementItems;
+        if ($items->isEmpty()) {
+            return 'Pending';
+        }
+
+        $allSettled = $items->every(function ($item) {
+            return in_array($item->status, SaleReturnItemSettlement::finalSettlementStatuses());
+        });
+
+        return $allSettled ? 'Settled' : 'Pending';
     }
 }

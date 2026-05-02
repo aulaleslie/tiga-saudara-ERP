@@ -12,6 +12,7 @@ class DispatchDetail extends BaseModel
     protected $fillable = [
         'dispatch_id',
         'sale_id',
+        'sale_detail_id',
         'product_id',
         'dispatched_quantity',
         'location_id',

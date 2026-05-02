@@ -73,6 +73,10 @@ class PosReturnSnapshotService
 
     protected function buildLineSnapshot($checkoutSale, $detail): array
     {
+        $dispatchDetailId = \Modules\Sale\Entities\DispatchDetail::where('sale_id', $detail->sale_id)
+            ->where('product_id', $detail->product_id)
+            ->value('id');
+        
         $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
             $q->active();
         })->where('sale_detail_id', $detail->id)->sum('quantity');
@@ -81,6 +85,7 @@ class PosReturnSnapshotService
             'checkout_sale_id' => $checkoutSale->id,
             'sale_id' => $detail->sale_id,
             'sale_detail_id' => $detail->id,
+            'dispatch_detail_id' => $dispatchDetailId,
             'product_id' => $detail->product_id,
             'product_name' => $detail->product->product_name,
             'product_code' => $detail->product->product_code,

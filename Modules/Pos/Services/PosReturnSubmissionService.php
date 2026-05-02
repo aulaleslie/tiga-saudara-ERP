@@ -165,6 +165,7 @@ class PosReturnSubmissionService
                         'product_tax_amount' => 0,
                         'location_id' => $returnLine->source_location_id,
                         'tax_id' => $returnLine->tax_id,
+                        'stock_behavior' => $returnLine->stock_behavior,
                     ]);
 
                     $returnLine->update([
@@ -232,12 +233,18 @@ class PosReturnSubmissionService
         $unitPrice = $saleDetail->unit_price;
         $lineTotal = $quantity * $unitPrice;
 
+        $dispatchDetailId = $saleDetail->dispatch_detail_id 
+            ?? \Modules\Sale\Entities\DispatchDetail::where('sale_id', $saleDetail->sale_id)
+                ->where('product_id', $saleDetail->product_id)
+                ->value('id');
+
+
         return PosReturnLine::create(array_merge([
             'pos_return_id' => $posReturn->id,
             'pos_checkout_sale_id' => $checkoutSale->id,
             'sale_id' => $saleDetail->sale_id,
             'sale_detail_id' => $saleDetail->id,
-            'dispatch_detail_id' => $saleDetail->dispatch_detail_id,
+            'dispatch_detail_id' => $dispatchDetailId,
             'source_setting_id' => $checkoutSale->source_setting_id,
             'source_location_id' => $checkoutSale->source_location_id,
             'tax_id' => $saleDetail->tax_id,

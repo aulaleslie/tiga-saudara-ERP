@@ -72,7 +72,17 @@ class PosReturnController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.view'), 403);
         
-        $return->load(['lines.product', 'posTransaction', 'posCheckout', 'saleReturns']);
+        $return->load([
+            'lines.product',
+            'posTransaction',
+            'posCheckout',
+            'approvedBy',
+            'rejectedBy',
+            'receivedBy',
+            'settledBy',
+            'saleReturns.location',
+            'saleReturns.saleReturnDetails.product',
+        ]);
         
         return view('pos::returns.show', compact('return'));
     }
@@ -124,28 +134,90 @@ class PosReturnController extends Controller
 
     public function approve(PosReturn $return)
     {
-        $this->lifecycleService->approve($return->id);
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
+
+        try {
+            $this->lifecycleService->approve($return->id);
+            toast('Retur POS berhasil disetujui.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
         return back();
     }
 
     public function reject(Request $request, PosReturn $return)
     {
-        $this->lifecycleService->reject($return->id, $request->get('reason'));
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $this->lifecycleService->reject($return->id, $data['reason'] ?? null);
+            toast('Retur POS berhasil ditolak.', 'warning');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
         return back();
     }
 
     public function receive(PosReturn $return)
     {
-        // TODO: Implement receive
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.receive'), 403);
+
+        try {
+            $this->lifecycleService->receive($return->id);
+            toast('Retur POS berhasil diterima.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return back();
     }
 
     public function settle(PosReturn $return)
     {
-        // TODO: Implement settle
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.settle'), 403);
+
+        if ($return->return_option !== PosReturn::OPTION_CASH_RETURN) {
+            toast('Penyelesaian tunai hanya tersedia untuk retur dengan opsi kembali uang.', 'error');
+            return back();
+        }
+
+        try {
+            $this->lifecycleService->settlePaymentReturn($return->id);
+            toast('Retur POS berhasil diselesaikan dengan pengembalian tunai.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return back();
     }
 
     public function dispatch(PosReturn $return)
     {
-        // TODO: Implement dispatch
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.dispatch'), 403);
+
+        if ($return->return_option !== PosReturn::OPTION_PRODUCT_REPLACEMENT) {
+            toast('Pengiriman pengganti hanya tersedia untuk retur dengan opsi ganti produk.', 'error');
+            return back();
+        }
+
+        try {
+            $this->lifecycleService->dispatchReplacement($return->id);
+            toast('Pengiriman pengganti berhasil diproses.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return back();
     }
 }

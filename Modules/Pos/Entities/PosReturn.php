@@ -4,6 +4,7 @@ namespace Modules\Pos\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\User;
 use Modules\SalesReturn\Entities\SaleReturn;
 
 class PosReturn extends Model
@@ -94,6 +95,26 @@ class PosReturn extends Model
     public function posCheckout()
     {
         return $this->belongsTo(\Modules\Pos\Entities\PosCheckout::class);
+    }
+
+    public function approvedBy()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function rejectedBy()
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
+    }
+
+    public function receivedBy()
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function settledBy()
+    {
+        return $this->belongsTo(User::class, 'settled_by');
     }
 
     public function scopeActive($query)

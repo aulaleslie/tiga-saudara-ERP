@@ -31,6 +31,8 @@ class SaleReturnDetail extends BaseModel
         'location_id',
         'tax_id',
         'serial_number_ids',
+        'bundle_group_key',
+        'stock_behavior',
     ];
 
     protected $with = ['product'];
