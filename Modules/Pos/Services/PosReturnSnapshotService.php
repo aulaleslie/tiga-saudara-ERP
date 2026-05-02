@@ -20,7 +20,8 @@ class PosReturnSnapshotService
     {
         $transaction = PosTransaction::with([
             'customer',
-            'completedCheckout.checkoutSales.sale.saleDetails.bundleItems',
+            'completedCheckout.checkoutSales.sale.saleDetails.product',
+            'completedCheckout.checkoutSales.sale.saleDetails.bundleItems.product',
             'completedCheckout.payments'
         ])->findOrFail($posTransactionId);
 

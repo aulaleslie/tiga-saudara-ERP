@@ -13,7 +13,25 @@ use Modules\Pos\Entities\PosReturnLine;
 
 class SaleReturnDetail extends BaseModel
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'sale_return_id',
+        'pos_return_line_id',
+        'sale_detail_id',
+        'dispatch_detail_id',
+        'product_id',
+        'product_name',
+        'product_code',
+        'quantity',
+        'price',
+        'unit_price',
+        'sub_total',
+        'product_discount_amount',
+        'product_discount_type',
+        'product_tax_amount',
+        'location_id',
+        'tax_id',
+        'serial_number_ids',
+    ];
 
     protected $with = ['product'];
 
@@ -47,20 +65,6 @@ class SaleReturnDetail extends BaseModel
             self::METHOD_CUSTOMER_CREDIT => 'Simpan Sebagai Kredit',
             self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
         ];
-    }
-
-    public static function selectableSettlementMethods(): array
-    {
-        return [
-            self::METHOD_PRODUCT_REPAIR => 'Perbaikan/Pergantian Produk',
-            self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
-            self::METHOD_UNPROCESSED    => 'Tidak dapat diproses',
-        ];
-    }
-
-    public function settlementItems(): \Illuminate\Database\Eloquent\Relations\HasMany
-    {
-        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_detail_id');
     }
 
     public function product(): BelongsTo

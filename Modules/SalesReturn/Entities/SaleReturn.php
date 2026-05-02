@@ -17,7 +17,39 @@ use Modules\Pos\Entities\PosReturn;
 class SaleReturn extends BaseModel
 {
     use Archivable;
-    protected $guarded = [];
+    
+    protected $fillable = [
+        'date',
+        'reference',
+        'sale_id',
+        'sale_reference',
+        'customer_id',
+        'customer_name',
+        'setting_id',
+        'location_id',
+        'tax_percentage',
+        'tax_amount',
+        'discount_percentage',
+        'discount_amount',
+        'shipping_amount',
+        'total_amount',
+        'paid_amount',
+        'due_amount',
+        'status',
+        'payment_status',
+        'payment_method',
+        'note',
+        'pos_return_id',
+        'approval_status',
+        'return_type',
+        'approved_by',
+        'approved_at',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
+        'settled_at',
+        'settled_by',
+    ];
 
     protected $casts = [
         'tax_amount'       => 'decimal:2',
@@ -49,6 +81,11 @@ class SaleReturn extends BaseModel
         return $this->hasMany(SaleReturnPayment::class, 'sale_return_id', 'id');
     }
 
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\People\Entities\Customer::class, 'customer_id', 'id');
+    }
+
     public function sale(): BelongsTo
     {
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
@@ -64,132 +101,49 @@ class SaleReturn extends BaseModel
         return $this->belongsTo(Setting::class, 'setting_id', 'id');
     }
 
-    public function saleReturnGoods(): Builder|HasMany|SaleReturnGood
-    {
-        return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
-    }
-
-    public function customerCredit(): HasOne|Builder|CustomerCredit
-    {
-        return $this->hasOne(CustomerCredit::class, 'sale_return_id', 'id');
-    }
-
-    public function settlementItems(): HasMany
-    {
-        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_id');
-    }
-
     public function approvedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'approved_by');
+        return $this->belongsTo(User::class, 'approved_by', 'id');
     }
 
     public function rejectedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'rejected_by');
+        return $this->belongsTo(User::class, 'rejected_by', 'id');
     }
 
     public function settledBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'settled_by');
+        return $this->belongsTo(User::class, 'settled_by', 'id');
     }
 
-    public function receivedBy(): BelongsTo
+    public function scopeActive(Builder $query)
     {
-        return $this->belongsTo(User::class, 'received_by');
+        return $query->where('status', '!=', 'Cancelled');
     }
 
-    public static function boot(): void
+    public function scopePending(Builder $query)
     {
-        parent::boot();
-
-        static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
-            $settingId = $model->setting_id;
-
-            // Fetch the latest reference for the current year, month, and setting
-            $latestReference = SaleReturn::withArchived()
-                ->where('setting_id', $settingId)
-                ->whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
-
-            // Extract the number from the latest reference
-            $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Grab the setting from model (works during queue processing)
-            $setting = Setting::find($settingId);
-
-            // Build prefix:
-            // 1) take document_prefix if truthy, else empty string
-            // 2) then take sale_return_prefix_document if truthy, else fallback to 'SLRN'
-            $docPrefix = optional($setting)->document_prefix;
-            $returnPrefix = optional($setting)->sale_return_prefix_document ?: 'SLRN';
-            
-            $prefix = ($docPrefix ? $docPrefix . '-' : '') . $returnPrefix;
-
-            // Generate the new reference ID
-            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
-        });
+        return $query->where('status', 'Pending');
     }
 
-    public function scopeCompleted($query) {
+    public function scopeCompleted(Builder $query)
+    {
         return $query->where('status', 'Completed');
     }
 
-    public function scopeApproved($query)
+    /**
+     * Get the credit associated with this return.
+     */
+    public function customerCredit(): HasOne
     {
-        return $query->whereRaw('LOWER(approval_status) = ?', ['approved']);
-    }
-
-    public function scopePending($query)
-    {
-        return $query->whereRaw('LOWER(approval_status) = ?', ['pending']);
-    }
-
-    public function scopeRejected($query)
-    {
-        return $query->whereRaw('LOWER(approval_status) = ?', ['rejected']);
-    }
-
-    public function scopeDraft($query)
-    {
-        return $query->whereRaw('LOWER(approval_status) = ?', ['draft']);
+        return $this->hasOne(CustomerCredit::class, 'sale_return_id', 'id');
     }
 
     /**
-     * Compute roll-up settlement status from per-line item states.
-     * Returns: 'Awaiting Settlement', 'Settled Partially', or 'Settled'
-     *
-     * @return string
+     * Get the goods received associated with this return.
      */
-    public function getSettlementStatusAttribute(): string
+    public function returnGoods(): HasMany
     {
-        $items = $this->relationLoaded('settlementItems')
-            ? $this->settlementItems
-            : $this->settlementItems()->get();
-
-        if ($items->isEmpty()) {
-            return 'Awaiting Settlement';
-        }
-
-        $finalStatuses = SaleReturnItemSettlement::finalSettlementStatuses();
-        $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $finalStatuses, true));
-        $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $finalStatuses, true));
-
-        if ($allApproved) {
-            return 'Settled';
-        } elseif ($anyApproved) {
-            return 'Settled Partially';
-        }
-
-        return 'Awaiting Settlement';
+        return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
     }
 }
