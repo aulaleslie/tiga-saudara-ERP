@@ -21,6 +21,7 @@ class PosReturn extends Model
     public const STATUS_AWAITING_RECEIVING = 'awaiting_receiving';
     public const STATUS_AWAITING_SETTLEMENT = 'awaiting_settlement';
     public const STATUS_AWAITING_DISPATCH = 'awaiting_dispatch';
+    public const STATUS_MANUAL_CORRECTION_REQUIRED = 'manual_correction_required';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_ARCHIVED = 'archived';
     public const STATUS_CANCELLED = 'cancelled';
@@ -61,6 +62,10 @@ class PosReturn extends Model
         'cancelled_by',
         'cancelled_at',
         'cancel_reason',
+        'manual_correction_action',
+        'manual_correction_reason',
+        'manual_correction_required_by',
+        'manual_correction_required_at',
         'created_by',
         'updated_by',
     ];
@@ -75,6 +80,7 @@ class PosReturn extends Model
         'settled_at' => 'datetime',
         'archived_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'manual_correction_required_at' => 'datetime',
     ];
 
     public function lines()
@@ -117,8 +123,19 @@ class PosReturn extends Model
         return $this->belongsTo(User::class, 'settled_by');
     }
 
+    public function manualCorrectionRequiredBy()
+    {
+        return $this->belongsTo(User::class, 'manual_correction_required_by');
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_reversed', false);
+    }
+
+    public function requiresManualCorrection(): bool
+    {
+        return $this->manual_correction_required_at !== null
+            || $this->status === self::STATUS_MANUAL_CORRECTION_REQUIRED;
     }
 }

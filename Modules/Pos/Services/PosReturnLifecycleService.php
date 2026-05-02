@@ -2,6 +2,9 @@
 
 namespace Modules\Pos\Services;
 
+use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Exceptions\PosReturnManualCorrectionRequiredException;
+
 class PosReturnLifecycleService
 {
     /**
@@ -12,11 +15,14 @@ class PosReturnLifecycleService
      */
     public function approve(int $posReturnId): void
     {
-        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
+        $this->runLifecycleMutation($posReturnId, 'approve', function () use ($posReturnId) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
                 throw new \Exception("Only pending approval returns can be approved.");
@@ -32,19 +38,24 @@ class PosReturnLifecycleService
                 'approved_at' => $approvedAt,
             ]);
 
-            // Sync linked Sales Returns
-            foreach ($posReturn->saleReturns as $saleReturn) {
-                $saleReturn->update([
-                    'status' => 'AWAITING RECEIVING',
-                    'approval_status' => 'APPROVED',
-                    'approved_by' => $actorId,
-                    'approved_at' => $approvedAt,
-                    'rejected_by' => null,
-                    'rejected_at' => null,
-                    'rejection_reason' => null,
-                ]);
-            }
+            $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
+            });
         });
+    }
+
+    protected function syncApprovedSaleReturns(\Modules\Pos\Entities\PosReturn $posReturn, ?int $actorId, \Illuminate\Support\Carbon $approvedAt): void
+    {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            $saleReturn->update([
+                'status' => 'AWAITING RECEIVING',
+                'approval_status' => 'APPROVED',
+                'approved_by' => $actorId,
+                'approved_at' => $approvedAt,
+                'rejected_by' => null,
+                'rejected_at' => null,
+                'rejection_reason' => null,
+            ]);
+        }
     }
 
     /**
@@ -55,26 +66,18 @@ class PosReturnLifecycleService
      */
     public function receive(int $posReturnId): void
     {
-        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
+        $this->runLifecycleMutation($posReturnId, 'receive', function () use ($posReturnId) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
             $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns.saleReturnDetails', 'lines'])->findOrFail($posReturnId);
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_APPROVED) {
                 throw new \Exception("Only approved returns can be received.");
             }
 
-            foreach ($posReturn->saleReturns as $saleReturn) {
-                $this->processSaleReturnReceiving($saleReturn);
-            }
-
-            // FR-008: Authoritative Reduction of dispatch quantity
-            foreach ($posReturn->lines as $line) {
-                if ($line->dispatch_detail_id) {
-                    $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($line->dispatch_detail_id);
-                    if ($dispatchDetail) {
-                        $dispatchDetail->decrement('dispatched_quantity', $line->quantity);
-                    }
-                }
-            }
+            $this->receiveLinkedSaleReturns($posReturn);
+            $this->applyReceivedDispatchQuantityAdjustments($posReturn);
 
             $nextStatus = $posReturn->return_option === \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN
                 ? \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_SETTLEMENT
@@ -85,7 +88,31 @@ class PosReturnLifecycleService
                 'received_by' => \Illuminate\Support\Facades\Auth::id(),
                 'received_at' => now(),
             ]);
+            });
         });
+    }
+
+    protected function receiveLinkedSaleReturns(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            $this->processSaleReturnReceiving($saleReturn);
+        }
+    }
+
+    protected function applyReceivedDispatchQuantityAdjustments(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        foreach ($posReturn->lines as $line) {
+            if (! $line->dispatch_detail_id) {
+                continue;
+            }
+
+            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($line->dispatch_detail_id);
+            if (! $dispatchDetail) {
+                continue;
+            }
+
+            $dispatchDetail->decrement('dispatched_quantity', $line->quantity);
+        }
     }
 
     /**
@@ -234,12 +261,15 @@ class PosReturnLifecycleService
      */
     public function settlePaymentReturn(int $posReturnId): void
     {
-        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
+        $this->runLifecycleMutation($posReturnId, 'settle_payment_return', function () use ($posReturnId) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
                 ->with(['saleReturns.saleReturnPayments'])
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             if ($posReturn->return_option !== \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN) {
                 throw new \Exception('Hanya retur dengan opsi kembali uang yang dapat diproses sebagai pengembalian tunai.');
@@ -265,29 +295,7 @@ class PosReturnLifecycleService
                     break;
                 }
 
-                \Modules\SalesReturn\Entities\SaleReturnPayment::create([
-                    'sale_return_id' => $saleReturn->id,
-                    'amount' => $settlementAmount,
-                    'date' => $settledAt->toDateString(),
-                    'reference' => 'SRPAY/' . $saleReturn->reference,
-                    'payment_method' => 'CASH',
-                    'note' => 'Penyelesaian Retur POS',
-                ]);
-
-                $newPaidAmount = (float) $saleReturn->paid_amount + $settlementAmount;
-                $newDueAmount = max(0, (float) $saleReturn->due_amount - $settlementAmount);
-
-                $saleReturn->update([
-                    'status' => 'Completed',
-                    'payment_status' => 'Paid',
-                    'paid_amount' => $newPaidAmount,
-                    'due_amount' => $newDueAmount,
-                    'settled_at' => $settledAt,
-                    'settled_by' => $actorId,
-                ]);
-
-                app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
-                    ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+                $this->settleLinkedCashReturn($saleReturn, $settlementAmount, $settledAt, $actorId);
 
                 $processedAmount += $settlementAmount;
                 $remainingPosReturnAmount = max(0, $remainingPosReturnAmount - $settlementAmount);
@@ -302,7 +310,39 @@ class PosReturnLifecycleService
                 'settled_at' => $settledAt,
                 'settled_by' => $actorId,
             ]);
+            });
         });
+    }
+
+    protected function settleLinkedCashReturn(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        float $settlementAmount,
+        \Illuminate\Support\Carbon $settledAt,
+        ?int $actorId
+    ): void {
+        \Modules\SalesReturn\Entities\SaleReturnPayment::create([
+            'sale_return_id' => $saleReturn->id,
+            'amount' => $settlementAmount,
+            'date' => $settledAt->toDateString(),
+            'reference' => 'SRPAY/' . $saleReturn->reference,
+            'payment_method' => 'CASH',
+            'note' => 'Penyelesaian Retur POS',
+        ]);
+
+        $newPaidAmount = (float) $saleReturn->paid_amount + $settlementAmount;
+        $newDueAmount = max(0, (float) $saleReturn->due_amount - $settlementAmount);
+
+        $saleReturn->update([
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'paid_amount' => $newPaidAmount,
+            'due_amount' => $newDueAmount,
+            'settled_at' => $settledAt,
+            'settled_by' => $actorId,
+        ]);
+
+        app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
+            ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
     }
 
     /**
@@ -313,12 +353,15 @@ class PosReturnLifecycleService
      */
     public function dispatchReplacement(int $posReturnId): void
     {
-        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
+        $this->runLifecycleMutation($posReturnId, 'dispatch_replacement', function () use ($posReturnId) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
                 ->with(['saleReturns.saleReturnDetails.posReturnLine'])
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             if ($posReturn->return_option !== \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT) {
                 throw new \Exception('Hanya retur dengan opsi ganti produk yang dapat diproses sebagai pengiriman pengganti.');
@@ -332,37 +375,7 @@ class PosReturnLifecycleService
             $settledAt = now();
 
             foreach ($posReturn->saleReturns as $saleReturn) {
-                $dispatch = \Modules\Sale\Entities\Dispatch::create([
-                    'sale_id' => $saleReturn->sale_id,
-                    'dispatch_date' => $settledAt,
-                    'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
-                    'approved_by' => $actorId,
-                    'approved_at' => $settledAt,
-                ]);
-
-                foreach ($saleReturn->saleReturnDetails as $detail) {
-                    $this->assertReplacementDispatchEligibility($detail);
-
-                    \Modules\Sale\Entities\DispatchDetail::create([
-                        'dispatch_id' => $dispatch->id,
-                        'sale_id' => $saleReturn->sale_id,
-                        'product_id' => $detail->product_id,
-                        'dispatched_quantity' => (int) $detail->quantity,
-                        'location_id' => $detail->location_id,
-                        'tax_id' => $detail->tax_id,
-                    ]);
-
-                    $this->adjustStockForReplacement($detail, $actorId);
-                }
-
-                $saleReturn->update([
-                    'status' => 'COMPLETED',
-                    'settled_at' => $settledAt,
-                    'settled_by' => $actorId,
-                ]);
-
-                app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
-                    ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+                $this->dispatchReplacementForSaleReturn($saleReturn, $actorId, $settledAt);
             }
 
             $posReturn->update([
@@ -370,13 +383,52 @@ class PosReturnLifecycleService
                 'settled_at' => $settledAt,
                 'settled_by' => $actorId,
             ]);
+            });
         });
+    }
+
+    protected function dispatchReplacementForSaleReturn(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $settledAt
+    ): void {
+        $dispatch = \Modules\Sale\Entities\Dispatch::create([
+            'sale_id' => $saleReturn->sale_id,
+            'dispatch_date' => $settledAt,
+            'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
+            'approved_by' => $actorId,
+            'approved_at' => $settledAt,
+        ]);
+
+        foreach ($saleReturn->saleReturnDetails as $detail) {
+            $this->assertReplacementDispatchEligibility($detail);
+
+            \Modules\Sale\Entities\DispatchDetail::create([
+                'dispatch_id' => $dispatch->id,
+                'sale_id' => $saleReturn->sale_id,
+                'product_id' => $detail->product_id,
+                'dispatched_quantity' => (int) $detail->quantity,
+                'location_id' => $detail->location_id,
+                'tax_id' => $detail->tax_id,
+            ]);
+
+            $this->adjustStockForReplacement($detail, $actorId);
+        }
+
+        $saleReturn->update([
+            'status' => 'COMPLETED',
+            'settled_at' => $settledAt,
+            'settled_by' => $actorId,
+        ]);
+
+        app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
+            ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
     }
 
     /**
      * Adjust stock for replacement items.
      */
-    private function adjustStockForReplacement(\Modules\SalesReturn\Entities\SaleReturnDetail $detail, int $actorId): void
+    protected function adjustStockForReplacement(\Modules\SalesReturn\Entities\SaleReturnDetail $detail, int $actorId): void
     {
         $product = \Modules\Product\Entities\Product::findOrFail($detail->product_id);
         $qty = $detail->quantity;
@@ -452,6 +504,10 @@ class PosReturnLifecycleService
             throw new \RuntimeException('Jumlah barang pengganti harus sama dengan jumlah barang retur yang sudah diterima.');
         }
 
+        if ((int) $line->source_setting_id !== (int) $detail->saleReturn->setting_id) {
+            throw new \RuntimeException('Pengiriman pengganti harus berasal dari owner atau setting sumber asli retur.');
+        }
+
         if ((int) $line->source_location_id !== (int) $detail->location_id) {
             throw new \RuntimeException('Pengiriman pengganti harus berasal dari lokasi sumber asli retur.');
         }
@@ -459,12 +515,16 @@ class PosReturnLifecycleService
 
     public function archive(int $posReturnId, ?string $reason = null): void
     {
-        $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED, $reason);
+        $this->runLifecycleMutation($posReturnId, 'archive', function () use ($posReturnId, $reason) {
+            $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED, $reason);
+        });
     }
 
     public function cancel(int $posReturnId, ?string $reason = null): void
     {
-        $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_CANCELLED, $reason);
+        $this->runLifecycleMutation($posReturnId, 'cancel', function () use ($posReturnId, $reason) {
+            $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_CANCELLED, $reason);
+        });
     }
 
     private function transitionToAuditedReversalState(int $posReturnId, string $targetStatus, ?string $reason = null): void
@@ -475,6 +535,8 @@ class PosReturnLifecycleService
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             $this->assertCanBeReversedBeforeReceiving($posReturn, $targetStatus);
 
@@ -500,23 +562,33 @@ class PosReturnLifecycleService
             $posReturn->update($attributes);
 
             foreach ($posReturn->saleReturns as $saleReturn) {
-                if ($targetStatus === \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED) {
-                    $saleReturn->forceFill([
-                        'archived_by' => $actorId,
-                        'archived_at' => $timestamp,
-                    ])->save();
-
-                    continue;
-                }
-
-                $saleReturn->update([
-                    'status' => 'Cancelled',
-                    'rejected_by' => $actorId,
-                    'rejected_at' => $timestamp,
-                    'rejection_reason' => $reason,
-                ]);
+                $this->applyAuditedReversalToLinkedSaleReturn($saleReturn, $targetStatus, $actorId, $timestamp, $reason);
             }
         });
+    }
+
+    protected function applyAuditedReversalToLinkedSaleReturn(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        string $targetStatus,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $timestamp,
+        ?string $reason = null
+    ): void {
+        if ($targetStatus === \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED) {
+            $saleReturn->forceFill([
+                'archived_by' => $actorId,
+                'archived_at' => $timestamp,
+            ])->save();
+
+            return;
+        }
+
+        $saleReturn->update([
+            'status' => 'Cancelled',
+            'rejected_by' => $actorId,
+            'rejected_at' => $timestamp,
+            'rejection_reason' => $reason,
+        ]);
     }
 
     private function assertCanBeReversedBeforeReceiving(\Modules\Pos\Entities\PosReturn $posReturn, string $targetStatus): void
@@ -553,11 +625,14 @@ class PosReturnLifecycleService
      */
     public function reject(int $posReturnId, ?string $reason = null): void
     {
-        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $reason) {
+        $this->runLifecycleMutation($posReturnId, 'reject', function () use ($posReturnId, $reason) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $reason) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $this->assertManualCorrectionIsNotRequired($posReturn);
 
             if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
                 throw new \Exception("Only pending approval returns can be rejected.");
@@ -574,18 +649,70 @@ class PosReturnLifecycleService
                 'rejection_reason' => $reason,
             ]);
 
-            // Sync linked Sales Returns
-            foreach ($posReturn->saleReturns as $saleReturn) {
-                $saleReturn->update([
-                    'status' => 'REJECTED',
-                    'approval_status' => 'REJECTED',
-                    'rejected_by' => $actorId,
-                    'rejected_at' => $rejectedAt,
-                    'rejection_reason' => $reason,
-                    'approved_by' => null,
-                    'approved_at' => null,
-                ]);
-            }
+            $this->syncRejectedSaleReturns($posReturn, $actorId, $rejectedAt, $reason);
+            });
         });
+    }
+
+    protected function runLifecycleMutation(int $posReturnId, string $lifecycleAction, callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (PosReturnManualCorrectionRequiredException $exception) {
+            $this->markManualCorrectionRequired($posReturnId, $exception->lifecycleAction(), $exception->auditReason());
+
+            throw new \RuntimeException(
+                'Retur POS memerlukan koreksi manual teraudit sebelum proses berikutnya dapat dijalankan. ' . $exception->auditReason(),
+                0,
+                $exception
+            );
+        }
+    }
+
+    protected function markManualCorrectionRequired(int $posReturnId, string $lifecycleAction, string $reason): void
+    {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $lifecycleAction, $reason) {
+            $posReturn = PosReturn::query()
+                ->whereKey($posReturnId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $posReturn->forceFill([
+                'status' => PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                'manual_correction_action' => $lifecycleAction,
+                'manual_correction_reason' => $reason,
+                'manual_correction_required_by' => \Illuminate\Support\Facades\Auth::id(),
+                'manual_correction_required_at' => now(),
+                'updated_by' => \Illuminate\Support\Facades\Auth::id(),
+            ])->save();
+        });
+    }
+
+    protected function assertManualCorrectionIsNotRequired(PosReturn $posReturn): void
+    {
+        if (! $posReturn->requiresManualCorrection()) {
+            return;
+        }
+
+        throw new \RuntimeException('Retur POS ini sedang diblokir dan memerlukan koreksi manual teraudit sebelum aksi lifecycle lain dijalankan.');
+    }
+
+    protected function syncRejectedSaleReturns(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $rejectedAt,
+        ?string $reason = null
+    ): void {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            $saleReturn->update([
+                'status' => 'REJECTED',
+                'approval_status' => 'REJECTED',
+                'rejected_by' => $actorId,
+                'rejected_at' => $rejectedAt,
+                'rejection_reason' => $reason,
+                'approved_by' => null,
+                'approved_at' => null,
+            ]);
+        }
     }
 }

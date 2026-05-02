@@ -132,7 +132,7 @@
 - [x] T059 [P] [US3] Add post-approval and post-receiving edit/delete/reject block tests in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
 - [x] T060 [P] [US3] Add permission revocation tests before approve, receive, payment-return-settlement via `pos.returns.settle`, and replacement-dispatch actions in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
 - [x] T061 [P] [US3] Add audited archive/cancel workflow tests for approved-before-receiving returns and blocked received/settled/dispatched returns in `Modules/Pos/Tests/Feature/POSReturnArchiveCancelWorkflowTest.php`
-- [ ] T062 [P] [US3] Add atomic rollback tests for approve, reject, receive, payment return settlement, replacement dispatch, and archive/cancel failures in `Modules/Pos/Tests/Feature/POSReturnAtomicLifecycleTest.php`
+- [x] T062 [P] [US3] Add atomic rollback tests for approve, reject, receive, payment return settlement, replacement dispatch, and archive/cancel failures in `Modules/Pos/Tests/Feature/POSReturnAtomicLifecycleTest.php`
 
 ### Implementation for User Story 3
 
@@ -142,8 +142,8 @@
 - [x] T066 [US3] Implement replacement dispatch guard for product replacement returns, same-SKU rule, same-quantity rule, and original owner/location source checks in `Modules/Pos/Services/PosReturnLifecycleService.php`
 - [x] T067 [US3] Implement audited archive/cancel behavior with actor, timestamp, reason, linked Sales Return state handling, and inventory/financial mutation guards in `Modules/Pos/Services/PosReturnLifecycleService.php`
 - [x] T068 [US3] Wrap approve, reject, receive, payment-return-settlement, replacement-dispatch, and archive/cancel actions in atomic database transactions in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T069 [US3] Implement non-rollbackable external-effect failure handling that blocks further lifecycle progress and records required audited manual correction state in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T070 [P] [US3] Add manual correction blocking tests for non-rollbackable lifecycle failures in `Modules/Pos/Tests/Feature/POSReturnManualCorrectionWorkflowTest.php`
+- [x] T069 [US3] Implement non-rollbackable external-effect failure handling that blocks further lifecycle progress and records required audited manual correction state in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T070 [P] [US3] Add manual correction blocking tests for non-rollbackable lifecycle failures in `Modules/Pos/Tests/Feature/POSReturnManualCorrectionWorkflowTest.php`
 - [x] T071 [US3] Implement approve, reject, receive, payment-return-settlement, dispatch, archive, and cancel controller actions with permission gates and lifecycle errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
 - [x] T072 [US3] Render POS Return status header, linked Sales Return summary, approval controls, receiving control, payment return settlement control, dispatch control, and archive/cancel control in `Modules/Pos/Resources/views/returns/show.blade.php`
 - [x] T073 [P] [US3] Add reusable POS Return and linked Sales Return status partial in `Modules/Pos/Resources/views/returns/partials/status.blade.php`
@@ -162,19 +162,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T076 [P] [US4] Add split-owner POS return mapping tests in `Modules/Pos/Tests/Feature/POSReturnSplitOwnerMappingTest.php`
-- [ ] T077 [P] [US4] Add dispatch quantity reduction tests after receiving split-owner returns in `Modules/Pos/Tests/Feature/POSReturnDispatchQuantityAdjustmentTest.php`
-- [ ] T078 [P] [US4] Add replacement source owner/location constraint tests in `Modules/Pos/Tests/Feature/POSReturnReplacementSourceConstraintTest.php`
-- [ ] T079 [P] [US4] Add serial-tracked split-owner return tests in `Modules/Pos/Tests/Feature/POSReturnSerialSplitOwnerTest.php`
+- [x] T076 [P] [US4] Add split-owner POS return mapping tests in `Modules/Pos/Tests/Feature/POSReturnSplitOwnerMappingTest.php`
+- [x] T077 [P] [US4] Add dispatch quantity reduction tests after receiving split-owner returns in `Modules/Pos/Tests/Feature/POSReturnDispatchQuantityAdjustmentTest.php`
+- [x] T078 [P] [US4] Add replacement source owner/location constraint tests in `Modules/Pos/Tests/Feature/POSReturnReplacementSourceConstraintTest.php`
+- [x] T079 [P] [US4] Add serial-tracked split-owner return tests in `Modules/Pos/Tests/Feature/POSReturnSerialSplitOwnerTest.php`
 
 ### Implementation for User Story 4
 
-- [ ] T080 [US4] Preserve source setting, source location, tax, sale, sale detail, dispatch detail, checkout sale, and serial IDs on every line in `Modules/Pos/Services/PosReturnSubmissionService.php`
-- [ ] T081 [US4] Group linked Sales Return creation by original sale and owner/location context in `Modules/Pos/Services/PosReturnSubmissionService.php`
-- [ ] T082 [US4] Apply dispatch-detail quantity reduction only after receiving linked Sales Returns in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T083 [US4] Enforce replacement source setting/location constraints before dispatch request or dispatch approval in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T084 [US4] Preserve serial-level return identity from original dispatch details through linked Sales Return details in `Modules/Pos/Services/PosReturnSubmissionService.php`
-- [ ] T085 [US4] Show owner, sale reference, dispatch detail, location, tax, and serial context on POS Return detail rows in `Modules/Pos/Resources/views/returns/show.blade.php`
+- [x] T080 [US4] Preserve source setting, source location, tax, sale, sale detail, dispatch detail, checkout sale, and serial IDs on every line in `Modules/Pos/Services/PosReturnSubmissionService.php`
+- [x] T081 [US4] Group linked Sales Return creation by original sale and owner/location context in `Modules/Pos/Services/PosReturnSubmissionService.php`
+- [x] T082 [US4] Apply dispatch-detail quantity reduction only after receiving linked Sales Returns in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T083 [US4] Enforce replacement source setting/location constraints before dispatch request or dispatch approval in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T084 [US4] Preserve serial-level return identity from original dispatch details through linked Sales Return details in `Modules/Pos/Services/PosReturnSubmissionService.php`
+- [x] T085 [US4] Show owner, sale reference, dispatch detail, location, tax, and serial context on POS Return detail rows in `Modules/Pos/Resources/views/returns/show.blade.php`
 
 **Checkpoint**: User Story 4 proves split-owner POS reversals stay aligned with the original generated sales and dispatches.
 

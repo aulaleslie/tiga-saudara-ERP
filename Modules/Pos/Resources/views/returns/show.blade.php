@@ -2,6 +2,7 @@
     $status = strtolower((string) $return->status);
     $approvalStatus = strtolower((string) $return->approval_status);
     $isCashReturn = $return->return_option === \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN;
+    $requiresManualCorrection = ! empty($return->manual_correction_required_at);
 @endphp
 
 @extends('layouts.app')
@@ -9,7 +10,7 @@
 @section('title', 'Detail Retur POS')
 
 @can('pos.returns.approve')
-    @if($approvalStatus === 'pending')
+    @if($approvalStatus === 'pending' && ! $requiresManualCorrection)
         @push('page_scripts')
             <script>
                 function posReturnReject{{ $return->id }}() {
@@ -26,7 +27,7 @@
 @endcan
 
 @can('pos.returns.delete')
-    @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at)
+    @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at && ! $requiresManualCorrection)
         @push('page_scripts')
             <script>
                 function posReturnArchive{{ $return->id }}() {
@@ -75,7 +76,7 @@
                             <span class="badge bg-light text-dark border text-uppercase me-2 mb-1">{{ str_replace('_', ' ', $return->approval_status) }}</span>
 
                             @can('pos.returns.edit')
-                                @if($status === 'pending_approval')
+                                @if($status === 'pending_approval' && ! $requiresManualCorrection)
                                     <a href="{{ route('pos.returns.edit', $return) }}" class="btn btn-primary btn-sm me-2 mb-1">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
@@ -83,7 +84,7 @@
                             @endcan
 
                             @can('pos.returns.approve')
-                                @if($approvalStatus === 'pending')
+                                @if($approvalStatus === 'pending' && ! $requiresManualCorrection)
                                     <form method="POST" action="{{ route('pos.returns.approve', $return) }}" class="d-inline me-2 mb-1">
                                         @csrf
                                         <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Setujui retur POS ini?')">
@@ -101,7 +102,7 @@
                             @endcan
 
                             @can('pos.returns.receive')
-                                @if($status === 'approved')
+                                @if($status === 'approved' && ! $requiresManualCorrection)
                                     <form method="POST" action="{{ route('pos.returns.receive', $return) }}" class="d-inline me-2 mb-1">
                                         @csrf
                                         <button type="submit" class="btn btn-outline-primary btn-sm" onclick="return confirm('Terima barang retur ini?')">
@@ -112,7 +113,7 @@
                             @endcan
 
                             @can('pos.returns.settle')
-                                @if($status === 'awaiting_settlement' && $isCashReturn)
+                                @if($status === 'awaiting_settlement' && $isCashReturn && ! $requiresManualCorrection)
                                     <form method="POST" action="{{ route('pos.returns.settle', $return) }}" class="d-inline me-2 mb-1">
                                         @csrf
                                         <button type="submit" class="btn btn-outline-success btn-sm" onclick="return confirm('Proses pengembalian tunai untuk retur ini?')">
@@ -123,7 +124,7 @@
                             @endcan
 
                             @can('pos.returns.dispatch')
-                                @if($status === 'awaiting_dispatch' && ! $isCashReturn)
+                                @if($status === 'awaiting_dispatch' && ! $isCashReturn && ! $requiresManualCorrection)
                                     <form method="POST" action="{{ route('pos.returns.dispatch', $return) }}" class="d-inline me-2 mb-1">
                                         @csrf
                                         <button type="submit" class="btn btn-outline-warning btn-sm" onclick="return confirm('Proses pengiriman pengganti untuk retur ini?')">
@@ -134,7 +135,7 @@
                             @endcan
 
                             @can('pos.returns.delete')
-                                @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at)
+                                @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at && ! $requiresManualCorrection)
                                     <form id="pos-return-archive-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.archive', $return) }}" class="d-none">
                                         @csrf
                                         <input type="hidden" name="reason" value="">
@@ -154,6 +155,15 @@
                         </div>
                     </div>
                     <div class="card-body">
+                        @if($requiresManualCorrection)
+                            <div class="alert alert-danger mb-4">
+                                <div class="fw-semibold mb-1">Retur POS diblokir untuk koreksi manual teraudit.</div>
+                                <div class="small">Aksi gagal: {{ str_replace('_', ' ', (string) $return->manual_correction_action) ?: '-' }}</div>
+                                <div class="small">Waktu: {{ optional($return->manual_correction_required_at)->translatedFormat('d F Y H:i') ?: '-' }}</div>
+                                <div class="small mb-0">Alasan: {{ $return->manual_correction_reason ?: '-' }}</div>
+                            </div>
+                        @endif
+
                         <div class="row g-4 mb-4">
                             <div class="col-lg-4">
                                 <div class="h-100 border rounded p-3">
@@ -174,6 +184,12 @@
                                         @if($return->rejection_reason)
                                             <dt class="col-5 text-muted">Alasan Tolak</dt>
                                             <dd class="col-7">{{ $return->rejection_reason }}</dd>
+                                        @endif
+                                        @if($requiresManualCorrection)
+                                            <dt class="col-5 text-muted">Koreksi Manual</dt>
+                                            <dd class="col-7">{{ optional($return->manualCorrectionRequiredBy)->name ?? '-' }} / {{ optional($return->manual_correction_required_at)->translatedFormat('d F Y H:i') ?: '-' }}</dd>
+                                            <dt class="col-5 text-muted">Aksi Gagal</dt>
+                                            <dd class="col-7 text-break">{{ str_replace('_', ' ', (string) $return->manual_correction_action) ?: '-' }}</dd>
                                         @endif
                                     </dl>
                                 </div>

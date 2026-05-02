@@ -106,12 +106,16 @@ class PosReturnSubmissionService
                             'bundle_parent_sale_detail_id' => $saleDetail->id,
                             'bundle_quantity' => $lineData['quantity'],
                             'component_quantity_per_bundle' => $bi->quantity,
+                            'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
                         ]);
                         
                         $lineGroups[$saleDetail->sale_id][] = $returnLine;
+                        $totalAmount += $returnLine->line_total;
                     }
                 } else {
-                    $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity']);
+                    $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], [
+                        'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
+                    ]);
                     $lineGroups[$saleDetail->sale_id][] = $returnLine;
                     $totalAmount += $returnLine->line_total;
                 }
@@ -165,6 +169,7 @@ class PosReturnSubmissionService
                         'product_tax_amount' => 0,
                         'location_id' => $returnLine->source_location_id,
                         'tax_id' => $returnLine->tax_id,
+                        'serial_number_ids' => $returnLine->serial_number_ids,
                         'stock_behavior' => $returnLine->stock_behavior,
                     ]);
 
@@ -213,7 +218,9 @@ class PosReturnSubmissionService
 
                 if (!$checkoutSale) continue;
 
-                $line = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], $lineData);
+                $line = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], array_merge($lineData, [
+                    'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
+                ]));
                 $totalAmount += $line->line_total;
             }
 

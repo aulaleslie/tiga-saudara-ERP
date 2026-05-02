@@ -19,6 +19,9 @@
     @case('awaiting dispatch')
         <span class="badge bg-warning text-dark text-uppercase">Awaiting Dispatch</span>
         @break
+    @case('manual correction required')
+        <span class="badge bg-danger text-uppercase">Manual Correction Required</span>
+        @break
     @case('rejected')
     @case('cancelled')
         <span class="badge bg-danger text-uppercase">{{ str_replace('_', ' ', $status) }}</span>
