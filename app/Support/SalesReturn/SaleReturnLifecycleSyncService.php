@@ -76,6 +76,8 @@ class SaleReturnLifecycleSyncService
                 ? ($saleReturn->settled_by ?? $actorId)
                 : $saleReturn->settled_by,
         ]);
+
+        $this->syncLinkedPosReturnCompletion($saleReturn, $actorId);
     }
 
     /**
@@ -87,6 +89,8 @@ class SaleReturnLifecycleSyncService
         if (strtoupper((string) $saleReturn->status) !== 'COMPLETED') {
             return;
         }
+
+        $this->syncLinkedPosReturnCompletion($saleReturn, $actorId);
 
         $saleId = (int) ($saleReturn->sale_id ?? 0);
         if ($saleId <= 0) {
@@ -144,5 +148,38 @@ class SaleReturnLifecycleSyncService
         if (! empty($updates)) {
             $sale->update($updates);
         }
+    }
+
+    private function syncLinkedPosReturnCompletion(SaleReturn $saleReturn, int $actorId): void
+    {
+        $posReturnId = (int) ($saleReturn->pos_return_id ?? 0);
+        if ($posReturnId <= 0) {
+            return;
+        }
+
+        $posReturn = \Modules\Pos\Entities\PosReturn::query()
+            ->with('saleReturns:id,pos_return_id,status')
+            ->whereKey($posReturnId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $posReturn) {
+            return;
+        }
+
+        $allCompleted = $posReturn->saleReturns->isNotEmpty()
+            && $posReturn->saleReturns->every(function (SaleReturn $linkedSaleReturn) {
+                return strtoupper((string) $linkedSaleReturn->status) === 'COMPLETED';
+            });
+
+        if (! $allCompleted) {
+            return;
+        }
+
+        $posReturn->update([
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED,
+            'settled_at' => $posReturn->settled_at ?? now(),
+            'settled_by' => $posReturn->settled_by ?? $actorId,
+        ]);
     }
 }

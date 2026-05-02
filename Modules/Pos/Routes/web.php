@@ -30,6 +30,8 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 
     Route::group(['middleware' => ['can:pos.returns.delete']], function () {
         Route::delete('/pos/returns/{return}', [PosReturnController::class, 'destroy'])->name('pos.returns.destroy')->whereNumber('return');
+        Route::post('/pos/returns/{return}/archive', [PosReturnController::class, 'archive'])->name('pos.returns.archive')->whereNumber('return');
+        Route::post('/pos/returns/{return}/cancel', [PosReturnController::class, 'cancel'])->name('pos.returns.cancel')->whereNumber('return');
     });
 
     Route::group(['middleware' => ['can:pos.returns.approve']], function () {

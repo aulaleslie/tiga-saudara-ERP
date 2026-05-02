@@ -46,6 +46,7 @@ class SalesReturnController extends Controller
 
     public function show(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.show'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.view');
 
         $sale_return->load([
             'saleReturnDetails',
@@ -67,6 +68,7 @@ class SalesReturnController extends Controller
 
     public function edit(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturnSettlements.submit'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.edit');
 
         // Rule: Received -> Hard Block
         if (!is_null($sale_return->received_at)) {
@@ -111,6 +113,7 @@ class SalesReturnController extends Controller
     public function archive(SaleReturn $sale_return)
     {
         abort_if(Gate::denies('saleReturns.archive'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.delete');
 
         // Block if processed
         if (!is_null($sale_return->received_at)) {
@@ -129,6 +132,7 @@ class SalesReturnController extends Controller
 
     public function destroy(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.delete'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.delete');
 
         // Rule: Received -> Hard Block
         if (!is_null($sale_return->received_at)) {
@@ -152,6 +156,7 @@ class SalesReturnController extends Controller
     public function approve(SaleReturn $sale_return)
     {
         abort_if(Gate::denies('saleReturns.approve'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.approve');
 
         $status = Str::lower($sale_return->approval_status ?? '');
 
@@ -187,6 +192,7 @@ class SalesReturnController extends Controller
     public function reject(Request $request, SaleReturn $sale_return)
     {
         abort_if(Gate::denies('saleReturns.approve'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.approve');
 
         $status = Str::lower($sale_return->approval_status ?? '');
 
@@ -221,6 +227,7 @@ class SalesReturnController extends Controller
     public function receive(SaleReturn $sale_return)
     {
         abort_if(Gate::denies('saleReturns.receive'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.receive');
 
         $approvalStatus = Str::lower($sale_return->approval_status ?? '');
         $status = Str::lower($sale_return->status ?? '');
@@ -422,5 +429,14 @@ class SalesReturnController extends Controller
         toast('Retur penjualan berhasil diterima.', 'success');
 
         return back();
+    }
+
+    private function authorizeLinkedPosReturnPermission(SaleReturn $saleReturn, string $permission): void
+    {
+        if (! $saleReturn->pos_return_id) {
+            return;
+        }
+
+        abort_if(Gate::denies($permission), 403);
     }
 }

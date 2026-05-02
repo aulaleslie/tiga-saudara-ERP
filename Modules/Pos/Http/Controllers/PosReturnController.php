@@ -220,4 +220,42 @@ class PosReturnController extends Controller
 
         return back();
     }
+
+    public function archive(Request $request, PosReturn $return)
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $this->lifecycleService->archive($return->id, $data['reason'] ?? null);
+            toast('Retur POS berhasil diarsipkan.', 'warning');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return back();
+    }
+
+    public function cancel(Request $request, PosReturn $return)
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $this->lifecycleService->cancel($return->id, $data['reason'] ?? null);
+            toast('Retur POS berhasil dibatalkan.', 'warning');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return back();
+    }
 }

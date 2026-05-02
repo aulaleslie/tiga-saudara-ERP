@@ -16,3 +16,8 @@ yarn-error.log
 /public/build
 **/.htaccess
 /storage/media-library/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp

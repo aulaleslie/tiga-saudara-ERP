@@ -235,7 +235,11 @@ class PosReturnLifecycleService
     public function settlePaymentReturn(int $posReturnId): void
     {
         \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
-            $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns'])->findOrFail($posReturnId);
+            $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                ->with(['saleReturns.saleReturnPayments'])
+                ->whereKey($posReturnId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             if ($posReturn->return_option !== \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN) {
                 throw new \Exception('Hanya retur dengan opsi kembali uang yang dapat diproses sebagai pengembalian tunai.');
@@ -246,32 +250,57 @@ class PosReturnLifecycleService
             }
 
             $actorId = \Illuminate\Support\Facades\Auth::id();
+            $settledAt = now();
+            $remainingPosReturnAmount = (float) $posReturn->total_amount;
+            $processedAmount = 0.0;
 
             foreach ($posReturn->saleReturns as $saleReturn) {
+                $remainingRefundable = $this->remainingRefundableAmount($saleReturn);
+                if ($remainingRefundable <= 0) {
+                    continue;
+                }
+
+                $settlementAmount = min($remainingRefundable, $remainingPosReturnAmount);
+                if ($settlementAmount <= 0) {
+                    break;
+                }
+
                 \Modules\SalesReturn\Entities\SaleReturnPayment::create([
                     'sale_return_id' => $saleReturn->id,
-                    'amount' => $saleReturn->total_amount,
-                    'date' => now()->toDateString(),
+                    'amount' => $settlementAmount,
+                    'date' => $settledAt->toDateString(),
                     'reference' => 'SRPAY/' . $saleReturn->reference,
                     'payment_method' => 'CASH',
                     'note' => 'Penyelesaian Retur POS',
                 ]);
 
+                $newPaidAmount = (float) $saleReturn->paid_amount + $settlementAmount;
+                $newDueAmount = max(0, (float) $saleReturn->due_amount - $settlementAmount);
+
                 $saleReturn->update([
                     'status' => 'Completed',
                     'payment_status' => 'Paid',
-                    'paid_amount' => $saleReturn->total_amount,
-                    'due_amount' => 0,
-                    'settled_at' => now(),
+                    'paid_amount' => $newPaidAmount,
+                    'due_amount' => $newDueAmount,
+                    'settled_at' => $settledAt,
                     'settled_by' => $actorId,
                 ]);
 
                 app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
                     ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+
+                $processedAmount += $settlementAmount;
+                $remainingPosReturnAmount = max(0, $remainingPosReturnAmount - $settlementAmount);
+            }
+
+            if ($processedAmount <= 0) {
+                throw new \RuntimeException('Tidak ada sisa nominal pengembalian tunai yang dapat diproses.');
             }
 
             $posReturn->update([
                 'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED,
+                'settled_at' => $settledAt,
+                'settled_by' => $actorId,
             ]);
         });
     }
@@ -286,7 +315,7 @@ class PosReturnLifecycleService
     {
         \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
-                ->with(['saleReturns.saleReturnDetails'])
+                ->with(['saleReturns.saleReturnDetails.posReturnLine'])
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -312,6 +341,8 @@ class PosReturnLifecycleService
                 ]);
 
                 foreach ($saleReturn->saleReturnDetails as $detail) {
+                    $this->assertReplacementDispatchEligibility($detail);
+
                     \Modules\Sale\Entities\DispatchDetail::create([
                         'dispatch_id' => $dispatch->id,
                         'sale_id' => $saleReturn->sale_id,
@@ -360,6 +391,10 @@ class PosReturnLifecycleService
             throw new \Exception("Stok tidak ditemukan untuk produk {$product->product_name} di lokasi selected.");
         }
 
+        if ((int) $productStock->quantity < (int) $qty) {
+            throw new \RuntimeException('Stok produk pengganti tidak mencukupi di lokasi sumber asli retur.');
+        }
+
         $previousQuantity = (int) $product->product_quantity;
         $previousQuantityAtLocation = (int) $productStock->quantity;
 
@@ -388,6 +423,125 @@ class PosReturnLifecycleService
             'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
             'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
         ]);
+    }
+
+    private function remainingRefundableAmount(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): float
+    {
+        $totalAmount = (float) $saleReturn->total_amount;
+        $paidAmount = (float) $saleReturn->paid_amount;
+        $dueAmount = $saleReturn->due_amount !== null
+            ? (float) $saleReturn->due_amount
+            : max(0, $totalAmount - $paidAmount);
+
+        return max(0, min($dueAmount, $totalAmount - $paidAmount));
+    }
+
+    private function assertReplacementDispatchEligibility(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): void
+    {
+        $line = $detail->posReturnLine;
+
+        if (! $line) {
+            throw new \RuntimeException('Detail retur POS tidak memiliki referensi baris sumber untuk pengiriman pengganti.');
+        }
+
+        if ((int) $line->replacement_product_id !== (int) $detail->product_id) {
+            throw new \RuntimeException('Produk pengganti harus menggunakan SKU yang sama dengan barang yang diretur.');
+        }
+
+        if ((float) $line->replacement_quantity !== (float) $detail->quantity) {
+            throw new \RuntimeException('Jumlah barang pengganti harus sama dengan jumlah barang retur yang sudah diterima.');
+        }
+
+        if ((int) $line->source_location_id !== (int) $detail->location_id) {
+            throw new \RuntimeException('Pengiriman pengganti harus berasal dari lokasi sumber asli retur.');
+        }
+    }
+
+    public function archive(int $posReturnId, ?string $reason = null): void
+    {
+        $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED, $reason);
+    }
+
+    public function cancel(int $posReturnId, ?string $reason = null): void
+    {
+        $this->transitionToAuditedReversalState($posReturnId, \Modules\Pos\Entities\PosReturn::STATUS_CANCELLED, $reason);
+    }
+
+    private function transitionToAuditedReversalState(int $posReturnId, string $targetStatus, ?string $reason = null): void
+    {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $targetStatus, $reason) {
+            $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                ->with('saleReturns')
+                ->whereKey($posReturnId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->assertCanBeReversedBeforeReceiving($posReturn, $targetStatus);
+
+            $actorId = \Illuminate\Support\Facades\Auth::id();
+            $timestamp = now();
+
+            $attributes = [
+                'status' => $targetStatus,
+                'is_reversed' => true,
+                'updated_by' => $actorId,
+            ];
+
+            if ($targetStatus === \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED) {
+                $attributes['archived_by'] = $actorId;
+                $attributes['archived_at'] = $timestamp;
+                $attributes['archive_reason'] = $reason;
+            } else {
+                $attributes['cancelled_by'] = $actorId;
+                $attributes['cancelled_at'] = $timestamp;
+                $attributes['cancel_reason'] = $reason;
+            }
+
+            $posReturn->update($attributes);
+
+            foreach ($posReturn->saleReturns as $saleReturn) {
+                if ($targetStatus === \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED) {
+                    $saleReturn->forceFill([
+                        'archived_by' => $actorId,
+                        'archived_at' => $timestamp,
+                    ])->save();
+
+                    continue;
+                }
+
+                $saleReturn->update([
+                    'status' => 'Cancelled',
+                    'rejected_by' => $actorId,
+                    'rejected_at' => $timestamp,
+                    'rejection_reason' => $reason,
+                ]);
+            }
+        });
+    }
+
+    private function assertCanBeReversedBeforeReceiving(\Modules\Pos\Entities\PosReturn $posReturn, string $targetStatus): void
+    {
+        $isBlocked = $posReturn->received_at !== null
+            || in_array($posReturn->status, [
+                \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_SETTLEMENT,
+                \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_DISPATCH,
+                \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED,
+            ], true);
+
+        if ($isBlocked) {
+            if ($targetStatus === \Modules\Pos\Entities\PosReturn::STATUS_ARCHIVED) {
+                throw new \RuntimeException('Retur POS yang sudah diterima, diselesaikan, atau dikirim tidak dapat diarsipkan.');
+            }
+
+            throw new \RuntimeException('Retur POS yang sudah diterima, diselesaikan, atau dikirim tidak dapat dibatalkan.');
+        }
+
+        if (! in_array($posReturn->status, [
+            \Modules\Pos\Entities\PosReturn::STATUS_APPROVED,
+            \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_RECEIVING,
+        ], true)) {
+            throw new \RuntimeException('Hanya retur POS yang sudah disetujui dan belum diterima yang dapat dibalik secara audit.');
+        }
     }
 
     /**

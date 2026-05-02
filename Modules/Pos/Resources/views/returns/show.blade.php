@@ -25,6 +25,32 @@
     @endif
 @endcan
 
+@can('pos.returns.delete')
+    @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at)
+        @push('page_scripts')
+            <script>
+                function posReturnArchive{{ $return->id }}() {
+                    const reason = prompt('Masukkan alasan arsip retur POS (opsional):');
+                    if (reason !== null) {
+                        const form = document.getElementById('pos-return-archive-form-{{ $return->id }}');
+                        form.querySelector('input[name="reason"]').value = reason;
+                        form.submit();
+                    }
+                }
+
+                function posReturnCancel{{ $return->id }}() {
+                    const reason = prompt('Masukkan alasan pembatalan retur POS (opsional):');
+                    if (reason !== null) {
+                        const form = document.getElementById('pos-return-cancel-form-{{ $return->id }}');
+                        form.querySelector('input[name="reason"]').value = reason;
+                        form.submit();
+                    }
+                }
+            </script>
+        @endpush
+    @endif
+@endcan
+
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
@@ -104,6 +130,25 @@
                                             <i class="bi bi-truck"></i> Kirim Pengganti
                                         </button>
                                     </form>
+                                @endif
+                            @endcan
+
+                            @can('pos.returns.delete')
+                                @if(in_array($status, ['approved', 'awaiting_receiving'], true) && ! $return->received_at)
+                                    <form id="pos-return-archive-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.archive', $return) }}" class="d-none">
+                                        @csrf
+                                        <input type="hidden" name="reason" value="">
+                                    </form>
+                                    <form id="pos-return-cancel-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.cancel', $return) }}" class="d-none">
+                                        @csrf
+                                        <input type="hidden" name="reason" value="">
+                                    </form>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm me-2 mb-1" onclick="posReturnArchive{{ $return->id }}()">
+                                        <i class="bi bi-archive"></i> Arsipkan
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger btn-sm me-2 mb-1" onclick="posReturnCancel{{ $return->id }}()">
+                                        <i class="bi bi-slash-circle"></i> Batalkan
+                                    </button>
                                 @endif
                             @endcan
                         </div>

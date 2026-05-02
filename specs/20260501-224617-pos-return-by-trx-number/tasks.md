@@ -127,28 +127,28 @@
 
 - [x] T055 [P] [US3] Add approve and reject lifecycle tests with actor, timestamp, and rejection reason assertions in `Modules/Pos/Tests/Feature/POSReturnApprovalWorkflowTest.php`
 - [x] T056 [P] [US3] Add receive-after-approval and receive-before-approval block tests in `Modules/Pos/Tests/Feature/POSReturnReceivingWorkflowTest.php`
-- [ ] T057 [P] [US3] Add payment return settlement allowed/blocked option and cap tests in `Modules/Pos/Tests/Feature/POSReturnPaymentReturnWorkflowTest.php`
-- [ ] T058 [P] [US3] Add replacement dispatch allowed/blocked option, same-SKU, same-quantity, and stock-availability tests in `Modules/Pos/Tests/Feature/POSReturnReplacementDispatchWorkflowTest.php`
-- [ ] T059 [P] [US3] Add post-approval and post-receiving edit/delete/reject block tests in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
-- [ ] T060 [P] [US3] Add permission revocation tests before approve, receive, payment-return-settlement via `pos.returns.settle`, and replacement-dispatch actions in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
-- [ ] T061 [P] [US3] Add audited archive/cancel workflow tests for approved-before-receiving returns and blocked received/settled/dispatched returns in `Modules/Pos/Tests/Feature/POSReturnArchiveCancelWorkflowTest.php`
+- [x] T057 [P] [US3] Add payment return settlement allowed/blocked option and cap tests in `Modules/Pos/Tests/Feature/POSReturnPaymentReturnWorkflowTest.php`
+- [x] T058 [P] [US3] Add replacement dispatch allowed/blocked option, same-SKU, same-quantity, and stock-availability tests in `Modules/Pos/Tests/Feature/POSReturnReplacementDispatchWorkflowTest.php`
+- [x] T059 [P] [US3] Add post-approval and post-receiving edit/delete/reject block tests in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
+- [x] T060 [P] [US3] Add permission revocation tests before approve, receive, payment-return-settlement via `pos.returns.settle`, and replacement-dispatch actions in `Modules/Pos/Tests/Feature/POSReturnLifecycleGuardTest.php`
+- [x] T061 [P] [US3] Add audited archive/cancel workflow tests for approved-before-receiving returns and blocked received/settled/dispatched returns in `Modules/Pos/Tests/Feature/POSReturnArchiveCancelWorkflowTest.php`
 - [ ] T062 [P] [US3] Add atomic rollback tests for approve, reject, receive, payment return settlement, replacement dispatch, and archive/cancel failures in `Modules/Pos/Tests/Feature/POSReturnAtomicLifecycleTest.php`
 
 ### Implementation for User Story 3
 
 - [x] T063 [US3] Implement approve and reject wrapper behavior with actor audit and linked Sales Return status updates in `Modules/Pos/Services/PosReturnLifecycleService.php`
 - [x] T064 [US3] Implement receive behavior by delegating to linked Sales Return receiving logic and syncing POS wrapper status in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T065 [US3] Implement payment return settlement guard, owner/sale allocation, and returned amount cap for payment returns in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T066 [US3] Implement replacement dispatch guard for product replacement returns, same-SKU rule, same-quantity rule, and original owner/location source checks in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T067 [US3] Implement audited archive/cancel behavior with actor, timestamp, reason, linked Sales Return state handling, and inventory/financial mutation guards in `Modules/Pos/Services/PosReturnLifecycleService.php`
-- [ ] T068 [US3] Wrap approve, reject, receive, payment-return-settlement, replacement-dispatch, and archive/cancel actions in atomic database transactions in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T065 [US3] Implement payment return settlement guard, owner/sale allocation, and returned amount cap for payment returns in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T066 [US3] Implement replacement dispatch guard for product replacement returns, same-SKU rule, same-quantity rule, and original owner/location source checks in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T067 [US3] Implement audited archive/cancel behavior with actor, timestamp, reason, linked Sales Return state handling, and inventory/financial mutation guards in `Modules/Pos/Services/PosReturnLifecycleService.php`
+- [x] T068 [US3] Wrap approve, reject, receive, payment-return-settlement, replacement-dispatch, and archive/cancel actions in atomic database transactions in `Modules/Pos/Services/PosReturnLifecycleService.php`
 - [ ] T069 [US3] Implement non-rollbackable external-effect failure handling that blocks further lifecycle progress and records required audited manual correction state in `Modules/Pos/Services/PosReturnLifecycleService.php`
 - [ ] T070 [P] [US3] Add manual correction blocking tests for non-rollbackable lifecycle failures in `Modules/Pos/Tests/Feature/POSReturnManualCorrectionWorkflowTest.php`
-- [ ] T071 [US3] Implement approve, reject, receive, payment-return-settlement, dispatch, archive, and cancel controller actions with permission gates and lifecycle errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
-- [ ] T072 [US3] Render POS Return status header, linked Sales Return summary, approval controls, receiving control, payment return settlement control, dispatch control, and archive/cancel control in `Modules/Pos/Resources/views/returns/show.blade.php`
+- [x] T071 [US3] Implement approve, reject, receive, payment-return-settlement, dispatch, archive, and cancel controller actions with permission gates and lifecycle errors in `Modules/Pos/Http/Controllers/PosReturnController.php`
+- [x] T072 [US3] Render POS Return status header, linked Sales Return summary, approval controls, receiving control, payment return settlement control, dispatch control, and archive/cancel control in `Modules/Pos/Resources/views/returns/show.blade.php`
 - [x] T073 [P] [US3] Add reusable POS Return and linked Sales Return status partial in `Modules/Pos/Resources/views/returns/partials/status.blade.php`
-- [ ] T074 [US3] Ensure linked Sales Return lifecycle sync updates POS wrapper completion status in `app/Support/SalesReturn/SaleReturnLifecycleSyncService.php`
-- [ ] T075 [US3] Enforce POS-specific lifecycle permission checks for linked POS Return actions in `Modules/SalesReturn/Http/Controllers/SalesReturnController.php`
+- [x] T074 [US3] Ensure linked Sales Return lifecycle sync updates POS wrapper completion status in `app/Support/SalesReturn/SaleReturnLifecycleSyncService.php`
+- [x] T075 [US3] Enforce POS-specific lifecycle permission checks for linked POS Return actions in `Modules/SalesReturn/Http/Controllers/SalesReturnController.php`
 
 **Checkpoint**: User Story 3 can advance POS returns through approval, receiving, payment return settlement, replacement dispatch, audited cancellation guards, and manual-correction blocking for non-rollbackable failures.
 
