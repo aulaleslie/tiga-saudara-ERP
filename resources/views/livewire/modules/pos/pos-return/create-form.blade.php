@@ -82,15 +82,45 @@
                                             $detailId = $line['sale_detail_id'];
                                             $isReturnable = $line['returnable_quantity'] > 0;
                                         @endphp
+                                        @if($line['is_bundle'] && !empty($line['bundle_items']))
+                                            @foreach($line['bundle_items'] as $bundleItem)
+                                                <tr>
+                                                    <td>
+                                                        <div>{{ $bundleItem['product_name'] }}</div>
+                                                        <small class="text-muted">{{ $bundleItem['product_code'] }}</small>
+                                                        <div class="mt-1">
+                                                            <small class="badge badge-info">Bundle</small>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        {{ $line['returnable_quantity'] }}
+                                                        @if($line['returned_quantity'] > 0)
+                                                            <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
+                                                        @endif
+                                                    </td>
+                                                    <td class="text-center">
+                                                        @if($isReturnable)
+                                                            <input type="number"
+                                                                   wire:model.live="quantities.{{ $detailId }}"
+                                                                   class="form-control form-control-sm text-center"
+                                                                   min="0"
+                                                                   max="{{ $line['returnable_quantity'] }}"
+                                                                   step="1">
+                                                        @else
+                                                            <span class="badge badge-secondary">Habis</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
+                                                    <td class="text-right">
+                                                        {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        @else
                                         <tr>
                                             <td>
                                                 <div>{{ $line['product_name'] }}</div>
                                                 <small class="text-muted">{{ $line['product_code'] }}</small>
-                                                @if($line['is_bundle'])
-                                                    <div class="mt-1">
-                                                        <small class="badge badge-info">Bundle</small>
-                                                    </div>
-                                                @endif
                                             </td>
                                             <td class="text-center">
                                                 {{ $line['returnable_quantity'] }}
@@ -100,10 +130,10 @@
                                             </td>
                                             <td class="text-center">
                                                 @if($isReturnable)
-                                                    <input type="number" 
-                                                           wire:model.live="quantities.{{ $detailId }}" 
-                                                           class="form-control form-control-sm text-center" 
-                                                           min="0" 
+                                                    <input type="number"
+                                                           wire:model.live="quantities.{{ $detailId }}"
+                                                           class="form-control form-control-sm text-center"
+                                                           min="0"
                                                            max="{{ $line['returnable_quantity'] }}"
                                                            step="1">
                                                 @else
@@ -115,6 +145,7 @@
                                                 {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
                                             </td>
                                         </tr>
+                                        @endif
                                         @if(($quantities[$detailId] ?? 0) > 0 && !empty($line['serial_number_ids']))
                                             <tr>
                                                 <td colspan="5" class="bg-light py-2">
