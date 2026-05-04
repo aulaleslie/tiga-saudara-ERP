@@ -49,7 +49,7 @@ class PosReceiptService
         if ($allTransactions->count() > 0) {
             foreach ($allTransactions as $transaction) {
                 // Ensure lines are loaded
-                $transaction->loadMissing('lines.conversion.unit', 'lines.product.unit', 'lines.product.baseUnit');
+                $transaction->loadMissing('lines.conversion.unit', 'lines.product.unit', 'lines.product.baseUnit', 'lines.serials');
                 $bundleCompositionByLine = $this->bundleCompositionByTransactionLine($transaction);
                 
                 foreach ($transaction->lines as $line) {
@@ -92,7 +92,9 @@ class PosReceiptService
                     'sub_total' => $lineSubtotal,
                     'unit_breakdown' => $unitBreakdown,
                     'bundle_composition' => $composition, // Task 1.2 & 1.3
-                    'assigned_serials' => $line->line_meta['assigned_serials'] ?? [],
+                    'assigned_serials' => $line->serials->count() > 0 
+                        ? $line->serials->pluck('serial_number')->toArray() 
+                        : ($line->line_meta['assigned_serials'] ?? []),
                 ];
             }
         }
@@ -410,6 +412,7 @@ class PosReceiptService
             'lines.product.unit',
             'lines.product.baseUnit',
             'lines.conversion.unit',
+            'lines.serials',
         ]);
 
         if (
@@ -478,7 +481,9 @@ class PosReceiptService
                 'sub_total' => $lineSubtotal,
                 'unit_breakdown' => $unitBreakdown,
                 'bundle_composition' => $composition,
-                'assigned_serials' => $line->line_meta['assigned_serials'] ?? [],
+                'assigned_serials' => $line->serials->count() > 0 
+                    ? $line->serials->pluck('serial_number')->toArray() 
+                    : ($line->line_meta['assigned_serials'] ?? []),
             ];
         }
 

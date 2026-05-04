@@ -114,7 +114,6 @@
                                                 @endphp
                                                 <tr class="bundle-item-row table-light">
                                                     <td class="pl-5">
-                                                        <small class="text-muted">├─</small>
                                                         <div>{{ $bundleItem['product_name'] }}</div>
                                                         <small class="text-muted">{{ $bundleItem['product_code'] }}</small>
                                                     </td>
