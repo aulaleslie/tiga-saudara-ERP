@@ -30,14 +30,18 @@
 
                     <div class="mb-3">
                         <h6 class="mb-3"><i class="bi bi-currency-dollar"></i> Ringkasan Penjualan</h6>
-                        <div class="row">
-                            <div class="col-md-6">
+                        <div class="row g-2">
+                            <div class="col-md-4">
                                 <label class="form-label small text-muted">Total Penjualan</label>
                                 <div id="finalizeTotalSales" class="fw-bold"></div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <label class="form-label small text-muted">Penjualan Kas</label>
                                 <div id="finalizeCashSales" class="fw-bold"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted">Penjualan Non-Kas</label>
+                                <div id="finalizeNonCashSales" class="fw-bold"></div>
                             </div>
                         </div>
                     </div>
@@ -52,8 +56,16 @@
                                         <td class="text-end fw-bold" id="finalizeOpeningFloat"></td>
                                     </tr>
                                     <tr>
-                                        <td class="text-muted">+ Penjualan Kas</td>
-                                        <td class="text-end fw-bold" id="finalizeCashSalesAmount"></td>
+                                        <td class="text-muted">+ Tunai Diterima</td>
+                                        <td class="text-end fw-bold" id="finalizeCashTendered"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted ps-4 text-secondary"><small>Penjualan Kas (net)</small></td>
+                                        <td class="text-end text-secondary" id="finalizeCashSalesAmount"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted ps-4 text-secondary"><small>- Kembalian</small></td>
+                                        <td class="text-end text-secondary" id="finalizeChangeReturned"></td>
                                     </tr>
                                     <tr>
                                         <td class="text-muted">- Pengambilan Kas</td>

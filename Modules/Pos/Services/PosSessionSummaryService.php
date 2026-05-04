@@ -105,6 +105,18 @@ class PosSessionSummaryService
                 ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
                 ->orderBy('finalized_at', 'desc');
 
+            // Compute change-aware cash totals from posted checkout payment rows
+            $cashTenderedTotal = \Modules\Pos\Entities\PosCheckoutPayment::query()
+                ->join('pos_checkouts', 'pos_checkout_payments.pos_checkout_id', '=', 'pos_checkouts.id')
+                ->join('payment_methods', 'pos_checkout_payments.payment_method_id', '=', 'payment_methods.id')
+                ->where('pos_checkouts.pos_session_id', $sessionId)
+                ->where('pos_checkouts.status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
+                ->where('payment_methods.is_cash', true)
+                ->sum('pos_checkout_payments.amount_minor_units') / 100;
+
+            $changeTotalRaw = (clone $checkoutQuery)->sum('change_total');
+
+
             $transactions = (clone $checkoutQuery)
                 ->limit(50)
                 ->get()
@@ -138,6 +150,13 @@ class PosSessionSummaryService
 
         // Calculate sales total
         $salesTotal = round((float) $totalTransactionsAmount, 2);
+
+        // Terminal-only cash totals (rounded for output)
+        $cashTenderedTotalRounded = isset($cashTenderedTotal) ? round((float) $cashTenderedTotal, 2) : null;
+        $changeTotalRounded = isset($changeTotalRaw) ? round((float) $changeTotalRaw, 2) : null;
+        $netCashSalesTotalRounded = ($cashTenderedTotalRounded !== null && $changeTotalRounded !== null)
+            ? round($cashTenderedTotalRounded - $changeTotalRounded, 2)
+            : null;
 
         // Load cash event timeline
         $cashEvents = $session->cashEvents
@@ -178,6 +197,9 @@ class PosSessionSummaryService
             'total_transactions_amount' => round((float) $totalTransactionsAmount, 2),
             'transactions' => $transactions,
             'cash_events' => $cashEvents,
+            'cash_tendered_total' => $cashTenderedTotalRounded,
+            'change_total' => $changeTotalRounded,
+            'net_cash_sales_total' => $netCashSalesTotalRounded,
         ];
     }
 }

@@ -197,27 +197,35 @@ function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL
     document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
     document.getElementById('finalizeCashierName').textContent = session.cashier?.name || '-';
 
-    // Calculate totals from transactions and cash events
-    const totalSales = calculateTotalSales(session.transactions);
-    const cashSales = calculateCashSales(session.cash_events);
+    // Use backend-computed totals where available; fall back to event-derived values for non-terminal sessions
+    const totalSales = session.sales_total ?? calculateTotalSales(session.transactions);
+    const netCashSales = session.net_cash_sales_total ?? calculateCashSales(session.cash_events);
+    const cashTendered = session.cash_tendered_total ?? netCashSales;
+    const changeReturned = session.change_total ?? 0;
     const openingFloat = calculateOpeningFloat(session.cash_events);
     const safeDrops = calculateSafeDrops(session.cash_events);
+    const nonCashSales = totalSales - netCashSales;
 
     document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(openingFloat);
     document.getElementById('finalizeTotalSales').textContent = formatCurrency(totalSales);
-    document.getElementById('finalizeCashSales').textContent = formatCurrency(cashSales);
-    document.getElementById('finalizeCashSalesAmount').textContent = formatCurrency(cashSales);
+    document.getElementById('finalizeCashSales').textContent = formatCurrency(netCashSales);
+    document.getElementById('finalizeNonCashSales').textContent = formatCurrency(nonCashSales);
+    document.getElementById('finalizeCashTendered').textContent = formatCurrency(cashTendered);
+    document.getElementById('finalizeCashSalesAmount').textContent = formatCurrency(netCashSales);
+    document.getElementById('finalizeChangeReturned').textContent = formatCurrency(changeReturned);
     document.getElementById('finalizeSafeDrops').textContent = formatCurrency(safeDrops);
 
-    // Calculate expected cash
-    const expectedCash = calculateExpectedCash(session);
+    // Use backend expected_cash_total as the single source of truth
+    const expectedCash = (session.expected_cash_total != null) ? parseFloat(session.expected_cash_total) : calculateExpectedCash(session);
+    const varianceThreshold = session.threshold_value ?? (session.terminal?.policy?.close_variance_approval_threshold ?? 0);
     document.getElementById('finalizeExpectedCash').textContent = formatCurrency(expectedCash);
-    document.getElementById('finalizeVarianceThreshold').textContent = formatCurrency(session.terminal?.policy?.close_variance_approval_threshold || 0);
+    document.getElementById('finalizeVarianceThreshold').textContent = formatCurrency(varianceThreshold);
 
-    // Store session ID and expected cash for calculations
+    // Store session ID, expected cash, and threshold as numeric for variance calculation
     const form = document.getElementById('finalizeForm');
     form.dataset.sessionId = session.id;
     form.dataset.expectedCash = expectedCash;
+    form.dataset.varianceThreshold = varianceThreshold;
 
     // Reset override section
     document.getElementById('supervisorOverrideSection').style.display = 'none';
@@ -300,8 +308,7 @@ function calculateVariance() {
 
     const varianceElement = document.getElementById('finalizeVarianceAmount');
     const varianceWarning = document.getElementById('varianceWarning');
-    const thresholdText = document.getElementById('finalizeVarianceThreshold').textContent;
-    const threshold = parseFloat(thresholdText.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
+    const threshold = parseFloat(form.dataset.varianceThreshold) || 0;
 
     varianceElement.textContent = formatCurrency(variance);
 

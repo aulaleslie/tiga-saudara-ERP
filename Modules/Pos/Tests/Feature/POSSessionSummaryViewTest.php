@@ -438,6 +438,94 @@ class POSSessionSummaryViewTest extends TestCase
         $this->assertCount(50, $transactions);
     }
 
+    public function test_terminal_session_summary_includes_change_aware_cash_totals(): void
+    {
+        // Scenario: Rp990,000 cash sale, customer pays Rp1,000,000, Rp10,000 change returned
+        $setting = $this->createSetting('BIZ CHANGE AWARE TEST');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $terminal = $this->createTerminal($setting);
+        $session = $this->createOpenSession($setting, $cashier, $terminal);
+
+        $coaId = \Illuminate\Support\Facades\DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'Test COA Change',
+            'account_number' => 'ACC-CHANGE',
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $cashMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'CASH',
+            'is_cash' => true,
+            'coa_id' => $coaId,
+        ]);
+
+        $checkout = \Modules\Pos\Entities\PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => \Modules\Pos\Entities\PosCheckout::STATUS_POSTED,
+            'receipt_number' => 'RCP-CHANGE-001',
+            'grand_total' => 990000,
+            'change_total' => 10000,
+            'finalized_at' => now(),
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payload_hash' => hash('sha256', 'change-test'),
+            'payment_method_id' => $cashMethod->id,
+        ]);
+
+        // Customer tendered Rp1,000,000 in cash
+        \Modules\Pos\Entities\PosCheckoutPayment::create([
+            'pos_checkout_id' => $checkout->id,
+            'payment_method_id' => $cashMethod->id,
+            'amount_minor_units' => 100000000, // Rp1,000,000 in minor units (×100)
+            'sequence_order' => 1,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $this->assertEquals(1000000, $response->json('cash_tendered_total'));
+        $this->assertEquals(10000, $response->json('change_total'));
+        $this->assertEquals(990000, $response->json('net_cash_sales_total'));
+    }
+
+    public function test_non_terminal_session_summary_does_not_include_cash_totals(): void
+    {
+        $setting = $this->createSetting('BIZ NON-TERMINAL CASH FIELDS');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $session = $this->createOpenSession($setting, $cashier, null);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('cash_tendered_total', null);
+        $response->assertJsonPath('change_total', null);
+        $response->assertJsonPath('net_cash_sales_total', null);
+    }
+
+    public function test_session_summary_view_includes_kembalian_filter_button(): void
+    {
+        $setting = $this->createSetting('BIZ KEMBALIAN FILTER TEST');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $terminal = $this->createTerminal($setting);
+        $session = $this->createOpenSession($setting, $cashier, $terminal);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $response->assertSee('data-filter="CHANGE_OUT"', false);
+        $response->assertSee('Kembalian');
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([
