@@ -31,6 +31,25 @@ class PosReturn extends Model
     public const APPROVAL_STATUS_APPROVED = 'approved';
     public const APPROVAL_STATUS_REJECTED = 'rejected';
 
+    public const OPTION_LABELS = [
+        self::OPTION_CASH_RETURN => 'Retur Tunai',
+        self::OPTION_PRODUCT_REPLACEMENT => 'Penggantian Produk',
+    ];
+
+    public const STATUS_LABELS = [
+        self::STATUS_DRAFT => 'Draft',
+        self::STATUS_PENDING_APPROVAL => 'Menunggu Persetujuan',
+        self::STATUS_APPROVED => 'Disetujui',
+        self::STATUS_REJECTED => 'Ditolak',
+        self::STATUS_AWAITING_RECEIVING => 'Menunggu Penerimaan',
+        self::STATUS_AWAITING_SETTLEMENT => 'Menunggu Penyelesaian',
+        self::STATUS_AWAITING_DISPATCH => 'Menunggu Pengiriman',
+        self::STATUS_MANUAL_CORRECTION_REQUIRED => 'Koreksi Manual Diperlukan',
+        self::STATUS_COMPLETED => 'Selesai',
+        self::STATUS_ARCHIVED => 'Diarsipkan',
+        self::STATUS_CANCELLED => 'Dibatalkan',
+    ];
+
     protected $fillable = [
         'reference',
         'setting_id',
@@ -137,5 +156,27 @@ class PosReturn extends Model
     {
         return $this->manual_correction_required_at !== null
             || $this->status === self::STATUS_MANUAL_CORRECTION_REQUIRED;
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? ucfirst(str_replace('_', ' ', $this->status));
+    }
+
+    public function getStatusColorAttribute(): string
+    {
+        return match ($this->status) {
+            self::STATUS_DRAFT, self::STATUS_PENDING_APPROVAL => 'warning',
+            self::STATUS_APPROVED => 'info',
+            self::STATUS_REJECTED => 'danger',
+            self::STATUS_AWAITING_RECEIVING => 'primary',
+            self::STATUS_AWAITING_SETTLEMENT => 'primary',
+            self::STATUS_AWAITING_DISPATCH => 'primary',
+            self::STATUS_MANUAL_CORRECTION_REQUIRED => 'danger',
+            self::STATUS_COMPLETED => 'success',
+            self::STATUS_ARCHIVED => 'secondary',
+            self::STATUS_CANCELLED => 'secondary',
+            default => 'secondary',
+        };
     }
 }

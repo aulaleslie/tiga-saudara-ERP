@@ -50,19 +50,6 @@
                                 @endforeach
                                 <div class="mt-2">Total: <strong>{{ format_currency($snapshot['header']['grand_total']) }}</strong></div>
                             </div>
-                            <div class="col-sm-4">
-                                <h6 class="mb-3">Opsi Retur:</h6>
-                                <div class="form-group">
-                                    <div class="custom-control custom-radio">
-                                        <input type="radio" id="option_cash" wire:model.live="returnOption" value="{{ \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN }}" class="custom-control-input">
-                                        <label class="custom-control-label" for="option_cash">Kembali Uang (Cash Return)</label>
-                                    </div>
-                                    <div class="custom-control custom-radio">
-                                        <input type="radio" id="option_product" wire:model.live="returnOption" value="{{ \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT }}" class="custom-control-input">
-                                        <label class="custom-control-label" for="option_product">Ganti Produk (Product Replacement)</label>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
 
                         <div class="table-responsive">
@@ -70,7 +57,10 @@
                                 <thead class="thead-light">
                                     <tr>
                                         <th>Produk</th>
-                                        <th class="text-center">Tersedia</th>
+                                        <th class="text-center" title="Jumlah produk yang dapat diretur dari pembelian awal">
+                                            Tersedia
+                                            <i class="fas fa-info-circle text-muted" style="font-size: 0.85em; cursor: help;" data-toggle="tooltip" data-placement="top" title="Jumlah produk yang tersedia untuk diretur dari pembelian awal"></i>
+                                        </th>
                                         <th class="text-center" style="width: 150px;">Jumlah Retur</th>
                                         <th class="text-right">Harga Satuan</th>
                                         <th class="text-right">Subtotal</th>
@@ -83,68 +73,97 @@
                                             $isReturnable = $line['returnable_quantity'] > 0;
                                         @endphp
                                         @if($line['is_bundle'] && !empty($line['bundle_items']))
+                                            {{-- Bundle Parent Row --}}
+                                            <tr class="bundle-parent-row">
+                                                <td>
+                                                    <div class="font-weight-bold">{{ $line['product_name'] }}</div>
+                                                    <small class="text-muted">{{ $line['product_code'] }}</small>
+                                                    <div class="mt-1">
+                                                        <small class="badge badge-info">Bundle</small>
+                                                    </div>
+                                                </td>
+                                                <td class="text-center">
+                                                    <strong>{{ $line['returnable_quantity'] }}</strong>
+                                                    @if($line['returned_quantity'] > 0)
+                                                        <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">
+                                                    @if($isReturnable)
+                                                        <input type="number"
+                                                               wire:model.live="quantities.{{ $detailId }}"
+                                                               class="form-control form-control-sm text-center font-weight-bold"
+                                                               min="0"
+                                                               max="{{ $line['returnable_quantity'] }}"
+                                                               step="1"
+                                                               title="Jumlah bundle yang akan diretur">
+                                                    @else
+                                                        <span class="badge badge-secondary">Habis</span>
+                                                    @endif
+                                                </td>
+                                                <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
+                                                <td class="text-right">
+                                                    {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
+                                                </td>
+                                            </tr>
+                                            {{-- Bundle Item Rows (nested, read-only) --}}
                                             @foreach($line['bundle_items'] as $bundleItem)
-                                                <tr>
-                                                    <td>
+                                                @php
+                                                    $maxBundleItemReturnable = $line['returnable_quantity'] * $bundleItem['quantity_per_bundle'];
+                                                    $selectedBundleItemQty = ($quantities[$detailId] ?? 0) * $bundleItem['quantity_per_bundle'];
+                                                @endphp
+                                                <tr class="bundle-item-row table-light">
+                                                    <td class="pl-5">
+                                                        <small class="text-muted">├─</small>
                                                         <div>{{ $bundleItem['product_name'] }}</div>
                                                         <small class="text-muted">{{ $bundleItem['product_code'] }}</small>
-                                                        <div class="mt-1">
-                                                            <small class="badge badge-info">Bundle</small>
-                                                        </div>
                                                     </td>
                                                     <td class="text-center">
-                                                        {{ $line['returnable_quantity'] }}
-                                                        @if($line['returned_quantity'] > 0)
-                                                            <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
-                                                        @endif
+                                                        <small class="text-muted">({{ $bundleItem['quantity_per_bundle'] }} per bundle)</small><br>
+                                                        <strong>{{ $maxBundleItemReturnable }}</strong>
                                                     </td>
-                                                    <td class="text-center">
-                                                        @if($isReturnable)
-                                                            <input type="number"
-                                                                   wire:model.live="quantities.{{ $detailId }}"
-                                                                   class="form-control form-control-sm text-center"
-                                                                   min="0"
-                                                                   max="{{ $line['returnable_quantity'] }}"
-                                                                   step="1">
-                                                        @else
-                                                            <span class="badge badge-secondary">Habis</span>
-                                                        @endif
+                                                    <td class="text-center text-muted">
+                                                        <small>Otomatis</small><br>
+                                                        <small class="text-muted">{{ $selectedBundleItemQty }}</small>
                                                     </td>
-                                                    <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
-                                                    <td class="text-right">
-                                                        {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
+                                                    <td class="text-right text-muted">
+                                                        <small>-</small>
+                                                    </td>
+                                                    <td class="text-right text-muted">
+                                                        <small>-</small>
                                                     </td>
                                                 </tr>
                                             @endforeach
                                         @else
-                                        <tr>
-                                            <td>
-                                                <div>{{ $line['product_name'] }}</div>
-                                                <small class="text-muted">{{ $line['product_code'] }}</small>
-                                            </td>
-                                            <td class="text-center">
-                                                {{ $line['returnable_quantity'] }}
-                                                @if($line['returned_quantity'] > 0)
-                                                    <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
-                                                @endif
-                                            </td>
-                                            <td class="text-center">
-                                                @if($isReturnable)
-                                                    <input type="number"
-                                                           wire:model.live="quantities.{{ $detailId }}"
-                                                           class="form-control form-control-sm text-center"
-                                                           min="0"
-                                                           max="{{ $line['returnable_quantity'] }}"
-                                                           step="1">
-                                                @else
-                                                    <span class="badge badge-secondary">Habis</span>
-                                                @endif
-                                            </td>
-                                            <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
-                                            <td class="text-right">
-                                                {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
-                                            </td>
-                                        </tr>
+                                            {{-- Regular (Non-Bundle) Row --}}
+                                            <tr>
+                                                <td>
+                                                    <div>{{ $line['product_name'] }}</div>
+                                                    <small class="text-muted">{{ $line['product_code'] }}</small>
+                                                </td>
+                                                <td class="text-center">
+                                                    {{ $line['returnable_quantity'] }}
+                                                    @if($line['returned_quantity'] > 0)
+                                                        <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">
+                                                    @if($isReturnable)
+                                                        <input type="number"
+                                                               wire:model.live="quantities.{{ $detailId }}"
+                                                               class="form-control form-control-sm text-center"
+                                                               min="0"
+                                                               max="{{ $line['returnable_quantity'] }}"
+                                                               step="1">
+                                                    @else
+                                                        <span class="badge badge-secondary">Habis</span>
+                                                    @endif
+                                                </td>
+                                                <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
+                                                <td class="text-right">
+                                                    {{ format_currency(($quantities[$detailId] ?? 0) * $line['unit_price']) }}
+                                                </td>
+                                            </tr>
                                         @endif
                                         @if(($quantities[$detailId] ?? 0) > 0 && !empty($line['serial_number_ids']))
                                             <tr>
@@ -152,12 +171,11 @@
                                                     <div class="small font-weight-bold mb-1 text-primary">Pilih Serial Number (Harus pilih {{ $quantities[$detailId] }}):</div>
                                                     <div class="d-flex flex-wrap gap-2">
                                                         @foreach($line['serial_number_ids'] as $snId)
-                                                            {{-- Note: We need the actual SN string for the UI if possible, or just the ID --}}
                                                             <div class="custom-control custom-checkbox mr-3">
-                                                                <input type="checkbox" 
-                                                                       id="sn_{{ $detailId }}_{{ $snId }}" 
-                                                                       wire:model="selectedSerials.{{ $detailId }}" 
-                                                                       value="{{ $snId }}" 
+                                                                <input type="checkbox"
+                                                                       id="sn_{{ $detailId }}_{{ $snId }}"
+                                                                       wire:model="selectedSerials.{{ $detailId }}"
+                                                                       value="{{ $snId }}"
                                                                        class="custom-control-input">
                                                                 <label class="custom-control-label" for="sn_{{ $detailId }}_{{ $snId }}">SN-{{ $snId }}</label>
                                                             </div>
