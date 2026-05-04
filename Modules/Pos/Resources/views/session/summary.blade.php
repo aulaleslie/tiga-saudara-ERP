@@ -123,6 +123,7 @@
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="CASH_SALE_IN">Penjualan</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="SAFE_DROP_OUT">Pickup</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="OPEN_FLOAT">Modal</button>
+                                <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="CHANGE_OUT">Kembalian</button>
                             </div>
                         </div>
                         <div class="card-body p-0 overflow-auto" style="max-height: 400px;">
