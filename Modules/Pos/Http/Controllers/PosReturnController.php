@@ -132,12 +132,16 @@ class PosReturnController extends Controller
         return redirect()->route('pos.returns.index');
     }
 
-    public function approve(PosReturn $return)
+    public function approve(Request $request, PosReturn $return)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
 
+        $data = $request->validate([
+            'return_option' => ['required', 'string', 'in:cash_return,product_replacement'],
+        ]);
+
         try {
-            $this->lifecycleService->approve($return->id);
+            $this->lifecycleService->approve($return->id, $data['return_option']);
             toast('Retur POS berhasil disetujui.', 'success');
         } catch (\Throwable $throwable) {
             report($throwable);

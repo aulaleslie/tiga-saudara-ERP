@@ -18,9 +18,10 @@ class PosReturnCreateForm extends Component
     public $posCheckoutId = null;
 
     // Submission data
-    public $returnOption = PosReturn::OPTION_CASH_RETURN;
-    public $quantities = []; // sale_detail_id => quantity
-    public $selectedSerials = []; // sale_detail_id => [serial_ids]
+    public $quantities = []; // product_id => quantity
+    public $selectedSerials = []; // product_id => [serial_ids]
+    public $serialInputs = []; // product_id => string (for barcode scanner)
+    public $showAvailableSerials = []; // product_id => bool
 
     public function mount()
     {
@@ -38,6 +39,7 @@ class PosReturnCreateForm extends Component
         $this->snapshot = null;
         $this->quantities = [];
         $this->selectedSerials = [];
+        $this->serialInputs = [];
 
         try {
             $lookupService = app(PosReturnLookupService::class);
@@ -50,11 +52,14 @@ class PosReturnCreateForm extends Component
                 $this->posCheckoutId = $result['pos_checkout_id'];
                 $this->snapshot = $snapshotService->build($this->posTransactionId);
                 
-                // Initialize quantities and serials
+                // Initialize quantities, serials, and inputs
                 foreach ($this->snapshot['lines'] as $line) {
-                    $this->quantities[$line['sale_detail_id']] = 0;
-                    if (!empty($line['serial_number_ids'])) {
-                        $this->selectedSerials[$line['sale_detail_id']] = [];
+                    $productId = $line['product_id'];
+                    $this->quantities[$productId] = 0;
+                    $this->serialInputs[$productId] = '';
+                    $this->showAvailableSerials[$productId] = false;
+                    if ($line['is_tracked'] || !empty($line['serial_number_ids'])) {
+                        $this->selectedSerials[$productId] = [];
                     }
                 }
             } else {
@@ -67,6 +72,66 @@ class PosReturnCreateForm extends Component
         }
     }
 
+    public function addSerialByScan($productId)
+    {
+        $input = trim($this->serialInputs[$productId] ?? '');
+        if (empty($input)) return;
+
+        // Find product line in snapshot
+        $line = collect($this->snapshot['lines'])->firstWhere('product_id', $productId);
+        if (!$line || empty($line['serial_numbers'])) {
+            $this->serialInputs[$productId] = '';
+            return;
+        }
+
+        // Find serial in the available serials for this product
+        $serial = collect($line['serial_numbers'])->first(function ($sn) use ($input) {
+            return strtoupper($sn['serial_number']) === strtoupper($input);
+        });
+
+        if ($serial) {
+            if (!in_array($serial['id'], $this->selectedSerials[$productId])) {
+                $this->selectedSerials[$productId][] = $serial['id'];
+                $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+            }
+        } else {
+            // Check if it's already selected but maybe scanned again? Or just invalid.
+            // For now, if not found in available list, it's invalid for this transaction.
+            $this->addError("serialInputs.{$productId}", "Serial number {$input} tidak ditemukan dalam transaksi ini.");
+        }
+
+        $this->serialInputs[$productId] = '';
+        $this->dispatch('serial-scanned', productId: $productId);
+    }
+
+    public function removeSerial($productId, $serialId)
+    {
+        if (isset($this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = array_values(array_diff($this->selectedSerials[$productId], [$serialId]));
+            $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+        }
+    }
+
+    public function toggleSerial($productId, $serialId)
+    {
+        if (!isset($this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = [];
+        }
+
+        if (in_array($serialId, $this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = array_values(array_diff($this->selectedSerials[$productId], [$serialId]));
+        } else {
+            $this->selectedSerials[$productId][] = $serialId;
+        }
+        
+        $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+    }
+
+    public function toggleAvailableSerials($productId)
+    {
+        $this->showAvailableSerials[$productId] = !($this->showAvailableSerials[$productId] ?? false);
+    }
+
     public function resetLookup()
     {
         $this->identifier = '';
@@ -74,25 +139,25 @@ class PosReturnCreateForm extends Component
         $this->error = null;
         $this->quantities = [];
         $this->selectedSerials = [];
+        $this->serialInputs = [];
     }
 
     public function submit()
     {
         $this->validate([
-            'returnOption' => 'required|in:' . PosReturn::OPTION_CASH_RETURN . ',' . PosReturn::OPTION_PRODUCT_REPLACEMENT,
             'quantities.*' => 'numeric|min:0',
         ]);
 
         $lines = [];
-        foreach ($this->quantities as $saleDetailId => $qty) {
+        foreach ($this->quantities as $productId => $qty) {
             if ($qty > 0) {
                 $line = [
-                    'sale_detail_id' => $saleDetailId,
+                    'product_id' => $productId,
                     'quantity' => $qty,
                 ];
                 
-                if (isset($this->selectedSerials[$saleDetailId])) {
-                    $line['serial_number_ids'] = $this->selectedSerials[$saleDetailId];
+                if (isset($this->selectedSerials[$productId])) {
+                    $line['serial_number_ids'] = $this->selectedSerials[$productId];
                 }
                 
                 $lines[] = $line;
@@ -108,7 +173,7 @@ class PosReturnCreateForm extends Component
             $submissionService = app(PosReturnSubmissionService::class);
             $posReturn = $submissionService->store([
                 'pos_transaction_id' => $this->posTransactionId,
-                'return_option' => $this->returnOption,
+                'return_option' => PosReturn::OPTION_CASH_RETURN, // Default, will be finalized in approval
                 'source_snapshot' => $this->snapshot,
                 'source_snapshot_hash' => $this->snapshot['hash'],
                 'lines' => $lines,

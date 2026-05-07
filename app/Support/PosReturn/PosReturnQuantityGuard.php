@@ -13,9 +13,10 @@ class PosReturnQuantityGuard
      *
      * @param int|null $dispatchDetailId
      * @param int|null $saleDetailId
+     * @param int|null $excludeReturnId
      * @return float
      */
-    public function getReturnableQuantity(?int $dispatchDetailId, ?int $saleDetailId = null): float
+    public function getReturnableQuantity(?int $dispatchDetailId, ?int $saleDetailId = null, ?int $excludeReturnId = null): float
     {
         $originalQty = 0;
         
@@ -28,8 +29,11 @@ class PosReturnQuantityGuard
             $originalQty = (float) ($saleDetail->quantity ?? 0);
         }
 
-        $alreadyReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) {
+        $alreadyReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
                 $q->active();
+                if ($excludeReturnId) {
+                    $q->where('id', '!=', $excludeReturnId);
+                }
             })
             ->when($dispatchDetailId, function ($q) use ($dispatchDetailId) {
                 $q->where('dispatch_detail_id', $dispatchDetailId);
@@ -56,7 +60,8 @@ class PosReturnQuantityGuard
         }
 
         $saleDetailId = $options['sale_detail_id'] ?? null;
-        $returnableQty = $this->getReturnableQuantity($dispatchDetailId, $saleDetailId);
+        $excludeReturnId = $options['exclude_return_id'] ?? null;
+        $returnableQty = $this->getReturnableQuantity($dispatchDetailId, $saleDetailId, $excludeReturnId);
 
         // Allow a small epsilon for float comparison if needed, but standard return quantities are usually discrete or 4 decimals.
         return round($requestedQuantity, 4) <= round($returnableQty, 4);

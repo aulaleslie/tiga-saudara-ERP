@@ -11,34 +11,44 @@ class PosReturnLifecycleService
      * Approve a POS return.
      *
      * @param int $posReturnId
+     * @param string|null $returnOption
      * @return void
      */
-    public function approve(int $posReturnId): void
+    public function approve(int $posReturnId, ?string $returnOption = null): void
     {
-        $this->runLifecycleMutation($posReturnId, 'approve', function () use ($posReturnId) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
-            $posReturn = \Modules\Pos\Entities\PosReturn::query()
-                ->whereKey($posReturnId)
-                ->lockForUpdate()
-                ->firstOrFail();
+        $this->runLifecycleMutation($posReturnId, 'approve', function () use ($posReturnId, $returnOption) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $returnOption) {
+                $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                    ->whereKey($posReturnId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            $this->assertManualCorrectionIsNotRequired($posReturn);
+                $this->assertManualCorrectionIsNotRequired($posReturn);
 
-            if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
-                throw new \Exception("Only pending approval returns can be approved.");
-            }
+                if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
+                    throw new \Exception("Only pending approval returns can be approved.");
+                }
 
-            $actorId = \Illuminate\Support\Facades\Auth::id();
-            $approvedAt = now();
+                $actorId = \Illuminate\Support\Facades\Auth::id();
+                $approvedAt = now();
 
-            $posReturn->update([
-                'status' => \Modules\Pos\Entities\PosReturn::STATUS_APPROVED,
-                'approval_status' => \Modules\Pos\Entities\PosReturn::APPROVAL_STATUS_APPROVED,
-                'approved_by' => $actorId,
-                'approved_at' => $approvedAt,
-            ]);
+                $updateData = [
+                    'status' => \Modules\Pos\Entities\PosReturn::STATUS_APPROVED,
+                    'approval_status' => \Modules\Pos\Entities\PosReturn::APPROVAL_STATUS_APPROVED,
+                    'approved_by' => $actorId,
+                    'approved_at' => $approvedAt,
+                ];
 
-            $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
+                if ($returnOption) {
+                    if (!in_array($returnOption, [\Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN, \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT])) {
+                        throw new \Exception("Invalid return option: {$returnOption}");
+                    }
+                    $updateData['return_option'] = $returnOption;
+                }
+
+                $posReturn->update($updateData);
+
+                $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
             });
         });
     }

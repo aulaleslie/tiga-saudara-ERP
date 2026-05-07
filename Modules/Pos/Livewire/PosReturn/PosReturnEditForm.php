@@ -13,9 +13,10 @@ class PosReturnEditForm extends Component
     public $snapshot = null;
     
     // Submission data
-    public $returnOption;
-    public $quantities = []; // sale_detail_id => quantity
-    public $selectedSerials = []; // sale_detail_id => [serial_ids]
+    public $quantities = []; // product_id => quantity
+    public $selectedSerials = []; // product_id => [serial_ids]
+    public $serialInputs = []; // product_id => string
+    public $showAvailableSerials = []; // product_id => bool
     public $error = null;
 
     public function mount(PosReturn $return)
@@ -27,39 +28,104 @@ class PosReturnEditForm extends Component
         }
 
         $this->return = $return;
-        $this->returnOption = $return->return_option;
         
         $snapshotService = app(PosReturnSnapshotService::class);
         $this->snapshot = $snapshotService->build($return->pos_transaction_id);
         
-        // Initialize quantities and serials from existing return lines
+        // Initialize quantities, serials, and inputs from existing return lines
         foreach ($this->snapshot['lines'] as $line) {
-            $existingLine = $return->lines()->where('sale_detail_id', $line['sale_detail_id'])->first();
-            $this->quantities[$line['sale_detail_id']] = $existingLine ? $existingLine->quantity : 0;
+            $productId = $line['product_id'];
+            $existingQty = $return->lines()->where('product_id', $productId)->sum('quantity');
             
-            if (!empty($line['serial_number_ids'])) {
-                $this->selectedSerials[$line['sale_detail_id']] = $existingLine ? ($existingLine->serial_number_ids ?? []) : [];
+            $this->quantities[$productId] = (float) $existingQty;
+            $this->serialInputs[$productId] = '';
+            $this->showAvailableSerials[$productId] = false;
+            
+            if ($line['is_tracked'] || !empty($line['serial_number_ids'])) {
+                // Collect all serials for this product from all lines
+                $this->selectedSerials[$productId] = $return->lines()
+                    ->where('product_id', $productId)
+                    ->get()
+                    ->pluck('serial_number_ids')
+                    ->flatten()
+                    ->filter()
+                    ->toArray();
             }
         }
+    }
+
+    public function addSerialByScan($productId)
+    {
+        $input = trim($this->serialInputs[$productId] ?? '');
+        if (empty($input)) return;
+
+        $line = collect($this->snapshot['lines'])->firstWhere('product_id', $productId);
+        if (!$line || empty($line['serial_numbers'])) {
+            $this->serialInputs[$productId] = '';
+            return;
+        }
+
+        $serial = collect($line['serial_numbers'])->first(function ($sn) use ($input) {
+            return strtoupper($sn['serial_number']) === strtoupper($input);
+        });
+
+        if ($serial) {
+            if (!in_array($serial['id'], $this->selectedSerials[$productId])) {
+                $this->selectedSerials[$productId][] = $serial['id'];
+                $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+            }
+        } else {
+            $this->addError("serialInputs.{$productId}", "Serial number {$input} tidak ditemukan dalam transaksi ini.");
+        }
+
+        $this->serialInputs[$productId] = '';
+        $this->dispatch('serial-scanned', productId: $productId);
+    }
+
+    public function removeSerial($productId, $serialId)
+    {
+        if (isset($this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = array_values(array_diff($this->selectedSerials[$productId], [$serialId]));
+            $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+        }
+    }
+
+    public function toggleSerial($productId, $serialId)
+    {
+        if (!isset($this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = [];
+        }
+
+        if (in_array($serialId, $this->selectedSerials[$productId])) {
+            $this->selectedSerials[$productId] = array_values(array_diff($this->selectedSerials[$productId], [$serialId]));
+        } else {
+            $this->selectedSerials[$productId][] = $serialId;
+        }
+        
+        $this->quantities[$productId] = count($this->selectedSerials[$productId]);
+    }
+
+    public function toggleAvailableSerials($productId)
+    {
+        $this->showAvailableSerials[$productId] = !($this->showAvailableSerials[$productId] ?? false);
     }
 
     public function submit()
     {
         $this->validate([
-            'returnOption' => 'required|in:' . PosReturn::OPTION_CASH_RETURN . ',' . PosReturn::OPTION_PRODUCT_REPLACEMENT,
             'quantities.*' => 'numeric|min:0',
         ]);
 
         $lines = [];
-        foreach ($this->quantities as $saleDetailId => $qty) {
+        foreach ($this->quantities as $productId => $qty) {
             if ($qty > 0) {
                 $line = [
-                    'sale_detail_id' => $saleDetailId,
+                    'product_id' => $productId,
                     'quantity' => $qty,
                 ];
                 
-                if (isset($this->selectedSerials[$saleDetailId])) {
-                    $line['serial_number_ids'] = $this->selectedSerials[$saleDetailId];
+                if (isset($this->selectedSerials[$productId])) {
+                    $line['serial_number_ids'] = $this->selectedSerials[$productId];
                 }
                 
                 $lines[] = $line;
@@ -72,49 +138,11 @@ class PosReturnEditForm extends Component
         }
 
         try {
-            // Note: We might want a dedicated update method in submission service,
-            // but for US2 simplicity, we'll just handle it here or reuse store logic.
-            // Actually, submission service should handle the atomic update.
-            
-            \Illuminate\Support\Facades\DB::transaction(function () use ($lines) {
-                // Remove old lines
-                $this->return->lines()->delete();
-                $this->return->saleReturns()->delete();
-                
-                // Re-calculate totals
-                $totalAmount = 0;
-                foreach ($lines as $lineData) {
-                    $snapshotLine = collect($this->snapshot['lines'])->firstWhere('sale_detail_id', $lineData['sale_detail_id']);
-                    $totalAmount += $lineData['quantity'] * ($snapshotLine['unit_price'] ?? 0);
-                }
-
-                $this->return->update([
-                    'return_option' => $this->returnOption,
-                    'total_amount' => $totalAmount,
-                ]);
-
-                // Create new lines (We can reuse submission service if we refactor it, but for now we'll do it manually)
-                // Actually, it's better to refactor submission service later.
-                // For now, let's just use the logic from store() but for update.
-                
-                $submissionService = app(PosReturnSubmissionService::class);
-                // We'll trick the submission service by deleting the return first? No.
-                // Let's just implement the logic here for now to satisfy T053.
-                
-                foreach ($lines as $lineData) {
-                    $snapshotLine = collect($this->snapshot['lines'])->firstWhere('sale_detail_id', $lineData['sale_detail_id']);
-                    
-                    $this->return->lines()->create([
-                        'setting_id' => $this->return->setting_id,
-                        'product_id' => $snapshotLine['product_id'],
-                        'sale_detail_id' => $lineData['sale_detail_id'],
-                        'quantity' => $lineData['quantity'],
-                        'unit_price' => $snapshotLine['unit_price'],
-                        'sub_total' => $lineData['quantity'] * $snapshotLine['unit_price'],
-                        'serial_number_ids' => $lineData['serial_number_ids'] ?? null,
-                    ]);
-                }
-            });
+            $submissionService = app(PosReturnSubmissionService::class);
+            $submissionService->update($this->return, [
+                'source_snapshot_hash' => $this->snapshot['hash'],
+                'lines' => $lines,
+            ]);
 
             toast('Retur POS berhasil diperbarui.', 'success');
             return redirect()->route('pos.returns.show', $this->return->id);

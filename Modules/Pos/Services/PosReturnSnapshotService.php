@@ -58,18 +58,29 @@ class PosReturnSnapshotService
         ];
 
         $lines = [];
+        $allSaleDetails = collect();
+        $checkoutSalesBySaleId = $checkout->checkoutSales->keyBy('sale_id');
+        
         foreach ($checkout->checkoutSales as $cs) {
             $sale = $cs->sale;
             if (!$sale) continue;
-
+            
             foreach ($sale->saleDetails as $detail) {
-                $lines[] = $this->buildLineSnapshot($cs, $detail);
+                $allSaleDetails->put($detail->id, $detail);
             }
         }
 
+        foreach ($allSaleDetails as $detailId => $detail) {
+            $cs = $checkoutSalesBySaleId->get($detail->sale_id);
+            if ($cs) {
+                $lines[] = $this->buildLineSnapshot($cs, $detail);
+            }
+        }
+        
+
         // Consolidate bundle lines: if multiple lines have the same product_id
         // and all have bundle_items, merge their bundle_items into one line
-        $snapshot['lines'] = $this->consolidateBundleLines($lines);
+        $snapshot['lines'] = $this->consolidateLinesByProduct($lines);
 
         $snapshot['hash'] = $this->hash($snapshot);
 
@@ -89,11 +100,6 @@ class PosReturnSnapshotService
         $isBundle = $detail->bundleItems->isNotEmpty();
         $originalQuantity = (float) $detail->quantity;
 
-        // For bundles with qty=0 in the detail but with bundle items present,
-        // infer that qty should be 1 (one bundle was sold with its components).
-        if ($isBundle && $originalQuantity === 0.0) {
-            $originalQuantity = 1.0;
-        }
 
         // Bundle details store price=0; derive per-bundle unit price from the checkout_sale subtotal.
         $unitPrice = (float) $detail->unit_price;
@@ -102,6 +108,26 @@ class PosReturnSnapshotService
             $checkoutSubtotal = (float) $checkoutSale->subtotal;
             $unitPrice = $checkoutSubtotal / $originalQuantity;
             $lineTotal = $checkoutSubtotal;
+        }
+
+        $serialNumbers = [];
+        $snIds = $detail->serial_number_ids ?? [];
+        
+        // If no SN IDs in detail, check dispatch detail
+        if (empty($snIds) && $dispatchDetailId) {
+            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($dispatchDetailId);
+            if ($dispatchDetail && !empty($dispatchDetail->serial_numbers)) {
+                $snIds = is_array($dispatchDetail->serial_numbers) 
+                    ? $dispatchDetail->serial_numbers 
+                    : explode(',', $dispatchDetail->serial_numbers);
+            }
+        }
+
+        if (!empty($snIds)) {
+            $serialNumbers = \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $snIds)
+                ->get(['id', 'serial_number'])
+                ->map(fn($sn) => ['id' => $sn->id, 'serial_number' => $sn->serial_number])
+                ->toArray();
         }
 
         $line = [
@@ -118,14 +144,16 @@ class PosReturnSnapshotService
             'unit_price' => $unitPrice,
             'line_total' => $lineTotal,
             'tax_id' => $detail->tax_id,
+            'is_tracked' => (bool) ($detail->product->serial_number_required ?? false),
             'serial_number_ids' => $detail->serial_number_ids ?? [],
+            'serial_numbers' => $serialNumbers, // Added full serial info
             'is_bundle' => $isBundle,
-            'bundle_items' => $detail->bundleItems->map(function ($bi) {
+            'bundle_items' => $detail->bundleItems->map(function ($bi) use ($originalQuantity) {
                 return [
                     'product_id' => $bi->product_id,
                     'product_name' => $bi->product->product_name,
                     'product_code' => $bi->product->product_code,
-                    'quantity_per_bundle' => (float) $bi->quantity,
+                    'quantity' => (float) $bi->quantity,
                 ];
             })->toArray(),
         ];
@@ -162,67 +190,77 @@ class PosReturnSnapshotService
     }
 
     /**
-     * Consolidate bundle lines with the same product_id into a single line.
-     * This handles cases where POS splits a single bundled product across multiple sales.
+     * Consolidate all lines with the same product_id into a single line.
+     * This handles cases where POS splits products across multiple sales or bundle fragments.
      */
-    protected function consolidateBundleLines(array $lines): array
+    protected function consolidateLinesByProduct(array $lines): array
     {
         $consolidated = [];
-        $bundlesByProduct = [];
-        $nonBundleLines = [];
+        $byProduct = [];
 
         foreach ($lines as $line) {
-            if (!$line['is_bundle']) {
-                $nonBundleLines[] = $line;
+            $productId = $line['product_id'];
+
+            if (!isset($byProduct[$productId])) {
+                $byProduct[$productId] = $line;
             } else {
-                $productId = $line['product_id'];
-
-                if (!isset($bundlesByProduct[$productId])) {
-                    $bundlesByProduct[$productId] = $line;
-                } else {
-                    $existing = $bundlesByProduct[$productId];
-
-                    $bundlesByProduct[$productId]['original_quantity'] += $line['original_quantity'];
-                    $bundlesByProduct[$productId]['returned_quantity'] += $line['returned_quantity'];
-                    $bundlesByProduct[$productId]['returnable_quantity'] += $line['returnable_quantity'];
-                    $bundlesByProduct[$productId]['line_total'] += $line['line_total'];
-
-                    // Merge bundle_items, avoiding duplicates by product_id
-                    $existingItemIds = collect($existing['bundle_items'])->pluck('product_id')->toArray();
-                    foreach ($line['bundle_items'] as $newItem) {
-                        if (!in_array($newItem['product_id'], $existingItemIds)) {
-                            $bundlesByProduct[$productId]['bundle_items'][] = $newItem;
-                            $existingItemIds[] = $newItem['product_id'];
-                        }
+                $byProduct[$productId]['original_quantity'] += $line['original_quantity'];
+                $byProduct[$productId]['returned_quantity'] += $line['returned_quantity'];
+                $byProduct[$productId]['returnable_quantity'] += $line['returnable_quantity'];
+                $byProduct[$productId]['line_total'] += $line['line_total'];
+                
+                // Merge serial numbers
+                $byProduct[$productId]['serial_number_ids'] = array_values(array_unique(array_merge(
+                    $byProduct[$productId]['serial_number_ids'], 
+                    $line['serial_number_ids']
+                )));
+                
+                $existingSnIds = collect($byProduct[$productId]['serial_numbers'])->pluck('id')->toArray();
+                foreach ($line['serial_numbers'] as $sn) {
+                    if (!in_array($sn['id'], $existingSnIds)) {
+                        $byProduct[$productId]['serial_numbers'][] = $sn;
+                        $existingSnIds[] = $sn['id'];
                     }
                 }
+
+                // Merge bundle items
+                if ($line['is_bundle'] || $byProduct[$productId]['is_bundle']) {
+                    $byProduct[$productId]['is_bundle'] = true;
+                    $existingItems = collect($byProduct[$productId]['bundle_items'])->keyBy('product_id');
+                    foreach ($line['bundle_items'] as $newItem) {
+                        $pId = $newItem['product_id'];
+                        if (!$existingItems->has($pId)) {
+                            $existingItems->put($pId, $newItem);
+                        } else {
+                            // If it exists, we take the one with higher quantity 
+                            // to handle cases where some split sales have 0 qty
+                            $existingItem = $existingItems->get($pId);
+                            if ((float) ($newItem['quantity'] ?? 0) > (float) ($existingItem['quantity'] ?? 0)) {
+                                $existingItems->put($pId, $newItem);
+                            }
+                        }
+                    }
+                    $byProduct[$productId]['bundle_items'] = $existingItems->values()->toArray();
+                }
+
+                // Merge tracked status
+                $byProduct[$productId]['is_tracked'] = $byProduct[$productId]['is_tracked'] || $line['is_tracked'];
             }
         }
 
-        // When a non-bundle line shares the same product_id as a bundle line, merge its
-        // line_total into the bundle row (the POS receipt displays them as one combined line).
-        // Otherwise keep the non-bundle line as its own row.
-        foreach ($nonBundleLines as $line) {
-            if (isset($bundlesByProduct[$line['product_id']])) {
-                $bundlesByProduct[$line['product_id']]['line_total'] += $line['line_total'];
-            } else {
-                $consolidated[] = $line;
+        // Final normalization
+        foreach ($byProduct as &$line) {
+            if ($line['original_quantity'] > 0) {
+                $line['unit_price'] = $line['line_total'] / $line['original_quantity'];
             }
-        }
-
-        // Add consolidated bundles to output, normalizing quantity_per_bundle and unit_price.
-        // bundle_item.quantity stores total qty sold across all bundle instances,
-        // so divide by total bundle count to get the per-bundle quantity.
-        foreach ($bundlesByProduct as &$line) {
-            $totalBundles = $line['original_quantity'];
-            if ($totalBundles > 0) {
+            
+            if ($line['is_bundle'] && $line['original_quantity'] > 0) {
                 foreach ($line['bundle_items'] as &$bundleItem) {
-                    $bundleItem['quantity_per_bundle'] = $bundleItem['quantity_per_bundle'] / $totalBundles;
+                    $bundleItem['quantity_per_bundle'] = (float) ($bundleItem['quantity'] ?? 0) / $line['original_quantity'];
                 }
                 unset($bundleItem);
-                // Recompute per-bundle unit price from the fully-merged line_total
-                $line['unit_price'] = $line['line_total'] / $totalBundles;
             }
+            
             $consolidated[] = $line;
         }
         unset($line);

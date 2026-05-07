@@ -35,7 +35,8 @@ class PosReturnSubmissionService
     public function store(array $data)
     {
         return DB::transaction(function () use ($data) {
-            $transaction = PosTransaction::findOrFail($data['pos_transaction_id']);
+            $transaction = PosTransaction::with(['customer', 'completedCheckout'])
+                ->findOrFail($data['pos_transaction_id']);
             $checkout = $transaction->completedCheckout;
 
             if (!$checkout) {
@@ -82,42 +83,65 @@ class PosReturnSubmissionService
 
             // 4. Process lines (T045, T046, T047, T048)
             foreach ($data['lines'] as $lineData) {
-                $saleDetail = SaleDetails::with(['bundleItems.product', 'sale'])->findOrFail($lineData['sale_detail_id']);
-                
-                // Validate quantity
-                if (!$this->quantityGuard->isValid($saleDetail->dispatch_detail_id, $lineData['quantity'], ['sale_detail_id' => $saleDetail->id])) {
-                    throw new \Exception("Invalid return quantity for product: " . $saleDetail->product->product_name);
+                $requestedQuantity = (float) $lineData['quantity'];
+                if ($requestedQuantity <= 0) continue;
+
+                // Find all sale details for this product in this checkout to distribute the quantity
+                $allSaleDetails = SaleDetails::with(['bundleItems.product'])
+                    ->whereIn('sale_id', $checkoutSales->keys())
+                    ->where('product_id', $lineData['product_id'])
+                    ->get();
+
+                if ($allSaleDetails->isEmpty()) {
+                    throw new \Exception("Product ID {$lineData['product_id']} not found in this transaction.");
                 }
 
-                $checkoutSale = $checkoutSales->get($saleDetail->sale_id);
-                if (!$checkoutSale) {
-                    throw new \Exception("Sale ID {$saleDetail->sale_id} not found in checkout sales.");
-                }
+                $remainingToDistribute = $requestedQuantity;
+                $serialIdsToDistribute = $lineData['serial_number_ids'] ?? [];
 
-                $isBundle = $saleDetail->bundleItems->isNotEmpty();
-                
-                if ($isBundle) {
-                    // Handle bundle expansion (T047)
-                    foreach ($saleDetail->bundleItems as $bi) {
-                        $componentQty = $lineData['quantity'] * $bi->quantity;
-                        
-                        $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $bi->product, $componentQty, [
-                            'bundle_group_key' => $saleDetail->id,
-                            'bundle_parent_sale_detail_id' => $saleDetail->id,
-                            'bundle_quantity' => $lineData['quantity'],
-                            'component_quantity_per_bundle' => $bi->quantity,
-                            'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
+                foreach ($allSaleDetails as $saleDetail) {
+                    if ($remainingToDistribute <= 0) break;
+
+                    $returnable = $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id);
+                    if ($returnable <= 0) continue;
+
+                    $take = min($remainingToDistribute, $returnable);
+                    
+                    $checkoutSale = $checkoutSales->get($saleDetail->sale_id);
+                    $isBundle = $saleDetail->bundleItems->isNotEmpty();
+                    
+                    // Slice serials for this detail if applicable
+                    $detailSerials = [];
+                    if (!empty($serialIdsToDistribute)) {
+                        $detailSerials = array_splice($serialIdsToDistribute, 0, (int)$take);
+                    }
+
+                    if ($isBundle) {
+                        foreach ($saleDetail->bundleItems as $bi) {
+                            $componentQty = $take * $bi->quantity;
+                            $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $bi->product, $componentQty, [
+                                'bundle_group_key' => $saleDetail->id,
+                                'bundle_parent_sale_detail_id' => $saleDetail->id,
+                                'bundle_quantity' => $take,
+                                'component_quantity_per_bundle' => $bi->quantity,
+                                'serial_number_ids' => $detailSerials ?: ($saleDetail->serial_number_ids ?? []),
+                            ]);
+                            $lineGroups[$saleDetail->sale_id][] = $returnLine;
+                            $totalAmount += $returnLine->line_total;
+                        }
+                    } else {
+                        $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $take, [
+                            'serial_number_ids' => $detailSerials ?: ($saleDetail->serial_number_ids ?? []),
                         ]);
-                        
                         $lineGroups[$saleDetail->sale_id][] = $returnLine;
                         $totalAmount += $returnLine->line_total;
                     }
-                } else {
-                    $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], [
-                        'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
-                    ]);
-                    $lineGroups[$saleDetail->sale_id][] = $returnLine;
-                    $totalAmount += $returnLine->line_total;
+
+                    $remainingToDistribute -= $take;
+                }
+
+                if ($remainingToDistribute > 0) {
+                    throw new \Exception("Insufficient returnable quantity for product ID {$lineData['product_id']}. Remaining: {$remainingToDistribute}");
                 }
             }
 
@@ -187,49 +211,136 @@ class PosReturnSubmissionService
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
         
-        if ($posReturn->status !== PosReturn::STATUS_DRAFT && $posReturn->status !== PosReturn::STATUS_PENDING_APPROVAL) {
-            throw new \Exception('Hanya retur berstatus draft atau menunggu persetujuan yang dapat diubah.');
+        if ($posReturn->status !== PosReturn::STATUS_PENDING_APPROVAL) {
+            throw new \Exception('Hanya retur yang masih menunggu persetujuan yang dapat diubah.');
         }
 
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($posReturn, $data) {
+        return DB::transaction(function () use ($posReturn, $data) {
             // Delete old associated records
             $posReturn->lines()->delete();
             $posReturn->saleReturns()->delete();
             
-            // Re-use logic from store but on existing model
-            $currentSnapshot = $data['source_snapshot'] ?? $posReturn->source_snapshot;
-            $currentHash = $data['source_snapshot_hash'] ?? $posReturn->source_snapshot_hash;
-
-            // Validate hash
-            if ($currentHash !== $posReturn->source_snapshot_hash) {
-                // If hash changed, we might need to re-validate everything
-                // but for now we assume snapshot is same unless provided
+            // Revalidate snapshot hash
+            $transaction = $posReturn->posTransaction()->with(['customer', 'completedCheckout'])->firstOrFail();
+            $currentSnapshot = $this->snapshotService->build($transaction->id);
+            if ($currentSnapshot['hash'] !== $data['source_snapshot_hash']) {
+                throw new \Exception("Source snapshot is stale. Please refresh the page.");
             }
 
             $totalAmount = 0;
+            $lineGroups = [];
+            
+            $checkoutSales = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)
+                ->get()
+                ->keyBy('sale_id');
+
             foreach ($data['lines'] as $lineData) {
-                $saleDetail = SaleDetails::with(['sale', 'product'])->find($lineData['sale_detail_id']);
-                if (!$saleDetail) continue;
+                $requestedQuantity = (float) $lineData['quantity'];
+                if ($requestedQuantity <= 0) continue;
 
-                $checkoutSale = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)
-                    ->where('sale_id', $saleDetail->sale_id)
-                    ->first();
+                $allSaleDetails = SaleDetails::with(['bundleItems.product'])
+                    ->whereIn('sale_id', $checkoutSales->keys())
+                    ->where('product_id', $lineData['product_id'])
+                    ->get();
 
-                if (!$checkoutSale) continue;
+                $remainingToDistribute = $requestedQuantity;
+                $serialIdsToDistribute = $lineData['serial_number_ids'] ?? [];
 
-                $line = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $lineData['quantity'], array_merge($lineData, [
-                    'serial_number_ids' => $lineData['serial_number_ids'] ?? $saleDetail->serial_number_ids,
-                ]));
-                $totalAmount += $line->line_total;
+                foreach ($allSaleDetails as $saleDetail) {
+                    if ($remainingToDistribute <= 0) break;
+
+                    $returnable = $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id, $posReturn->id);
+                    if ($returnable <= 0) continue;
+
+                    $take = min($remainingToDistribute, $returnable);
+                    $checkoutSale = $checkoutSales->get($saleDetail->sale_id);
+                    $isBundle = $saleDetail->bundleItems->isNotEmpty();
+                    
+                    $detailSerials = [];
+                    if (!empty($serialIdsToDistribute)) {
+                        $detailSerials = array_splice($serialIdsToDistribute, 0, (int)$take);
+                    }
+
+                    if ($isBundle) {
+                        foreach ($saleDetail->bundleItems as $bi) {
+                            $componentQty = $take * $bi->quantity;
+                            $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $bi->product, $componentQty, [
+                                'bundle_group_key' => $saleDetail->id,
+                                'bundle_parent_sale_detail_id' => $saleDetail->id,
+                                'bundle_quantity' => $take,
+                                'component_quantity_per_bundle' => $bi->quantity,
+                                'serial_number_ids' => $detailSerials ?: ($saleDetail->serial_number_ids ?? []),
+                            ]);
+                            $lineGroups[$saleDetail->sale_id][] = $returnLine;
+                            $totalAmount += $returnLine->line_total;
+                        }
+                    } else {
+                        $returnLine = $this->createReturnLine($posReturn, $checkoutSale, $saleDetail, $saleDetail->product, $take, [
+                            'serial_number_ids' => $detailSerials ?: ($saleDetail->serial_number_ids ?? []),
+                        ]);
+                        $lineGroups[$saleDetail->sale_id][] = $returnLine;
+                        $totalAmount += $returnLine->line_total;
+                    }
+
+                    $remainingToDistribute -= $take;
+                }
             }
 
             $posReturn->update([
-                'return_option' => $data['return_option'] ?? $posReturn->return_option,
-                'status' => $data['status'] ?? $posReturn->status,
-                'approval_status' => $data['approval_status'] ?? $posReturn->approval_status,
                 'total_amount' => $totalAmount,
+                'source_snapshot' => $currentSnapshot,
+                'source_snapshot_hash' => $currentSnapshot['hash'],
                 'updated_by' => Auth::id(),
             ]);
+
+            // Re-create linked Sales Returns
+            foreach ($lineGroups as $saleId => $lines) {
+                $sale = \Modules\Sale\Entities\Sale::findOrFail($saleId);
+                $saleReturnAmount = collect($lines)->sum('line_total');
+                $checkoutSale = $checkoutSales->get($saleId);
+
+                $saleReturn = SaleReturn::create([
+                    'setting_id' => $posReturn->setting_id,
+                    'pos_return_id' => $posReturn->id,
+                    'sale_id' => $sale->id,
+                    'reference' => $this->generateSaleReturnReference($posReturn->setting_id),
+                    'date' => now()->toDateString(),
+                    'customer_id' => $sale->customer_id,
+                    'customer_name' => $sale->customer_name ?? '-',
+                    'location_id' => $checkoutSale->source_location_id,
+                    'total_amount' => $saleReturnAmount,
+                    'due_amount' => $saleReturnAmount,
+                    'status' => 'Pending Approval',
+                    'approval_status' => 'pending',
+                    'payment_status' => 'Unpaid',
+                    'payment_method' => 'CASH',
+                ]);
+
+                foreach ($lines as $returnLine) {
+                    $saleReturnDetail = SaleReturnDetail::create([
+                        'sale_return_id' => $saleReturn->id,
+                        'pos_return_line_id' => $returnLine->id,
+                        'sale_detail_id' => $returnLine->sale_detail_id,
+                        'dispatch_detail_id' => $returnLine->dispatch_detail_id,
+                        'product_id' => $returnLine->product_id,
+                        'product_name' => $returnLine->product_name,
+                        'product_code' => $returnLine->product_code,
+                        'quantity' => $returnLine->quantity,
+                        'price' => $returnLine->unit_price,
+                        'unit_price' => $returnLine->unit_price,
+                        'sub_total' => $returnLine->line_total,
+                        'location_id' => $returnLine->source_location_id,
+                        'tax_id' => $returnLine->tax_id,
+                        'serial_number_ids' => $returnLine->serial_number_ids,
+                        'stock_behavior' => $returnLine->stock_behavior,
+                    ]);
+
+                    $returnLine->update([
+                        'sale_return_id' => $saleReturn->id,
+                        'sale_return_detail_id' => $saleReturnDetail->id,
+                    ]);
+                }
+            }
 
             return $posReturn->refresh();
         });

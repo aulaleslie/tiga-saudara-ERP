@@ -85,12 +85,10 @@
 
                             @can('pos.returns.approve')
                                 @if($approvalStatus === 'pending' && ! $requiresManualCorrection)
-                                    <form method="POST" action="{{ route('pos.returns.approve', $return) }}" class="d-inline me-2 mb-1">
-                                        @csrf
-                                        <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Setujui retur POS ini?')">
-                                            <i class="bi bi-check2-circle"></i> Setujui
-                                        </button>
-                                    </form>
+                                    <button type="button" class="btn btn-success btn-sm me-2 mb-1" data-toggle="modal" data-target="#approveModal">
+                                        <i class="bi bi-check2-circle"></i> Setujui
+                                    </button>
+
                                     <form id="pos-return-reject-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.reject', $return) }}" class="d-none">
                                         @csrf
                                         <input type="hidden" name="reason" value="">
@@ -98,6 +96,46 @@
                                     <button type="button" class="btn btn-outline-danger btn-sm me-2 mb-1" onclick="posReturnReject{{ $return->id }}()">
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
+
+                                    <!-- Approval Modal -->
+                                    <div class="modal fade" id="approveModal" tabindex="-1" role="dialog" aria-labelledby="approveModalLabel" aria-hidden="true">
+                                        <div class="modal-dialog" role="document">
+                                            <div class="modal-content">
+                                                <form method="POST" action="{{ route('pos.returns.approve', $return) }}">
+                                                    @csrf
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title" id="approveModalLabel">Persetujuan Retur POS</h5>
+                                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                            <span aria-hidden="true">&times;</span>
+                                                        </button>
+                                                    </div>
+                                                    <div class="modal-body">
+                                                        <p>Silakan tentukan jenis penyelesaian untuk retur ini:</p>
+                                                        <div class="form-group">
+                                                            <div class="form-check mb-2">
+                                                                <input class="form-check-input" type="radio" name="return_option" id="opt_cash" value="cash_return" checked>
+                                                                <label class="form-check-label" for="opt_cash">
+                                                                    <strong>Retur Tunai (Cash Return)</strong>
+                                                                    <div class="small text-muted">Pelanggan akan menerima pengembalian uang tunai setelah barang diterima.</div>
+                                                                </label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="radio" name="return_option" id="opt_replacement" value="product_replacement">
+                                                                <label class="form-check-label" for="opt_replacement">
+                                                                    <strong>Ganti Produk (Product Replacement)</strong>
+                                                                    <div class="small text-muted">Pelanggan akan menerima produk pengganti dengan SKU yang sama setelah barang diterima.</div>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                                                        <button type="submit" class="btn btn-success">Setujui Retur</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
                                 @endif
                             @endcan
 
@@ -172,7 +210,13 @@
                                         <dt class="col-5 text-muted">Referensi</dt>
                                         <dd class="col-7 fw-semibold">{{ $return->reference }}</dd>
                                         <dt class="col-5 text-muted">Opsi</dt>
-                                        <dd class="col-7 fw-semibold">{{ $isCashReturn ? 'Kembali Uang' : 'Ganti Produk' }}</dd>
+                                        <dd class="col-7 fw-semibold">
+                                            @if($status === 'pending_approval')
+                                                <span class="text-muted italic">Akan ditentukan saat persetujuan</span>
+                                            @else
+                                                {{ \Modules\Pos\Entities\PosReturn::OPTION_LABELS[$return->return_option] ?? $return->return_option }}
+                                            @endif
+                                        </dd>
                                         <dt class="col-5 text-muted">Total</dt>
                                         <dd class="col-7 fw-semibold">{{ format_currency($return->total_amount) }}</dd>
                                         <dt class="col-5 text-muted">Disetujui</dt>
