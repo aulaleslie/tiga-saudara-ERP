@@ -14,9 +14,15 @@ class PosReturnLine extends Model
     public const STOCK_BEHAVIOR_MANAGED = 'stock_managed';
     public const STOCK_BEHAVIOR_STOCKLESS = 'stockless';
 
+    public const RESOLUTION_NONE = 'none';
+    public const RESOLUTION_PRODUCT_REPLACEMENT = 'product_replacement';
+    public const RESOLUTION_CASH_RETURN = 'cash_return';
+
     protected $fillable = [
         'pos_return_id',
         'pos_checkout_sale_id',
+        'pos_transaction_line_id',
+        'resolution',
         'sale_return_id',
         'sale_return_detail_id',
         'sale_id',
@@ -31,7 +37,10 @@ class PosReturnLine extends Model
         'quantity',
         'unit_price',
         'line_total',
+        'expected_cash_amount',
         'serial_number_ids',
+        'returned_serial_id',
+        'replacement_serial_id',
         'bundle_group_key',
         'bundle_parent_sale_detail_id',
         'bundle_quantity',
@@ -39,6 +48,7 @@ class PosReturnLine extends Model
         'stock_behavior',
         'replacement_product_id',
         'replacement_quantity',
+        'line_meta',
     ];
 
     protected $casts = [
@@ -46,9 +56,11 @@ class PosReturnLine extends Model
         'quantity' => 'decimal:4',
         'unit_price' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'expected_cash_amount' => 'decimal:2',
         'bundle_quantity' => 'decimal:4',
         'component_quantity_per_bundle' => 'decimal:4',
         'replacement_quantity' => 'decimal:4',
+        'line_meta' => 'array',
     ];
 
     public function posReturn()
@@ -79,5 +91,20 @@ class PosReturnLine extends Model
     public function product()
     {
         return $this->belongsTo(\Modules\Product\Entities\Product::class);
+    }
+
+    public function returnedSerial()
+    {
+        return $this->belongsTo(\Modules\Product\Entities\ProductSerialNumber::class, 'returned_serial_id');
+    }
+
+    public function replacementSerial()
+    {
+        return $this->belongsTo(\Modules\Product\Entities\ProductSerialNumber::class, 'replacement_serial_id');
+    }
+
+    public function posTransactionLine()
+    {
+        return $this->belongsTo(\Modules\Pos\Entities\PosTransactionLine::class, 'pos_transaction_line_id');
     }
 }

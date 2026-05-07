@@ -50,195 +50,282 @@
                                 @endforeach
                                 <div class="mt-2">Total: <strong>{{ format_currency($snapshot['header']['grand_total']) }}</strong></div>
                             </div>
+                            <div class="col-sm-4">
+                                <h6 class="mb-3">Informasi Tambahan:</h6>
+                                <div class="alert alert-info py-2 mb-0">
+                                    <small><i class="fas fa-info-circle mr-1"></i> Pilih resolusi untuk setiap item: Tidak Ada Aksi, Uang Kembali, atau Ganti Produk.</small>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-striped">
-                                <thead class="thead-light">
-                                    <tr>
-                                        <th>Produk</th>
-                                        <th class="text-center" title="Jumlah produk yang dapat diretur dari pembelian awal">
-                                            Tersedia
-                                            <i class="fas fa-info-circle text-muted" style="font-size: 0.85em; cursor: help;" data-toggle="tooltip" data-placement="top" title="Jumlah produk yang tersedia untuk diretur dari pembelian awal"></i>
-                                        </th>
-                                        <th class="text-center" style="width: 200px;">Jumlah Retur</th>
-                                        <th class="text-right">Harga Satuan</th>
-                                        <th class="text-right">Subtotal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach($snapshot['lines'] as $line)
-                                        @php
-                                            $productId = $line['product_id'];
-                                            $isReturnable = $line['returnable_quantity'] > 0;
-                                            $isTracked = ($line['is_tracked'] ?? false) || !empty($line['serial_numbers']);
-                                        @endphp
-                                        
-                                        {{-- Main Product Row --}}
-                                        <tr wire:key="product-row-{{ $productId }}" class="{{ $line['is_bundle'] ? 'bundle-parent-row' : '' }}">
-                                            <td>
-                                                <div class="font-weight-bold">{{ $line['product_name'] }}</div>
-                                                <small class="text-muted">{{ $line['product_code'] }}</small>
-                                                @if($line['is_bundle'])
-                                                    <div class="mt-1">
-                                                        <small class="badge badge-info">Bundle</small>
-                                                    </div>
-                                                @elseif($isTracked)
-                                                    <div class="mt-1">
-                                                        <small class="badge badge-primary">Tracked Serial</small>
-                                                    </div>
-                                                @endif
-                                            </td>
-                                            <td class="text-center">
-                                                <strong>{{ $line['returnable_quantity'] }}</strong>
-                                                @if($line['returned_quantity'] > 0)
-                                                    <div class="small text-danger">Ter-retur: {{ $line['returned_quantity'] }}</div>
-                                                @endif
-                                            </td>
-                                            <td class="text-center">
-                                                @if($isReturnable)
-                                                    @if($isTracked)
-                                                        <div class="input-group input-group-sm" x-data>
-                                                            <input type="text" 
-                                                                   id="serial-input-{{ $productId }}"
-                                                                   wire:model.defer="serialInputs.{{ $productId }}" 
-                                                                   wire:keydown.enter.prevent="addSerialByScan({{ $productId }})"
-                                                                   x-on:serial-scanned.window="if ($event.detail.productId == {{ $productId }}) { $el.value = ''; $el.focus(); }"
-                                                                   class="form-control text-center @error('serialInputs.'.$productId) is-invalid @enderror" 
-                                                                   placeholder="Scan/Type SN...">
-                                                            <div class="input-group-append">
-                                                                <span class="input-group-text"><i class="fas fa-barcode"></i></span>
-                                                            </div>
-                                                        </div>
-                                                        <div class="mt-2">
-                                                            <input type="number" 
-                                                                   value="{{ $quantities[$productId] ?? 0 }}" 
-                                                                   class="form-control form-control-sm text-center bg-light font-weight-bold" 
-                                                                   readonly 
-                                                                   title="Jumlah otomatis dari scan serial number">
-                                                            <small class="text-muted">Jumlah terpilih</small>
-                                                        </div>
-                                                    @else
-                                                        <input type="number"
-                                                               wire:model.live="quantities.{{ $productId }}"
-                                                               class="form-control form-control-sm text-center font-weight-bold"
-                                                               min="0"
-                                                               max="{{ $line['returnable_quantity'] }}"
-                                                               step="1">
-                                                    @endif
-                                                @else
-                                                    <span class="badge badge-secondary">Habis</span>
-                                                @endif
-                                            </td>
-                                            <td class="text-right">{{ format_currency($line['unit_price']) }}</td>
-                                            <td class="text-right">
-                                                {{ format_currency(($quantities[$productId] ?? 0) * $line['unit_price']) }}
-                                            </td>
-                                        </tr>
+                        @error('lineSelections')
+                            <div class="alert alert-danger">{{ $message }}</div>
+                        @enderror
 
-                                        {{-- Bundle Item Rows --}}
-                                        @if($line['is_bundle'] && !empty($line['bundle_items']))
-                                            @foreach($line['bundle_items'] as $bundleItem)
-                                                @php
-                                                    $maxBundleItemReturnable = $line['returnable_quantity'] * $bundleItem['quantity_per_bundle'];
-                                                    $selectedBundleItemQty = ($quantities[$productId] ?? 0) * $bundleItem['quantity_per_bundle'];
-                                                @endphp
-                                                <tr wire:key="bundle-item-{{ $productId }}-{{ $bundleItem['product_id'] }}" class="bundle-item-row table-light">
-                                                    <td class="pl-5">
-                                                        <div>{{ $bundleItem['product_name'] }}</div>
-                                                        <small class="text-muted">{{ $bundleItem['product_code'] }}</small>
-                                                    </td>
-                                                    <td class="text-center">
-                                                        <small class="text-muted">({{ $bundleItem['quantity_per_bundle'] }} per bundle)</small><br>
-                                                        <strong>{{ $maxBundleItemReturnable }}</strong>
-                                                    </td>
-                                                    <td class="text-center text-muted">
-                                                        <small>Otomatis</small><br>
-                                                        <small class="text-muted">{{ $selectedBundleItemQty }}</small>
-                                                    </td>
-                                                    <td class="text-right text-muted">
-                                                        <small>-</small>
-                                                    </td>
-                                                    <td class="text-right text-muted">
-                                                        <small>-</small>
-                                                    </td>
+                        {{-- Render grouped source lines --}}
+                        @foreach($this->groupedLines as $groupIndex => $group)
+                            <div class="card mb-3 border" wire:key="group-{{ $group['sale_detail_id'] }}">
+                                <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ $group['product_name'] }}</strong>
+                                        <small class="text-muted ml-2">{{ $group['product_code'] }}</small>
+                                        @if($group['is_bundle'])
+                                            <span class="badge badge-info ml-2">Bundle</span>
+                                        @endif
+                                        @if($group['is_tracked'])
+                                            <span class="badge badge-primary ml-2">Tracked Serial</span>
+                                        @endif
+                                    </div>
+                                    <div class="text-muted small">
+                                        Harga Satuan: <strong>{{ format_currency($group['unit_price']) }}</strong>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0">
+                                    @if(!empty($group['serial_lines']))
+                                        {{-- Serialized product: one row per serial (tasks 6.2, 6.3, 6.4) --}}
+                                        <table class="table table-sm mb-0">
+                                            <thead class="thead-light">
+                                                <tr>
+                                                    <th style="width: 200px;">Serial Number</th>
+                                                    <th class="text-center" style="width: 100px;">Status</th>
+                                                    <th class="text-center">Resolusi</th>
+                                                    <th class="text-center" style="width: 250px;">Detail</th>
                                                 </tr>
-                                            @endforeach
-                                        @endif
+                                            </thead>
+                                            <tbody>
+                                                @foreach($group['serial_lines'] as $serialLine)
+                                                    @php
+                                                        $lineKey = \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::buildLineKey($serialLine);
+                                                        $selection = $lineSelections[$lineKey] ?? ['resolution' => 'none'];
+                                                        $serialNumber = $serialLine['serial_numbers'][0]['serial_number'] ?? '?';
+                                                        $isReturnable = $serialLine['returnable_quantity'] > 0;
+                                                        $resolution = $selection['resolution'] ?? 'none';
+                                                    @endphp
+                                                    <tr wire:key="serial-row-{{ $lineKey }}">
+                                                        <td>
+                                                            <code class="font-weight-bold">{{ $serialNumber }}</code>
+                                                        </td>
+                                                        <td class="text-center">
+                                                            @if($isReturnable)
+                                                                <span class="badge badge-success">Tersedia</span>
+                                                            @else
+                                                                <span class="badge badge-secondary">Sudah Diretur</span>
+                                                            @endif
+                                                        </td>
+                                                        <td class="text-center">
+                                                            @if($isReturnable)
+                                                                {{-- Resolution selector (task 6.4) --}}
+                                                                <div class="btn-group btn-group-sm" role="group">
+                                                                    <button type="button"
+                                                                            wire:click="updateResolution('{{ $lineKey }}', 'none')"
+                                                                            class="btn {{ $resolution === 'none' ? 'btn-secondary' : 'btn-outline-secondary' }}">
+                                                                        <i class="fas fa-ban"></i> Tidak
+                                                                    </button>
+                                                                    <button type="button"
+                                                                            wire:click="updateResolution('{{ $lineKey }}', 'cash_return')"
+                                                                            class="btn {{ $resolution === 'cash_return' ? 'btn-success' : 'btn-outline-success' }}">
+                                                                        <i class="fas fa-money-bill-wave"></i> Tunai
+                                                                    </button>
+                                                                    <button type="button"
+                                                                            wire:click="updateResolution('{{ $lineKey }}', 'product_replacement')"
+                                                                            class="btn {{ $resolution === 'product_replacement' ? 'btn-info' : 'btn-outline-info' }}">
+                                                                        <i class="fas fa-exchange-alt"></i> Ganti
+                                                                    </button>
+                                                                </div>
+                                                            @else
+                                                                <span class="text-muted">-</span>
+                                                            @endif
+                                                        </td>
+                                                        <td class="text-center">
+                                                            {{-- Show expected cash amount for cash_return (task 6.6) --}}
+                                                            @if($resolution === 'cash_return')
+                                                                <div class="text-success font-weight-bold">
+                                                                    <i class="fas fa-money-bill-wave mr-1"></i>
+                                                                    {{ format_currency($serialLine['unit_price']) }}
+                                                                </div>
+                                                            @endif
 
-                                        {{-- Serial Numbers Selection Row --}}
-                                        @if($isTracked && $isReturnable)
-                                            <tr wire:key="serials-row-{{ $productId }}">
-                                                <td colspan="5" class="bg-light py-2">
-                                                    <div class="small font-weight-bold mb-1 text-primary">Serial Numbers Terpilih:</div>
-                                                    <div class="d-flex flex-wrap gap-2 mb-2">
-                                                        @forelse($selectedSerials[$productId] ?? [] as $snId)
-                                                            @php
-                                                                $snCode = collect($line['serial_numbers'])->firstWhere('id', $snId)['serial_number'] ?? $snId;
-                                                            @endphp
-                                                            <span wire:key="selected-sn-{{ $productId }}-{{ $snId }}" class="badge badge-info p-2 mr-1 mb-1">
-                                                                {{ $snCode }}
-                                                                <i class="fas fa-times ml-1 cursor-pointer" wire:click="removeSerial({{ $productId }}, {{ $snId }})" style="cursor: pointer;"></i>
-                                                            </span>
-                                                        @empty
-                                                            <small class="text-muted italic">Belum ada serial yang discan/dipilih.</small>
-                                                        @endforelse
-                                                    </div>
-                                                    
-                                                    <div class="p-4 border-primary rounded shadow-lg mb-4 {{ ($showAvailableSerials[$productId] ?? false) ? '' : 'd-none' }}" 
-                                                         style="border: 2px solid #007bff !important; background-color: #f0f7ff !important; min-height: 100px;">
-                                                        <div class="d-flex align-items-center mb-3">
-                                                            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center mr-3" style="width: 35px; height: 35px;">
-                                                                <i class="fas fa-hand-pointer"></i>
-                                                            </div>
-                                                            <h6 class="font-weight-bold text-primary mb-0" style="font-size: 1.1rem;">Pilih Manual Serial Tersedia:</h6>
-                                                        </div>
-                                                        <div class="d-flex flex-wrap gap-2 mb-3">
-                                                            @foreach($line['serial_numbers'] as $sn)
-                                                                @php
-                                                                    $isSelected = in_array($sn['id'], $selectedSerials[$productId] ?? []);
-                                                                @endphp
-                                                                <button wire:key="available-sn-{{ $productId }}-{{ $sn['id'] }}" 
-                                                                        wire:click="toggleSerial({{ $productId }}, {{ $sn['id'] }})" 
-                                                                        type="button"
-                                                                        class="btn {{ $isSelected ? 'btn-primary shadow' : 'btn-outline-primary bg-white' }} btn-md mr-2 mb-2 px-4 py-2 font-weight-bold"
-                                                                        style="transition: all 0.2s;">
-                                                                    {{ $sn['serial_number'] }}
-                                                                </button>
-                                                            @endforeach
-                                                        </div>
-                                                        <div class="alert alert-info border-0 mb-0 py-2">
-                                                            <i class="fas fa-info-circle mr-2"></i> 
-                                                            <strong>Tips:</strong> Klik nomor serial di atas untuk memilih produk yang akan diretur. 
-                                                            Serial yang dipilih akan berwarna biru penuh.
-                                                        </div>
-                                                    </div>
-                                                    <div class="text-center mt-1">
-                                                        <a href="javascript:void(0)" wire:click="toggleAvailableSerials({{ $productId }})" class="small">
-                                                            Tampilkan/Sembunyikan Semua Serial Tersedia
-                                                        </a>
-                                                    </div>
-                                                    @error("serialInputs.{$productId}") <div class="text-danger small">{{ $message }}</div> @enderror
-                                                </td>
-                                            </tr>
-                                        @endif
-                                    @endforeach
-                                </tbody>
-                                <tfoot>
-                                    <tr>
-                                        <th colspan="4" class="text-right">Total Retur:</th>
-                                        <th class="text-right">
+                                                            {{-- Show replacement serial scanner for product_replacement (task 6.5) --}}
+                                                            @if($resolution === 'product_replacement')
+                                                                @if(!empty($selection['replacement_serial_id']))
+                                                                    <div class="d-flex align-items-center justify-content-center">
+                                                                        <span class="badge badge-info p-2 mr-1">
+                                                                            <i class="fas fa-exchange-alt mr-1"></i>
+                                                                            {{ $selection['replacement_serial_label'] ?? '?' }}
+                                                                        </span>
+                                                                        <button type="button" class="btn btn-sm btn-outline-danger" wire:click="clearReplacementSerial('{{ $lineKey }}')" title="Hapus serial pengganti">
+                                                                            <i class="fas fa-times"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                @else
+                                                                    <div class="input-group input-group-sm">
+                                                                        <input type="text"
+                                                                               wire:model.defer="lineSelections.{{ $lineKey }}.replacement_serial_input"
+                                                                               wire:keydown.enter.prevent="scanReplacementSerial('{{ $lineKey }}')"
+                                                                               class="form-control text-center @error('lineSelections.'.$lineKey.'.replacement_serial_input') is-invalid @enderror"
+                                                                               placeholder="Scan SN pengganti...">
+                                                                        <div class="input-group-append">
+                                                                            <button type="button" class="btn btn-info" wire:click="scanReplacementSerial('{{ $lineKey }}')">
+                                                                                <i class="fas fa-barcode"></i>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    @error("lineSelections.{$lineKey}.replacement_serial_input")
+                                                                        <div class="text-danger small mt-1">{{ $message }}</div>
+                                                                    @enderror
+                                                                @endif
+                                                            @endif
+
+                                                            @if($resolution === 'none')
+                                                                <span class="text-muted small">Tidak ada aksi</span>
+                                                            @endif
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+
+                                        {{-- Bundled component trace rows: only for actionable serialized bundled parents (task 6.7) --}}
+                                        @if($group['is_bundle'] && !empty($group['bundle_items']))
                                             @php
-                                                $totalRetur = 0;
-                                                foreach($snapshot['lines'] as $line) {
-                                                    $totalRetur += ($quantities[$line['product_id']] ?? 0) * $line['unit_price'];
+                                                $hasActionableSerial = false;
+                                                foreach ($group['serial_lines'] as $sl) {
+                                                    $slKey = \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::buildLineKey($sl);
+                                                    $slResolution = $lineSelections[$slKey]['resolution'] ?? 'none';
+                                                    if ($slResolution !== 'none') {
+                                                        $hasActionableSerial = true;
+                                                        break;
+                                                    }
                                                 }
                                             @endphp
-                                            <strong>{{ format_currency($totalRetur) }}</strong>
-                                        </th>
-                                    </tr>
-                                </tfoot>
-                            </table>
+                                            @if($hasActionableSerial)
+                                                <div class="border-top px-3 py-2 bg-white">
+                                                    <small class="text-muted font-weight-bold"><i class="fas fa-sitemap mr-1"></i> Komponen Bundle (trace):</small>
+                                                    <table class="table table-sm table-borderless mb-0 mt-1">
+                                                        @foreach($group['bundle_items'] as $bi)
+                                                            <tr>
+                                                                <td class="py-1 pl-4">
+                                                                    <small>{{ $bi['product_name'] ?? $bi['product_code'] ?? '?' }}</small>
+                                                                </td>
+                                                                <td class="py-1 text-right">
+                                                                    <small class="text-muted">{{ $bi['quantity'] ?? $bi['quantity_per_bundle'] ?? '-' }} per unit</small>
+                                                                </td>
+                                                            </tr>
+                                                        @endforeach
+                                                    </table>
+                                                </div>
+                                            @endif
+                                        @endif
+                                    @elseif($group['non_serial_line'])
+                                        {{-- Non-serial product line --}}
+                                        @php
+                                            $nsLine = $group['non_serial_line'];
+                                            $nsKey = \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::buildLineKey($nsLine);
+                                            $nsSelection = $lineSelections[$nsKey] ?? ['resolution' => 'none', 'quantity' => 0];
+                                            $nsResolution = $nsSelection['resolution'] ?? 'none';
+                                            $nsQuantity = (float) ($nsSelection['quantity'] ?? 0);
+                                            $nsIsReturnable = $nsLine['returnable_quantity'] > 0;
+                                        @endphp
+                                        <div class="p-3">
+                                            <div class="row align-items-center">
+                                                <div class="col-sm-3">
+                                                    <div>
+                                                        Tersedia: <strong>{{ $nsLine['returnable_quantity'] }}</strong>
+                                                        @if($nsLine['returned_quantity'] > 0)
+                                                            <span class="small text-danger ml-2">Ter-retur: {{ $nsLine['returned_quantity'] }}</span>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                                <div class="col-sm-3 text-center">
+                                                    @if($nsIsReturnable)
+                                                        <div class="btn-group btn-group-sm" role="group">
+                                                            <button type="button"
+                                                                    wire:click="updateResolution('{{ $nsKey }}', 'none')"
+                                                                    class="btn {{ $nsResolution === 'none' ? 'btn-secondary' : 'btn-outline-secondary' }}">
+                                                                Tidak
+                                                            </button>
+                                                            <button type="button"
+                                                                    wire:click="updateResolution('{{ $nsKey }}', 'cash_return')"
+                                                                    class="btn {{ $nsResolution === 'cash_return' ? 'btn-success' : 'btn-outline-success' }}">
+                                                                Tunai
+                                                            </button>
+                                                        </div>
+                                                    @else
+                                                        <span class="badge badge-secondary">Habis</span>
+                                                    @endif
+                                                </div>
+                                                <div class="col-sm-3 text-center">
+                                                    @if($nsIsReturnable && $nsResolution !== 'none')
+                                                        <input type="number"
+                                                               wire:model.live="lineSelections.{{ $nsKey }}.quantity"
+                                                               class="form-control form-control-sm text-center font-weight-bold"
+                                                               min="0"
+                                                               max="{{ $nsLine['returnable_quantity'] }}"
+                                                               step="1"
+                                                               placeholder="Jumlah">
+                                                    @endif
+                                                </div>
+                                                <div class="col-sm-3 text-right">
+                                                    @if($nsResolution === 'cash_return' && $nsQuantity > 0)
+                                                        <div class="text-success font-weight-bold">
+                                                            <i class="fas fa-money-bill-wave mr-1"></i>
+                                                            {{ format_currency($nsQuantity * $nsLine['unit_price']) }}
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                            </div>
+
+                                            {{-- Non-serial bundle component trace (task 6.7) --}}
+                                            @if($group['is_bundle'] && !empty($group['bundle_items']) && $nsResolution !== 'none' && $nsQuantity > 0)
+                                                <div class="mt-2 pl-3 border-left border-info">
+                                                    <small class="text-muted font-weight-bold"><i class="fas fa-sitemap mr-1"></i> Komponen Bundle:</small>
+                                                    @foreach($group['bundle_items'] as $bi)
+                                                        <div class="small text-muted pl-2">
+                                                            {{ $bi['product_name'] ?? $bi['product_code'] ?? '?' }}
+                                                            — {{ ($bi['quantity'] ?? $bi['quantity_per_bundle'] ?? 0) * $nsQuantity }} unit
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+                        @endforeach
+
+                        {{-- Summary --}}
+                        @php
+                            $totalCashReturn = 0;
+                            $totalActionable = 0;
+                            foreach ($snapshot['lines'] as $line) {
+                                $key = \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::buildLineKey($line);
+                                $sel = $lineSelections[$key] ?? ['resolution' => 'none'];
+                                $res = $sel['resolution'] ?? 'none';
+                                if ($res === 'cash_return') {
+                                    if ($line['is_tracked']) {
+                                        $totalCashReturn += $line['unit_price'];
+                                        $totalActionable++;
+                                    } else {
+                                        $qty = (float) ($sel['quantity'] ?? 0);
+                                        $totalCashReturn += $qty * $line['unit_price'];
+                                        if ($qty > 0) $totalActionable++;
+                                    }
+                                } elseif ($res === 'product_replacement') {
+                                    $totalActionable++;
+                                }
+                            }
+                        @endphp
+                        <div class="card bg-light">
+                            <div class="card-body py-3">
+                                <div class="row">
+                                    <div class="col-sm-6">
+                                        <div class="text-muted">Item aktif: <strong>{{ $totalActionable }}</strong></div>
+                                    </div>
+                                    <div class="col-sm-6 text-right">
+                                        <div>Total Retur Tunai: <strong class="text-success">{{ format_currency($totalCashReturn) }}</strong></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         @if($error)
@@ -250,7 +337,7 @@
                         <div class="mt-4 d-flex justify-content-end gap-2">
                             <button wire:click="submit" class="btn btn-success btn-lg" wire:loading.attr="disabled">
                                 <span wire:loading wire:target="submit" class="spinner-border spinner-border-sm" role="status"></span>
-                                Submit Retur POS
+                                Simpan Draft Retur POS
                             </button>
                         </div>
                     </div>

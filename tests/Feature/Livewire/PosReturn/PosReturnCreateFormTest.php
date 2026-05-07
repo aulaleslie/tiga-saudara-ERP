@@ -167,13 +167,15 @@ class PosReturnCreateFormTest extends TestCase
             ->set('identifier', 'TXN-SUBMIT')
             ->call('lookup')
             ->assertSet('posTransactionId', $transaction->id)
-            ->set('quantities.' . $saleDetail->id, 5)
+            ->set("lineSelections.{$saleDetail->id}.resolution", \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->set("lineSelections.{$saleDetail->id}.quantity", 5)
             ->call('submit')
             ->assertHasNoErrors()
             ->assertRedirect();
 
         $this->assertDatabaseHas('pos_returns', [
             'pos_transaction_id' => $transaction->id,
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_DRAFT,
             'total_amount' => 500,
         ]);
     }

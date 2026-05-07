@@ -73,33 +73,24 @@ class PosReturnSnapshotService
         foreach ($allSaleDetails as $detailId => $detail) {
             $cs = $checkoutSalesBySaleId->get($detail->sale_id);
             if ($cs) {
-                $lines[] = $this->buildLineSnapshot($cs, $detail);
+                $lines = array_merge($lines, $this->buildLineSnapshots($transaction, $cs, $detail));
             }
         }
         
-
-        // Consolidate bundle lines: if multiple lines have the same product_id
-        // and all have bundle_items, merge their bundle_items into one line
-        $snapshot['lines'] = $this->consolidateLinesByProduct($lines);
-
+        $snapshot['lines'] = $lines;
         $snapshot['hash'] = $this->hash($snapshot);
 
         return $snapshot;
     }
 
-    protected function buildLineSnapshot($checkoutSale, $detail): array
+    protected function buildLineSnapshots(PosTransaction $transaction, $checkoutSale, $detail): array
     {
         $dispatchDetailId = \Modules\Sale\Entities\DispatchDetail::where('sale_id', $detail->sale_id)
             ->where('product_id', $detail->product_id)
             ->value('id');
 
-        $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
-            $q->active();
-        })->where('sale_detail_id', $detail->id)->sum('quantity');
-
         $isBundle = $detail->bundleItems->isNotEmpty();
         $originalQuantity = (float) $detail->quantity;
-
 
         // Bundle details store price=0; derive per-bundle unit price from the checkout_sale subtotal.
         $unitPrice = (float) $detail->unit_price;
@@ -110,7 +101,6 @@ class PosReturnSnapshotService
             $lineTotal = $checkoutSubtotal;
         }
 
-        $serialNumbers = [];
         $snIds = $detail->serial_number_ids ?? [];
         
         // If no SN IDs in detail, check dispatch detail
@@ -123,6 +113,7 @@ class PosReturnSnapshotService
             }
         }
 
+        $serialNumbers = [];
         if (!empty($snIds)) {
             $serialNumbers = \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $snIds)
                 ->get(['id', 'serial_number'])
@@ -130,35 +121,83 @@ class PosReturnSnapshotService
                 ->toArray();
         }
 
-        $line = [
-            'checkout_sale_id' => $checkoutSale->id,
-            'sale_id' => $detail->sale_id,
-            'sale_detail_id' => $detail->id,
-            'dispatch_detail_id' => $dispatchDetailId,
-            'product_id' => $detail->product_id,
-            'product_name' => $detail->product->product_name,
-            'product_code' => $detail->product->product_code,
-            'original_quantity' => $originalQuantity,
-            'returned_quantity' => $returnedQty,
-            'returnable_quantity' => max(0, $originalQuantity - $returnedQty),
-            'unit_price' => $unitPrice,
-            'line_total' => $lineTotal,
-            'tax_id' => $detail->tax_id,
-            'is_tracked' => (bool) ($detail->product->serial_number_required ?? false),
-            'serial_number_ids' => $detail->serial_number_ids ?? [],
-            'serial_numbers' => $serialNumbers, // Added full serial info
-            'is_bundle' => $isBundle,
-            'bundle_items' => $detail->bundleItems->map(function ($bi) use ($originalQuantity) {
-                return [
-                    'product_id' => $bi->product_id,
-                    'product_name' => $bi->product->product_name,
-                    'product_code' => $bi->product->product_code,
-                    'quantity' => (float) $bi->quantity,
-                ];
-            })->toArray(),
-        ];
+        $isTracked = (bool) ($detail->product->serial_number_required ?? false);
+        $results = [];
 
-        return $line;
+        $bundleItems = $detail->bundleItems->map(function ($bi) {
+            return [
+                'product_id' => $bi->product_id,
+                'product_name' => $bi->product->product_name,
+                'product_code' => $bi->product->product_code,
+                'quantity' => (float) $bi->quantity,
+            ];
+        })->toArray();
+
+        if ($isTracked && count($serialNumbers) > 0) {
+            // Build one row per serial number
+            foreach ($serialNumbers as $sn) {
+                // Find pos_transaction_line_id
+                $ptlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $sn['serial_number'])
+                    ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $transaction->id))
+                    ->value('pos_transaction_line_id');
+
+                // Returned qty is either 0 or 1 for a serial
+                $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
+                    $q->active();
+                })->where('sale_detail_id', $detail->id)->where('returned_serial_id', $sn['id'])->sum('quantity');
+
+                $results[] = [
+                    'checkout_sale_id' => $checkoutSale->id,
+                    'sale_id' => $detail->sale_id,
+                    'sale_detail_id' => $detail->id,
+                    'dispatch_detail_id' => $dispatchDetailId,
+                    'pos_transaction_line_id' => $ptlId,
+                    'product_id' => $detail->product_id,
+                    'product_name' => $detail->product->product_name,
+                    'product_code' => $detail->product->product_code,
+                    'original_quantity' => 1.0,
+                    'returned_quantity' => $returnedQty,
+                    'returnable_quantity' => max(0, 1.0 - $returnedQty),
+                    'unit_price' => $unitPrice,
+                    'line_total' => $unitPrice, // For 1 qty, line total is unit price
+                    'tax_id' => $detail->tax_id,
+                    'is_tracked' => true,
+                    'serial_number_ids' => [$sn['id']],
+                    'serial_numbers' => [$sn],
+                    'is_bundle' => $isBundle,
+                    'bundle_items' => $bundleItems,
+                ];
+            }
+        } else {
+            // Non-serial tracked, one row for the whole sale detail
+            $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
+                $q->active();
+            })->where('sale_detail_id', $detail->id)->sum('quantity');
+
+            $results[] = [
+                'checkout_sale_id' => $checkoutSale->id,
+                'sale_id' => $detail->sale_id,
+                'sale_detail_id' => $detail->id,
+                'dispatch_detail_id' => $dispatchDetailId,
+                'pos_transaction_line_id' => null, // Requirement only mandates it for serialized lines
+                'product_id' => $detail->product_id,
+                'product_name' => $detail->product->product_name,
+                'product_code' => $detail->product->product_code,
+                'original_quantity' => $originalQuantity,
+                'returned_quantity' => $returnedQty,
+                'returnable_quantity' => max(0, $originalQuantity - $returnedQty),
+                'unit_price' => $unitPrice,
+                'line_total' => $lineTotal,
+                'tax_id' => $detail->tax_id,
+                'is_tracked' => false,
+                'serial_number_ids' => [],
+                'serial_numbers' => [],
+                'is_bundle' => $isBundle,
+                'bundle_items' => $bundleItems,
+            ];
+        }
+
+        return $results;
     }
 
     /**
@@ -172,6 +211,18 @@ class PosReturnSnapshotService
         // Remove hash from snapshot before hashing if it exists
         $data = $snapshot;
         unset($data['hash']);
+        
+        if (isset($data['lines']) && is_array($data['lines'])) {
+            usort($data['lines'], function ($a, $b) {
+                $aKey = ($a['checkout_sale_id'] ?? 0) . '-' . 
+                        ($a['sale_detail_id'] ?? 0) . '-' . 
+                        (!empty($a['serial_number_ids']) ? $a['serial_number_ids'][0] : 0);
+                $bKey = ($b['checkout_sale_id'] ?? 0) . '-' . 
+                        ($b['sale_detail_id'] ?? 0) . '-' . 
+                        (!empty($b['serial_number_ids']) ? $b['serial_number_ids'][0] : 0);
+                return strcmp($aKey, $bKey);
+            });
+        }
         
         // Sort keys recursively for canonicality
         $this->ksortRecursive($data);
@@ -193,78 +244,4 @@ class PosReturnSnapshotService
      * Consolidate all lines with the same product_id into a single line.
      * This handles cases where POS splits products across multiple sales or bundle fragments.
      */
-    protected function consolidateLinesByProduct(array $lines): array
-    {
-        $consolidated = [];
-        $byProduct = [];
-
-        foreach ($lines as $line) {
-            $productId = $line['product_id'];
-
-            if (!isset($byProduct[$productId])) {
-                $byProduct[$productId] = $line;
-            } else {
-                $byProduct[$productId]['original_quantity'] += $line['original_quantity'];
-                $byProduct[$productId]['returned_quantity'] += $line['returned_quantity'];
-                $byProduct[$productId]['returnable_quantity'] += $line['returnable_quantity'];
-                $byProduct[$productId]['line_total'] += $line['line_total'];
-                
-                // Merge serial numbers
-                $byProduct[$productId]['serial_number_ids'] = array_values(array_unique(array_merge(
-                    $byProduct[$productId]['serial_number_ids'], 
-                    $line['serial_number_ids']
-                )));
-                
-                $existingSnIds = collect($byProduct[$productId]['serial_numbers'])->pluck('id')->toArray();
-                foreach ($line['serial_numbers'] as $sn) {
-                    if (!in_array($sn['id'], $existingSnIds)) {
-                        $byProduct[$productId]['serial_numbers'][] = $sn;
-                        $existingSnIds[] = $sn['id'];
-                    }
-                }
-
-                // Merge bundle items
-                if ($line['is_bundle'] || $byProduct[$productId]['is_bundle']) {
-                    $byProduct[$productId]['is_bundle'] = true;
-                    $existingItems = collect($byProduct[$productId]['bundle_items'])->keyBy('product_id');
-                    foreach ($line['bundle_items'] as $newItem) {
-                        $pId = $newItem['product_id'];
-                        if (!$existingItems->has($pId)) {
-                            $existingItems->put($pId, $newItem);
-                        } else {
-                            // If it exists, we take the one with higher quantity 
-                            // to handle cases where some split sales have 0 qty
-                            $existingItem = $existingItems->get($pId);
-                            if ((float) ($newItem['quantity'] ?? 0) > (float) ($existingItem['quantity'] ?? 0)) {
-                                $existingItems->put($pId, $newItem);
-                            }
-                        }
-                    }
-                    $byProduct[$productId]['bundle_items'] = $existingItems->values()->toArray();
-                }
-
-                // Merge tracked status
-                $byProduct[$productId]['is_tracked'] = $byProduct[$productId]['is_tracked'] || $line['is_tracked'];
-            }
-        }
-
-        // Final normalization
-        foreach ($byProduct as &$line) {
-            if ($line['original_quantity'] > 0) {
-                $line['unit_price'] = $line['line_total'] / $line['original_quantity'];
-            }
-            
-            if ($line['is_bundle'] && $line['original_quantity'] > 0) {
-                foreach ($line['bundle_items'] as &$bundleItem) {
-                    $bundleItem['quantity_per_bundle'] = (float) ($bundleItem['quantity'] ?? 0) / $line['original_quantity'];
-                }
-                unset($bundleItem);
-            }
-            
-            $consolidated[] = $line;
-        }
-        unset($line);
-
-        return $consolidated;
-    }
 }

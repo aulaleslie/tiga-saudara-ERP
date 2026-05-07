@@ -4,12 +4,13 @@ namespace Modules\Pos\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\User;
 use Modules\SalesReturn\Entities\SaleReturn;
 
 class PosReturn extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     public const OPTION_CASH_RETURN = 'cash_return';
     public const OPTION_PRODUCT_REPLACEMENT = 'product_replacement';
@@ -87,6 +88,8 @@ class PosReturn extends Model
         'manual_correction_required_at',
         'created_by',
         'updated_by',
+        'deleted_by',
+        'delete_reason',
     ];
 
     protected $casts = [
@@ -147,6 +150,11 @@ class PosReturn extends Model
         return $this->belongsTo(User::class, 'manual_correction_required_by');
     }
 
+    public function deletedBy()
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_reversed', false);
@@ -156,6 +164,26 @@ class PosReturn extends Model
     {
         return $this->manual_correction_required_at !== null
             || $this->status === self::STATUS_MANUAL_CORRECTION_REQUIRED;
+    }
+
+    public function isDraftEditable(): bool
+    {
+        return $this->status === self::STATUS_DRAFT && $this->approval_status === self::APPROVAL_STATUS_DRAFT;
+    }
+
+    public function isRejectedEditable(): bool
+    {
+        return $this->status === self::STATUS_REJECTED && $this->approval_status === self::APPROVAL_STATUS_REJECTED;
+    }
+
+    public function isHardDeletable(): bool
+    {
+        return $this->isDraftEditable();
+    }
+
+    public function isRejectedSoftDeletable(): bool
+    {
+        return $this->isRejectedEditable();
     }
 
     public function getStatusLabelAttribute(): string

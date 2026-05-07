@@ -111,23 +111,35 @@ class PosReturnController extends Controller
         return redirect()->route('pos.returns.index');
     }
 
-    public function destroy(PosReturn $return)
+    public function destroy(Request $request, PosReturn $return)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
         
-        if ($return->status !== PosReturn::STATUS_PENDING_APPROVAL) {
-            abort(403, 'Hanya retur yang masih menunggu persetujuan yang dapat dihapus.');
+        if ($return->isHardDeletable()) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($return) {
+                $return->lines()->forceDelete();
+                $return->forceDelete();
+            });
+            toast('Retur POS draft berhasil dihapus permanen.', 'success');
+        } elseif ($return->isRejectedSoftDeletable()) {
+            $data = $request->validate([
+                'reason' => ['required', 'string', 'max:1000'],
+            ]);
+
+            \Illuminate\Support\Facades\DB::transaction(function () use ($return, $data) {
+                $return->update([
+                    'deleted_by' => auth()->id(),
+                    'delete_reason' => $data['reason'],
+                ]);
+                
+                // Soft delete lines and parent
+                $return->lines()->delete();
+                $return->delete();
+            });
+            toast('Retur POS yang ditolak berhasil dibatalkan (soft delete).', 'success');
+        } else {
+            abort(403, 'Hanya retur draft yang dapat dihapus permanen, atau retur ditolak yang dapat dibatalkan.');
         }
-
-        \Illuminate\Support\Facades\DB::transaction(function () use ($return) {
-            // Releasing eligibility if needed (is_reversed is already handled by active() scope)
-            // But deletion is a hard remove, so it naturally releases it.
-            $return->saleReturns()->delete(); // Also delete linked sale returns
-            $return->lines()->delete();
-            $return->delete();
-        });
-
-        toast('Retur POS berhasil dihapus.', 'warning');
         
         return redirect()->route('pos.returns.index');
     }

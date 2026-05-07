@@ -47,24 +47,25 @@ class PosReturnEditFormTest extends TestCase
     {
         $this->actingAs($this->clerk);
         
-        $posReturn = $this->createReturn('RET-001', PosReturn::STATUS_PENDING_APPROVAL);
+        $posReturn = $this->createReturn('RET-001', PosReturn::STATUS_DRAFT, PosReturn::APPROVAL_STATUS_DRAFT);
 
         Livewire::test(PosReturnEditForm::class, ['return' => $posReturn])
             ->assertStatus(403);
     }
 
     /** @test */
-    public function it_denies_access_for_non_pending_returns()
+    public function it_denies_access_for_non_draft_rejected_returns()
     {
         $this->actingAs($this->admin);
         
-        $posReturn = $this->createReturn('RET-002', PosReturn::STATUS_APPROVED);
+        // PENDING_APPROVAL is now NOT editable in the draft-centric workflow
+        $posReturn = $this->createReturn('RET-002', PosReturn::STATUS_PENDING_APPROVAL, PosReturn::APPROVAL_STATUS_PENDING);
 
         Livewire::test(PosReturnEditForm::class, ['return' => $posReturn])
             ->assertStatus(403);
     }
 
-    protected function createReturn($ref, $status)
+    protected function createReturn($ref, $status, $approvalStatus = 'pending')
     {
         return PosReturn::create([
             'setting_id' => $this->setting->id,
@@ -75,7 +76,7 @@ class PosReturnEditFormTest extends TestCase
             'receipt_number' => 'RCP-1',
             'return_option' => PosReturn::OPTION_CASH_RETURN,
             'status' => $status,
-            'approval_status' => 'pending',
+            'approval_status' => $approvalStatus,
             'source_snapshot' => ['header' => ['transaction_code' => 'TXN-1', 'receipt_number' => 'RCP-1', 'date' => now()->toDateTimeString()], 'lines' => [], 'payments' => []],
             'source_snapshot_hash' => 'HASH-1',
             'total_amount' => 100,

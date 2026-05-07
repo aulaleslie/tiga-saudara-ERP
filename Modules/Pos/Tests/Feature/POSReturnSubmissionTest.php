@@ -17,6 +17,7 @@ use Modules\Pos\Entities\PosCheckoutSale;
 use Spatie\Permission\Models\Permission;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\SaleBundleItem;
+use Modules\Pos\Entities\PosReturnLine;
 
 class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
 {
@@ -130,13 +131,12 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         // 3. Prepare Submission Data
         $data = [
             'pos_transaction_id' => $transaction->id,
-            'return_option' => PosReturn::OPTION_CASH_RETURN,
-            'source_snapshot' => $snapshot,
             'source_snapshot_hash' => $snapshot['hash'],
             'lines' => [
                 [
                     'sale_detail_id' => $saleDetail->id,
                     'quantity' => 1,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
                 ]
             ]
         ];
@@ -147,13 +147,13 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
 
         // 5. Assertions
         $this->assertNotNull($posReturn);
-        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->status);
-        $this->assertEquals(PosReturn::OPTION_CASH_RETURN, $posReturn->return_option);
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $posReturn->status);
         $this->assertCount(1, $posReturn->lines);
         $this->assertEquals(1, $posReturn->lines->first()->quantity);
+        $this->assertEquals(PosReturnLine::RESOLUTION_CASH_RETURN, $posReturn->lines->first()->resolution);
         
-        // Assert linked Sales Return exists
-        $this->assertCount(1, $posReturn->saleReturns);
+        // Assert NO linked Sales Return exists for DRAFT
+        $this->assertCount(0, $posReturn->saleReturns);
     }
 
     /** @test */
@@ -233,13 +233,12 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
 
         $data = [
             'pos_transaction_id' => $transaction->id,
-            'return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT,
-            'source_snapshot' => $snapshot,
             'source_snapshot_hash' => $snapshot['hash'],
             'lines' => [
                 [
                     'sale_detail_id' => $saleDetail->id,
                     'quantity' => 1,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
                 ]
             ]
         ];
@@ -248,9 +247,10 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         $posReturn = $this->submissionService->store($data);
 
         $this->assertNotNull($posReturn);
-        $this->assertEquals(PosReturn::OPTION_PRODUCT_REPLACEMENT, $posReturn->return_option);
-        $this->assertEquals(1, $posReturn->lines->first()->replacement_quantity);
-        $this->assertEquals($product->id, $posReturn->lines->first()->replacement_product_id);
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $posReturn->status);
+        $this->assertEquals(1, $posReturn->lines->first()->quantity);
+        $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $posReturn->lines->first()->resolution);
+        $this->assertEquals($product->id, $posReturn->lines->first()->product_id);
     }
 
     /** @test */
@@ -362,13 +362,12 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
 
         $data = [
             'pos_transaction_id' => $transaction->id,
-            'return_option' => PosReturn::OPTION_CASH_RETURN,
-            'source_snapshot' => $snapshot,
             'source_snapshot_hash' => $snapshot['hash'],
             'lines' => [
                 [
                     'sale_detail_id' => $saleDetail->id,
                     'quantity' => 1, // Returning 1 bundle
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
                 ]
             ]
         ];
@@ -377,19 +376,15 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         $posReturn = $this->submissionService->store($data);
 
         $this->assertNotNull($posReturn);
-        // Bundle should expand to components in PosReturnLine
-        $this->assertCount(2, $posReturn->lines);
+        // Bundle parent row is persisted in draft lines
+        $this->assertCount(1, $posReturn->lines);
         
-        $line1 = $posReturn->lines->where('product_id', $comp1->id)->first();
-        $this->assertNotNull($line1);
-        $this->assertEquals(2, $line1->quantity); // 1 bundle * 2 per bundle
+        $line = $posReturn->lines->first();
+        $this->assertEquals($bundleProduct->id, $line->product_id);
+        $this->assertEquals(1, $line->quantity);
         
-        $line2 = $posReturn->lines->where('product_id', $comp2->id)->first();
-        $this->assertNotNull($line2);
-        $this->assertEquals(1, $line2->quantity); // 1 bundle * 1 per bundle
-        
-        // Assert linked Sales Return details also expanded
-        $saleReturn = $posReturn->saleReturns->first();
-        $this->assertCount(2, $saleReturn->saleReturnDetails);
+        // Assert bundled components are in metadata
+        $this->assertNotNull($line->line_meta['bundle_trace']);
+        $this->assertCount(2, $line->line_meta['bundle_trace']);
     }
 }
