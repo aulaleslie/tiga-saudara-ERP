@@ -8,6 +8,7 @@ use Illuminate\Support\Collection;
 use Modules\Pos\Services\PosReturnLookupService;
 use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Services\PosReturnLifecycleService;
+use Modules\Pos\Services\PosReturnApprovalPreviewPlannerService;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
 use Illuminate\Support\Facades\Auth;
@@ -20,17 +21,20 @@ class PosReturnController extends Controller
     protected $submissionService;
     protected $lifecycleService;
     protected $snapshotService;
+    protected $approvalPreviewPlanner;
 
     public function __construct(
         PosReturnLookupService $lookupService,
         PosReturnSubmissionService $submissionService,
         PosReturnLifecycleService $lifecycleService,
-        \Modules\Pos\Services\PosReturnSnapshotService $snapshotService
+        \Modules\Pos\Services\PosReturnSnapshotService $snapshotService,
+        PosReturnApprovalPreviewPlannerService $approvalPreviewPlanner
     ) {
         $this->lookupService = $lookupService;
         $this->submissionService = $submissionService;
         $this->lifecycleService = $lifecycleService;
         $this->snapshotService = $snapshotService;
+        $this->approvalPreviewPlanner = $approvalPreviewPlanner;
     }
 
     public function index()
@@ -173,23 +177,47 @@ class PosReturnController extends Controller
         return redirect()->route('pos.returns.index');
     }
 
+    public function approvalPreview(PosReturn $return)
+    {
+        abort_if(Gate::denies('pos.returns.approve'), 403);
+
+        if (! $this->isApprovalPreviewable($return)) {
+            toast('Preview persetujuan hanya tersedia untuk retur POS yang masih menunggu persetujuan.', 'error');
+
+            return redirect()->route('pos.returns.show', $return);
+        }
+
+        $return->load([
+            'lines.product',
+            'lines.returnedSerial',
+            'lines.replacementSerial',
+            'lines.saleReturn',
+            'lines.saleReturnDetail.saleReturn',
+            'posTransaction',
+            'posCheckout',
+            'saleReturns.location',
+            'saleReturns.saleReturnDetails.product',
+        ]);
+
+        $detailView = $this->buildReadonlyDetailView($return);
+        $previewPlan = $this->approvalPreviewPlanner->plan($return);
+
+        return view('pos::returns.approval-preview', compact('return', 'detailView', 'previewPlan'));
+    }
+
     public function approve(Request $request, PosReturn $return)
     {
         abort_if(Gate::denies('pos.returns.approve'), 403);
 
-        $data = $request->validate([
-            'return_option' => ['required', 'string', 'in:cash_return,product_replacement'],
-        ]);
+        if ($this->isApprovalPreviewable($return)) {
+            toast('Persetujuan final belum tersedia pada fase preview. Tinjau preview persetujuan terlebih dahulu.', 'warning');
 
-        try {
-            $this->lifecycleService->approve($return->id, $data['return_option']);
-            toast('Retur POS berhasil disetujui.', 'success');
-        } catch (\Throwable $throwable) {
-            report($throwable);
-            toast($throwable->getMessage(), 'error');
+            return redirect()->route('pos.returns.approval-preview', $return);
         }
 
-        return back();
+        toast('Persetujuan final belum tersedia pada fase preview dan retur POS ini tidak lagi dapat dibuka di preview.', 'error');
+
+        return redirect()->route('pos.returns.show', $return);
     }
 
     public function reject(Request $request, PosReturn $return)
@@ -360,6 +388,12 @@ class PosReturnController extends Controller
     protected function authorizeDraftAuthoring(): void
     {
         abort_unless(Gate::allows('pos.returns.create') || Gate::allows('pos.returns.edit'), 403);
+    }
+
+    protected function isApprovalPreviewable(PosReturn $return): bool
+    {
+        return $return->status === PosReturn::STATUS_PENDING_APPROVAL
+            && $return->approval_status === PosReturn::APPROVAL_STATUS_PENDING;
     }
 
     protected function buildReadonlyGroups(Collection $lines, Collection $snapshotLookup): array

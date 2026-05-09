@@ -23,15 +23,12 @@
                     const reasonLabelEl = document.getElementById('pos-return-list-action-reason-label');
                     const reasonInputEl = document.getElementById('pos-return-list-action-reason-input');
                     const confirmButtonEl = document.getElementById('pos-return-list-action-confirm-button');
-                    const approveModalEl = document.getElementById('posReturnListApproveModal');
-                    const approveFormEl = document.getElementById('pos-return-list-approve-form');
 
-                    if (! actionModalEl || ! actionTitleEl || ! actionMessageEl || ! reasonGroupEl || ! reasonLabelEl || ! reasonInputEl || ! confirmButtonEl || ! approveModalEl || ! approveFormEl) {
+                    if (! actionModalEl || ! actionTitleEl || ! actionMessageEl || ! reasonGroupEl || ! reasonLabelEl || ! reasonInputEl || ! confirmButtonEl) {
                         return;
                     }
 
                     let actionModalInstance = null;
-                    let approveModalInstance = null;
 
                     const hasJQueryModal = () => window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.modal === 'function';
 
@@ -121,11 +118,6 @@
                         confirmButtonEl.textContent = 'Lanjutkan';
                     };
 
-                    const resetApproveModal = () => {
-                        approveFormEl.setAttribute('action', '');
-                        approveFormEl.querySelector('input[value="cash_return"]').checked = true;
-                    };
-
                     document.addEventListener('click', function (event) {
                         const actionTrigger = event.target.closest('[data-pos-return-list-modal-trigger]');
 
@@ -144,14 +136,6 @@
                             return;
                         }
 
-                        const approveTrigger = event.target.closest('[data-pos-return-list-approve-trigger]');
-
-                        if (approveTrigger) {
-                            approveFormEl.setAttribute('action', approveTrigger.dataset.formAction || '');
-                            approveModalInstance = showModal(approveModalEl, approveModalInstance, 'pos-return-list-approve-modal-backdrop');
-                            return;
-                        }
-
                         const dismissButton = event.target.closest('[data-dismiss="modal"], [data-bs-dismiss="modal"]');
 
                         if (! dismissButton) {
@@ -162,10 +146,6 @@
 
                         if (modalEl === actionModalEl && ! getModalInstance(actionModalEl, actionModalInstance) && ! hasJQueryModal()) {
                             actionModalInstance = hideModal(actionModalEl, actionModalInstance, 'pos-return-list-action-modal-backdrop', resetActionModal);
-                        }
-
-                        if (modalEl === approveModalEl && ! getModalInstance(approveModalEl, approveModalInstance) && ! hasJQueryModal()) {
-                            approveModalInstance = hideModal(approveModalEl, approveModalInstance, 'pos-return-list-approve-modal-backdrop', resetApproveModal);
                         }
                     });
 
@@ -196,15 +176,12 @@
                     });
 
                     actionModalEl.addEventListener('hidden.bs.modal', resetActionModal);
-                    approveModalEl.addEventListener('hidden.bs.modal', resetApproveModal);
 
                     if (hasJQueryModal()) {
                         window.jQuery(actionModalEl).on('hidden.bs.modal', resetActionModal);
-                        window.jQuery(approveModalEl).on('hidden.bs.modal', resetApproveModal);
                     }
 
                     resetActionModal();
-                    resetApproveModal();
                 });
             </script>
         @endpush
@@ -340,15 +317,13 @@
                                 @endif
 
                                 @if($approvalStatus === 'pending' && ! $requiresManualCorrection && $canApprove)
-                                    <button
-                                        type="button"
+                                    <a
+                                        href="{{ route('pos.returns.approval-preview', $return) }}"
                                         class="btn btn-sm btn-success"
-                                        title="Setujui Retur"
-                                        data-pos-return-list-approve-trigger
-                                        data-form-action="{{ route('pos.returns.approve', $return) }}"
+                                        title="Preview Persetujuan Retur"
                                     >
-                                        <i class="bi bi-check2-circle"></i> Setujui
-                                    </button>
+                                        <i class="bi bi-check2-circle"></i> Preview Persetujuan
+                                    </a>
 
                                     <form id="pos-return-list-reject-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.reject', $return) }}" class="d-inline">
                                         @csrf
@@ -406,45 +381,6 @@
                     <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Tutup</button>
                     <button type="button" class="btn btn-primary" id="pos-return-list-action-confirm-button">Lanjutkan</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="posReturnListApproveModal" tabindex="-1" role="dialog" aria-labelledby="posReturnListApproveModalLabel" aria-hidden="true">
-        <div class="modal-dialog" role="document">
-            <div class="modal-content">
-                <form id="pos-return-list-approve-form" method="POST" action="">
-                    @csrf
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="posReturnListApproveModalLabel">Persetujuan Retur POS</h5>
-                        <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <p>Silakan tentukan jenis penyelesaian untuk retur ini:</p>
-                        <div class="form-group">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="radio" name="return_option" id="list_opt_cash" value="cash_return" checked>
-                                <label class="form-check-label" for="list_opt_cash">
-                                    <strong>Retur Tunai (Cash Return)</strong>
-                                    <div class="small text-muted">Pelanggan akan menerima pengembalian uang tunai setelah barang diterima.</div>
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="return_option" id="list_opt_replacement" value="product_replacement">
-                                <label class="form-check-label" for="list_opt_replacement">
-                                    <strong>Ganti Produk (Product Replacement)</strong>
-                                    <div class="small text-muted">Pelanggan akan menerima produk pengganti dengan SKU yang sama setelah barang diterima.</div>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
-                        <button type="submit" class="btn btn-success">Setujui Retur</button>
-                    </div>
-                </form>
             </div>
         </div>
     </div>

@@ -112,11 +112,11 @@ class POSReturnDraftListActionsTest extends PosTransactionFeatureTestCase
         $response = $this->get(route('pos.returns.index'));
 
         $response->assertOk();
-        $response->assertSee(route('pos.returns.approve', $pendingReturn), false);
+        $response->assertSee(route('pos.returns.approval-preview', $pendingReturn), false);
         $response->assertSee(route('pos.returns.reject', $pendingReturn), false);
-        $response->assertSee('Setujui', false);
+        $response->assertSee('Preview Persetujuan', false);
         $response->assertSee('Tolak', false);
-        $response->assertSee('id="posReturnListApproveModal"', false);
+        $response->assertDontSee('id="posReturnListApproveModal"', false);
     }
 
     protected function createPosReturn(array $overrides = []): PosReturn

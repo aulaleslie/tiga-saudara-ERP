@@ -226,9 +226,9 @@
 
                                     @can('pos.returns.approve')
                                         @if($approvalStatus === 'pending' && ! $requiresManualCorrection)
-                                            <button type="button" class="btn btn-success btn-sm me-2 mb-1" data-toggle="modal" data-target="#approveModal" data-bs-toggle="modal" data-bs-target="#approveModal">
-                                                <i class="bi bi-check2-circle"></i> Setujui
-                                            </button>
+                                            <a href="{{ route('pos.returns.approval-preview', $return) }}" class="btn btn-success btn-sm me-2 mb-1">
+                                                <i class="bi bi-check2-circle"></i> Preview Persetujuan
+                                            </a>
 
                                             <form id="pos-return-reject-form-{{ $return->id }}" method="POST" action="{{ route('pos.returns.reject', $return) }}" class="d-none">
                                                 @csrf
@@ -248,45 +248,6 @@
                                             >
                                                 <i class="bi bi-x-circle"></i> Tolak
                                             </button>
-
-                                            <div class="modal fade" id="approveModal" tabindex="-1" role="dialog" aria-labelledby="approveModalLabel" aria-hidden="true">
-                                                <div class="modal-dialog" role="document">
-                                                    <div class="modal-content">
-                                                        <form method="POST" action="{{ route('pos.returns.approve', $return) }}">
-                                                            @csrf
-                                                            <div class="modal-header">
-                                                                <h5 class="modal-title" id="approveModalLabel">Persetujuan Retur POS</h5>
-                                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                                                    <span aria-hidden="true">&times;</span>
-                                                                </button>
-                                                            </div>
-                                                            <div class="modal-body">
-                                                                <p>Silakan tentukan jenis penyelesaian untuk retur ini:</p>
-                                                                <div class="form-group">
-                                                                    <div class="form-check mb-2">
-                                                                        <input class="form-check-input" type="radio" name="return_option" id="opt_cash" value="cash_return" checked>
-                                                                        <label class="form-check-label" for="opt_cash">
-                                                                            <strong>Retur Tunai (Cash Return)</strong>
-                                                                            <div class="small text-muted">Pelanggan akan menerima pengembalian uang tunai setelah barang diterima.</div>
-                                                                        </label>
-                                                                    </div>
-                                                                    <div class="form-check">
-                                                                        <input class="form-check-input" type="radio" name="return_option" id="opt_replacement" value="product_replacement">
-                                                                        <label class="form-check-label" for="opt_replacement">
-                                                                            <strong>Ganti Produk (Product Replacement)</strong>
-                                                                            <div class="small text-muted">Pelanggan akan menerima produk pengganti dengan SKU yang sama setelah barang diterima.</div>
-                                                                        </label>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="modal-footer">
-                                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
-                                                                <button type="submit" class="btn btn-success">Setujui Retur</button>
-                                                            </div>
-                                                        </form>
-                                                    </div>
-                                                </div>
-                                            </div>
                                         @endif
                                     @endcan
 

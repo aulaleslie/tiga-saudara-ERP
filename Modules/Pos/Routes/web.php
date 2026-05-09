@@ -37,6 +37,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/returns/{return}/submit-draft', [PosReturnController::class, 'submitDraft'])->name('pos.returns.submit-draft')->whereNumber('return');
 
     Route::group(['middleware' => ['can:pos.returns.approve']], function () {
+        Route::get('/pos/returns/{return}/approval-preview', [PosReturnController::class, 'approvalPreview'])->name('pos.returns.approval-preview')->whereNumber('return');
         Route::post('/pos/returns/{return}/approve', [PosReturnController::class, 'approve'])->name('pos.returns.approve')->whereNumber('return');
         Route::post('/pos/returns/{return}/reject', [PosReturnController::class, 'reject'])->name('pos.returns.reject')->whereNumber('return');
     });

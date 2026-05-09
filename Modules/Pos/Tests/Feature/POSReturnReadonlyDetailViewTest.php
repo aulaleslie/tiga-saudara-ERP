@@ -114,7 +114,7 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
 
         $response->assertOk()
             ->assertDontSee('Ajukan Persetujuan')
-            ->assertSee('Setujui')
+            ->assertSee('Preview Persetujuan')
             ->assertSee('Tolak');
     }
 
