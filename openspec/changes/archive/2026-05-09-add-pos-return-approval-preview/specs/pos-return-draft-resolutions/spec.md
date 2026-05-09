@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Integrate POS Return approval preview into the draft submission workflow.
+
+## ADDED Requirements
 
 ### Requirement: Draft Submit Uses Authoring Permission And Locks Pending Approval
 The system SHALL allow users with POS Return draft authoring permission to submit a valid draft POS Return for approval. Submit-for-approval MUST require either `pos.returns.create` or `pos.returns.edit`; approver preview and decision entry points MUST still require `pos.returns.approve`. After submission, the POS Return MUST enter `pending_approval` status and `pending` approval status and MUST NOT be editable or deletable. For this preview-only change, the pending POS Return approve action MUST open approval preview instead of approving immediately, and no direct web-accessible final approval mutation endpoint may approve the return.
