@@ -196,6 +196,11 @@ class PosReturn extends Model
         return $this->status === self::STATUS_DRAFT && $this->approval_status === self::APPROVAL_STATUS_DRAFT;
     }
 
+    public function isRevisionEditable(): bool
+    {
+        return $this->isDraftEditable() || $this->isRejectedEditable();
+    }
+
     public function isDraftSubmittable(): bool
     {
         return $this->isDraftEditable();
@@ -214,6 +219,21 @@ class PosReturn extends Model
     public function isRejectedSoftDeletable(): bool
     {
         return $this->isRejectedEditable();
+    }
+
+    public function isLockedFromRevision(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_APPROVED,
+            self::STATUS_AWAITING_RECEIVING,
+            self::STATUS_AWAITING_SETTLEMENT,
+            self::STATUS_AWAITING_DISPATCH,
+            self::STATUS_MANUAL_CORRECTION_REQUIRED,
+            self::STATUS_COMPLETED,
+            self::STATUS_ARCHIVED,
+            self::STATUS_CANCELLED,
+        ], true);
     }
 
     public function getStatusLabelAttribute(): string

@@ -10,6 +10,9 @@ use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Services\PosReturnLifecycleService;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class PosReturnController extends Controller
 {
@@ -61,7 +64,7 @@ class PosReturnController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.create'), 403);
+        abort_if(Gate::denies('pos.returns.create'), 403);
         
         $posReturn = $this->submissionService->store($request->all());
         
@@ -72,7 +75,7 @@ class PosReturnController extends Controller
 
     public function show(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.view'), 403);
+        abort_if(Gate::denies('pos.returns.view'), 403);
         
         $return->load([
             'lines.product',
@@ -97,10 +100,10 @@ class PosReturnController extends Controller
 
     public function edit(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
+        abort_if(Gate::denies('pos.returns.edit'), 403);
         
-        if (!$return->isDraftEditable()) {
-            abort(403, 'Hanya retur draft yang dapat diubah.');
+        if (!$return->isRevisionEditable()) {
+            abort(403, 'Hanya retur draft atau ditolak yang dapat diubah.');
         }
         
         return view('pos::returns.edit', compact('return'));
@@ -108,10 +111,10 @@ class PosReturnController extends Controller
 
     public function update(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
+        abort_if(Gate::denies('pos.returns.edit'), 403);
         
-        if (!$return->isDraftEditable()) {
-            abort(403, 'Hanya retur draft yang dapat diubah.');
+        if (!$return->isRevisionEditable()) {
+            abort(403, 'Hanya retur draft atau ditolak yang dapat diubah.');
         }
         
         // Update logic will be implemented in submission service or here
@@ -121,16 +124,35 @@ class PosReturnController extends Controller
 
     public function destroy(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+        abort_if(Gate::denies('pos.returns.delete'), 403);
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+            'delete_reason' => ['nullable', 'string', 'max:1000'],
+        ]);
         
         if ($return->isHardDeletable()) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($return) {
+            DB::transaction(function () use ($return) {
                 $return->lines()->forceDelete();
                 $return->forceDelete();
             });
             toast('Retur POS draft berhasil dihapus permanen.', 'success');
+        } elseif ($return->isRejectedSoftDeletable()) {
+            $reason = $data['delete_reason'] ?? $data['reason'] ?? null;
+
+            DB::transaction(function () use ($return, $reason) {
+                $return->forceFill([
+                    'deleted_by' => Auth::id(),
+                    'delete_reason' => $reason,
+                    'updated_by' => Auth::id(),
+                ])->save();
+
+                $return->delete();
+            });
+
+            toast('Retur POS ditolak berhasil dihapus.', 'success');
         } else {
-            abort(403, 'Hanya retur draft yang dapat dihapus permanen.');
+            abort(403, 'Retur POS pada status ini tidak dapat dihapus.');
         }
         
         return redirect()->route('pos.returns.index');
@@ -138,7 +160,7 @@ class PosReturnController extends Controller
 
     public function submitDraft(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
+        $this->authorizeDraftAuthoring();
 
         try {
             $this->submissionService->submitDraftForApproval($return);
@@ -153,7 +175,7 @@ class PosReturnController extends Controller
 
     public function approve(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
+        abort_if(Gate::denies('pos.returns.approve'), 403);
 
         $data = $request->validate([
             'return_option' => ['required', 'string', 'in:cash_return,product_replacement'],
@@ -172,7 +194,7 @@ class PosReturnController extends Controller
 
     public function reject(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.approve'), 403);
+        abort_if(Gate::denies('pos.returns.approve'), 403);
 
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:1000'],
@@ -191,7 +213,7 @@ class PosReturnController extends Controller
 
     public function receive(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.receive'), 403);
+        abort_if(Gate::denies('pos.returns.receive'), 403);
 
         try {
             $this->lifecycleService->receive($return->id);
@@ -206,7 +228,7 @@ class PosReturnController extends Controller
 
     public function settle(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.settle'), 403);
+        abort_if(Gate::denies('pos.returns.settle'), 403);
 
         if ($return->return_option !== PosReturn::OPTION_CASH_RETURN) {
             toast('Penyelesaian tunai hanya tersedia untuk retur dengan opsi kembali uang.', 'error');
@@ -226,7 +248,7 @@ class PosReturnController extends Controller
 
     public function dispatch(PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.dispatch'), 403);
+        abort_if(Gate::denies('pos.returns.dispatch'), 403);
 
         if ($return->return_option !== PosReturn::OPTION_PRODUCT_REPLACEMENT) {
             toast('Pengiriman pengganti hanya tersedia untuk retur dengan opsi ganti produk.', 'error');
@@ -246,7 +268,7 @@ class PosReturnController extends Controller
 
     public function archive(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+        abort_if(Gate::denies('pos.returns.delete'), 403);
 
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:1000'],
@@ -265,7 +287,7 @@ class PosReturnController extends Controller
 
     public function cancel(Request $request, PosReturn $return)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.delete'), 403);
+        abort_if(Gate::denies('pos.returns.delete'), 403);
 
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:1000'],
@@ -333,6 +355,11 @@ class PosReturnController extends Controller
                 'groups' => $this->buildSnapshotContextGroups($snapshotLines, $actionableLines),
             ],
         ];
+    }
+
+    protected function authorizeDraftAuthoring(): void
+    {
+        abort_unless(Gate::allows('pos.returns.create') || Gate::allows('pos.returns.edit'), 403);
     }
 
     protected function buildReadonlyGroups(Collection $lines, Collection $snapshotLookup): array

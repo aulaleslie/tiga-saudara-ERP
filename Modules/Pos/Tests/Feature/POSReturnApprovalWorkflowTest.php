@@ -41,6 +41,7 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
         $this->setting = $this->createSetting('POS Return Approval Test');
         
         Permission::findOrCreate('pos.returns.create', 'web');
+        Permission::findOrCreate('pos.returns.edit', 'web');
         Permission::findOrCreate('pos.returns.approve', 'web');
         
         $this->user = $this->createUserForSetting($this->setting, 'POS Return Clerk', [
@@ -225,12 +226,12 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
             'serial_number_histories' => DB::table('serial_number_histories')->count(),
         ];
 
-        $this->actingAsInSetting($this->approver, $this->setting);
+        $this->actingAsInSetting($this->user, $this->setting);
         $submittedReturn = $this->submissionService->submitDraftForApproval($posReturn->fresh());
 
         $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $submittedReturn->status);
         $this->assertEquals(PosReturn::APPROVAL_STATUS_PENDING, $submittedReturn->approval_status);
-        $this->assertEquals($this->approver->id, $submittedReturn->updated_by);
+        $this->assertEquals($this->user->id, $submittedReturn->updated_by);
         $this->assertDatabaseCount('sale_returns', $sideEffectCounts['sale_returns']);
         $this->assertDatabaseCount('sale_return_details', $sideEffectCounts['sale_return_details']);
         $this->assertDatabaseCount('sale_return_payments', $sideEffectCounts['sale_return_payments']);
@@ -263,6 +264,81 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
 
         $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->fresh()->status);
         $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->fresh()->approval_status);
+    }
+
+    /** @test */
+    public function it_can_edit_a_rejected_return_and_reset_it_to_draft_while_preserving_rejection_audit_fields()
+    {
+        [$rejectedReturn, $saleDetail] = $this->createRejectedReturnContext();
+        $this->user->givePermissionTo('pos.returns.edit');
+
+        $rejectedAt = $rejectedReturn->rejected_at;
+        $rejectedBy = $rejectedReturn->rejected_by;
+        $rejectionReason = $rejectedReturn->rejection_reason;
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $updatedReturn = $this->submissionService->update($rejectedReturn->fresh(), [
+            'source_snapshot_hash' => $rejectedReturn->source_snapshot_hash,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail->id,
+                    'quantity' => 2,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+
+        $updatedReturn->refresh();
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $updatedReturn->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $updatedReturn->approval_status);
+        $this->assertSame($rejectedBy, $updatedReturn->rejected_by);
+        $this->assertEquals($rejectedAt?->toISOString(), $updatedReturn->rejected_at?->toISOString());
+        $this->assertSame($rejectionReason, $updatedReturn->rejection_reason);
+        $this->assertSame(1, $updatedReturn->lines()->count());
+        $this->assertSame('2.0000', (string) $updatedReturn->lines()->first()->quantity);
+    }
+
+    /** @test */
+    public function it_keeps_rejected_return_status_lines_and_audit_fields_when_rejected_revision_fails_validation()
+    {
+        [$rejectedReturn, $saleDetail] = $this->createRejectedReturnContext();
+        $this->user->givePermissionTo('pos.returns.edit');
+
+        $originalLine = $rejectedReturn->lines()->firstOrFail();
+        $originalRejectedAt = $rejectedReturn->rejected_at;
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        try {
+            $this->submissionService->update($rejectedReturn->fresh(), [
+                'source_snapshot_hash' => $rejectedReturn->source_snapshot_hash,
+                'return_option' => PosReturn::OPTION_CASH_RETURN,
+                'lines' => [
+                    [
+                        'sale_detail_id' => $saleDetail->id,
+                        'quantity' => 999,
+                        'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    ],
+                ],
+            ]);
+
+            $this->fail('Expected invalid rejected revision to be rejected.');
+        } catch (\Exception $exception) {
+            $this->assertStringContainsString('Kuantitas retur melebihi batas yang diizinkan', $exception->getMessage());
+        }
+
+        $rejectedReturn->refresh();
+        $originalLine->refresh();
+
+        $this->assertSame(PosReturn::STATUS_REJECTED, $rejectedReturn->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_REJECTED, $rejectedReturn->approval_status);
+        $this->assertEquals($originalRejectedAt?->toISOString(), $rejectedReturn->rejected_at?->toISOString());
+        $this->assertSame('Rejected by approver', $rejectedReturn->rejection_reason);
+        $this->assertSame(1, $rejectedReturn->lines()->count());
+        $this->assertSame((string) $originalLine->quantity, (string) $rejectedReturn->lines()->first()->quantity);
     }
 
     /** @test */
@@ -342,5 +418,18 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
     {
         $this->assertFalse($this->user->can('pos.returns.approve'));
         $this->assertTrue($this->approver->can('pos.returns.approve'));
+    }
+
+    protected function createRejectedReturnContext(): array
+    {
+        [$draftReturn, $saleDetail, $product, $transaction] = $this->createDraftReturnContext();
+
+        $this->actingAsInSetting($this->user, $this->setting);
+        $submittedReturn = $this->submissionService->submitDraftForApproval($draftReturn->fresh());
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+        $this->lifecycleService->reject($submittedReturn->id, 'Rejected by approver');
+
+        return [$submittedReturn->fresh('lines'), $saleDetail, $product, $transaction];
     }
 }

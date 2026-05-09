@@ -205,8 +205,8 @@ class PosReturnSubmissionService
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
         
-        if (!$posReturn->isDraftEditable()) {
-            throw new \Exception('Hanya retur draft yang dapat diubah.');
+        if (!$posReturn->isRevisionEditable()) {
+            throw new \Exception('Hanya retur draft atau ditolak yang dapat diubah.');
         }
 
         return DB::transaction(function () use ($posReturn, $data) {
@@ -333,10 +333,13 @@ class PosReturnSubmissionService
                 }
             }
 
+            $status = $posReturn->isRejectedEditable() ? PosReturn::STATUS_DRAFT : $posReturn->status;
+            $approvalStatus = $posReturn->isRejectedEditable() ? PosReturn::APPROVAL_STATUS_DRAFT : $posReturn->approval_status;
+
             $posReturn->update([
                 'total_amount' => $totalAmount,
-                'status' => PosReturn::STATUS_DRAFT,
-                'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
+                'status' => $status,
+                'approval_status' => $approvalStatus,
                 'source_snapshot' => $currentSnapshot,
                 'source_snapshot_hash' => $currentSnapshot['hash'],
                 'updated_by' => Auth::id(),

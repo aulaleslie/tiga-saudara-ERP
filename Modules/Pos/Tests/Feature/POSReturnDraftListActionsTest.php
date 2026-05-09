@@ -54,6 +54,28 @@ class POSReturnDraftListActionsTest extends PosTransactionFeatureTestCase
         $response->assertSee('Edit', false);
         $response->assertSee('Delete', false);
         $response->assertSee('Ajukan Persetujuan', false);
+        $response->assertSee('id="posReturnListActionModal"', false);
+        $response->assertSee('data-pos-return-list-modal-trigger', false);
+        $response->assertDontSee('confirm(', false);
+        $response->assertDontSee('prompt(', false);
+    }
+
+    /** @test */
+    public function it_shows_edit_and_delete_for_rejected_rows_but_not_submit(): void
+    {
+        $rejectedReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_REJECTED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_REJECTED,
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $response = $this->get(route('pos.returns.index'));
+
+        $response->assertOk();
+        $response->assertSee(route('pos.returns.edit', $rejectedReturn), false);
+        $response->assertSee(route('pos.returns.destroy', $rejectedReturn), false);
+        $response->assertDontSee(route('pos.returns.submit-draft', $rejectedReturn), false);
     }
 
     /** @test */
@@ -75,6 +97,26 @@ class POSReturnDraftListActionsTest extends PosTransactionFeatureTestCase
         $response->assertDontSee('Ajukan Persetujuan', false);
         $response->assertDontSee('Delete', false);
         $response->assertDontSee('Edit', false);
+    }
+
+    /** @test */
+    public function it_shows_pending_approval_actions_for_authorized_rows(): void
+    {
+        $pendingReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $response = $this->get(route('pos.returns.index'));
+
+        $response->assertOk();
+        $response->assertSee(route('pos.returns.approve', $pendingReturn), false);
+        $response->assertSee(route('pos.returns.reject', $pendingReturn), false);
+        $response->assertSee('Setujui', false);
+        $response->assertSee('Tolak', false);
+        $response->assertSee('id="posReturnListApproveModal"', false);
     }
 
     protected function createPosReturn(array $overrides = []): PosReturn

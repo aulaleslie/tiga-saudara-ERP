@@ -23,6 +23,7 @@ class POSReturnRouteAuthorizationTest extends PosTransactionFeatureTestCase
         Permission::findOrCreate('pos.access', 'web');
         Permission::findOrCreate('pos.returns.view', 'web');
         Permission::findOrCreate('pos.returns.create', 'web');
+        Permission::findOrCreate('pos.returns.edit', 'web');
         Permission::findOrCreate('pos.returns.approve', 'web');
     }
 
@@ -67,7 +68,7 @@ class POSReturnRouteAuthorizationTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
-    public function user_without_approve_permission_cannot_submit_draft_for_approval()
+    public function user_without_draft_authoring_permission_cannot_submit_draft_for_approval()
     {
         $this->user->givePermissionTo(['pos.access', 'pos.returns.view']);
 
@@ -88,5 +89,29 @@ class POSReturnRouteAuthorizationTest extends PosTransactionFeatureTestCase
 
         $this->actingAsInSetting($this->user, $this->setting);
         $this->post(route('pos.returns.submit-draft', $posReturn))->assertStatus(403);
+    }
+
+    /** @test */
+    public function user_with_edit_permission_can_access_submit_draft_route_without_approve_permission()
+    {
+        $this->user->givePermissionTo(['pos.access', 'pos.returns.view', 'pos.returns.edit']);
+
+        $posReturn = PosReturn::query()->create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => 1,
+            'pos_checkout_id' => 1,
+            'transaction_code' => 'TXN-' . uniqid(),
+            'receipt_number' => 'RCP-' . uniqid(),
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'hash-' . uniqid(),
+            'reference' => 'PR-' . uniqid(),
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_DRAFT,
+            'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
+            'total_amount' => 100,
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+        $this->post(route('pos.returns.submit-draft', $posReturn))->assertRedirect(route('pos.returns.index'));
     }
 }

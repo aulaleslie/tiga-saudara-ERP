@@ -23,6 +23,7 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
 
         foreach ([
             'pos.returns.view',
+            'pos.returns.delete',
             'pos.returns.edit',
             'pos.returns.approve',
         ] as $permission) {
@@ -32,7 +33,7 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
         $this->user = $this->createUserForSetting(
             $this->setting,
             'Readonly Detail Admin',
-            ['pos.access', 'pos.returns.view', 'pos.returns.edit', 'pos.returns.approve']
+            ['pos.access', 'pos.returns.view', 'pos.returns.delete', 'pos.returns.edit', 'pos.returns.approve']
         );
 
         [, $this->location] = $this->createTerminalWithLocation($this->setting);
@@ -62,11 +63,59 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
             ->assertSee('Audit &amp; Sumber Teknis', false)
             ->assertSee('Snapshot Transaksi Asli')
             ->assertSee('Edit')
+            ->assertSee('Delete')
             ->assertSee('Ajukan Persetujuan')
+                ->assertSee('id="posReturnActionModal"', false)
+                ->assertSee('data-pos-return-modal-trigger', false)
+                ->assertDontSee('confirm(', false)
+                ->assertDontSee('prompt(', false)
             ->assertDontSee('Scan SN pengganti...')
             ->assertDontSee('Simpan Draft Retur POS')
             ->assertDontSee('wire:click', false)
             ->assertDontSee('wire:model', false);
+    }
+
+    /** @test */
+    public function it_shows_rejected_detail_actions_without_submit_actions(): void
+    {
+        $fixture = $this->makeReadonlyReturnFixture();
+        $fixture['pos_return']->update([
+            'status' => PosReturn::STATUS_REJECTED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_REJECTED,
+            'rejected_by' => $this->user->id,
+            'rejected_at' => now(),
+            'rejection_reason' => 'Need revision',
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $response = $this->get(route('pos.returns.show', $fixture['pos_return']->fresh()));
+
+        $response->assertOk()
+            ->assertSee('Edit')
+            ->assertSee('Delete')
+            ->assertDontSee('Ajukan Persetujuan')
+            ->assertDontSee('Setujui')
+            ->assertDontSee('Tolak');
+    }
+
+    /** @test */
+    public function it_hides_revision_actions_for_pending_returns_but_keeps_approval_actions_visible(): void
+    {
+        $fixture = $this->makeReadonlyReturnFixture();
+        $fixture['pos_return']->update([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $response = $this->get(route('pos.returns.show', $fixture['pos_return']->fresh()));
+
+        $response->assertOk()
+            ->assertDontSee('Ajukan Persetujuan')
+            ->assertSee('Setujui')
+            ->assertSee('Tolak');
     }
 
     /** @test */

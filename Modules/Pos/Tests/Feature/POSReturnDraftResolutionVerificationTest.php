@@ -641,11 +641,11 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
     }
 
     /** @test */
-    public function it_blocks_editing_a_rejected_return_and_keeps_status_unchanged()
+    public function it_allows_editing_a_rejected_return_and_resets_it_to_draft()
     {
         $this->actingAsInSetting($this->user, $this->setting);
 
-        // Rejected returns must not use the draft edit flow.
+        // Rejected returns should use the same draft revision flow and reset back to draft on success.
         $product = $this->createStockedProduct($this->setting, $this->location);
         $transaction = $this->createCompletedTransactionWithLine($product, 1);
         $snapshot = $this->snapshotService->build($transaction->id);
@@ -668,27 +668,21 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
             'approval_status' => PosReturn::APPROVAL_STATUS_REJECTED,
         ]);
 
-        try {
-            $this->submissionService->update($posReturn, [
-                'source_snapshot_hash' => $snapshot['hash'],
-                'lines' => [
-                    [
-                        'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
-                        'quantity' => 1,
-                        'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
-                    ]
+        $updatedReturn = $this->submissionService->update($posReturn, [
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                    'quantity' => 1,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
                 ]
-            ]);
+            ]
+        ]);
 
-            $this->fail('Expected rejected return edit to be blocked.');
-        } catch (\Exception $e) {
-            $this->assertStringContainsString('Hanya retur draft yang dapat diubah.', $e->getMessage());
-        }
-
-        $posReturn->refresh();
-        $this->assertEquals(PosReturn::STATUS_REJECTED, $posReturn->status);
-        $this->assertEquals(PosReturn::APPROVAL_STATUS_REJECTED, $posReturn->approval_status);
-        $this->assertEquals(PosReturnLine::RESOLUTION_CASH_RETURN, $posReturn->lines->first()->resolution);
+        $updatedReturn->refresh();
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $updatedReturn->status);
+        $this->assertEquals(PosReturn::APPROVAL_STATUS_DRAFT, $updatedReturn->approval_status);
+        $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $updatedReturn->lines->first()->resolution);
     }
 
     /** @test */

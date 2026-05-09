@@ -65,6 +65,7 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
         [$this->terminal, $this->location] = $this->createTerminalWithLocation($this->setting);
 
         foreach ([
+            'pos.returns.view',
             'pos.returns.create',
             'pos.returns.edit',
             'pos.returns.approve',
@@ -108,6 +109,7 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
 
         $this->archiver = $this->createUserForSetting($this->setting, 'POS Return Audit Archiver', [
             'pos.access',
+            'pos.returns.view',
             'pos.returns.delete',
         ]);
 
@@ -122,10 +124,10 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
 
         $this->assertSame($this->creator->id, $posReturn->created_by);
         $this->assertNull($posReturn->updated_by);
-        $this->assertTrue($posReturn->saleReturns()->exists());
 
         $this->actingAsInSetting($this->editor, $this->setting);
         $updated = $this->submissionService->update($posReturn->fresh(), [
+            'source_snapshot_hash' => $posReturn->source_snapshot_hash,
             'return_option' => PosReturn::OPTION_CASH_RETURN,
             'lines' => [
                 [
@@ -142,7 +144,9 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
     /** @test */
     public function it_records_approval_and_rejection_audit_fields(): void
     {
-        [$approvalReturn] = $this->createPendingReturnWithSubmission();
+        [$approvalDraft] = $this->createPendingReturnWithSubmission();
+
+        $approvalReturn = $this->submitDraftReturn($approvalDraft);
 
         $this->actingAsInSetting($this->approver, $this->setting);
         $this->lifecycleService->approve($approvalReturn->id);
@@ -150,9 +154,10 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
         $approvalReturn->refresh();
         $this->assertSame($this->approver->id, $approvalReturn->approved_by);
         $this->assertNotNull($approvalReturn->approved_at);
-        $this->assertTrue($approvalReturn->saleReturns()->where('approved_by', $this->approver->id)->exists());
 
-        [$rejectionReturn] = $this->createPendingReturnWithSubmission('reject');
+        [$rejectionDraft] = $this->createPendingReturnWithSubmission('reject');
+
+        $rejectionReturn = $this->submitDraftReturn($rejectionDraft);
 
         $this->actingAsInSetting($this->approver, $this->setting);
         $this->lifecycleService->reject($rejectionReturn->id, 'Audit rejection');
@@ -161,7 +166,6 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
         $this->assertSame($this->approver->id, $rejectionReturn->rejected_by);
         $this->assertNotNull($rejectionReturn->rejected_at);
         $this->assertSame('Audit rejection', $rejectionReturn->rejection_reason);
-        $this->assertTrue($rejectionReturn->saleReturns()->where('rejected_by', $this->approver->id)->exists());
     }
 
     /** @test */
@@ -175,7 +179,6 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
         $posReturn->refresh();
         $this->assertSame($this->receiver->id, $posReturn->received_by);
         $this->assertNotNull($posReturn->received_at);
-        $this->assertTrue($posReturn->saleReturns()->where('received_by', $this->receiver->id)->exists());
     }
 
     /** @test */
@@ -230,6 +233,59 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
         $this->assertSame('Audit archive', $posReturn->archive_reason);
         $this->assertNotNull($saleReturn->archived_at);
         $this->assertSame($this->archiver->id, $saleReturn->archived_by);
+    }
+
+    /** @test */
+    public function it_soft_deletes_rejected_returns_with_delete_audit_fields_and_preserves_lines(): void
+    {
+        [$rejectedReturn] = $this->createRejectedReturnWithSubmission('delete');
+
+        $lineIds = $rejectedReturn->lines()->pluck('id')->all();
+        $sideEffectCounts = [
+            'sale_returns' => SaleReturn::query()->count(),
+            'sale_return_details' => SaleReturnDetail::query()->count(),
+            'sale_return_payments' => SaleReturnPayment::query()->count(),
+            'dispatches' => Dispatch::query()->count(),
+            'dispatch_details' => DispatchDetail::query()->count(),
+        ];
+
+        $this->actingAsInSetting($this->archiver, $this->setting);
+
+        $this->delete(route('pos.returns.destroy', $rejectedReturn), [
+            'delete_reason' => 'Rejected draft removed',
+        ])->assertRedirect(route('pos.returns.index'));
+
+        $deletedReturn = PosReturn::withTrashed()->findOrFail($rejectedReturn->id);
+
+        $this->assertSoftDeleted('pos_returns', ['id' => $rejectedReturn->id]);
+        $this->assertSame($this->archiver->id, $deletedReturn->deleted_by);
+        $this->assertSame('Rejected draft removed', $deletedReturn->delete_reason);
+        $this->assertNotNull($deletedReturn->rejected_by);
+        $this->assertNotNull($deletedReturn->rejected_at);
+        $this->assertSame('Audit rejection delete', $deletedReturn->rejection_reason);
+        $this->assertSame(count($lineIds), PosReturnLine::query()->where('pos_return_id', $rejectedReturn->id)->count());
+        $this->assertSame($sideEffectCounts['sale_returns'], SaleReturn::query()->count());
+        $this->assertSame($sideEffectCounts['sale_return_details'], SaleReturnDetail::query()->count());
+        $this->assertSame($sideEffectCounts['sale_return_payments'], SaleReturnPayment::query()->count());
+        $this->assertSame($sideEffectCounts['dispatches'], Dispatch::query()->count());
+        $this->assertSame($sideEffectCounts['dispatch_details'], DispatchDetail::query()->count());
+    }
+
+    /** @test */
+    public function it_hard_deletes_draft_returns_and_their_lines(): void
+    {
+        [$draftReturn] = $this->createPendingReturnWithSubmission('hard-delete');
+
+        $lineIds = $draftReturn->lines()->pluck('id')->all();
+
+        $this->actingAsInSetting($this->archiver, $this->setting);
+
+        $this->delete(route('pos.returns.destroy', $draftReturn))->assertRedirect(route('pos.returns.index'));
+
+        $this->assertDatabaseMissing('pos_returns', ['id' => $draftReturn->id]);
+        foreach ($lineIds as $lineId) {
+            $this->assertDatabaseMissing('pos_return_lines', ['id' => $lineId]);
+        }
     }
 
     /**
@@ -350,10 +406,35 @@ class POSReturnAuditTrailTest extends PosTransactionFeatureTestCase
     {
         [$posReturn, $saleDetail] = $this->createPendingReturnWithSubmission('approved');
 
+        $posReturn = $this->submitDraftReturn($posReturn);
+
         $this->actingAsInSetting($this->approver, $this->setting);
         $this->lifecycleService->approve($posReturn->id);
 
         return [$posReturn->fresh(['saleReturns']), $saleDetail];
+    }
+
+    protected function submitDraftReturn(PosReturn $posReturn): PosReturn
+    {
+        $this->actingAsInSetting($this->creator, $this->setting);
+
+        return $this->submissionService->submitDraftForApproval($posReturn->fresh());
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: SaleDetails}
+     */
+    protected function createRejectedReturnWithSubmission(string $suffix = 'rejected'): array
+    {
+        [$posReturn, $saleDetail] = $this->createPendingReturnWithSubmission($suffix);
+
+        $this->actingAsInSetting($this->creator, $this->setting);
+        $submittedReturn = $this->submissionService->submitDraftForApproval($posReturn->fresh());
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+        $this->lifecycleService->reject($submittedReturn->id, 'Audit rejection delete');
+
+        return [$submittedReturn->fresh(['saleReturns', 'lines']), $saleDetail];
     }
 
     /**

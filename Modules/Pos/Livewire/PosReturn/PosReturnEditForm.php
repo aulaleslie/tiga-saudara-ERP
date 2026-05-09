@@ -26,8 +26,8 @@ class PosReturnEditForm extends Component
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('pos.returns.edit'), 403);
 
-        if (!$return->isDraftEditable()) {
-            abort(403, 'Hanya retur draft yang dapat diubah.');
+        if (!$return->isRevisionEditable()) {
+            abort(403, 'Hanya retur draft atau ditolak yang dapat diubah.');
         }
 
         $this->return = $return;
