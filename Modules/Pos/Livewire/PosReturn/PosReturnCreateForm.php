@@ -47,7 +47,9 @@ class PosReturnCreateForm extends Component
     public static function buildLineKey(array $line): string
     {
         if ($line['is_tracked'] && !empty($line['serial_number_ids'])) {
-            return $line['sale_detail_id'] . '-' . $line['serial_number_ids'][0];
+            // Task 2.9: Key by POS line + Serial ID for source identity stability
+            $prefix = $line['pos_transaction_line_id'] ?? $line['sale_detail_id'];
+            return $prefix . '-' . $line['serial_number_ids'][0];
         }
         return (string) $line['sale_detail_id'];
     }
@@ -200,6 +202,16 @@ class PosReturnCreateForm extends Component
         $this->lineSelections = [];
     }
 
+    public function getExistingSerialLineQuantity(int $saleDetailId, ?int $returnedSerialId): float
+    {
+        return 0.0;
+    }
+
+    public function getExistingNonSerialLineQuantity(int $saleDetailId): float
+    {
+        return 0.0;
+    }
+
     /**
      * Build submission lines from source-line-keyed selections.
      */
@@ -308,10 +320,16 @@ class PosReturnCreateForm extends Component
 
         $groups = [];
         foreach ($this->snapshot['lines'] as $line) {
-            $saleDetailId = $line['sale_detail_id'];
-            if (!isset($groups[$saleDetailId])) {
-                $groups[$saleDetailId] = [
-                    'sale_detail_id' => $saleDetailId,
+            // Task 6.10: Hide zero-quantity split bundle component allocation rows
+            if ($line['is_zero_qty_component'] ?? false) continue;
+
+            // Task 6.9: Group by original POS transaction line if available
+            $groupKey = $line['pos_transaction_line_id'] ?? $line['sale_detail_id'];
+            
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
+                    'sale_detail_id' => $line['sale_detail_id'],
                     'product_name' => $line['product_name'],
                     'product_code' => $line['product_code'],
                     'product_id' => $line['product_id'],
@@ -325,13 +343,37 @@ class PosReturnCreateForm extends Component
             }
 
             if ($line['is_tracked'] && !empty($line['serial_number_ids'])) {
-                $groups[$saleDetailId]['serial_lines'][] = $line;
+                $groups[$groupKey]['serial_lines'][] = $line;
             } else {
-                $groups[$saleDetailId]['non_serial_line'] = $line;
+                $groups[$groupKey]['non_serial_line'] = $line;
             }
         }
 
         return array_values($groups);
+    }
+
+    public function getComponentAvailability($productId, $checkoutSaleId)
+    {
+        if (!$productId || !$checkoutSaleId || !$this->snapshot) return 0;
+
+        $owner = collect($this->snapshot['owners'] ?? [])->firstWhere('checkout_sale_id', $checkoutSaleId);
+        if (!$owner) return 0;
+
+        $settingId = $owner['source_setting_id'] ?? null;
+        if (!$settingId) return 0;
+
+        // Use SalesLocationResolver to aggregate stock across all locations for the
+        // source setting, matching the same scope POS uses when checking availability.
+        $allowedLocationIds = \App\Support\SalesLocationResolver::resolveLocationIds($settingId)
+            ->filter(fn ($id) => (int) $id > 0)
+            ->values()
+            ->all();
+
+        if (empty($allowedLocationIds)) return 0;
+
+        return (float) \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+            ->whereIn('location_id', $allowedLocationIds)
+            ->sum('quantity');
     }
 
     public function render()

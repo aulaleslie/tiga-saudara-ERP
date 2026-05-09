@@ -97,10 +97,12 @@ class POSReturnSplitOwnerMappingTest extends PosTransactionFeatureTestCase
                 [
                     'sale_detail_id' => $firstDetail->id,
                     'quantity' => 1,
+                    'resolution' => \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN,
                 ],
                 [
                     'sale_detail_id' => $secondDetail->id,
                     'quantity' => 1,
+                    'resolution' => \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN,
                 ],
             ],
         ]);

@@ -30,7 +30,7 @@ class PosReturnQuantityGuard
         }
 
         $alreadyReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
-                $q->active();
+                $q->consumesReturnQuantity();
                 if ($excludeReturnId) {
                     $q->where('id', '!=', $excludeReturnId);
                 }

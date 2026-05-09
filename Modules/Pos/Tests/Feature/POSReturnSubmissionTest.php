@@ -379,7 +379,7 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         // Bundle parent row is persisted in draft lines
         $this->assertCount(1, $posReturn->lines);
         
-        $line = $posReturn->lines->first();
+        $line = PosReturnLine::query()->findOrFail($posReturn->lines->first()->id);
         $this->assertEquals($bundleProduct->id, $line->product_id);
         $this->assertEquals(1, $line->quantity);
         

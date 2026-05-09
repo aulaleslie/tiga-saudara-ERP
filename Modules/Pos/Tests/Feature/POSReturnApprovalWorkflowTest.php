@@ -2,14 +2,15 @@
 
 namespace Modules\Pos\Tests\Feature;
 
+use Illuminate\Support\Facades\DB;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Entities\PosReturnLine;
 use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Pos\Services\PosReturnLifecycleService;
-use Modules\Product\Entities\Product;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Pos\Entities\PosCheckoutSale;
@@ -58,7 +59,7 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
         $this->session = $this->openSession($this->setting, $this->terminal, $this->user);
     }
 
-    protected function createPendingReturn()
+    protected function createDraftReturnContext(): array
     {
         $transaction = PosTransaction::create([
             'setting_id' => $this->setting->id,
@@ -145,7 +146,18 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
         ];
 
         $this->actingAsInSetting($this->user, $this->setting);
-        return $this->submissionService->store($data);
+        $draftReturn = $this->submissionService->store($data);
+
+        return [$draftReturn->fresh('lines'), $saleDetail, $product, $transaction];
+    }
+
+    protected function createPendingReturn()
+    {
+        [$draftReturn] = $this->createDraftReturnContext();
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        return $this->submissionService->submitDraftForApproval($draftReturn);
     }
 
     /** @test */
@@ -191,6 +203,112 @@ class POSReturnApprovalWorkflowTest extends PosTransactionFeatureTestCase
             $this->assertEquals('REJECTED', $saleReturn->status);
             $this->assertEquals('REJECTED', $saleReturn->approval_status);
         }
+    }
+
+    /** @test */
+    public function it_can_submit_a_valid_draft_for_approval_without_execution_side_effects()
+    {
+        [$posReturn, $saleDetail, $product] = $this->createDraftReturnContext();
+
+        $initialProductQuantity = (int) $product->fresh()->product_quantity;
+        $initialLocationQuantity = (int) DB::table('product_stocks')
+            ->where('product_id', $product->id)
+            ->where('location_id', $this->location->id)
+            ->value('quantity');
+        $initialSaleDetailQuantity = (float) $saleDetail->fresh()->quantity;
+        $sideEffectCounts = [
+            'sale_returns' => DB::table('sale_returns')->count(),
+            'sale_return_details' => DB::table('sale_return_details')->count(),
+            'sale_return_payments' => DB::table('sale_return_payments')->count(),
+            'dispatches' => DB::table('dispatches')->count(),
+            'dispatch_details' => DB::table('dispatch_details')->count(),
+            'serial_number_histories' => DB::table('serial_number_histories')->count(),
+        ];
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+        $submittedReturn = $this->submissionService->submitDraftForApproval($posReturn->fresh());
+
+        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $submittedReturn->status);
+        $this->assertEquals(PosReturn::APPROVAL_STATUS_PENDING, $submittedReturn->approval_status);
+        $this->assertEquals($this->approver->id, $submittedReturn->updated_by);
+        $this->assertDatabaseCount('sale_returns', $sideEffectCounts['sale_returns']);
+        $this->assertDatabaseCount('sale_return_details', $sideEffectCounts['sale_return_details']);
+        $this->assertDatabaseCount('sale_return_payments', $sideEffectCounts['sale_return_payments']);
+        $this->assertDatabaseCount('dispatches', $sideEffectCounts['dispatches']);
+        $this->assertDatabaseCount('dispatch_details', $sideEffectCounts['dispatch_details']);
+        $this->assertDatabaseCount('serial_number_histories', $sideEffectCounts['serial_number_histories']);
+        $this->assertSame($initialProductQuantity, (int) $product->fresh()->product_quantity);
+        $this->assertSame($initialLocationQuantity, (int) DB::table('product_stocks')
+            ->where('product_id', $product->id)
+            ->where('location_id', $this->location->id)
+            ->value('quantity'));
+        $this->assertSame($initialSaleDetailQuantity, (float) $saleDetail->fresh()->quantity);
+    }
+
+    /** @test */
+    public function it_blocks_draft_submit_when_the_source_snapshot_is_stale()
+    {
+        [$posReturn] = $this->createDraftReturnContext();
+
+        $posReturn->update(['source_snapshot_hash' => 'stale-hash']);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        try {
+            $this->submissionService->submitDraftForApproval($posReturn->fresh());
+            $this->fail('Expected stale draft submission to be rejected.');
+        } catch (\Exception $exception) {
+            $this->assertSame('Source snapshot is stale. Please refresh the page.', $exception->getMessage());
+        }
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->fresh()->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->fresh()->approval_status);
+    }
+
+    /** @test */
+    public function it_blocks_draft_submit_when_the_persisted_draft_has_no_actionable_lines()
+    {
+        [$posReturn] = $this->createDraftReturnContext();
+
+        $posReturn->lines()->update([
+            'resolution' => PosReturnLine::RESOLUTION_NONE,
+            'quantity' => 0,
+        ]);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        try {
+            $this->submissionService->submitDraftForApproval($posReturn->fresh());
+            $this->fail('Expected empty draft submission to be rejected.');
+        } catch (\Exception $exception) {
+            $this->assertSame('Minimal satu item harus dipilih untuk retur (ganti produk atau uang kembali).', $exception->getMessage());
+        }
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->fresh()->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->fresh()->approval_status);
+    }
+
+    /** @test */
+    public function it_blocks_draft_submit_when_the_persisted_draft_line_is_invalid()
+    {
+        [$posReturn] = $this->createDraftReturnContext();
+
+        $posReturn->lines()->update([
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'quantity' => 999,
+        ]);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        try {
+            $this->submissionService->submitDraftForApproval($posReturn->fresh());
+            $this->fail('Expected invalid draft submission to be rejected.');
+        } catch (\Exception $exception) {
+            $this->assertStringContainsString('Kuantitas retur melebihi batas yang diizinkan', $exception->getMessage());
+        }
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->fresh()->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->fresh()->approval_status);
     }
 
     /** @test */

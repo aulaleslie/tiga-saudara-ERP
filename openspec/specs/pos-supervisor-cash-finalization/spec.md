@@ -1,8 +1,5 @@
-# pos-supervisor-cash-finalization Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change pos-two-stage-settlement. Update Purpose after archive.
-## Requirements
 ### Requirement: Supervisor cash finalization with variance calculation
 
 Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from cashiers and finalize POS sessions by entering the actual amount of cash received. The system SHALL calculate expected cash from session data, compute variance (actual - expected), and gate finalization on variance approval if variance exceeds the terminal's threshold. Finalization transitions the session from CLOSED to FINALIZED status. **Super Admin users SHALL be able to perform this finalization even if not assigned to the business setting.**
@@ -26,8 +23,8 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **WHEN** supervisor clicks "Finalize" button for a CLOSED session
 - **THEN** the modal SHALL display:
   - Session header: terminal code, terminal name, cashier name, opened_at, session duration
-  - Sales summary: total sales amount, cash sales amount, non-cash sales amount
-  - Expected cash breakdown: opening_float_total + cash_sales - safe_drops = expected_cash_total
+  - Sales summary: total sales amount, net cash sales amount, cash tendered amount, change returned amount, non-cash sales amount
+  - Expected cash breakdown: opening_float_total + net_cash_sales_total - safe_drops = expected_cash_total
   - Safe drop summary (if any safe drops exist): total amount safe-dropped OUT
   - INPUT FIELD: "Actual Cash Received" (currency input, required)
   - Variance display: updates in real-time as input changes, showing (actual - expected) with red color if exceeds threshold
@@ -35,9 +32,16 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 
 #### Scenario: Expected cash calculation
 - **WHEN** supervisor views finalization modal
-- **THEN** expected_cash_total SHALL be calculated as: opening_float_total + sum(checkouts.grand_total WHERE payment_method.is_cash = true) - sum(safe_drops with direction OUT)
-- **AND** this calculation SHALL use the same logic as `PosSessionExpectedCashCalculator`
-- **AND** the modal SHALL display the formula and component amounts (opening float, cash sales, safe drops) so supervisor understands the calculation
+- **THEN** expected_cash_total SHALL come from the backend summary response's `expected_cash_total`
+- **AND** frontend code MUST NOT independently define variance source-of-truth by recalculating expected cash from selected cash event types
+- **AND** the modal SHALL display the formula and component amounts (opening float, net cash sales, cash tendered, change returned, safe drops) so supervisor understands the calculation
+
+#### Scenario: Cash overpayment is explained during finalization
+- **WHEN** supervisor views finalization for a session containing a Rp990,000 cash sale paid with Rp1,000,000 and Rp10,000 change returned
+- **THEN** the modal SHALL show `Penjualan Kas` as Rp990,000
+- **AND** the modal SHALL show `Tunai Diterima` as Rp1,000,000
+- **AND** the modal SHALL show `Kembalian` as Rp10,000
+- **AND** the modal SHALL use backend `expected_cash_total` for `Kas Ekspektasi`
 
 #### Scenario: Finalize with variance within threshold (no approval needed)
 - **WHEN** supervisor enters actual cash amount and variance is within terminal policy's close_variance_approval_threshold

@@ -2,28 +2,28 @@
 
 namespace Modules\Pos\Tests\Feature;
 
-use Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use App\Models\User;
-use Spatie\Permission\Models\Role;
+use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Spatie\Permission\Models\Permission;
 
-class POSReturnRouteAuthorizationTest extends TestCase
+class POSReturnRouteAuthorizationTest extends PosTransactionFeatureTestCase
 {
-    use RefreshDatabase;
-
     protected $user;
+
+    protected $setting;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
-        $this->user = User::factory()->create();
+
+        $this->setting = $this->createSetting('POS Return Route Authorization');
+        $this->user = $this->createUserForSetting($this->setting, 'POS Return Route User', []);
         
         // Ensure permissions exist
         Permission::findOrCreate('pos.access', 'web');
         Permission::findOrCreate('pos.returns.view', 'web');
         Permission::findOrCreate('pos.returns.create', 'web');
+        Permission::findOrCreate('pos.returns.approve', 'web');
     }
 
     /** @test */
@@ -35,7 +35,7 @@ class POSReturnRouteAuthorizationTest extends TestCase
     /** @test */
     public function user_without_permission_cannot_access_pos_returns()
     {
-        $this->actingAs($this->user);
+        $this->actingAsInSetting($this->user, $this->setting);
         $this->get(route('pos.returns.index'))->assertStatus(403);
     }
 
@@ -44,7 +44,7 @@ class POSReturnRouteAuthorizationTest extends TestCase
     {
         $this->user->givePermissionTo(['pos.access', 'pos.returns.view']);
         
-        $this->actingAs($this->user);
+        $this->actingAsInSetting($this->user, $this->setting);
         $this->get(route('pos.returns.index'))->assertStatus(200);
     }
 
@@ -53,7 +53,7 @@ class POSReturnRouteAuthorizationTest extends TestCase
     {
         $this->user->givePermissionTo(['pos.access', 'pos.returns.view']);
         
-        $this->actingAs($this->user);
+        $this->actingAsInSetting($this->user, $this->setting);
         $this->get(route('pos.returns.create'))->assertStatus(403);
     }
 
@@ -62,7 +62,31 @@ class POSReturnRouteAuthorizationTest extends TestCase
     {
         $this->user->givePermissionTo(['pos.access', 'pos.returns.view', 'pos.returns.create']);
         
-        $this->actingAs($this->user);
+        $this->actingAsInSetting($this->user, $this->setting);
         $this->get(route('pos.returns.create'))->assertStatus(200);
+    }
+
+    /** @test */
+    public function user_without_approve_permission_cannot_submit_draft_for_approval()
+    {
+        $this->user->givePermissionTo(['pos.access', 'pos.returns.view']);
+
+        $posReturn = PosReturn::query()->create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => 1,
+            'pos_checkout_id' => 1,
+            'transaction_code' => 'TXN-' . uniqid(),
+            'receipt_number' => 'RCP-' . uniqid(),
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'hash-' . uniqid(),
+            'reference' => 'PR-' . uniqid(),
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_DRAFT,
+            'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
+            'total_amount' => 100,
+        ]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+        $this->post(route('pos.returns.submit-draft', $posReturn))->assertStatus(403);
     }
 }

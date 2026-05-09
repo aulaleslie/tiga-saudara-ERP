@@ -30,4 +30,4 @@
 
 - [x] 5.1 Run focused POS session summary/finalization tests.
 - [x] 5.2 Run focused POS checkout change tests to ensure existing `CHANGE_OUT` ledger behavior is preserved.
-- [ ] 5.3 Manually verify `/pos/sessions/{session}/summary` and `/pos/sessions` finalization flow with a cash-overpayment checkout.
+- [x] 5.3 Manually verify `/pos/sessions/{session}/summary` and `/pos/sessions` finalization flow with a cash-overpayment checkout.

@@ -2,6 +2,8 @@
 
 The current POS return implementation was planned as a wrapper over Sales Return execution records, but the draft create path currently creates linked `sale_returns` immediately and the snapshot/UI collapses returnable rows by `product_id`. This breaks transactions where the same SKU appears in multiple source contexts, such as `TNC-TXN-2026-05-0001`, where two serialized Samsung units were sold through a bundle and one serialized Samsung unit was sold without a bundle.
 
+The real `TNC-RCP-2026-05-00001` rendering also shows a second bundle-specific issue. Checkout stored the bundled Samsung line and its serials on the original POS transaction line metadata, while split posting created separate Sales Detail / Sales Bundle Item allocation rows for the bundle components. The current draft return snapshot uses `sale_detail->bundleItems` to detect bundled rows, so it renders zero-quantity component allocation details as top-level `Bundle / Habis` cards and renders the actual bundled Samsung serials without their bundle context. The return draft must instead follow the receipt/POS-line shape first, then retain Sales Detail and component allocation metadata underneath for traceability.
+
 For draft create/edit/delete, the POS Return document must remain an intake document only. It may snapshot the source POS transaction and persist selected draft resolutions, but it must not create Sales Return documents, mutate stock, reduce dispatch quantities, settle payments, or write inventory transaction history.
 
 ## Goals / Non-Goals
@@ -16,6 +18,11 @@ For draft create/edit/delete, the POS Return document must remain an intake docu
 - Require at least one actionable draft line before save.
 - Require active/available replacement serial input for serial-tracked `product_replacement` lines.
 - Preserve source POS line, sale, sale detail, dispatch, owner/source setting, source location, tax, serial, and bundle context.
+- Treat original POS transaction line metadata as authoritative for whether a sold serial belongs to a bundle.
+- Group serialized draft UI rows by original POS transaction line so the form mirrors the receipt shape.
+- Hide zero-quantity split bundle allocation Sales Detail rows from top-level returnable cards.
+- For bundled serial `cash_return`, show/store the full original POS unit price as the customer-facing expected cash amount.
+- For bundled serial `product_replacement`, show component trace rows and remaining component availability counts, without exposing location names.
 - Allow draft edit/delete and rejected edit/delete according to the agreed lifecycle rules.
 
 **Non-Goals:**
@@ -29,6 +36,9 @@ For draft create/edit/delete, the POS Return document must remain an intake docu
 - Stock, serial-status, dispatch-quantity, payment, or `transactions` table mutations.
 - Breakage handling for non-serial bundled components.
 - Origin/location/owner validation for replacement serial selection.
+- Reserving replacement parent serials or bundled component stock during draft.
+- Selecting replacement component products or component serials during draft.
+- Blocking draft save based only on bundled component availability. Component availability is informational in this change.
 
 ## Decisions
 
@@ -42,11 +52,19 @@ Alternative considered: create linked Sales Return documents during draft save. 
 
 ### Decision 2: Use Source Identity Instead of Product Aggregation
 
-Returnable draft rows must be keyed by source identity, not by `product_id`. The source key must preserve enough information to distinguish same-SKU rows by original POS transaction line, sale, sale detail, dispatch detail, serial, bundle context, owner/source setting, source location, and tax context.
+Returnable draft rows must be keyed by source identity, not by `product_id`. For serialized POS lines, the primary UI/source key is the original `pos_transaction_line_id` plus returned serial identity. The source key must preserve enough information to distinguish same-SKU rows by original POS transaction line, sale, sale detail, dispatch detail, serial, bundle context, owner/source setting, source location, and tax context.
 
 Rationale: product-level aggregation loses the difference between bundled and non-bundled sales of the same serialized product. It also makes serial-specific resolutions impossible.
 
 Alternative considered: keep the current product-level UI row and map serials during save. Rejected because the UI and draft payload would remain ambiguous for bundles, source sales, and per-serial replacement decisions.
+
+### Decision 2A: Use POS Transaction Line Metadata as Bundle Source of Truth
+
+For serialized parent products, bundled context is derived from the original POS transaction line metadata (`bundle_id`, `bundle_name`, and `bundle_items`) rather than from whether the parent Sales Detail has `bundleItems`. Sales Detail, Sales Bundle Item, checkout sale, dispatch, source setting, source location, and tax rows remain part of the snapshot for accounting/source traceability.
+
+Rationale: split posting can put component allocation rows on separate zero-quantity Sales Details, while the sold parent serials still belong to the original bundled POS transaction line. The return form is customer-facing and must match the receipt shape: the bundled Samsung serials should appear under the bundled POS line, not as unrelated tracked serial rows.
+
+Alternative considered: continue using `sale_detail->bundleItems` as the bundle detector. Rejected because `TNC-RCP-2026-05-00001` demonstrates that this renders empty top-level bundle cards and loses the bundled context for the actual serial rows.
 
 ### Decision 3: Store Serial-Tracked Source Units Individually
 
@@ -72,6 +90,22 @@ Rationale: bundled returns must preserve component traceability without creating
 
 Alternative considered: always store component rows for every source bundled serial. Rejected because `none` rows are not executable and should not inflate draft line count.
 
+### Decision 5A: Keep Bundle Component Availability Informational During Draft
+
+For bundled serial `product_replacement`, the draft UI shows each required component quantity per returned serial and the remaining available component quantity. Availability is computed from the source setting/location allocation context used by POS checkout posting, but the UI does not show location names. Draft save does not reserve component stock, mutate component stock, or require component replacement selection.
+
+Rationale: store users need to know whether replacement bundle components remain available, but draft intake is still reversible and must not create stock effects. Showing location labels adds noise; the source/location context is an internal calculation detail.
+
+Alternative considered: block draft save when component availability is insufficient. Rejected for this change because approval/receiving/replacement execution semantics are out of scope, and draft documents must not reserve stock.
+
+### Decision 5B: Use Full POS Unit Price for Bundled Serial Cash Return Display
+
+When a bundled serialized parent uses `cash_return`, the customer-facing expected cash amount is the original POS unit price for that POS transaction line. Source allocation metadata may still preserve parent residual and component allocation values for later accounting/settlement work.
+
+Rationale: the return draft should match what the customer saw on the receipt. For `TNC-RCP-2026-05-00001`, the bundled Samsung line was sold at `Rp 6,000,000` per unit, even though split posting allocated `Rp 5,920,000` to the parent residual and `Rp 80,000` to components.
+
+Alternative considered: show only the parent residual amount from the parent Sales Detail. Rejected because it under-represents the customer-facing sold unit price for bundled returns.
+
 ### Decision 6: Delete Rules Stay Narrow
 
 Draft POS Returns are hard-deletable because they have no execution effects. Rejected POS Returns are editable, and saving the edit resets status to draft. Rejected deletion uses an audited soft-delete style marker. Approved/archive behavior is intentionally left for a later lifecycle change.
@@ -81,7 +115,9 @@ Rationale: draft cleanup should be simple, while rejected documents already have
 ## Risks / Trade-offs
 
 - Source mapping gaps in existing sale/dispatch rows → Build the snapshot from POS transaction lines, POS line serials, checkout sales, sale details, dispatch details, and product serial numbers together; add focused tests for bundled and non-bundled same-SKU serials.
+- Bundle context can be split across POS line metadata and Sales Detail allocation rows → Use POS transaction line metadata for customer-facing grouping and bundle identity, then attach Sales Detail / Sales Bundle Item / checkout sale allocation metadata underneath.
 - Replacement serial can be sold after draft save → Do not reserve it during draft; revalidate active/available status on edit and in the later approval workflow.
+- Component availability can drift after draft save → Treat component counts as informational during draft and revalidate before future execution workflows.
 - Schema drift from existing `return_option` header field → Keep backward compatibility where needed, but new draft behavior must treat line resolution as authoritative.
 - Rejected soft-delete may need new audit fields → Add nullable fields or reuse existing archive/delete audit columns without rewriting historical data.
 - Bundle component trace rows can become confusing → Keep the UI grouped under each source serial and clearly separate parent resolution from component trace rows.
@@ -96,4 +132,4 @@ Rationale: draft cleanup should be simple, while rejected documents already have
 
 ## Open Questions
 
-- None for create/edit/delete scope.
+- None for create/edit/delete scope. The agreed draft behavior is: POS transaction line metadata drives bundle grouping; bundled component availability is informational and shown only for `product_replacement`; draft save does not reserve or mutate parent or component stock.

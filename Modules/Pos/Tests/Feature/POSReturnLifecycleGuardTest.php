@@ -66,6 +66,74 @@ class POSReturnLifecycleGuardTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
+    public function it_allows_draft_edit_but_blocks_submit_and_delete_for_non_draft_returns()
+    {
+        $draftReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_DRAFT,
+            'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
+        ]);
+
+        $pendingReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+        ]);
+
+        $this->actingAsInSetting($this->manager, $this->setting);
+
+        $this->assertTrue($draftReturn->fresh()->isDraftEditable());
+        $this->post(route('pos.returns.submit-draft', $pendingReturn))->assertRedirect();
+        $this->delete(route('pos.returns.destroy', $pendingReturn))->assertStatus(403);
+
+        $this->assertSame(PosReturn::STATUS_PENDING_APPROVAL, $pendingReturn->fresh()->status);
+    }
+
+    /** @test */
+    public function it_blocks_draft_submit_for_rejected_approved_and_terminal_returns()
+    {
+        $blockedReturns = [
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_REJECTED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_REJECTED,
+            ]),
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_APPROVED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            ]),
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            ]),
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_COMPLETED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            ]),
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_ARCHIVED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            ]),
+            $this->createPosReturn([
+                'status' => PosReturn::STATUS_CANCELLED,
+                'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            ]),
+        ];
+
+        $this->actingAsInSetting($this->manager, $this->setting);
+
+        foreach ($blockedReturns as $blockedReturn) {
+            $originalStatus = $blockedReturn->status;
+            $originalApprovalStatus = $blockedReturn->approval_status;
+
+            $this->assertFalse($blockedReturn->fresh()->isDraftSubmittable());
+            $this->post(route('pos.returns.submit-draft', $blockedReturn))->assertRedirect(route('pos.returns.index'));
+
+            $blockedReturn->refresh();
+
+            $this->assertSame($originalStatus, $blockedReturn->status);
+            $this->assertSame($originalApprovalStatus, $blockedReturn->approval_status);
+        }
+    }
+
+    /** @test */
     public function it_blocks_reject_after_approval_and_after_receiving()
     {
         $approvedReturn = $this->createPosReturn([

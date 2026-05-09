@@ -1,4 +1,10 @@
 <div>
+    @php
+        $canEdit = auth()->user()?->can('pos.returns.edit');
+        $canDelete = auth()->user()?->can('pos.returns.delete');
+        $canSubmitDraft = auth()->user()?->can('pos.returns.approve');
+    @endphp
+
     <div class="row mb-3">
         <div class="col-md-3">
             <input wire:model.live="search" type="text" class="form-control" placeholder="Cari Ref, Transaksi, Struk, Pelanggan...">
@@ -51,9 +57,38 @@
                             </span>
                         </td>
                         <td>
-                            <a href="{{ route('pos.returns.show', $return) }}" class="btn btn-sm btn-primary">
-                                <i class="bi bi-eye"></i>
-                            </a>
+                            <div class="d-flex flex-wrap gap-1">
+                                <a href="{{ route('pos.returns.show', $return) }}" class="btn btn-sm btn-primary" title="Lihat Detail">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+
+                                @if($return->isDraftEditable())
+                                    @if($canEdit)
+                                        <a href="{{ route('pos.returns.edit', $return) }}" class="btn btn-sm btn-outline-primary" title="Edit Draft">
+                                            <i class="bi bi-pencil"></i> Edit
+                                        </a>
+                                    @endif
+
+                                    @if($canDelete)
+                                        <form method="POST" action="{{ route('pos.returns.destroy', $return) }}" class="d-inline">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Hapus permanen retur POS draft ini?')" title="Hapus Draft">
+                                                <i class="bi bi-trash"></i> Delete
+                                            </button>
+                                        </form>
+                                    @endif
+
+                                    @if($canSubmitDraft)
+                                        <form method="POST" action="{{ route('pos.returns.submit-draft', $return) }}" class="d-inline">
+                                            @csrf
+                                            <button type="submit" class="btn btn-sm btn-outline-success" onclick="return confirm('Ajukan retur POS draft ini untuk persetujuan?')" title="Ajukan Persetujuan">
+                                                <i class="bi bi-send"></i> Ajukan Persetujuan
+                                            </button>
+                                        </form>
+                                    @endif
+                                @endif
+                            </div>
                         </td>
                     </tr>
                 @empty

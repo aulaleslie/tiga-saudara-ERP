@@ -160,6 +160,31 @@ class PosReturn extends Model
         return $query->where('is_reversed', false);
     }
 
+    /**
+     * Statuses whose lines should reduce source returnable quantity.
+     *
+     * Draft and pending-approval returns are intake-only documents. They must not
+     * make the source transaction look already returned until approval/execution.
+     */
+    public static function returnQuantityConsumingStatuses(): array
+    {
+        return [
+            self::STATUS_APPROVED,
+            self::STATUS_AWAITING_RECEIVING,
+            self::STATUS_AWAITING_SETTLEMENT,
+            self::STATUS_AWAITING_DISPATCH,
+            self::STATUS_MANUAL_CORRECTION_REQUIRED,
+            self::STATUS_COMPLETED,
+        ];
+    }
+
+    public function scopeConsumesReturnQuantity($query)
+    {
+        return $query
+            ->active()
+            ->whereIn('status', self::returnQuantityConsumingStatuses());
+    }
+
     public function requiresManualCorrection(): bool
     {
         return $this->manual_correction_required_at !== null
@@ -169,6 +194,11 @@ class PosReturn extends Model
     public function isDraftEditable(): bool
     {
         return $this->status === self::STATUS_DRAFT && $this->approval_status === self::APPROVAL_STATUS_DRAFT;
+    }
+
+    public function isDraftSubmittable(): bool
+    {
+        return $this->isDraftEditable();
     }
 
     public function isRejectedEditable(): bool

@@ -16,12 +16,18 @@ The system SHALL create POS Return drafts by persisting only POS Return header a
 
 ### Requirement: Draft Lines Preserve Source Identity
 
-The system SHALL build and persist POS return draft lines using original source identity rather than product-level aggregation. Source identity MUST distinguish rows by original POS transaction line, checkout sale, sale, sale detail, dispatch detail when present, returned serial when present, bundle context, source setting, source location, and tax context.
+The system SHALL build and persist POS return draft lines using original source identity rather than product-level aggregation. Source identity MUST distinguish rows by original POS transaction line, checkout sale, sale, sale detail, dispatch detail when present, returned serial when present, bundle context, source setting, source location, and tax context. For serialized POS source rows, the draft UI grouping key MUST be the original POS transaction line plus returned serial identity, so the form mirrors the receipt line shape.
 
 #### Scenario: Same SKU with bundle and non-bundle source rows
 - **WHEN** a POS transaction contains the same serialized product in bundled and non-bundled POS lines
 - **THEN** the draft UI and persisted draft lines keep the bundled serials separate from the non-bundled serials
 - **AND** the system does not merge them into one product-level return row
+
+#### Scenario: Serialized bundle source uses original POS line identity
+- **WHEN** a POS transaction line sells a serialized product as a bundle parent
+- **THEN** each sold parent serial is grouped under that original POS transaction line in the draft UI
+- **AND** the system uses the POS transaction line bundle metadata as the source of truth for bundle identity
+- **AND** split Sales Detail rows created only for bundle component allocation do not appear as top-level returnable cards
 
 #### Scenario: Same SKU from different source sale context
 - **WHEN** a POS transaction generated multiple owner or sale-aligned source rows for the same product
@@ -64,9 +70,14 @@ The system SHALL calculate and store or expose the expected cash return amount f
 - **THEN** the system calculates the expected amount from the original POS source line allocation
 - **AND** the amount is available for draft review
 
+#### Scenario: Bundled serial cash amount uses POS unit price
+- **WHEN** a user selects `cash_return` for a serialized bundled parent line
+- **THEN** the draft review amount uses the full original POS unit price for that POS transaction line
+- **AND** source allocation metadata remains available for later accounting or settlement workflows
+
 ### Requirement: Bundle Components Follow Actionable Serialized Parents
 
-The system SHALL auto-carry required bundle component trace data when a serialized bundle parent line has an actionable resolution. If the serialized bundle parent line has the `none` resolution, component rows MUST remain absent from executable draft lines and available only through the source snapshot.
+The system SHALL auto-carry required bundle component trace data when a serialized bundle parent line has an actionable resolution. If the serialized bundle parent line has the `none` resolution, component rows MUST remain absent from executable draft lines and available only through the source snapshot. Bundle component trace for serialized parents MUST be derived from the original POS transaction line bundle metadata and aligned to the original POS line's source allocation context.
 
 #### Scenario: Actionable bundled serial carries components
 - **WHEN** a user sets a serialized bundled parent line to `cash_return` or `product_replacement`
@@ -75,6 +86,25 @@ The system SHALL auto-carry required bundle component trace data when a serializ
 #### Scenario: No-action bundled serial omits component execution rows
 - **WHEN** a serialized bundled parent line remains `none`
 - **THEN** the system does not create executable component draft lines for that parent
+
+#### Scenario: Bundled replacement shows component availability
+- **WHEN** a user sets a serialized bundled parent line to `product_replacement`
+- **THEN** the draft UI shows each required bundle component quantity for that returned serial
+- **AND** shows the remaining available component quantity
+- **AND** computes availability using the POS source setting and source location allocation context
+- **AND** does not show source location names
+- **AND** does not reserve or mutate component stock during draft
+
+#### Scenario: Component availability is informational during draft
+- **WHEN** a bundled parent line uses `product_replacement`
+- **AND** one or more component availability counts are low or unavailable
+- **THEN** the draft still permits save when all parent replacement serial validation rules pass
+- **AND** later approval, receiving, or replacement execution workflows may revalidate component availability outside this change
+
+#### Scenario: Bundled cash return does not require component availability
+- **WHEN** a user sets a serialized bundled parent line to `cash_return`
+- **THEN** the draft may show component trace for review
+- **AND** the draft does not require component availability lookup to save
 
 ### Requirement: Non-Serial Lines Store Only Actionable Quantities
 

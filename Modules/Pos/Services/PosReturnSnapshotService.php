@@ -77,7 +77,7 @@ class PosReturnSnapshotService
             }
         }
         
-        $snapshot['lines'] = $lines;
+        $snapshot['lines'] = array_values(array_filter($lines, fn($l) => !($l['is_zero_qty_component'] ?? false)));
         $snapshot['hash'] = $this->hash($snapshot);
 
         return $snapshot;
@@ -95,7 +95,7 @@ class PosReturnSnapshotService
         // Bundle details store price=0; derive per-bundle unit price from the checkout_sale subtotal.
         $unitPrice = (float) $detail->unit_price;
         $lineTotal = (float) $detail->sub_total;
-        if ($isBundle && $unitPrice === 0.0 && $originalQuantity > 0) {
+        if ($isBundle && $unitPrice == 0.0 && $originalQuantity > 0) {
             $checkoutSubtotal = (float) $checkoutSale->subtotal;
             $unitPrice = $checkoutSubtotal / $originalQuantity;
             $lineTotal = $checkoutSubtotal;
@@ -133,6 +133,12 @@ class PosReturnSnapshotService
             ];
         })->toArray();
 
+        // Check if zero-quantity split component (Task 2.8)
+        $isZeroQtyComponent = false;
+        if ($originalQuantity == 0.0 && $unitPrice == 0.0) {
+            $isZeroQtyComponent = true;
+        }
+
         if ($isTracked && count($serialNumbers) > 0) {
             // Build one row per serial number
             foreach ($serialNumbers as $sn) {
@@ -141,9 +147,50 @@ class PosReturnSnapshotService
                     ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $transaction->id))
                     ->value('pos_transaction_line_id');
 
+                $ptl = $ptlId ? \Modules\Pos\Entities\PosTransactionLine::find($ptlId) : null;
+                
+                $serialIsBundle = $isBundle;
+                $serialBundleItems = $bundleItems;
+                $serialUnitPrice = $unitPrice;
+
+                // Task 2.7: POS transaction line metadata is the source of truth for bundle context.
+                // Accept bundle_id (real POS checkout), is_bundle (test/manual), or non-empty bundle_items.
+                $ptlIsBundle = $ptl && (
+                    !empty($ptl->line_meta['bundle_id']) ||
+                    !empty($ptl->line_meta['is_bundle']) ||
+                    !empty($ptl->line_meta['bundle_items'])
+                );
+
+                if ($ptlIsBundle) {
+                    $serialIsBundle = true;
+                    $serialBundleItems = [];
+                    $bundleMetaItems = $ptl->line_meta['bundle_items'] ?? [];
+                    
+                    foreach ($bundleMetaItems as $item) {
+                        $componentProductId = $item['product_id'] ?? null;
+                        
+                        // Task 2.10: Align to source allocation context
+                        $allocation = $this->findComponentAllocation($checkoutSale, $componentProductId);
+                        
+                        $serialBundleItems[] = [
+                            'product_id' => $componentProductId,
+                            'product_name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
+                            'product_code' => null,
+                            'quantity' => (float)($item['quantity'] ?? $item['qty'] ?? 0),
+                            'sale_detail_id' => $allocation ? $allocation->id : null,
+                            'unit_price' => $allocation ? (float)$allocation->unit_price : 0,
+                        ];
+                    }
+                    
+                    // Task 3.9: Use full original POS unit price for bundled serials
+                    if ($ptl->unit_price > 0) {
+                        $serialUnitPrice = (float) $ptl->unit_price;
+                    }
+                }
+
                 // Returned qty is either 0 or 1 for a serial
                 $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                    $q->active();
+                    $q->consumesReturnQuantity();
                 })->where('sale_detail_id', $detail->id)->where('returned_serial_id', $sn['id'])->sum('quantity');
 
                 $results[] = [
@@ -158,20 +205,24 @@ class PosReturnSnapshotService
                     'original_quantity' => 1.0,
                     'returned_quantity' => $returnedQty,
                     'returnable_quantity' => max(0, 1.0 - $returnedQty),
-                    'unit_price' => $unitPrice,
-                    'line_total' => $unitPrice, // For 1 qty, line total is unit price
+                    'unit_price' => $serialUnitPrice,
+                    'line_total' => $serialUnitPrice, // For 1 qty, line total is unit price
                     'tax_id' => $detail->tax_id,
                     'is_tracked' => true,
                     'serial_number_ids' => [$sn['id']],
                     'serial_numbers' => [$sn],
-                    'is_bundle' => $isBundle,
-                    'bundle_items' => $bundleItems,
+                    // Task 2.7: bundle context from PTL metadata as source of truth
+                    'is_bundle' => $serialIsBundle,
+                    'bundle_id' => $ptlIsBundle ? ($ptl->line_meta['bundle_id'] ?? null) : null,
+                    'bundle_name' => $ptlIsBundle ? ($ptl->line_meta['bundle_name'] ?? null) : null,
+                    'bundle_items' => $serialBundleItems,
+                    'is_zero_qty_component' => false,
                 ];
             }
         } else {
             // Non-serial tracked, one row for the whole sale detail
             $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                $q->active();
+                $q->consumesReturnQuantity();
             })->where('sale_detail_id', $detail->id)->sum('quantity');
 
             $results[] = [
@@ -194,10 +245,20 @@ class PosReturnSnapshotService
                 'serial_numbers' => [],
                 'is_bundle' => $isBundle,
                 'bundle_items' => $bundleItems,
+                'is_zero_qty_component' => $isZeroQtyComponent,
             ];
         }
 
         return $results;
+    }
+
+    protected function findComponentAllocation($checkoutSale, $productId): ?SaleDetails
+    {
+        if (!$checkoutSale || !$checkoutSale->sale) return null;
+        
+        return $checkoutSale->sale->saleDetails->first(function ($sd) use ($productId) {
+            return $sd->product_id == $productId && $sd->unit_price == 0;
+        });
     }
 
     /**
@@ -214,11 +275,10 @@ class PosReturnSnapshotService
         
         if (isset($data['lines']) && is_array($data['lines'])) {
             usort($data['lines'], function ($a, $b) {
-                $aKey = ($a['checkout_sale_id'] ?? 0) . '-' . 
-                        ($a['sale_detail_id'] ?? 0) . '-' . 
+                // Task 2.9: Use POS line ID + Serial ID for keying/sorting where possible
+                $aKey = ($a['pos_transaction_line_id'] ?? $a['sale_detail_id'] ?? 0) . '-' . 
                         (!empty($a['serial_number_ids']) ? $a['serial_number_ids'][0] : 0);
-                $bKey = ($b['checkout_sale_id'] ?? 0) . '-' . 
-                        ($b['sale_detail_id'] ?? 0) . '-' . 
+                $bKey = ($b['pos_transaction_line_id'] ?? $b['sale_detail_id'] ?? 0) . '-' . 
                         (!empty($b['serial_number_ids']) ? $b['serial_number_ids'][0] : 0);
                 return strcmp($aKey, $bKey);
             });
