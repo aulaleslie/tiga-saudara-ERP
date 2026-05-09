@@ -407,14 +407,19 @@ class PosReturnSubmissionService
         }
 
         $validatedLines = [];
+        $usedReplacementSerialIds = [];
 
         foreach ($lines as $lineData) {
             $resolution = $lineData['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
             $quantity = (float) ($lineData['quantity'] ?? 0);
             $returnedSerialId = $lineData['returned_serial_id'] ?? null;
             $isSerial = !empty($returnedSerialId);
+            $hasExplicitResolution = array_key_exists('resolution', $lineData)
+                && $lineData['resolution'] !== null
+                && $lineData['resolution'] !== '';
 
-            if ($resolution === PosReturnLine::RESOLUTION_NONE
+            if (!$hasExplicitResolution
+                && $resolution === PosReturnLine::RESOLUTION_NONE
                 && $quantity > 0
                 && in_array($defaultReturnOption, [PosReturn::OPTION_CASH_RETURN, PosReturn::OPTION_PRODUCT_REPLACEMENT], true)) {
                 $resolution = $defaultReturnOption;
@@ -448,12 +453,18 @@ class PosReturnSubmissionService
             }
 
             if ($replacementSerialId) {
+                if (in_array($replacementSerialId, $usedReplacementSerialIds, true)) {
+                    throw new \Exception('Serial pengganti tidak boleh digunakan lebih dari satu kali dalam retur yang sama.');
+                }
+
                 $this->replacementGuard->validateReplacementSerial(
                     $saleDetail->product_id,
                     $replacementSerialId,
                     $returnedSerialId,
                     $ignorePosReturnId
                 );
+
+                $usedReplacementSerialIds[] = $replacementSerialId;
             }
 
             $lineData['quantity'] = $isSerial ? 1 : $quantity;

@@ -15,6 +15,7 @@ use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\SalesReturn\Entities\SaleReturn;
+use Modules\SalesReturn\Entities\SaleReturnDetail;
 use Illuminate\Support\Facades\Auth;
 
 class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTestCase
@@ -334,6 +335,267 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
     }
 
     /** @test */
+    public function it_rejects_duplicate_replacement_serials_within_the_same_draft_edit_and_keeps_lines_unchanged()
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Duplicate Replacement Product',
+            'product_code' => 'DRP-001',
+            'serial_number_required' => true,
+            'sale_price' => 600000,
+        ]);
+        $sn1 = $this->createSerialNumber($product, $this->location, 'SN-DUP-RET-001');
+        $sn2 = $this->createSerialNumber($product, $this->location, 'SN-DUP-RET-002');
+        $replacement = $this->createSerialNumber($product, $this->location, 'SN-DUP-REP-001');
+
+        $transaction = $this->createCompletedTransactionWithSerials($product, [$sn1, $sn2]);
+        $snapshot = $this->snapshotService->build($transaction->id);
+
+        $replacementA = $this->createSerialNumber($product, $this->location, 'SN-DUP-REP-002');
+
+        $posReturn = $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][0]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $sn1->id,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'replacement_serial_id' => $replacementA->id,
+                ],
+            ],
+        ]);
+
+        $originalLines = $posReturn->lines()
+            ->orderBy('returned_serial_id')
+            ->get(['returned_serial_id', 'resolution', 'replacement_serial_id'])
+            ->map(fn (PosReturnLine $line) => $line->only(['returned_serial_id', 'resolution', 'replacement_serial_id']))
+            ->all();
+
+        try {
+            $this->submissionService->update($posReturn, [
+                'source_snapshot_hash' => $snapshot['hash'],
+                'lines' => [
+                    [
+                        'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                        'sale_id' => $snapshot['lines'][0]['sale_id'],
+                        'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => $sn1->id,
+                        'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                        'replacement_serial_id' => $replacement->id,
+                    ],
+                    [
+                        'sale_detail_id' => $snapshot['lines'][1]['sale_detail_id'],
+                        'sale_id' => $snapshot['lines'][1]['sale_id'],
+                        'pos_transaction_line_id' => $snapshot['lines'][1]['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => $sn2->id,
+                        'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                        'replacement_serial_id' => $replacement->id,
+                    ],
+                ],
+            ]);
+
+            $this->fail('Expected duplicate replacement serials in one draft edit to be rejected.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Serial pengganti tidak boleh digunakan lebih dari satu kali', $e->getMessage());
+        }
+
+        $currentLines = $posReturn->fresh()->lines()
+            ->orderBy('returned_serial_id')
+            ->get(['returned_serial_id', 'resolution', 'replacement_serial_id'])
+            ->map(fn (PosReturnLine $line) => $line->only(['returned_serial_id', 'resolution', 'replacement_serial_id']))
+            ->all();
+
+        $this->assertSame($originalLines, $currentLines);
+    }
+
+    /** @test */
+    public function it_preserves_explicit_none_for_one_serial_when_other_serial_lines_remain_actionable_on_draft_edit()
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Edit Draft Serial Product',
+            'product_code' => 'EDS-001',
+            'sale_price' => 750000,
+            'serial_number_required' => true,
+        ]);
+
+        $serialA = $this->createSerialNumber($product, $this->location, 'SN-EDIT-A');
+        $serialB = $this->createSerialNumber($product, $this->location, 'SN-EDIT-B');
+        $transaction = $this->createCompletedTransactionWithSerials($product, [$serialA, $serialB]);
+
+        $snapshot = $this->snapshotService->build($transaction->id);
+        $initialStock = \Modules\Product\Entities\ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $this->location->id)
+            ->value('quantity');
+        $initialSaleReturnCount = SaleReturn::count();
+        $initialSaleReturnDetailCount = SaleReturnDetail::count();
+
+        $posReturn = $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][0]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialA->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                ],
+                [
+                    'sale_detail_id' => $snapshot['lines'][1]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][1]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][1]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialB->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $this->submissionService->update($posReturn, [
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][0]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialA->id,
+                    'resolution' => PosReturnLine::RESOLUTION_NONE,
+                    'quantity' => 1,
+                ],
+                [
+                    'sale_detail_id' => $snapshot['lines'][1]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][1]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][1]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialB->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $posReturn->refresh();
+        $posReturn->load('lines');
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->approval_status);
+        $this->assertCount(2, $posReturn->lines);
+        $this->assertSame(
+            PosReturnLine::RESOLUTION_NONE,
+            $posReturn->lines->firstWhere('returned_serial_id', $serialA->id)?->resolution
+        );
+        $this->assertSame(
+            PosReturnLine::RESOLUTION_CASH_RETURN,
+            $posReturn->lines->firstWhere('returned_serial_id', $serialB->id)?->resolution
+        );
+        $this->assertSame(0.0, (float) $posReturn->lines->firstWhere('returned_serial_id', $serialA->id)?->expected_cash_amount);
+        $this->assertSame(750000.0, (float) $posReturn->lines->firstWhere('returned_serial_id', $serialB->id)?->expected_cash_amount);
+        $this->assertSame(750000.0, (float) $posReturn->total_amount);
+        $this->assertSame($initialSaleReturnCount, SaleReturn::count());
+        $this->assertSame($initialSaleReturnDetailCount, SaleReturnDetail::count());
+        $this->assertSame($initialStock, \Modules\Product\Entities\ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $this->location->id)
+            ->value('quantity'));
+    }
+
+    /** @test */
+    public function it_rejects_all_none_serial_draft_edits_and_keeps_existing_draft_lines_unchanged()
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Edit Reject None Product',
+            'product_code' => 'ERN-001',
+            'sale_price' => 825000,
+            'serial_number_required' => true,
+        ]);
+
+        $serialA = $this->createSerialNumber($product, $this->location, 'SN-REJECT-A');
+        $serialB = $this->createSerialNumber($product, $this->location, 'SN-REJECT-B');
+        $transaction = $this->createCompletedTransactionWithSerials($product, [$serialA, $serialB]);
+        $snapshot = $this->snapshotService->build($transaction->id);
+
+        $posReturn = $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][0]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialA->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                ],
+                [
+                    'sale_detail_id' => $snapshot['lines'][1]['sale_detail_id'],
+                    'sale_id' => $snapshot['lines'][1]['sale_id'],
+                    'pos_transaction_line_id' => $snapshot['lines'][1]['pos_transaction_line_id'] ?? null,
+                    'returned_serial_id' => $serialB->id,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'quantity' => 1,
+                    'replacement_serial_id' => $this->createSerialNumber($product, $this->location, 'SN-REPLACEMENT-C')->id,
+                ],
+            ],
+        ]);
+
+        $originalLines = $posReturn->lines()
+            ->orderBy('returned_serial_id')
+            ->get(['returned_serial_id', 'resolution', 'expected_cash_amount', 'replacement_serial_id'])
+            ->map(fn (PosReturnLine $line) => $line->only(['returned_serial_id', 'resolution', 'expected_cash_amount', 'replacement_serial_id']))
+            ->all();
+
+        try {
+            $this->submissionService->update($posReturn, [
+                'return_option' => PosReturn::OPTION_CASH_RETURN,
+                'source_snapshot_hash' => $snapshot['hash'],
+                'lines' => [
+                    [
+                        'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                        'sale_id' => $snapshot['lines'][0]['sale_id'],
+                        'pos_transaction_line_id' => $snapshot['lines'][0]['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => $serialA->id,
+                        'resolution' => PosReturnLine::RESOLUTION_NONE,
+                        'quantity' => 1,
+                    ],
+                    [
+                        'sale_detail_id' => $snapshot['lines'][1]['sale_detail_id'],
+                        'sale_id' => $snapshot['lines'][1]['sale_id'],
+                        'pos_transaction_line_id' => $snapshot['lines'][1]['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => $serialB->id,
+                        'resolution' => PosReturnLine::RESOLUTION_NONE,
+                        'quantity' => 1,
+                    ],
+                ],
+            ]);
+
+            $this->fail('Expected all-none draft edit to be rejected.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Minimal satu item harus dipilih untuk retur', $e->getMessage());
+        }
+
+        $posReturn->refresh();
+        $currentLines = $posReturn->lines()
+            ->orderBy('returned_serial_id')
+            ->get(['returned_serial_id', 'resolution', 'expected_cash_amount', 'replacement_serial_id'])
+            ->map(fn (PosReturnLine $line) => $line->only(['returned_serial_id', 'resolution', 'expected_cash_amount', 'replacement_serial_id']))
+            ->all();
+
+        $this->assertSame($originalLines, $currentLines);
+    }
+
+    /** @test */
     public function it_does_not_mutate_execution_state_on_draft_edit()
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -379,11 +641,11 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
     }
 
     /** @test */
-    public function it_resets_rejected_return_to_draft_on_edit()
+    public function it_blocks_editing_a_rejected_return_and_keeps_status_unchanged()
     {
         $this->actingAsInSetting($this->user, $this->setting);
 
-        // Task 7.9: Test that rejected edit resets the document to draft.
+        // Rejected returns must not use the draft edit flow.
         $product = $this->createStockedProduct($this->setting, $this->location);
         $transaction = $this->createCompletedTransactionWithLine($product, 1);
         $snapshot = $this->snapshotService->build($transaction->id);
@@ -406,23 +668,27 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
             'approval_status' => PosReturn::APPROVAL_STATUS_REJECTED,
         ]);
 
-        // Edit it
-        $this->submissionService->update($posReturn, [
-            'source_snapshot_hash' => $snapshot['hash'],
-            'lines' => [
-                [
-                    'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
-                    'quantity' => 1,
-                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
-                    // Note: would need a replacement serial if it was tracked, but this is non-tracked.
+        try {
+            $this->submissionService->update($posReturn, [
+                'source_snapshot_hash' => $snapshot['hash'],
+                'lines' => [
+                    [
+                        'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                        'quantity' => 1,
+                        'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    ]
                 ]
-            ]
-        ]);
+            ]);
+
+            $this->fail('Expected rejected return edit to be blocked.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Hanya retur draft yang dapat diubah.', $e->getMessage());
+        }
 
         $posReturn->refresh();
-        $this->assertEquals(PosReturn::STATUS_DRAFT, $posReturn->status);
-        $this->assertEquals(PosReturn::APPROVAL_STATUS_DRAFT, $posReturn->approval_status);
-        $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $posReturn->lines->first()->resolution);
+        $this->assertEquals(PosReturn::STATUS_REJECTED, $posReturn->status);
+        $this->assertEquals(PosReturn::APPROVAL_STATUS_REJECTED, $posReturn->approval_status);
+        $this->assertEquals(PosReturnLine::RESOLUTION_CASH_RETURN, $posReturn->lines->first()->resolution);
     }
 
     /** @test */

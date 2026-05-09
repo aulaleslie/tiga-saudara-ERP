@@ -287,6 +287,12 @@ class PosReturnController extends Controller
         $snapshot = is_array($return->source_snapshot) ? $return->source_snapshot : [];
         $snapshotLines = collect($snapshot['lines'] ?? [])->filter(fn ($line) => is_array($line))->values();
         $snapshotLookup = $snapshotLines->mapWithKeys(fn (array $line) => [$this->buildSnapshotLineKey($line) => $line]);
+        $actionableLines = $return->lines->filter(function (PosReturnLine $line) {
+            return in_array((string) $line->resolution, [
+                PosReturnLine::RESOLUTION_CASH_RETURN,
+                PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            ], true);
+        })->values();
 
         return [
             'transaction' => [
@@ -308,9 +314,9 @@ class PosReturnController extends Controller
                 })
                 ->values()
                 ->all(),
-            'groups' => $this->buildReadonlyGroups($return->lines, $snapshotLookup),
-            'actionable_count' => $return->lines->count(),
-            'total_cash_return' => (float) $return->lines->sum(fn (PosReturnLine $line) => (float) ($line->expected_cash_amount ?? 0)),
+            'groups' => $this->buildReadonlyGroups($actionableLines, $snapshotLookup),
+            'actionable_count' => $actionableLines->count(),
+            'total_cash_return' => (float) $actionableLines->sum(fn (PosReturnLine $line) => (float) ($line->expected_cash_amount ?? 0)),
             'audit' => [
                 'snapshot_hash' => $return->source_snapshot_hash,
                 'receipt_number' => $return->receipt_number,
@@ -324,7 +330,7 @@ class PosReturnController extends Controller
             ],
             'snapshot_context' => [
                 'available' => $snapshotLines->isNotEmpty(),
-                'groups' => $this->buildSnapshotContextGroups($snapshotLines, $return->lines),
+                'groups' => $this->buildSnapshotContextGroups($snapshotLines, $actionableLines),
             ],
         ];
     }

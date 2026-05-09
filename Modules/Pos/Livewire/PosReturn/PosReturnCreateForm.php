@@ -148,6 +148,11 @@ class PosReturnCreateForm extends Component
                 return;
             }
 
+            if ($this->replacementSerialAlreadySelected($lineKey, $replacementSerial->id)) {
+                $this->addError("lineSelections.{$lineKey}.replacement_serial_input", 'Serial pengganti tidak boleh digunakan lebih dari satu kali dalam retur yang sama.');
+                return;
+            }
+
             // Validate via guard
             $guard->validateReplacementSerial(
                 $line['product_id'],
@@ -192,6 +197,21 @@ class PosReturnCreateForm extends Component
             }
         }
         return null;
+    }
+
+    protected function replacementSerialAlreadySelected(string $lineKey, int $replacementSerialId): bool
+    {
+        foreach ($this->lineSelections as $selectedLineKey => $selection) {
+            if ($selectedLineKey === $lineKey) {
+                continue;
+            }
+
+            if (($selection['replacement_serial_id'] ?? null) === $replacementSerialId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function resetLookup()

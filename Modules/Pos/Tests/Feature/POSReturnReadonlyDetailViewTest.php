@@ -84,6 +84,24 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
             ->assertSee('Tidak Diretur');
     }
 
+    /** @test */
+    public function it_keeps_no_action_serials_in_snapshot_context_while_primary_detail_shows_only_actionable_rows(): void
+    {
+        $fixture = $this->makeReadonlyReturnFixtureWithNoActionSerial();
+
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $response = $this->get(route('pos.returns.show', $fixture['pos_return']));
+
+        $response->assertOk()
+            ->assertSee('Baris aksi retur: <strong>1</strong>', false)
+            ->assertSee('Item aktif: <strong>1</strong>', false)
+            ->assertSee('SN-ACTION-001')
+            ->assertSee('SN-NONE-001')
+            ->assertSee('Tidak Diretur')
+            ->assertDontSee('Tidak Ada Aksi');
+    }
+
     protected function makeReadonlyReturnFixture(): array
     {
         $bundleProduct = $this->createStockedProduct($this->setting, $this->location, [
@@ -305,6 +323,149 @@ class POSReturnReadonlyDetailViewTest extends PosTransactionFeatureTestCase
         $replacementLine->update([
             'sale_return_id' => $saleReturn->id,
             'sale_return_detail_id' => $saleReturnDetail->id,
+        ]);
+
+        return [
+            'pos_return' => $posReturn,
+        ];
+    }
+
+    protected function makeReadonlyReturnFixtureWithNoActionSerial(): array
+    {
+        $serialProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'PHONE SERIAL DETAIL',
+            'product_code' => 'SER-DETAIL-01',
+            'sale_price' => 5000000,
+            'serial_number_required' => true,
+        ]);
+
+        $actionSerial = $this->createSerialNumber($serialProduct, $this->location, 'SN-ACTION-001');
+        $noneSerial = $this->createSerialNumber($serialProduct, $this->location, 'SN-NONE-001');
+
+        $snapshot = [
+            'header' => [
+                'transaction_id' => 9101,
+                'transaction_code' => 'TXN-READONLY-NONE-001',
+                'checkout_id' => 7101,
+                'receipt_number' => 'RCP-READONLY-NONE-001',
+                'customer_name' => 'Readonly None Customer',
+                'date' => now()->toIso8601String(),
+                'grand_total' => 10000000,
+            ],
+            'payments' => [
+                ['method_name' => 'Tunai', 'amount' => 10000000],
+            ],
+            'lines' => [
+                [
+                    'checkout_sale_id' => 21,
+                    'sale_id' => 601,
+                    'sale_detail_id' => 801,
+                    'dispatch_detail_id' => 901,
+                    'pos_transaction_line_id' => 1201,
+                    'product_id' => $serialProduct->id,
+                    'product_name' => $serialProduct->product_name,
+                    'product_code' => $serialProduct->product_code,
+                    'original_quantity' => 1,
+                    'returned_quantity' => 0,
+                    'returnable_quantity' => 1,
+                    'unit_price' => 5000000,
+                    'line_total' => 5000000,
+                    'tax_id' => null,
+                    'is_tracked' => true,
+                    'serial_number_ids' => [$actionSerial->id],
+                    'serial_numbers' => [
+                        ['id' => $actionSerial->id, 'serial_number' => $actionSerial->serial_number],
+                    ],
+                    'is_bundle' => false,
+                    'bundle_items' => [],
+                    'is_zero_qty_component' => false,
+                ],
+                [
+                    'checkout_sale_id' => 21,
+                    'sale_id' => 601,
+                    'sale_detail_id' => 801,
+                    'dispatch_detail_id' => 901,
+                    'pos_transaction_line_id' => 1202,
+                    'product_id' => $serialProduct->id,
+                    'product_name' => $serialProduct->product_name,
+                    'product_code' => $serialProduct->product_code,
+                    'original_quantity' => 1,
+                    'returned_quantity' => 0,
+                    'returnable_quantity' => 1,
+                    'unit_price' => 5000000,
+                    'line_total' => 5000000,
+                    'tax_id' => null,
+                    'is_tracked' => true,
+                    'serial_number_ids' => [$noneSerial->id],
+                    'serial_numbers' => [
+                        ['id' => $noneSerial->id, 'serial_number' => $noneSerial->serial_number],
+                    ],
+                    'is_bundle' => false,
+                    'bundle_items' => [],
+                    'is_zero_qty_component' => false,
+                ],
+            ],
+        ];
+        $snapshot['hash'] = 'readonly-none-hash-001';
+
+        $posReturn = PosReturn::create([
+            'reference' => 'PR-READONLY-NONE-001',
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => 9101,
+            'pos_checkout_id' => 7101,
+            'transaction_code' => 'TXN-READONLY-NONE-001',
+            'receipt_number' => 'RCP-READONLY-NONE-001',
+            'customer_name' => 'Readonly None Customer',
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_DRAFT,
+            'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'total_amount' => 5000000,
+            'created_by' => $this->user->id,
+            'updated_by' => $this->user->id,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 21,
+            'sale_id' => 601,
+            'sale_detail_id' => 801,
+            'dispatch_detail_id' => 901,
+            'pos_transaction_line_id' => 1201,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'product_id' => $serialProduct->id,
+            'product_name' => $serialProduct->product_name,
+            'product_code' => $serialProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 5000000,
+            'line_total' => 5000000,
+            'expected_cash_amount' => 5000000,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'returned_serial_id' => $actionSerial->id,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 21,
+            'sale_id' => 601,
+            'sale_detail_id' => 801,
+            'dispatch_detail_id' => 901,
+            'pos_transaction_line_id' => 1202,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'product_id' => $serialProduct->id,
+            'product_name' => $serialProduct->product_name,
+            'product_code' => $serialProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 5000000,
+            'line_total' => 5000000,
+            'expected_cash_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'resolution' => PosReturnLine::RESOLUTION_NONE,
+            'returned_serial_id' => $noneSerial->id,
         ]);
 
         return [
