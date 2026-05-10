@@ -9,7 +9,15 @@ use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
+use Modules\Setting\Entities\Tax;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 use Modules\SalesReturn\Entities\SaleReturnPayment;
@@ -243,6 +251,467 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         $this->assertFalse((bool) $cancelReturn->fresh()->is_reversed);
         $this->assertSame('AWAITING RECEIVING', $cancelSaleReturn->fresh()->status);
         $this->assertNull($cancelSaleReturn->fresh()->rejected_at);
+    }
+
+    /** @test */
+    public function it_executes_final_approval_from_preview_for_mixed_line_resolutions(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $cashSaleReturn, $replacementSaleReturn, $cashDispatchDetail, $replacementProduct, , , $replacementDispatchDetail] = $this->createPendingApprovalMixedResolutionReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $posReturn->fresh()->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_APPROVED, $posReturn->fresh()->approval_status);
+        $this->assertNotNull($posReturn->fresh()->approved_at);
+        $this->assertNotNull($posReturn->fresh()->received_at);
+        $this->assertNotNull($posReturn->fresh()->settled_at);
+
+        $this->assertSame('COMPLETED', $cashSaleReturn->fresh()->status);
+        $this->assertSame('COMPLETED', $replacementSaleReturn->fresh()->status);
+        $payment = SaleReturnPayment::query()->where('sale_return_id', $cashSaleReturn->id)->first();
+        $this->assertNotNull($payment);
+        $this->assertSame($cashSaleReturn->id, $payment->saleReturn?->id);
+        $this->assertSame('COMPLETED', $payment->saleReturn?->status);
+        $this->assertSame(600.0, (float) $payment->amount);
+        $this->assertSame('SRPAY/' . $cashSaleReturn->reference, $payment->reference);
+        $this->assertSame('CASH', $payment->payment_method);
+        $this->assertSame('PENYELESAIAN FINAL APPROVAL RETUR POS', $payment->note);
+        $this->assertSame(1, (int) $cashDispatchDetail->fresh()->dispatched_quantity);
+        $this->assertSame(2, (int) $replacementDispatchDetail->fresh()->dispatched_quantity);
+        $this->assertDatabaseHas('dispatches', [
+            'sale_id' => $replacementSaleReturn->sale_id,
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $this->assertSame(10, (int) $replacementProduct->fresh()->product_quantity);
+    }
+
+    /** @test */
+    public function it_reduces_source_sale_detail_quantity_and_prorated_amounts_for_cash_return_lines(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, , , , , $cashSaleDetail] = $this->createPendingApprovalMixedResolutionReturn();
+
+        PosReturnLine::query()
+            ->where('pos_return_id', $posReturn->id)
+            ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->update(['expected_cash_amount' => 240]);
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $cashSaleDetail = $cashSaleDetail->fresh();
+
+        $this->assertSame(4, (int) $cashSaleDetail->quantity);
+        $this->assertSame(960.0, (float) $cashSaleDetail->sub_total);
+        $this->assertSame(120.0, (float) $cashSaleDetail->product_discount_amount);
+        $this->assertSame(40.0, (float) $cashSaleDetail->product_tax_amount);
+    }
+
+    /** @test */
+    public function it_uses_expected_cash_amount_as_sale_detail_monetary_source_of_truth_when_it_differs_from_proration(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, , , , , $cashSaleDetail] = $this->createPendingApprovalMixedResolutionReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $cashSaleDetail = $cashSaleDetail->fresh();
+
+        $this->assertSame(4, (int) $cashSaleDetail->quantity);
+        $this->assertSame(600.0, (float) $cashSaleDetail->sub_total);
+        $this->assertSame(120.0, (float) $cashSaleDetail->product_discount_amount);
+        $this->assertSame(40.0, (float) $cashSaleDetail->product_tax_amount);
+    }
+
+    /** @test */
+    public function it_recalculates_source_sale_totals_after_cash_return_corrections(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $cashSaleReturn] = $this->createPendingApprovalMixedResolutionReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $cashSale = Sale::query()->findOrFail($cashSaleReturn->sale_id);
+
+        $this->assertSame(560.0, (float) $cashSale->total_amount);
+        $this->assertSame(560.0, (float) $cashSale->paid_amount);
+        $this->assertSame(0.0, (float) $cashSale->due_amount);
+        $this->assertSame('PAID', (string) $cashSale->payment_status);
+    }
+
+    /** @test */
+    public function it_archives_full_cash_return_source_sales_with_returned_status_and_audit_note(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $saleReturn, $sale, $saleDetail, $dispatchDetail] = $this->createPendingApprovalFullCashReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $sale = Sale::withArchived()->findOrFail($sale->id);
+
+        $this->assertSame(Sale::STATUS_RETURNED, (string) $sale->status);
+        $this->assertNotNull($sale->archived_at);
+        $this->assertSame($this->actor->id, (int) $sale->archived_by);
+        $this->assertStringContainsString(strtoupper((string) $posReturn->reference), strtoupper((string) $sale->note));
+        $this->assertStringContainsString(strtoupper((string) $saleReturn->reference), strtoupper((string) $sale->note));
+        $this->assertSame(0, (int) $saleDetail->fresh()->quantity);
+        $this->assertSame(0, (int) $dispatchDetail->fresh()->dispatched_quantity);
+    }
+
+    /** @test */
+    public function it_restores_returned_serial_stock_and_lineage_during_final_approval_receiving(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $saleReturn, $sale, $product, $serial] = $this->createPendingApprovalSerialCashReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $product->refresh();
+        $serial->refresh();
+        $stock = ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $this->location->id)
+            ->firstOrFail();
+
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $posReturn->fresh()->status);
+        $this->assertSame('COMPLETED', $saleReturn->fresh()->status);
+        $this->assertSame(1, (int) $product->product_quantity);
+        $this->assertSame(1, (int) $stock->quantity);
+        $this->assertSame(1, (int) $stock->quantity_non_tax);
+        $this->assertNull($serial->dispatch_detail_id);
+        $this->assertSame($this->location->id, (int) $serial->location_id);
+        $this->assertSame(ProductSerialNumber::STATUS_ACTIVE, (string) $serial->status);
+
+        $tracking = SalesOrderSerialTracking::query()
+            ->where('sale_id', $sale->id)
+            ->where('product_serial_number_id', $serial->id)
+            ->first();
+
+        $this->assertNotNull($tracking);
+        $this->assertNotNull($tracking->return_date);
+
+        $transaction = Transaction::query()
+            ->where('product_id', $product->id)
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($transaction);
+        $this->assertSame('SALE_RETURN_GOOD_NON_TAX', (string) $transaction->type);
+        $this->assertSame(1, (int) $transaction->quantity);
+        $this->assertSame($this->location->id, (int) $transaction->location_id);
+        $this->assertStringContainsString((string) $saleReturn->reference, (string) $transaction->reason);
+
+        $this->assertTrue(
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serial->id)
+                ->where('event_type', SerialNumberHistory::EVENT_SALE_RETURNED)
+                ->exists()
+        );
+    }
+
+    /** @test */
+    public function it_dispatches_replacement_serials_with_lineage_tracking_and_history_during_final_approval(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $sale, $line, $sourceDispatchDetail, $returnedSerial, $replacementSerial, $product] = $this->createPendingApprovalSerialReplacementReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $replacementDispatchDetail = DispatchDetail::query()
+            ->where('pos_return_line_id', $line->id)
+            ->where('replacement_of_dispatch_detail_id', $sourceDispatchDetail->id)
+            ->first();
+
+        $this->assertNotNull($replacementDispatchDetail);
+        $this->assertSame($returnedSerial->id, (int) $replacementDispatchDetail->replacement_returned_serial_id);
+        $this->assertSame([$replacementSerial->serial_number], json_decode((string) $replacementDispatchDetail->serial_numbers, true));
+
+        $replacementSerial->refresh();
+        $product->refresh();
+
+        $this->assertSame(ProductSerialNumber::STATUS_SOLD, (string) $replacementSerial->status);
+        $this->assertSame($replacementDispatchDetail->id, (int) $replacementSerial->dispatch_detail_id);
+        $this->assertSame(1, (int) $product->product_quantity);
+
+        $tracking = SalesOrderSerialTracking::query()
+            ->where('sale_id', $sale->id)
+            ->where('product_serial_number_id', $replacementSerial->id)
+            ->first();
+
+        $this->assertNotNull($tracking);
+        $this->assertNotNull($tracking->dispatch_date);
+        $this->assertNull($tracking->return_date);
+
+        $this->assertTrue(
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $replacementSerial->id)
+                ->where('event_type', SerialNumberHistory::EVENT_SOLD)
+                ->where('reference_type', DispatchDetail::class)
+                ->where('reference_id', $replacementDispatchDetail->id)
+                ->exists()
+        );
+
+        $this->assertTrue(
+            Transaction::query()
+                ->where('product_id', $product->id)
+                ->where('type', 'DISPATCH_RETURN')
+                ->exists()
+        );
+    }
+
+    /** @test */
+    public function it_mirrors_bundle_parent_and_component_dispatch_lineage_during_final_approval_replacement(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $parentLine, $componentLine, $bundleId, $parentProduct, $componentProduct] = $this->createPendingApprovalBundleReplacementReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $replacementDetails = DispatchDetail::query()
+            ->whereIn('pos_return_line_id', [$parentLine->id, $componentLine->id])
+            ->orderBy('id')
+            ->get();
+
+        $this->assertCount(2, $replacementDetails);
+        $this->assertTrue($replacementDetails->every(fn (DispatchDetail $detail) => (int) $detail->bundle_id === $bundleId));
+        $this->assertTrue($replacementDetails->contains(fn (DispatchDetail $detail) => (int) $detail->pos_return_line_id === (int) $parentLine->id && (int) $detail->dispatched_quantity === 1));
+        $this->assertTrue($replacementDetails->contains(fn (DispatchDetail $detail) => (int) $detail->pos_return_line_id === (int) $componentLine->id && (int) $detail->dispatched_quantity === 2));
+
+        $this->assertCount(2, Transaction::query()
+            ->whereIn('product_id', [$parentProduct->id, $componentProduct->id])
+            ->where('type', 'DISPATCH_RETURN')
+            ->get());
+    }
+
+    /** @test */
+    public function it_receives_bundle_parent_and_managed_components_while_skipping_stockless_rows_during_final_approval(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $parentProduct, $componentProduct, $stocklessProduct] = $this->createPendingApprovalBundleCashReturnWithStocklessComponent();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $parentProduct->refresh();
+        $componentProduct->refresh();
+        $stocklessProduct->refresh();
+
+        $parentStock = ProductStock::query()
+            ->where('product_id', $parentProduct->id)
+            ->where('location_id', $this->location->id)
+            ->firstOrFail();
+        $componentStock = ProductStock::query()
+            ->where('product_id', $componentProduct->id)
+            ->where('location_id', $this->location->id)
+            ->firstOrFail();
+        $stocklessStock = ProductStock::query()
+            ->where('product_id', $stocklessProduct->id)
+            ->where('location_id', $this->location->id)
+            ->firstOrFail();
+
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $posReturn->fresh()->status);
+        $this->assertSame(1, (int) $parentProduct->product_quantity);
+        $this->assertSame(1, (int) $parentStock->quantity);
+        $this->assertSame(1, (int) $parentStock->quantity_tax);
+        $this->assertSame(2, (int) $componentProduct->product_quantity);
+        $this->assertSame(2, (int) $componentStock->quantity);
+        $this->assertSame(2, (int) $componentStock->quantity_non_tax);
+        $this->assertSame(0, (int) $stocklessProduct->product_quantity);
+        $this->assertSame(0, (int) $stocklessStock->quantity);
+
+        $transactions = Transaction::query()
+            ->whereIn('product_id', [$parentProduct->id, $componentProduct->id, $stocklessProduct->id])
+            ->orderBy('id')
+            ->get();
+
+        $this->assertCount(2, $transactions);
+        $this->assertTrue($transactions->contains(fn (Transaction $transaction) => (int) $transaction->product_id === (int) $parentProduct->id
+            && (string) $transaction->type === 'SALE_RETURN_GOOD_TAX'
+            && (int) $transaction->quantity === 1));
+        $this->assertTrue($transactions->contains(fn (Transaction $transaction) => (int) $transaction->product_id === (int) $componentProduct->id
+            && (string) $transaction->type === 'SALE_RETURN_GOOD_NON_TAX'
+            && (int) $transaction->quantity === 2));
+        $this->assertFalse($transactions->contains(fn (Transaction $transaction) => (int) $transaction->product_id === (int) $stocklessProduct->id));
+    }
+
+    /** @test */
+    public function it_only_reduces_bundle_parent_sale_money_for_cash_return_while_still_receiving_component_stock(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $parentProduct, $componentProduct, $stocklessProduct] = $this->createPendingApprovalBundleCashReturnWithStocklessComponent();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $saleReturn = SaleReturn::query()->where('pos_return_id', $posReturn->id)->firstOrFail();
+        $sale = Sale::query()->findOrFail($saleReturn->sale_id);
+        $parentDetail = SaleDetails::query()->where('sale_id', $sale->id)->where('product_id', $parentProduct->id)->firstOrFail();
+        $componentDetail = SaleDetails::query()->where('sale_id', $sale->id)->where('product_id', $componentProduct->id)->firstOrFail();
+        $stocklessDetail = SaleDetails::query()->where('sale_id', $sale->id)->where('product_id', $stocklessProduct->id)->firstOrFail();
+        $saleReturnPayment = \Modules\SalesReturn\Entities\SaleReturnPayment::query()
+            ->where('sale_return_id', $saleReturn->id)
+            ->firstOrFail();
+
+        $this->assertSame(0, (int) $parentDetail->quantity);
+        $this->assertSame(0.0, (float) $parentDetail->sub_total);
+        $this->assertSame(2, (int) $componentDetail->quantity);
+        $this->assertSame(120.0, (float) $componentDetail->sub_total);
+        $this->assertSame(1, (int) $stocklessDetail->quantity);
+        $this->assertSame(80.0, (float) $stocklessDetail->sub_total);
+        $this->assertSame(200.0, (float) $sale->total_amount);
+        $this->assertSame(200.0, (float) $sale->paid_amount);
+        $this->assertSame(300.0, (float) $saleReturnPayment->amount);
+    }
+
+    /** @test */
+    public function it_blocks_final_approval_execution_when_a_bundle_component_line_has_no_parent_line(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $parentLine, $componentLine] = $this->createPendingApprovalBundleReplacementReturn();
+        $parentLine->delete();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Bundle component lines require their parent bundle return line before final approval can execute.');
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+    }
+
+    /** @test */
+    public function it_preserves_bundle_parent_and_component_sale_details_during_replacement_execution(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $parentLine, $componentLine] = $this->createPendingApprovalBundleReplacementReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $parentDetail = SaleDetails::query()->findOrFail($parentLine->sale_detail_id);
+        $componentDetail = SaleDetails::query()->findOrFail($componentLine->sale_detail_id);
+
+        $this->assertSame(1, (int) $parentDetail->quantity);
+        $this->assertSame(300.0, (float) $parentDetail->sub_total);
+        $this->assertSame(2, (int) $componentDetail->quantity);
+        $this->assertSame(120.0, (float) $componentDetail->sub_total);
+    }
+
+    /** @test */
+    public function it_splits_or_invalidates_active_sale_payments_last_payment_first_after_cash_return_corrections(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $cashSaleReturn] = $this->createPendingApprovalMixedResolutionReturn();
+
+        $cashSale = Sale::query()->findOrFail($cashSaleReturn->sale_id);
+        $cashSale->update([
+            'paid_amount' => 800,
+            'due_amount' => 1200,
+            'payment_status' => 'PARTIAL',
+        ]);
+
+        $firstPayment = SalePayment::query()->create([
+            'sale_id' => $cashSale->id,
+            'amount' => 300,
+            'date' => now()->subDays(2)->toDateString(),
+            'reference' => 'PAY-A-' . uniqid(),
+            'payment_method' => 'Cash',
+            'stage_order' => 1,
+        ]);
+        $secondPayment = SalePayment::query()->create([
+            'sale_id' => $cashSale->id,
+            'amount' => 300,
+            'date' => now()->subDay()->toDateString(),
+            'reference' => 'PAY-B-' . uniqid(),
+            'payment_method' => 'Transfer',
+            'stage_order' => 2,
+            'edc_reference' => 'EDC-B',
+        ]);
+        $thirdPayment = SalePayment::query()->create([
+            'sale_id' => $cashSale->id,
+            'amount' => 200,
+            'date' => now()->toDateString(),
+            'reference' => 'PAY-C-' . uniqid(),
+            'payment_method' => 'QRIS',
+            'stage_order' => 3,
+            'edc_reference' => 'EDC-C',
+        ]);
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $cashSale = $cashSale->fresh();
+        $payments = SalePayment::query()
+            ->where('sale_id', $cashSale->id)
+            ->orderBy('stage_order')
+            ->orderBy('id')
+            ->get();
+
+        $replacementPayment = $payments
+            ->where('status', SalePayment::STATUS_ACTIVE)
+            ->first(fn (SalePayment $payment) => (int) $payment->id !== (int) $firstPayment->id);
+
+        $this->assertSame(560.0, (float) $cashSale->paid_amount);
+        $this->assertSame(0.0, (float) $cashSale->due_amount);
+        $this->assertSame('PAID', (string) $cashSale->payment_status);
+        $this->assertCount(4, $payments);
+        $this->assertSame(SalePayment::STATUS_ACTIVE, (string) $firstPayment->fresh()->status);
+        $this->assertSame(SalePayment::STATUS_INVALIDATED, (string) $secondPayment->fresh()->status);
+        $this->assertSame(SalePayment::STATUS_INVALIDATED, (string) $thirdPayment->fresh()->status);
+        $this->assertNotNull($secondPayment->fresh()->invalidated_at);
+        $this->assertSame('POS_RETURN_CASH_CORRECTION', (string) $secondPayment->fresh()->invalidation_source);
+        $this->assertSame((int) $cashSaleReturn->id, (int) $secondPayment->fresh()->invalidation_source_id);
+        $this->assertSame((string) $secondPayment->fresh()->payment_method, (string) $replacementPayment?->payment_method);
+        $this->assertSame(2, (int) $replacementPayment?->stage_order);
+        $this->assertSame(260.0, (float) $replacementPayment?->amount);
+        $this->assertSame('EDC-B', (string) $replacementPayment?->edc_reference);
+        $this->assertNull($replacementPayment?->idempotency_key);
+        $this->assertStringContainsString(
+            strtoupper('Auto-split from invalidated payment #' . $secondPayment->id),
+            strtoupper((string) $replacementPayment?->note)
+        );
+        $this->assertSame(560.0, (float) SalePayment::query()
+            ->where('sale_id', $cashSale->id)
+            ->active()
+            ->sum('amount'));
+    }
+
+    /** @test */
+    public function it_rolls_back_final_approval_from_preview_failures(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $cashSaleReturn] = $this->createPendingApprovalMixedResolutionReturn();
+        $initialDispatchCount = Dispatch::query()->count();
+
+        $service = new class extends PosReturnLifecycleService {
+            protected function finalizeApprovalExecution(\Modules\Pos\Entities\PosReturn $posReturn, ?int $actorId, \Illuminate\Support\Carbon $completedAt): void
+            {
+                parent::finalizeApprovalExecution($posReturn, $actorId, $completedAt);
+
+                throw new \RuntimeException('final preview approval failed');
+            }
+        };
+
+        try {
+            $service->executeApprovalFromPreview($posReturn->id);
+            $this->fail('Expected final preview approval failure was not thrown.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('final preview approval failed', $exception->getMessage());
+        }
+
+        $this->assertSame(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->fresh()->status);
+        $this->assertSame(PosReturn::APPROVAL_STATUS_PENDING, $posReturn->fresh()->approval_status);
+        $this->assertNull($posReturn->fresh()->approved_at);
+        $this->assertSame('PENDING APPROVAL', $cashSaleReturn->fresh()->status);
+        $this->assertDatabaseCount('sale_return_payments', 0);
+        $this->assertSame($initialDispatchCount, Dispatch::query()->count());
     }
 
     /**
@@ -482,6 +951,1043 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         ]);
 
         return [$posReturn, $saleReturn];
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: SaleReturn, 2: Sale, 3: SaleDetails, 4: DispatchDetail}
+     */
+    protected function createPendingApprovalFullCashReturn(): array
+    {
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'FULL-' . uniqid(),
+            'sale_price' => 600,
+            'stock_qty' => 10,
+        ]);
+
+        $sale = $this->createSale('DISPATCHED');
+        $sale->update([
+            'total_amount' => 600,
+            'paid_amount' => 600,
+            'due_amount' => 0,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $dispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
+        $saleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'total_amount' => 600,
+        ]);
+
+        $saleReturn = $this->createSaleReturn($posReturn, $sale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Cash Return',
+            'total_amount' => 600,
+            'paid_amount' => 0,
+            'due_amount' => 600,
+        ]);
+
+        $line = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 600,
+            'line_total' => 600,
+            'expected_cash_amount' => 600,
+            'serial_number_ids' => null,
+            'bundle_group_key' => null,
+            'bundle_parent_sale_detail_id' => null,
+            'bundle_quantity' => null,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        return [$posReturn, $saleReturn, $sale, $saleDetail, $dispatchDetail];
+    }
+
+    /**
+    * @return array{0: PosReturn, 1: SaleReturn, 2: SaleReturn, 3: DispatchDetail, 4: \Modules\Product\Entities\Product, 5: SaleDetails, 6: SaleDetails, 7: DispatchDetail}
+     */
+    protected function createPendingApprovalMixedResolutionReturn(): array
+    {
+        $cashProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'CASH-' . uniqid(),
+            'sale_price' => 600,
+            'stock_qty' => 10,
+        ]);
+        $replacementProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'REPL-' . uniqid(),
+            'sale_price' => 1000,
+            'stock_qty' => 10,
+        ]);
+
+        $cashSale = $this->createSale('DISPATCHED');
+        $replacementSale = $this->createSale('DISPATCHED');
+        $cashDispatch = Dispatch::query()->create([
+            'sale_id' => $cashSale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $replacementDispatch = Dispatch::query()->create([
+            'sale_id' => $replacementSale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $cashDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $cashDispatch->id,
+            'sale_id' => $cashSale->id,
+            'product_id' => $cashProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+        $replacementDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $replacementDispatch->id,
+            'sale_id' => $replacementSale->id,
+            'product_id' => $replacementProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
+        $cashSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $cashSale->id,
+            'product_id' => $cashProduct->id,
+            'product_name' => $cashProduct->product_name,
+            'product_code' => $cashProduct->product_code,
+            'quantity' => 5,
+            'price' => 240,
+            'unit_price' => 240,
+            'sub_total' => 1200,
+            'product_discount_amount' => 150,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 50,
+        ]);
+
+        $replacementSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $replacementSale->id,
+            'product_id' => $replacementProduct->id,
+            'product_name' => $replacementProduct->product_name,
+            'product_code' => $replacementProduct->product_code,
+            'quantity' => 2,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 2000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'total_amount' => 2600,
+        ]);
+
+        $cashSaleReturn = $this->createSaleReturn($posReturn, $cashSale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Cash Return',
+            'total_amount' => 600,
+            'paid_amount' => 0,
+            'due_amount' => 600,
+        ]);
+        $replacementSaleReturn = $this->createSaleReturn($posReturn, $replacementSale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Replacement',
+            'total_amount' => 2000,
+            'paid_amount' => 0,
+            'due_amount' => 2000,
+        ]);
+
+        $cashLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $cashSaleReturn->id,
+            'sale_id' => $cashSale->id,
+            'sale_detail_id' => $cashSaleDetail->id,
+            'dispatch_detail_id' => $cashDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $cashProduct->id,
+            'product_name' => $cashProduct->product_name,
+            'product_code' => $cashProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 600,
+            'line_total' => 600,
+            'expected_cash_amount' => 600,
+            'serial_number_ids' => null,
+            'bundle_group_key' => null,
+            'bundle_parent_sale_detail_id' => null,
+            'bundle_quantity' => null,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+        $replacementLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'sale_return_id' => $replacementSaleReturn->id,
+            'sale_id' => $replacementSale->id,
+            'sale_detail_id' => $replacementSaleDetail->id,
+            'dispatch_detail_id' => $replacementDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $replacementProduct->id,
+            'product_name' => $replacementProduct->product_name,
+            'product_code' => $replacementProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 1000,
+            'line_total' => 2000,
+            'serial_number_ids' => null,
+            'bundle_group_key' => null,
+            'bundle_parent_sale_detail_id' => null,
+            'bundle_quantity' => null,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => $replacementProduct->id,
+            'replacement_quantity' => 2,
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $cashSaleReturn->id,
+            'pos_return_line_id' => $cashLine->id,
+            'sale_detail_id' => $cashSaleDetail->id,
+            'dispatch_detail_id' => $cashDispatchDetail->id,
+            'product_id' => $cashProduct->id,
+            'product_name' => $cashProduct->product_name,
+            'product_code' => $cashProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $replacementSaleReturn->id,
+            'pos_return_line_id' => $replacementLine->id,
+            'sale_detail_id' => $replacementSaleDetail->id,
+            'dispatch_detail_id' => $replacementDispatchDetail->id,
+            'product_id' => $replacementProduct->id,
+            'product_name' => $replacementProduct->product_name,
+            'product_code' => $replacementProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 2,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 2000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        return [$posReturn, $cashSaleReturn, $replacementSaleReturn, $cashDispatchDetail, $replacementProduct, $cashSaleDetail, $replacementSaleDetail, $replacementDispatchDetail];
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: SaleReturn, 2: Sale, 3: Product, 4: ProductSerialNumber}
+     */
+    protected function createPendingApprovalSerialCashReturn(): array
+    {
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'SER-' . uniqid(),
+            'product_name' => 'Serialized Return ' . uniqid(),
+            'sale_price' => 1500,
+            'stock_qty' => 0,
+            'serial_number_required' => true,
+        ]);
+
+        $sale = $this->createSale('DISPATCHED');
+        $sale->update([
+            'total_amount' => 1500,
+            'paid_amount' => 1500,
+            'due_amount' => 0,
+        ]);
+
+        $saleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $dispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode(['SERIAL-' . uniqid()]),
+        ]);
+
+        $serial = $this->createSerialNumber($product, $this->location, 'SN-RET-' . uniqid());
+        $serial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        SalesOrderSerialTracking::query()->create([
+            'sale_id' => $sale->id,
+            'product_serial_number_id' => $serial->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => now(),
+            'return_date' => null,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'total_amount' => 1500,
+        ]);
+
+        $saleReturn = $this->createSaleReturn($posReturn, $sale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Cash Return',
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+        ]);
+
+        $line = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 1500,
+            'line_total' => 1500,
+            'expected_cash_amount' => 1500,
+            'serial_number_ids' => [$serial->id],
+            'returned_serial_id' => $serial->id,
+            'bundle_group_key' => null,
+            'bundle_parent_sale_detail_id' => null,
+            'bundle_quantity' => null,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$serial->id],
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        return [$posReturn, $saleReturn, $sale, $product, $serial];
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: Sale, 2: PosReturnLine, 3: DispatchDetail, 4: ProductSerialNumber, 5: ProductSerialNumber, 6: Product}
+     */
+    protected function createPendingApprovalSerialReplacementReturn(): array
+    {
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'SER-REP-' . uniqid(),
+            'product_name' => 'Serialized Replacement ' . uniqid(),
+            'sale_price' => 1500,
+            'stock_qty' => 1,
+            'serial_number_required' => true,
+        ]);
+
+        $sale = $this->createSale('DISPATCHED');
+        $sale->update([
+            'total_amount' => 1500,
+            'paid_amount' => 1500,
+            'due_amount' => 0,
+        ]);
+
+        $saleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $sourceDispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $sourceDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $sourceDispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode(['SERIAL-' . uniqid()]),
+        ]);
+
+        $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-RET-' . uniqid());
+        $returnedSerial->update([
+            'dispatch_detail_id' => $sourceDispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        $replacementSerial = $this->createSerialNumber($product, $this->location, 'SN-REP-' . uniqid());
+        $replacementSerial->update([
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        SalesOrderSerialTracking::query()->create([
+            'sale_id' => $sale->id,
+            'product_serial_number_id' => $returnedSerial->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => now(),
+            'return_date' => null,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT,
+            'total_amount' => 1500,
+        ]);
+
+        $saleReturn = $this->createSaleReturn($posReturn, $sale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Replacement',
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+        ]);
+
+        $line = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $sourceDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 1500,
+            'line_total' => 1500,
+            'serial_number_ids' => [$returnedSerial->id],
+            'returned_serial_id' => $returnedSerial->id,
+            'replacement_serial_id' => $replacementSerial->id,
+            'bundle_group_key' => null,
+            'bundle_parent_sale_detail_id' => null,
+            'bundle_quantity' => null,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => $product->id,
+            'replacement_quantity' => 1,
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $sourceDispatchDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$returnedSerial->id],
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        return [$posReturn, $sale, $line, $sourceDispatchDetail, $returnedSerial, $replacementSerial, $product];
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: PosReturnLine, 2: PosReturnLine, 3: int, 4: Product, 5: Product}
+     */
+    protected function createPendingApprovalBundleReplacementReturn(): array
+    {
+        $bundleId = 9000 + random_int(1, 999);
+
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BUNDLE-REP-PARENT-' . uniqid(),
+            'sale_price' => 300,
+            'stock_qty' => 1,
+        ]);
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BUNDLE-REP-COMP-' . uniqid(),
+            'sale_price' => 60,
+            'stock_qty' => 2,
+        ]);
+
+        $sale = $this->createSale('DISPATCHED');
+        $sale->update([
+            'total_amount' => 420,
+            'paid_amount' => 420,
+            'due_amount' => 0,
+        ]);
+
+        $parentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'price' => 300,
+            'unit_price' => 300,
+            'sub_total' => 300,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'price' => 60,
+            'unit_price' => 60,
+            'sub_total' => 120,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $parentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $parentProduct->id,
+            'bundle_id' => $bundleId,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+        $componentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'bundle_id' => $bundleId,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT,
+            'total_amount' => 420,
+        ]);
+        $saleReturn = $this->createSaleReturn($posReturn, $sale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Replacement',
+            'total_amount' => 420,
+            'paid_amount' => 0,
+            'due_amount' => 420,
+            'location_id' => $this->location->id,
+        ]);
+
+        $bundleGroupKey = 'BUNDLE-REP-' . uniqid();
+
+        $parentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'dispatch_detail_id' => $parentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 300,
+            'line_total' => 300,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => $parentProduct->id,
+            'replacement_quantity' => 1,
+            'line_meta' => ['bundle_id' => $bundleId],
+        ]);
+        $componentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 60,
+            'line_total' => 120,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => $componentProduct->id,
+            'replacement_quantity' => 2,
+            'line_meta' => ['bundle_id' => $bundleId],
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $parentLine->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'dispatch_detail_id' => $parentDispatchDetail->id,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 300,
+            'unit_price' => 300,
+            'sub_total' => 300,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'bundle_group_key' => $bundleGroupKey,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $componentLine->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 2,
+            'price' => 60,
+            'unit_price' => 60,
+            'sub_total' => 120,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'bundle_group_key' => $bundleGroupKey,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        return [$posReturn, $parentLine, $componentLine, $bundleId, $parentProduct, $componentProduct];
+    }
+
+    /**
+     * @return array{0: PosReturn, 1: Product, 2: Product, 3: Product}
+     */
+    protected function createPendingApprovalBundleCashReturnWithStocklessComponent(): array
+    {
+        $tax = Tax::query()->create([
+            'name' => 'PPN RETUR ' . uniqid(),
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BUNDLE-PARENT-' . uniqid(),
+            'sale_price' => 300,
+            'stock_qty' => 0,
+            'sale_tax_id' => $tax->id,
+        ]);
+        ProductStock::query()
+            ->where('product_id', $parentProduct->id)
+            ->where('location_id', $this->location->id)
+            ->update(['tax_id' => $tax->id]);
+
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BUNDLE-COMP-' . uniqid(),
+            'sale_price' => 60,
+            'stock_qty' => 0,
+        ]);
+
+        $stocklessProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BUNDLE-AUDIT-' . uniqid(),
+            'sale_price' => 80,
+            'stock_qty' => 0,
+        ]);
+        $stocklessProduct->update([
+            'stock_managed' => false,
+            'product_quantity' => 0,
+        ]);
+
+        $sale = $this->createSale('DISPATCHED');
+        $sale->update([
+            'total_amount' => 500,
+            'paid_amount' => 500,
+            'due_amount' => 0,
+        ]);
+
+        $parentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'price' => 300,
+            'unit_price' => 300,
+            'sub_total' => 300,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'price' => 60,
+            'unit_price' => 60,
+            'sub_total' => 120,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+        $stocklessSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $stocklessProduct->id,
+            'product_name' => $stocklessProduct->product_name,
+            'product_code' => $stocklessProduct->product_code,
+            'quantity' => 1,
+            'price' => 80,
+            'unit_price' => 80,
+            'sub_total' => 80,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $dispatch = Dispatch::query()->create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $parentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $parentProduct->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => $tax->id,
+        ]);
+        $componentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
+        $posReturn = $this->createPosReturn([
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'total_amount' => 500,
+        ]);
+        $saleReturn = $this->createSaleReturn($posReturn, $sale, [
+            'status' => 'PENDING APPROVAL',
+            'approval_status' => 'PENDING',
+            'return_type' => 'Cash Return',
+            'total_amount' => 500,
+            'paid_amount' => 0,
+            'due_amount' => 500,
+            'location_id' => $this->location->id,
+        ]);
+
+        $bundleGroupKey = 'BUNDLE-' . uniqid();
+
+        $parentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'dispatch_detail_id' => $parentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => $tax->id,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 300,
+            'line_total' => 300,
+            'expected_cash_amount' => 300,
+            'serial_number_ids' => null,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+        $componentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 60,
+            'line_total' => 120,
+            'expected_cash_amount' => 120,
+            'serial_number_ids' => null,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+        $stocklessLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $stocklessSaleDetail->id,
+            'dispatch_detail_id' => null,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $stocklessProduct->id,
+            'product_name' => $stocklessProduct->product_name,
+            'product_code' => $stocklessProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 80,
+            'line_total' => 80,
+            'expected_cash_amount' => 80,
+            'serial_number_ids' => null,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 1,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $parentLine->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'dispatch_detail_id' => $parentDispatchDetail->id,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => $tax->id,
+            'quantity' => 1,
+            'price' => 300,
+            'unit_price' => 300,
+            'sub_total' => 300,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'bundle_group_key' => $bundleGroupKey,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $componentLine->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 2,
+            'price' => 60,
+            'unit_price' => 60,
+            'sub_total' => 120,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'bundle_group_key' => $bundleGroupKey,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $stocklessLine->id,
+            'sale_detail_id' => $stocklessSaleDetail->id,
+            'dispatch_detail_id' => null,
+            'product_id' => $stocklessProduct->id,
+            'product_name' => $stocklessProduct->product_name,
+            'product_code' => $stocklessProduct->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 80,
+            'unit_price' => 80,
+            'sub_total' => 80,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'bundle_group_key' => $bundleGroupKey,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS,
+        ]);
+
+        return [$posReturn, $parentProduct, $componentProduct, $stocklessProduct];
     }
 
     protected function createPosReturn(array $overrides = []): PosReturn

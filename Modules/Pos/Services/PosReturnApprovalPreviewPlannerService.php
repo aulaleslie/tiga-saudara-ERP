@@ -200,6 +200,20 @@ class PosReturnApprovalPreviewPlannerService
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
         }
 
+        if ($this->isBundleComponentLine($line) && ! $this->hasBundleParentLine($posReturn, $line)) {
+            $blockers[] = $this->message(
+                'bundle_parent_missing',
+                'Komponen bundle tidak dapat dieksekusi tanpa baris parent bundle pada retur POS yang sama.',
+                [
+                    'pos_return_line_id' => $line->id,
+                    'bundle_group_key' => $line->bundle_group_key,
+                    'bundle_parent_sale_detail_id' => $line->bundle_parent_sale_detail_id,
+                ]
+            );
+
+            return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
+        }
+
         $checkoutSale = $checkoutSales->get((int) $line->sale_id);
         if (! $checkoutSale) {
             $blockers[] = $this->message('checkout_sale_missing', 'Checkout sale sumber tidak ditemukan untuk baris retur ini.', [
@@ -349,8 +363,8 @@ class PosReturnApprovalPreviewPlannerService
 
         foreach ($bundleTrace as $traceIndex => $trace) {
             $componentProductId = (int) data_get($trace, 'product_id', 0);
-            $componentQuantity = (float) data_get($trace, 'total_component_quantity', 0);
             $quantityPerBundle = (float) data_get($trace, 'quantity_per_bundle', 0);
+            $componentQuantity = $this->resolvePlannedComponentQuantity($line, $quantityPerBundle, $trace, $parentLineShare);
 
             if ($componentProductId <= 0 || $componentQuantity <= 0) {
                 continue;
@@ -849,6 +863,76 @@ class PosReturnApprovalPreviewPlannerService
         }
 
         return min(1.0, $returnedQuantity / $parentQuantity);
+    }
+
+    private function resolvePlannedComponentQuantity(
+        PosReturnLine $line,
+        float $quantityPerBundle,
+        array $trace,
+        float $parentLineShare,
+    ): float {
+        if ($quantityPerBundle > 0 && (float) $line->quantity > 0) {
+            return round($quantityPerBundle * (float) $line->quantity, 4);
+        }
+
+        $traceQuantity = (float) data_get($trace, 'total_component_quantity', 0);
+        if ($traceQuantity > 0) {
+            return $traceQuantity;
+        }
+
+        $fallbackQuantity = (float) data_get($trace, 'quantity', 0);
+        if ($fallbackQuantity > 0 && $parentLineShare > 0) {
+            return round($fallbackQuantity * $parentLineShare, 4);
+        }
+
+        return 0.0;
+    }
+
+    private function isBundleComponentLine(PosReturnLine $line): bool
+    {
+        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
+        $saleDetailId = (int) ($line->sale_detail_id ?? 0);
+
+        if ($parentSaleDetailId <= 0 || $saleDetailId <= 0) {
+            return false;
+        }
+
+        if ($parentSaleDetailId === $saleDetailId) {
+            return false;
+        }
+
+        return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
+    }
+
+    private function hasBundleParentLine(PosReturn $posReturn, PosReturnLine $line): bool
+    {
+        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
+        if ($parentSaleDetailId <= 0) {
+            return false;
+        }
+
+        return $posReturn->lines->contains(function (PosReturnLine $candidate) use ($line, $parentSaleDetailId) {
+            if ((int) $candidate->id === (int) $line->id) {
+                return false;
+            }
+
+            if ((int) ($candidate->sale_detail_id ?? 0) !== $parentSaleDetailId) {
+                return false;
+            }
+
+            if ((int) ($candidate->bundle_parent_sale_detail_id ?? 0) !== $parentSaleDetailId) {
+                return false;
+            }
+
+            if ($this->isBundleComponentLine($candidate)) {
+                return false;
+            }
+
+            $lineGroupKey = (string) ($line->bundle_group_key ?? '');
+            $candidateGroupKey = (string) ($candidate->bundle_group_key ?? '');
+
+            return $lineGroupKey === '' || $candidateGroupKey === '' || $lineGroupKey === $candidateGroupKey;
+        });
     }
 
     private function apportionedComponentQuantity(SaleBundleItem $componentItem, float $parentLineShare): float

@@ -1144,6 +1144,165 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
+    public function it_blocks_final_approval_when_a_bundle_component_line_exists_without_its_parent_line(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'ORPHAN-PARENT-' . uniqid(),
+            'product_name' => 'Orphan Parent Product',
+            'sale_price' => 900,
+        ]);
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'ORPHAN-COMP-' . uniqid(),
+            'product_name' => 'Orphan Component Product',
+            'sale_price' => 0,
+        ]);
+
+        [$sale, $parentDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'ORPHANP', $parentProduct, [
+            'quantity' => 2,
+            'sub_total' => 1800,
+            'unit_price' => 900,
+            'price' => 900,
+        ]);
+
+        $componentDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 4,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $parentDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]]);
+
+        $parentLine = $posReturn->fresh('lines')->lines->first();
+        $parentLine->delete();
+
+        PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $parentLine->pos_checkout_sale_id,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $componentDetail->id,
+            'dispatch_detail_id' => null,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 0,
+            'line_total' => 0,
+            'expected_cash_amount' => 0,
+            'bundle_group_key' => 'ORPHAN-BUNDLE-' . uniqid(),
+            'bundle_parent_sale_detail_id' => $parentDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+
+        $this->assertTrue($plan['is_blocked']);
+        $this->assertContains('bundle_parent_missing', collect($plan['blockers'])->pluck('code')->all());
+    }
+
+    /** @test */
+    public function it_calculates_proportional_bundle_component_quantities_for_partial_parent_returns(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'PARTIAL-PARENT-' . uniqid(),
+            'product_name' => 'Partial Parent Product',
+            'sale_price' => 900,
+        ]);
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'PARTIAL-COMP-' . uniqid(),
+            'product_name' => 'Partial Component Product',
+            'sale_price' => 0,
+        ]);
+
+        [$sale, $parentDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'PARTIALP', $parentProduct, [
+            'quantity' => 2,
+            'sub_total' => 1800,
+            'unit_price' => 900,
+            'price' => 900,
+        ]);
+
+        $componentDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 4,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $componentBundleItem = SaleBundleItem::query()->create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $componentDetail->id,
+            'bundle_id' => 1771,
+            'bundle_item_id' => 2771,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 4,
+            'price' => 0,
+            'sub_total' => 0,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'partial-0-0',
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $parentDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]]);
+
+        $line = $posReturn->fresh('lines')->lines->first();
+        $line->update([
+            'line_meta' => [
+                'bundle_id' => 1771,
+                'bundle_trace' => [[
+                    'product_id' => $componentProduct->id,
+                    'quantity_per_bundle' => 2,
+                    'total_component_quantity' => 999,
+                ]],
+            ],
+        ]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+        $parentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $sale->id);
+        $plannedComponentDetail = collect($parentGroup['planned_details'] ?? [])
+            ->firstWhere('component_sale_bundle_item_id', $componentBundleItem->id);
+
+        $this->assertFalse($plan['is_blocked']);
+        $this->assertNotNull($plannedComponentDetail);
+        $this->assertSame(2.0, (float) $plannedComponentDetail['quantity']);
+        $this->assertSame(2.0, (float) $plannedComponentDetail['component_quantity_per_bundle']);
+    }
+
+    /** @test */
     public function it_does_not_warn_about_legacy_header_return_option_when_line_intent_is_resolvable(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);

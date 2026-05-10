@@ -209,13 +209,35 @@ class PosReturnController extends Controller
     {
         abort_if(Gate::denies('pos.returns.approve'), 403);
 
-        if ($this->isApprovalPreviewable($return)) {
-            toast('Persetujuan final belum tersedia pada fase preview. Tinjau preview persetujuan terlebih dahulu.', 'warning');
+        if (! $this->isApprovalPreviewable($return)) {
+            toast('Persetujuan final hanya tersedia untuk retur POS yang masih menunggu persetujuan.', 'error');
+
+            return redirect()->route('pos.returns.show', $return);
+        }
+
+        $previewPlan = $this->approvalPreviewPlanner->plan($return->fresh());
+
+        if (! empty($previewPlan['blockers'])) {
+            toast('Persetujuan final diblokir. Tinjau ulang preview persetujuan terbaru sebelum melanjutkan.', 'error');
 
             return redirect()->route('pos.returns.approval-preview', $return);
         }
 
-        toast('Persetujuan final belum tersedia pada fase preview dan retur POS ini tidak lagi dapat dibuka di preview.', 'error');
+        if (! empty($previewPlan['warnings'])) {
+            toast('Persetujuan final tidak dapat dijalankan selama preview masih memiliki peringatan.', 'warning');
+
+            return redirect()->route('pos.returns.approval-preview', $return);
+        }
+
+        try {
+            $this->lifecycleService->executeApprovalFromPreview($return->id, $request->input('return_option'), $previewPlan);
+            toast('Persetujuan final retur POS berhasil dijalankan.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+
+            return redirect()->route('pos.returns.approval-preview', $return);
+        }
 
         return redirect()->route('pos.returns.show', $return);
     }

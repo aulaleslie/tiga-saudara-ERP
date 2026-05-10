@@ -80,7 +80,7 @@ class POSReturnQuantityGuardTest extends PosTransactionFeatureTestCase
         // Submit return for 3 units
         $snapshot = $this->snapshotService->build($transaction->id);
         $this->actingAsInSetting($this->user, $this->setting);
-        $this->submissionService->store([
+        $posReturn = $this->submissionService->store([
             'pos_transaction_id' => $transaction->id,
             'return_option' => PosReturn::OPTION_CASH_RETURN,
             'source_snapshot' => $snapshot,
@@ -91,6 +91,11 @@ class POSReturnQuantityGuardTest extends PosTransactionFeatureTestCase
                     'quantity' => 3,
                 ]
             ]
+        ]);
+        $posReturn = $this->submissionService->submitDraftForApproval($posReturn);
+        $posReturn->update([
+            'status' => PosReturn::STATUS_APPROVED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
         ]);
 
         // Check after partial return
@@ -134,6 +139,11 @@ class POSReturnQuantityGuardTest extends PosTransactionFeatureTestCase
                     'quantity' => 5,
                 ]
             ]
+        ]);
+        $posReturn = $this->submissionService->submitDraftForApproval($posReturn);
+        $posReturn->update([
+            'status' => PosReturn::STATUS_APPROVED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
         ]);
 
         $this->assertEquals(5, $this->quantityGuard->getReturnableQuantity(null, $saleDetail->id));

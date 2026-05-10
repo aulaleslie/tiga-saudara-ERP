@@ -151,7 +151,7 @@ class POSReturnSettlementWorkflowTest extends PosTransactionFeatureTestCase
             'date' => now()->toDateString(),
         ]);
 
-        SaleDetails::create([
+        $saleDetail = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
@@ -238,7 +238,7 @@ class POSReturnSettlementWorkflowTest extends PosTransactionFeatureTestCase
             'date' => now()->toDateString(),
         ]);
 
-        SaleDetails::create([
+        $saleDetail = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
@@ -297,8 +297,33 @@ class POSReturnSettlementWorkflowTest extends PosTransactionFeatureTestCase
 
         $saleReturn = SaleReturn::where('pos_return_id', $posReturn->id)->first();
 
+        $line = PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => null,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 1000,
+            'line_total' => 1000,
+            'serial_number_ids' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_product_id' => $product->id,
+            'replacement_quantity' => 1,
+        ]);
+
         SaleReturnDetail::create([
             'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
             'product_code' => $product->product_code,

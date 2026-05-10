@@ -104,6 +104,32 @@ class POSReturnApprovalPreviewMutationSafetyTest extends PosTransactionFeatureTe
         $this->assertSame($before, $after);
     }
 
+    /** @test */
+    public function final_approval_revalidates_stale_preview_and_keeps_mutation_tables_unchanged(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $fixture = $this->makePendingSerialReturnFixture();
+        $posReturn = $fixture['pos_return'];
+        $dispatchDetail = $fixture['dispatch_detail'];
+        $product = $fixture['product'];
+        $serial = $fixture['serial'];
+
+        $before = $this->captureMutationState($posReturn->id, $product->id, $dispatchDetail->id, $serial->id, $this->location->id);
+
+        $fixture['checkout']->update([
+            'grand_total' => 1200,
+            'receipt_number' => 'RCP-STALE-' . uniqid(),
+        ]);
+
+        $response = $this->post(route('pos.returns.approve', $posReturn));
+
+        $response->assertRedirect(route('pos.returns.approval-preview', $posReturn));
+
+        $after = $this->captureMutationState($posReturn->id, $product->id, $dispatchDetail->id, $serial->id, $this->location->id);
+        $this->assertSame($before, $after);
+    }
+
     protected function makePendingSerialReturnFixture(): array
     {
         $transaction = PosTransaction::query()->create([

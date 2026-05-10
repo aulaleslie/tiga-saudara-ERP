@@ -57,6 +57,27 @@ class POSReturnReplacementDispatchWorkflowTest extends PosTransactionFeatureTest
     }
 
     /** @test */
+    public function it_allows_replacement_dispatch_when_the_explicit_replacement_product_is_not_persisted_but_the_original_sku_matches()
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $saleReturn, $detail] = $this->createAwaitingDispatchReturn([
+            'replacement_product_id' => null,
+        ]);
+
+        $this->service->dispatchReplacement($posReturn->id);
+
+        $posReturn->refresh();
+        $saleReturn->refresh();
+        $detail->refresh();
+
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $posReturn->status);
+        $this->assertEquals('COMPLETED', $saleReturn->status);
+        $this->assertTrue(Dispatch::query()->where('sale_id', $saleReturn->sale_id)->exists());
+        $this->assertSame(8, (int) $detail->product->fresh()->product_quantity);
+    }
+
+    /** @test */
     public function it_blocks_replacement_dispatch_for_cash_return_returns()
     {
         $this->actingAsInSetting($this->actor, $this->setting);
@@ -130,7 +151,10 @@ class POSReturnReplacementDispatchWorkflowTest extends PosTransactionFeatureTest
             'stock_qty' => $overrides['available_stock'] ?? 10,
         ]);
 
-        $replacementProductId = $product->id;
+        $replacementProductId = array_key_exists('replacement_product_id', $overrides)
+            ? $overrides['replacement_product_id']
+            : $product->id;
+
         if (! empty($overrides['replacement_product_mismatch'])) {
             $replacementProductId = $this->createStockedProduct($this->setting, $this->location, [
                 'product_code' => 'ALT-' . uniqid(),

@@ -127,7 +127,7 @@ class POSReturnSnapshotStalenessTest extends PosTransactionFeatureTestCase
 
         // 3. Create a return in the background for 2 units
         $this->actingAsInSetting($this->user, $this->setting);
-        $this->submissionService->store([
+        $firstReturn = $this->submissionService->store([
             'pos_transaction_id' => $transaction->id,
             'return_option' => PosReturn::OPTION_CASH_RETURN,
             'source_snapshot' => $initialSnapshot,
@@ -138,6 +138,11 @@ class POSReturnSnapshotStalenessTest extends PosTransactionFeatureTestCase
                     'quantity' => 2,
                 ]
             ]
+        ]);
+        $firstReturn = $this->submissionService->submitDraftForApproval($firstReturn);
+        $firstReturn->update([
+            'status' => PosReturn::STATUS_APPROVED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
         ]);
 
         // 4. Try to submit another return using the OLD hash

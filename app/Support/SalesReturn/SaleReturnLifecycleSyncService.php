@@ -4,6 +4,7 @@ namespace App\Support\SalesReturn;
 
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 
@@ -106,23 +107,15 @@ class SaleReturnLifecycleSyncService
             return;
         }
 
-        $dispatchedQuantity = (int) DispatchDetail::query()
+        $activeSaleQuantity = (float) SaleDetails::query()
+            ->where('sale_id', $sale->id)
+            ->sum('quantity');
+
+        $activeDispatchedQuantity = (float) DispatchDetail::query()
             ->where('sale_id', $sale->id)
             ->sum('dispatched_quantity');
 
-        if ($dispatchedQuantity <= 0) {
-            return;
-        }
-
-        $returnedCompletedQuantity = (int) SaleReturnDetail::query()
-            ->whereHas('saleReturn', function ($query) use ($sale) {
-                $query->withArchived()
-                    ->where('sale_id', $sale->id)
-                    ->where('status', 'COMPLETED');
-            })
-            ->sum('quantity');
-
-        if ($returnedCompletedQuantity < $dispatchedQuantity) {
+        if ($activeSaleQuantity > 0 || $activeDispatchedQuantity > 0) {
             return;
         }
 
@@ -132,8 +125,13 @@ class SaleReturnLifecycleSyncService
             $updates['archived_by'] = $actorId;
         }
 
-        // Preserve a human-readable trail like purchase-return archival.
-        $noteLine = 'Barang sudah diretur ' . $saleReturn->reference;
+        $posReturnReference = (string) optional($saleReturn->posReturn)->reference;
+        $noteLine = collect([
+            'Barang sudah diretur penuh',
+            $posReturnReference !== '' ? 'POS Return ' . $posReturnReference : null,
+            $saleReturn->reference ? 'Sales Return ' . $saleReturn->reference : null,
+        ])->filter()->implode(' | ');
+
         $currentNote = (string) ($sale->note ?? '');
         if ($noteLine !== '' && stripos($currentNote, $noteLine) === false) {
             $updates['note'] = $currentNote !== ''

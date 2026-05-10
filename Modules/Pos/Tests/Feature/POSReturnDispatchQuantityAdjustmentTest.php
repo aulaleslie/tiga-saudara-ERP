@@ -100,6 +100,16 @@ class POSReturnDispatchQuantityAdjustmentTest extends PosTransactionFeatureTestC
                 ['sale_detail_id' => $detailB->id, 'quantity' => 1],
             ],
         ]);
+        $posReturn = $this->submissionService->submitDraftForApproval($posReturn);
+        $posReturn->lines()
+            ->orderBy('id')
+            ->get()
+            ->values()
+            ->each(function ($line, $index) use ($dispatchA, $dispatchB): void {
+                $line->update([
+                    'dispatch_detail_id' => $index === 0 ? $dispatchA->id : $dispatchB->id,
+                ]);
+            });
 
         $this->assertSame(2, (int) $dispatchA->fresh()->dispatched_quantity);
         $this->assertSame(2, (int) $dispatchB->fresh()->dispatched_quantity);

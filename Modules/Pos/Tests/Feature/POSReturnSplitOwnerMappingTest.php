@@ -8,6 +8,8 @@ use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Pos\Services\PosReturnSubmissionService;
+use Modules\Pos\Services\PosReturnApprovalPlanPersistenceService;
+use Modules\Pos\Services\PosReturnApprovalPreviewPlannerService;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
@@ -107,23 +109,34 @@ class POSReturnSplitOwnerMappingTest extends PosTransactionFeatureTestCase
             ],
         ]);
 
-        $posReturn->load(['lines', 'saleReturns']);
+        $plan = app(PosReturnApprovalPreviewPlannerService::class)->plan($posReturn->fresh());
+        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+
+        $posReturn->load(['lines', 'saleReturns.saleReturnDetails']);
 
         $this->assertCount(2, $posReturn->lines);
         $this->assertCount(2, $posReturn->saleReturns);
 
         $firstLine = $posReturn->lines->firstWhere('sale_id', $firstSale->id);
         $secondLine = $posReturn->lines->firstWhere('sale_id', $secondSale->id);
+        $firstSaleReturnDetail = $posReturn->saleReturns
+            ->firstWhere('sale_id', $firstSale->id)
+            ?->saleReturnDetails
+            ->firstWhere('sale_detail_id', $firstDetail->id);
+        $secondSaleReturnDetail = $posReturn->saleReturns
+            ->firstWhere('sale_id', $secondSale->id)
+            ?->saleReturnDetails
+            ->firstWhere('sale_detail_id', $secondDetail->id);
 
-        $this->assertSame($firstDispatchDetail->id, $firstLine->dispatch_detail_id);
         $this->assertSame($this->setting->id, $firstLine->source_setting_id);
         $this->assertSame($this->location->id, $firstLine->source_location_id);
         $this->assertSame($firstDetail->tax_id, $firstLine->tax_id);
+        $this->assertSame($firstDispatchDetail->id, $firstSaleReturnDetail?->dispatch_detail_id);
 
-        $this->assertSame($secondDispatchDetail->id, $secondLine->dispatch_detail_id);
         $this->assertSame($this->secondSetting->id, $secondLine->source_setting_id);
         $this->assertSame($this->secondLocation->id, $secondLine->source_location_id);
         $this->assertSame($secondDetail->tax_id, $secondLine->tax_id);
+        $this->assertSame($secondDispatchDetail->id, $secondSaleReturnDetail?->dispatch_detail_id);
 
         $this->assertTrue($posReturn->saleReturns->contains(fn ($saleReturn) => (int) $saleReturn->sale_id === (int) $firstSale->id && (int) $saleReturn->location_id === (int) $this->location->id));
         $this->assertTrue($posReturn->saleReturns->contains(fn ($saleReturn) => (int) $saleReturn->sale_id === (int) $secondSale->id && (int) $saleReturn->location_id === (int) $this->secondLocation->id));

@@ -5,6 +5,8 @@ namespace Modules\Sale\Entities;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Pos\Entities\PosReturnLine;
 use Modules\Setting\Entities\Location;
 
 class DispatchDetail extends BaseModel
@@ -19,6 +21,9 @@ class DispatchDetail extends BaseModel
         'serial_numbers',
         'tax_id',
         'bundle_id',
+        'pos_return_line_id',
+        'replacement_of_dispatch_detail_id',
+        'replacement_returned_serial_id',
     ];
 
     protected array $uppercaseExcept = [
@@ -43,5 +48,25 @@ class DispatchDetail extends BaseModel
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function posReturnLine(): BelongsTo
+    {
+        return $this->belongsTo(PosReturnLine::class, 'pos_return_line_id');
+    }
+
+    public function replacementOf(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replacement_of_dispatch_detail_id');
+    }
+
+    public function replacementReturnedSerial(): BelongsTo
+    {
+        return $this->belongsTo(ProductSerialNumber::class, 'replacement_returned_serial_id');
+    }
+
+    public function isPosReturnReplacement(): bool
+    {
+        return ! is_null($this->pos_return_line_id);
     }
 }

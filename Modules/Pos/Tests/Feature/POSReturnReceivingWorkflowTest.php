@@ -13,10 +13,13 @@ use Modules\Product\Entities\Product;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosReturnLine;
 use Spatie\Permission\Models\Permission;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
+use Modules\SalesReturn\Entities\SaleReturn;
+use Modules\SalesReturn\Entities\SaleReturnDetail;
 
 class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
 {
@@ -170,9 +173,72 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
 
         $this->actingAsInSetting($this->user, $this->setting);
         $posReturn = $this->submissionService->store($data);
+        $posReturn->lines()->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'source_location_id' => $this->location->id,
+            'source_setting_id' => $this->setting->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'resolution' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT
+                ? PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                : PosReturnLine::RESOLUTION_CASH_RETURN,
+            'replacement_product_id' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? $product->id : null,
+            'replacement_quantity' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? 1 : null,
+        ]);
+        $posReturn = $this->submissionService->submitDraftForApproval($posReturn);
 
         $this->actingAsInSetting($this->approver, $this->setting);
-        $this->lifecycleService->approve($posReturn->id);
+        $this->lifecycleService->approve($posReturn->id, $returnOption);
+
+        $line = $posReturn->lines()->firstOrFail();
+        $saleReturn = SaleReturn::create([
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'pos_return_id' => $posReturn->id,
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'return_type' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? 'Replacement' : 'Cash Return',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'reference' => 'SR-' . uniqid(),
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 500,
+            'paid_amount' => 0,
+            'due_amount' => 500,
+            'status' => 'AWAITING RECEIVING',
+            'approval_status' => 'APPROVED',
+            'payment_status' => 'PENDING',
+            'payment_method' => 'CASH',
+            'date' => now()->toDateString(),
+            'approved_by' => $this->approver->id,
+            'approved_at' => now(),
+        ]);
+
+        $line->update(['sale_return_id' => $saleReturn->id]);
+
+        SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
 
         return $posReturn->refresh();
     }
@@ -203,7 +269,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
         foreach ($posReturn->lines as $line) {
             // Product quantity should increase by 1 (we returned 1)
             // Initial was 10 (from createStockedProduct)
-            $this->assertEquals(11, $line->product->product_quantity);
+            $this->assertEquals(11, $line->product->fresh()->product_quantity);
             
             // Dispatch Detail quantity should decrease by 1
             $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($line->dispatch_detail_id);
@@ -261,7 +327,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
         $this->actingAsInSetting($this->user, $this->setting);
         $posReturn = $this->submissionService->store($data);
 
-        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->status);
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $posReturn->status);
 
         $this->actingAsInSetting($this->receiver, $this->setting);
         

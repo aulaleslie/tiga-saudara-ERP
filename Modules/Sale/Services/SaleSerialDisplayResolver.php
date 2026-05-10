@@ -2,10 +2,12 @@
 
 namespace Modules\Sale\Services;
 
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
@@ -19,11 +21,13 @@ class SaleSerialDisplayResolver
     {
         $dispatches = $sale->relationLoaded('saleDispatches')
             ? $sale->saleDispatches
-            : $sale->saleDispatches()->with('details')->get();
+            : $sale->saleDispatches()->with('details.replacementReturnedSerial')->get();
 
         if ($dispatches->isEmpty()) {
             return;
         }
+
+        $dispatches->loadMissing('details.replacementReturnedSerial');
 
         $detailSerials = [];
         $lookupPairs = collect();
@@ -66,7 +70,7 @@ class SaleSerialDisplayResolver
                 ->get(['id', 'sale_id', 'product_serial_number_id', 'dispatch_date', 'return_date'])
                 ->keyBy('product_serial_number_id');
 
-        $legacyReturnedSerialIdSet = $this->resolveLegacyReturnedSerialIdSet((int) $sale->id, $serialIds);
+        $legacyReturnedSerialMetadata = $this->resolveLegacyReturnedSerialMetadata((int) $sale->id, $serialIds);
 
         foreach ($dispatches as $dispatch) {
             $dispatchStatus = strtoupper((string) ($dispatch->status ?? ''));
@@ -88,6 +92,16 @@ class SaleSerialDisplayResolver
                         continue;
                     }
 
+                    if ($this->isReplacementLineageDetail($detail)) {
+                        $badges[] = $this->makeBadge(
+                            $serialNumber,
+                            'bg-primary',
+                            $this->buildReplacementBadgeTitle($detail, $dispatch),
+                            'replacement'
+                        );
+                        continue;
+                    }
+
                     $serialRecord = $serialRecords->get($this->serialKey((int) $detail->product_id, $normalized));
 
                     if (! $serialRecord) {
@@ -96,12 +110,18 @@ class SaleSerialDisplayResolver
                     }
 
                     $tracking = $trackingsBySerialId->get($serialRecord->id);
-                    $isReturned = $tracking
-                        ? ! is_null($tracking->return_date)
-                        : isset($legacyReturnedSerialIdSet[(int) $serialRecord->id]);
+                    $returnedMetadata = $this->resolveReturnedMetadata(
+                        $tracking,
+                        $legacyReturnedSerialMetadata[(int) $serialRecord->id] ?? null
+                    );
 
-                    if ($isReturned) {
-                        $badges[] = $this->makeBadge($serialNumber, 'bg-danger', 'Sudah diretur dari penjualan ini', 'returned');
+                    if ($returnedMetadata !== null) {
+                        $badges[] = $this->makeBadge(
+                            $serialNumber,
+                            'bg-danger',
+                            $this->buildReturnedBadgeTitle($returnedMetadata['returned_at'] ?? null),
+                            'returned'
+                        );
                         continue;
                     }
 
@@ -114,19 +134,22 @@ class SaleSerialDisplayResolver
     }
 
     /**
-     * @return array<int, true>
+     * @return array<int, array{returned_at:mixed}>
      */
-    protected function resolveLegacyReturnedSerialIdSet(int $saleId, Collection $candidateSerialIds): array
+    protected function resolveLegacyReturnedSerialMetadata(int $saleId, Collection $candidateSerialIds): array
     {
         if ($saleId <= 0 || $candidateSerialIds->isEmpty()) {
             return [];
         }
 
-        $saleReturnDetailIds = SaleReturnDetail::query()
+        $saleReturnDetails = SaleReturnDetail::query()
             ->whereHas('saleReturn', function ($query) use ($saleId) {
                 $query->where('sale_id', $saleId);
             })
-            ->pluck('id');
+            ->with(['saleReturn:id,sale_id,date,status'])
+            ->get(['id', 'sale_return_id', 'serial_number_ids']);
+
+        $saleReturnDetailIds = $saleReturnDetails->pluck('id');
 
         $returnedByHistory = collect();
         if ($saleReturnDetailIds->isNotEmpty()) {
@@ -135,32 +158,102 @@ class SaleSerialDisplayResolver
                 ->where('event_type', SerialNumberHistory::EVENT_SALE_RETURNED)
                 ->where('reference_type', SaleReturnDetail::class)
                 ->whereIn('reference_id', $saleReturnDetailIds)
-                ->pluck('product_serial_number_id')
-                ->map(fn ($id) => (int) $id);
+                ->get(['product_serial_number_id', 'reference_id', 'created_at'])
+                ->mapWithKeys(function (SerialNumberHistory $history) use ($saleReturnDetails) {
+                    $detail = $saleReturnDetails->firstWhere('id', (int) $history->reference_id);
+
+                    return [
+                        (int) $history->product_serial_number_id => [
+                            'returned_at' => $history->created_at ?? $detail?->saleReturn?->date,
+                        ],
+                    ];
+                });
         }
 
-        $returnedByState = SaleReturnDetail::query()
-            ->whereHas('saleReturn', function ($query) use ($saleId) {
-                $query->where('sale_id', $saleId)
-                    ->where(function ($statusQuery) {
-                        $statusQuery->whereRaw('LOWER(status) = ?', ['awaiting settlement'])
-                            ->orWhereRaw('LOWER(status) = ?', ['completed']);
-                    });
+        $returnedByState = $saleReturnDetails
+            ->filter(function (SaleReturnDetail $detail) {
+                $status = strtolower((string) ($detail->saleReturn?->status ?? ''));
+
+                return in_array($status, ['awaiting settlement', 'completed'], true);
             })
-            ->whereNotNull('serial_number_ids')
-            ->get(['serial_number_ids'])
             ->flatMap(function (SaleReturnDetail $detail) {
-                return collect($detail->serial_number_ids ?? []);
+                $returnedAt = $detail->saleReturn?->date;
+
+                return collect($detail->serial_number_ids ?? [])->mapWithKeys(function ($id) use ($returnedAt) {
+                    return [(int) $id => ['returned_at' => $returnedAt]];
+                });
             })
-            ->map(fn ($id) => (int) $id)
-            ->filter();
+            ->filter(fn ($metadata, $id) => $candidateSerialIds->contains((int) $id));
 
         return $returnedByHistory
-            ->concat($returnedByState)
-            ->filter(fn ($id) => $candidateSerialIds->contains((int) $id))
-            ->unique()
-            ->mapWithKeys(fn ($id) => [(int) $id => true])
+            ->union($returnedByState)
             ->all();
+    }
+
+    protected function isReplacementLineageDetail(DispatchDetail $detail): bool
+    {
+        return ! is_null($detail->pos_return_line_id)
+            || ! is_null($detail->replacement_of_dispatch_detail_id)
+            || ! is_null($detail->replacement_returned_serial_id);
+    }
+
+    /**
+     * @param array{returned_at:mixed}|null $legacyMetadata
+     * @return array{returned_at:mixed}|null
+     */
+    protected function resolveReturnedMetadata(?SalesOrderSerialTracking $tracking, ?array $legacyMetadata): ?array
+    {
+        if ($tracking && ! is_null($tracking->return_date)) {
+            return ['returned_at' => $tracking->return_date];
+        }
+
+        if ($legacyMetadata !== null) {
+            return $legacyMetadata;
+        }
+
+        return null;
+    }
+
+    protected function buildReturnedBadgeTitle($returnedAt): string
+    {
+        $formatted = $this->formatBadgeDate($returnedAt);
+
+        if ($formatted === null) {
+            return 'Sudah diretur dari penjualan ini';
+        }
+
+        return 'Sudah diretur dari penjualan ini pada '.$formatted;
+    }
+
+    protected function buildReplacementBadgeTitle(DispatchDetail $detail, Dispatch $dispatch): string
+    {
+        $returnedSerial = trim((string) ($detail->replacementReturnedSerial?->serial_number ?? ''));
+        $dispatchDate = $this->formatBadgeDate($dispatch->dispatch_date);
+
+        $title = 'Serial pengganti POS retur';
+
+        if ($returnedSerial !== '') {
+            $title .= ' untuk serial retur '.$returnedSerial;
+        }
+
+        if ($dispatchDate !== null) {
+            $title .= ' dikirim pada '.$dispatchDate;
+        }
+
+        return $title;
+    }
+
+    protected function formatBadgeDate($value): ?string
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->format('Y-m-d H:i');
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+
+        return null;
     }
 
     /**

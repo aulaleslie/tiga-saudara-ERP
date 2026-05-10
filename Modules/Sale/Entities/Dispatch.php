@@ -24,6 +24,11 @@ class Dispatch extends BaseModel
         return $this->hasMany(DispatchDetail::class);
     }
 
+    public function replacementDetails(): HasMany
+    {
+        return $this->hasMany(DispatchDetail::class)->whereNotNull('pos_return_line_id');
+    }
+
     public function approver(): BelongsTo
     {
         return $this->belongsTo(\App\Models\User::class, 'approved_by');
@@ -42,5 +47,14 @@ class Dispatch extends BaseModel
     public function isRejected(): bool
     {
         return $this->status === self::STATUS_REJECTED;
+    }
+
+    public function hasReplacementLineage(): bool
+    {
+        if ($this->relationLoaded('details')) {
+            return $this->details->contains(fn (DispatchDetail $detail) => $detail->isPosReturnReplacement());
+        }
+
+        return $this->replacementDetails()->exists();
     }
 }

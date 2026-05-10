@@ -155,7 +155,7 @@ class SaleShowSerialBadgeTest extends TestCase
         $responseOld = $this->get(route('sales.show', $saleA));
         $responseOld->assertStatus(200);
         $responseOld->assertSee('SN-CTX-001');
-        $responseOld->assertSee('title="Sudah diretur dari penjualan ini"', false);
+        $responseOld->assertSee('title="Sudah diretur dari penjualan ini', false);
         $responseOld->assertDontSee('title="Masih aktif pada penjualan ini"', false);
 
         $responseNew = $this->get(route('sales.show', $saleB));
@@ -179,6 +179,7 @@ class SaleShowSerialBadgeTest extends TestCase
 
         $saleReturn = SaleReturn::create([
             'sale_id' => $sale->id,
+            'reference' => 'SR-LEGACY-001',
             'setting_id' => $this->setting->id,
             'customer_id' => $this->customer->id,
             'customer_name' => $this->customer->customer_name,
@@ -228,7 +229,73 @@ class SaleShowSerialBadgeTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('SN-LEGACY-RED');
-        $response->assertSee('title="Sudah diretur dari penjualan ini"', false);
+        $response->assertSee('title="Sudah diretur dari penjualan ini', false);
+    }
+
+    public function test_sale_show_renders_returned_original_red_and_pos_replacement_serial_blue_when_quantity_differs_from_historical_badges(): void
+    {
+        [$sale, $originalDispatchDetail] = $this->createSaleWithApprovedDispatch('SO-POS-RET-001', 'SN-ORIGINAL-001');
+
+        $returnedSerial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'dispatch_detail_id' => null,
+            'serial_number' => 'SN-ORIGINAL-001',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        SalesOrderSerialTracking::create([
+            'sale_id' => $sale->id,
+            'product_serial_number_id' => $returnedSerial->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => now()->subDays(2),
+            'return_date' => now()->subDay()->startOfMinute(),
+        ]);
+
+        $replacementDispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->startOfMinute(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+
+        $replacementDispatchDetail = DispatchDetail::create([
+            'dispatch_id' => $replacementDispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode(['SN-REPLACEMENT-001']),
+            'replacement_of_dispatch_detail_id' => $originalDispatchDetail->id,
+            'replacement_returned_serial_id' => $returnedSerial->id,
+        ]);
+
+        $replacementSerial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'dispatch_detail_id' => $replacementDispatchDetail->id,
+            'serial_number' => 'SN-REPLACEMENT-001',
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        SalesOrderSerialTracking::create([
+            'sale_id' => $sale->id,
+            'product_serial_number_id' => $replacementSerial->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => $replacementDispatch->dispatch_date,
+            'return_date' => null,
+        ]);
+
+        $originalDispatchDetail->update(['dispatched_quantity' => 0]);
+
+        $response = $this->get(route('sales.show', $sale));
+
+        $response->assertStatus(200);
+        $response->assertSee('SN-ORIGINAL-001');
+        $response->assertSee('SN-REPLACEMENT-001');
+        $response->assertSee('title="Sudah diretur dari penjualan ini pada '.now()->subDay()->startOfMinute()->format('Y-m-d H:i').'"', false);
+        $response->assertSee('title="Serial pengganti POS retur', false);
+        $response->assertSee('SN-ORIGINAL-001 dikirim pada '.now()->startOfMinute()->format('Y-m-d H:i'), false);
     }
 
     /**

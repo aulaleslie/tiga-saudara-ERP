@@ -2,11 +2,66 @@
 
 namespace Modules\Pos\Services;
 
+use Modules\Sale\Entities\SalePayment;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Exceptions\PosReturnManualCorrectionRequiredException;
 
 class PosReturnLifecycleService
 {
+    protected const SALE_PAYMENT_INVALIDATION_SOURCE = 'POS_RETURN_CASH_CORRECTION';
+
+    public function executeApprovalFromPreview(int $posReturnId, ?string $returnOption = null, ?array $approvalPlan = null): void
+    {
+        $this->runLifecycleMutation($posReturnId, 'execute_approval_from_preview', function () use ($posReturnId, $returnOption, $approvalPlan) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $returnOption, $approvalPlan) {
+                $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                    ->whereKey($posReturnId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $this->assertManualCorrectionIsNotRequired($posReturn);
+
+                if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
+                    throw new \RuntimeException('Only pending approval returns can be executed from approval preview.');
+                }
+
+                if ($returnOption && ! in_array($returnOption, [
+                    \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN,
+                    \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT,
+                ], true)) {
+                    throw new \RuntimeException("Invalid return option: {$returnOption}");
+                }
+
+                if ($approvalPlan !== null) {
+                    app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn, $approvalPlan);
+                }
+
+                $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                    ->with([
+                        'lines',
+                        'saleReturns.saleReturnDetails.saleReturn',
+                        'saleReturns.saleReturnDetails.posReturnLine',
+                    ])
+                    ->whereKey($posReturnId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $this->assertBundleExecutionGuards($posReturn);
+                $this->lockApprovalExecutionDependencies($posReturn);
+
+                $actorId = \Illuminate\Support\Facades\Auth::id();
+                $approvedAt = now();
+
+                $this->applyApprovalAuditToPosReturn($posReturn, $actorId, $approvedAt, $returnOption);
+                $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
+                $this->receiveLinkedSaleReturns($posReturn);
+                $this->applyReceivedDispatchQuantityAdjustments($posReturn);
+                $this->executeResolvedLineEffects($posReturn, $actorId, $approvedAt);
+                $this->finalizeApprovalExecution($posReturn, $actorId, $approvedAt);
+            });
+        });
+    }
+
     /**
      * Approve a POS return.
      *
@@ -14,10 +69,10 @@ class PosReturnLifecycleService
      * @param string|null $returnOption
      * @return void
      */
-    public function approve(int $posReturnId, ?string $returnOption = null): void
+    public function approve(int $posReturnId, ?string $returnOption = null, ?array $approvalPlan = null): void
     {
-        $this->runLifecycleMutation($posReturnId, 'approve', function () use ($posReturnId, $returnOption) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $returnOption) {
+        $this->runLifecycleMutation($posReturnId, 'approve', function () use ($posReturnId, $returnOption, $approvalPlan) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $returnOption, $approvalPlan) {
                 $posReturn = \Modules\Pos\Entities\PosReturn::query()
                     ->whereKey($posReturnId)
                     ->lockForUpdate()
@@ -46,6 +101,10 @@ class PosReturnLifecycleService
                     $updateData['return_option'] = $returnOption;
                 }
 
+                if ($approvalPlan !== null) {
+                    app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn, $approvalPlan);
+                }
+
                 $posReturn->update($updateData);
 
                 $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
@@ -66,6 +125,637 @@ class PosReturnLifecycleService
                 'rejection_reason' => null,
             ]);
         }
+    }
+
+    protected function lockApprovalExecutionDependencies(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        $lineIds = $posReturn->lines
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! empty($lineIds)) {
+            \Modules\Pos\Entities\PosReturnLine::query()
+                ->whereIn('id', $lineIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $saleReturns = $posReturn->saleReturns;
+        $saleReturnIds = $saleReturns
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! empty($saleReturnIds)) {
+            \Modules\SalesReturn\Entities\SaleReturn::query()
+                ->whereIn('id', $saleReturnIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $saleReturnDetails = $saleReturns->flatMap(fn ($saleReturn) => $saleReturn->saleReturnDetails);
+        $saleReturnDetailIds = $saleReturnDetails
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! empty($saleReturnDetailIds)) {
+            \Modules\SalesReturn\Entities\SaleReturnDetail::query()
+                ->whereIn('id', $saleReturnDetailIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $saleIds = $posReturn->lines
+            ->pluck('sale_id')
+            ->merge($saleReturns->pluck('sale_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($saleIds)) {
+            \Modules\Sale\Entities\Sale::query()
+                ->whereIn('id', $saleIds)
+                ->lockForUpdate()
+                ->get();
+
+            \Modules\Sale\Entities\SalePayment::query()
+                ->whereIn('sale_id', $saleIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $saleDetailIds = $posReturn->lines
+            ->pluck('sale_detail_id')
+            ->merge($saleReturnDetails->pluck('sale_detail_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($saleDetailIds)) {
+            \Modules\Sale\Entities\SaleDetails::query()
+                ->whereIn('id', $saleDetailIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $dispatchDetailIds = $posReturn->lines
+            ->pluck('dispatch_detail_id')
+            ->merge($saleReturnDetails->pluck('dispatch_detail_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($dispatchDetailIds)) {
+            \Modules\Sale\Entities\DispatchDetail::query()
+                ->whereIn('id', $dispatchDetailIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $locationIds = $saleReturnDetails
+            ->pluck('location_id')
+            ->merge($posReturn->lines->pluck('source_location_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $productIds = $saleReturnDetails
+            ->pluck('product_id')
+            ->merge($posReturn->lines->pluck('product_id'))
+            ->merge($posReturn->lines->pluck('replacement_product_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($locationIds) && ! empty($productIds)) {
+            \Modules\Product\Entities\ProductStock::query()
+                ->whereIn('product_id', $productIds)
+                ->whereIn('location_id', $locationIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $serialIds = collect();
+
+        foreach ($posReturn->lines as $line) {
+            $serialIds = $serialIds
+                ->merge(collect($line->serial_number_ids ?? [])->map(fn ($id) => (int) $id))
+                ->push((int) ($line->returned_serial_id ?? 0))
+                ->push((int) ($line->replacement_serial_id ?? 0));
+        }
+
+        $serialIds = $serialIds
+            ->merge($saleReturnDetails->flatMap(fn ($detail) => collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($serialIds)) {
+            \Modules\Product\Entities\ProductSerialNumber::query()
+                ->whereIn('id', $serialIds)
+                ->lockForUpdate()
+                ->get();
+        }
+    }
+
+    protected function applyApprovalAuditToPosReturn(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $approvedAt,
+        ?string $returnOption = null
+    ): void {
+        $attributes = [
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_APPROVED,
+            'approval_status' => \Modules\Pos\Entities\PosReturn::APPROVAL_STATUS_APPROVED,
+            'approved_by' => $actorId,
+            'approved_at' => $approvedAt,
+        ];
+
+        if ($returnOption !== null) {
+            $attributes['return_option'] = $returnOption;
+        }
+
+        $posReturn->update($attributes);
+    }
+
+    protected function executeResolvedLineEffects(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $executedAt
+    ): void {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            $details = $saleReturn->saleReturnDetails;
+
+            $cashReturnDetails = $details
+                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+                ->values();
+
+            $commercialCashReturnDetails = $cashReturnDetails
+                ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail))
+                ->values();
+
+            if ($commercialCashReturnDetails->isNotEmpty()) {
+                $this->applyCashReturnSaleDetailCorrections($commercialCashReturnDetails);
+                $this->recalculateCashCorrectedSourceSale($saleReturn);
+            }
+
+            $cashSettlementAmount = $commercialCashReturnDetails
+                ->sum(fn ($detail) => $this->resolveCashSettlementAmount($detail));
+
+            if ($cashSettlementAmount > 0) {
+                $this->applyCashSettlementForSaleReturn($saleReturn, $cashSettlementAmount, $executedAt, $actorId);
+            }
+
+            $replacementDetails = $details
+                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->values();
+
+            if ($replacementDetails->isNotEmpty()) {
+                $this->dispatchReplacementForSaleReturnDetails($saleReturn, $replacementDetails, $actorId, $executedAt);
+            }
+        }
+    }
+
+    protected function assertBundleExecutionGuards(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        foreach ($posReturn->lines as $line) {
+            if (! $this->isBundleComponentLine($line)) {
+                continue;
+            }
+
+            $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
+            $hasParentLine = $posReturn->lines->contains(function (\Modules\Pos\Entities\PosReturnLine $candidate) use ($line, $parentSaleDetailId) {
+                if ((int) $candidate->id === (int) $line->id) {
+                    return false;
+                }
+
+                if ((int) ($candidate->sale_detail_id ?? 0) !== $parentSaleDetailId) {
+                    return false;
+                }
+
+                if ((int) ($candidate->bundle_parent_sale_detail_id ?? 0) !== $parentSaleDetailId) {
+                    return false;
+                }
+
+                if ($this->isBundleComponentLine($candidate)) {
+                    return false;
+                }
+
+                $lineGroupKey = (string) ($line->bundle_group_key ?? '');
+                $candidateGroupKey = (string) ($candidate->bundle_group_key ?? '');
+
+                return $lineGroupKey === '' || $candidateGroupKey === '' || $lineGroupKey === $candidateGroupKey;
+            });
+
+            if (! $hasParentLine) {
+                throw new \RuntimeException('Bundle component lines require their parent bundle return line before final approval can execute.');
+            }
+        }
+    }
+
+    protected function applyCashSettlementForSaleReturn(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        float $settlementAmount,
+        \Illuminate\Support\Carbon $settledAt,
+        ?int $actorId
+    ): void {
+        if ($settlementAmount <= 0) {
+            return;
+        }
+
+        \Modules\SalesReturn\Entities\SaleReturnPayment::create([
+            'sale_return_id' => $saleReturn->id,
+            'amount' => $settlementAmount,
+            'date' => $settledAt->toDateString(),
+            'reference' => 'SRPAY/' . $saleReturn->reference,
+            'payment_method' => 'CASH',
+            'note' => 'Penyelesaian final approval retur POS',
+        ]);
+
+        $newPaidAmount = (float) $saleReturn->paid_amount + $settlementAmount;
+        $newDueAmount = max(0, (float) $saleReturn->total_amount - $newPaidAmount);
+
+        $saleReturn->update([
+            'paid_amount' => $newPaidAmount,
+            'due_amount' => $newDueAmount,
+            'payment_status' => $newDueAmount <= 0 ? 'Paid' : 'Partial',
+            'settled_at' => $settledAt,
+            'settled_by' => $actorId,
+        ]);
+    }
+
+    protected function applyCashReturnSaleDetailCorrections(\Illuminate\Support\Collection $cashReturnDetails): void
+    {
+        $cashReturnDetails
+            ->groupBy(fn ($detail) => (int) ($detail->sale_detail_id ?? 0))
+            ->each(function (\Illuminate\Support\Collection $detailGroup, int $saleDetailId): void {
+                if ($saleDetailId <= 0) {
+                    throw new \RuntimeException('Cash return detail is missing a source sale detail reference.');
+                }
+
+                $saleDetail = \Modules\Sale\Entities\SaleDetails::query()
+                    ->whereKey($saleDetailId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $saleDetail) {
+                    throw new \RuntimeException('Cash return source sale detail could not be found.');
+                }
+
+                $returnedQuantity = (float) $detailGroup->sum(fn ($detail) => (float) ($detail->quantity ?? 0));
+                if ($returnedQuantity <= 0) {
+                    return;
+                }
+
+                $currentQuantity = (float) ($saleDetail->quantity ?? 0);
+                if ($currentQuantity <= 0) {
+                    throw new \RuntimeException('Cash return source sale detail has no remaining quantity to reduce.');
+                }
+
+                if ($returnedQuantity > $currentQuantity) {
+                    throw new \RuntimeException('Cash return quantity exceeds the remaining source sale detail quantity.');
+                }
+
+                $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
+                $quantityReduction = (int) round($returnedQuantity);
+                $subtotalReduction = round((float) $detailGroup->sum(
+                    fn ($detail) => $this->resolveCashSettlementAmount($detail)
+                ), 2);
+
+                if ($subtotalReduction <= 0) {
+                    $subtotalReduction = round((float) ($saleDetail->sub_total ?? 0) * $reductionRatio, 2);
+                }
+
+                $saleDetail->forceFill([
+                    'quantity' => max(0, (int) $saleDetail->quantity - $quantityReduction),
+                    'sub_total' => round(max(0, (float) ($saleDetail->sub_total ?? 0) - $subtotalReduction), 2),
+                    'product_discount_amount' => $this->reduceProratedMoney((float) ($saleDetail->product_discount_amount ?? 0), $reductionRatio),
+                    'product_tax_amount' => $this->reduceProratedMoney((float) ($saleDetail->product_tax_amount ?? 0), $reductionRatio),
+                ])->save();
+            });
+    }
+
+    protected function reduceProratedMoney(float $currentAmount, float $reductionRatio): float
+    {
+        if ($currentAmount <= 0 || $reductionRatio <= 0) {
+            return round(max(0, $currentAmount), 2);
+        }
+
+        $reductionAmount = round($currentAmount * $reductionRatio, 2);
+
+        return round(max(0, $currentAmount - $reductionAmount), 2);
+    }
+
+    protected function recalculateCashCorrectedSourceSale(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): void
+    {
+        $saleId = (int) ($saleReturn->sale_id ?? 0);
+        if ($saleId <= 0) {
+            return;
+        }
+
+        $sale = \Modules\Sale\Entities\Sale::query()
+            ->with(['saleDetails', 'salePayments'])
+            ->whereKey($saleId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $sale) {
+            throw new \RuntimeException('Cash return source sale could not be found.');
+        }
+
+        $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()
+            ->whereKey((int) $sale->setting_id)
+            ->value('is_pkp') ?? false);
+
+        $normalizedSale = app(\Modules\Sale\Services\SaleNormalizer::class)->normalize([
+            'tax_id' => $sale->tax_id,
+            'tax_percentage' => $sale->tax_percentage,
+            'discount_percentage' => $sale->discount_percentage,
+            'discount_amount' => $sale->discount_amount,
+            'shipping_amount' => $sale->shipping_amount,
+            'paid_amount' => 0,
+        ], $sale->saleDetails, $isPkp);
+
+        $header = $normalizedSale['header'];
+        $activePayments = $sale->salePayments
+            ->filter(fn (SalePayment $payment) => $payment->isActive());
+
+        $activePaidAmount = round((float) $activePayments
+            ->sum(fn (SalePayment $payment) => (float) $payment->amount), 2);
+
+        if ($activePaidAmount <= 0 && $activePayments->isEmpty()) {
+            $activePaidAmount = round((float) ($sale->paid_amount ?? 0), 2);
+        }
+
+        $correctedPaidAmount = round(min($activePaidAmount, (float) $header['total_amount']), 2);
+
+        if ($activePayments->isNotEmpty()) {
+            $correctedPaidAmount = SalePayment::reconcileActivePaymentsForSale(
+                (int) $sale->id,
+                $correctedPaidAmount,
+                self::SALE_PAYMENT_INVALIDATION_SOURCE,
+                (int) $saleReturn->id,
+            );
+        }
+
+        $correctedDueAmount = round(max((float) $header['total_amount'] - $correctedPaidAmount, 0), 2);
+
+        $sale->update([
+            'tax_id' => $header['tax_id'],
+            'tax_percentage' => $header['tax_percentage'],
+            'tax_amount' => $header['tax_amount'],
+            'discount_percentage' => $header['discount_percentage'],
+            'discount_amount' => $header['discount_amount'],
+            'shipping_amount' => $header['shipping_amount'],
+            'total_amount' => $header['total_amount'],
+            'paid_amount' => $correctedPaidAmount,
+            'due_amount' => $correctedDueAmount,
+            'payment_status' => $this->resolveSalePaymentStatus(
+                $header['total_amount'],
+                $correctedDueAmount,
+                (string) ($sale->payment_status ?? '')
+            ),
+        ]);
+    }
+
+    protected function resolveSalePaymentStatus(float $totalAmount, float $dueAmount, string $existingStatus = ''): string
+    {
+        $baseStatus = 'Paid';
+
+        if (round($dueAmount, 2) >= round($totalAmount, 2)) {
+            $baseStatus = 'Unpaid';
+        } elseif ($dueAmount > 0) {
+            $baseStatus = 'Partial';
+        }
+
+        if ($existingStatus !== '' && strtoupper($existingStatus) === $existingStatus) {
+            return strtoupper($baseStatus);
+        }
+
+        if ($existingStatus !== '' && strtolower($existingStatus) === $existingStatus) {
+            return strtolower($baseStatus);
+        }
+
+        return $baseStatus;
+    }
+
+    protected function dispatchReplacementForSaleReturnDetails(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        \Illuminate\Support\Collection $details,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $settledAt
+    ): void {
+        $details->loadMissing(['saleReturn', 'dispatchDetail', 'posReturnLine.replacementSerial']);
+
+        $dispatch = \Modules\Sale\Entities\Dispatch::create([
+            'sale_id' => $saleReturn->sale_id,
+            'dispatch_date' => $settledAt,
+            'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
+            'approved_by' => $actorId,
+            'approved_at' => $settledAt,
+        ]);
+
+        foreach ($details as $detail) {
+            $this->assertReplacementDispatchEligibility($detail);
+
+            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
+                'dispatch_id' => $dispatch->id,
+                'sale_id' => $saleReturn->sale_id,
+                'product_id' => $detail->product_id,
+                'dispatched_quantity' => (int) $detail->quantity,
+                'location_id' => $detail->location_id,
+                'serial_numbers' => $this->encodeReplacementDispatchSerialNumbers($detail),
+                'tax_id' => $detail->tax_id,
+                'bundle_id' => $this->resolveReplacementDispatchBundleId($detail),
+                'pos_return_line_id' => $detail->pos_return_line_id,
+                'replacement_of_dispatch_detail_id' => $detail->dispatch_detail_id,
+                'replacement_returned_serial_id' => $detail->posReturnLine?->returned_serial_id,
+            ]);
+
+            $this->applyReplacementSerialDispatch($saleReturn, $detail, $dispatchDetail, $dispatch);
+
+            if ($this->shouldDispatchReplacementAffectStock($detail)) {
+                $this->adjustStockForReplacement($detail, $actorId ?? 0);
+            }
+        }
+    }
+
+    protected function encodeReplacementDispatchSerialNumbers(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail
+    ): ?string {
+        $replacementSerial = $detail->posReturnLine?->replacementSerial;
+
+        if (! $replacementSerial) {
+            return null;
+        }
+
+        return json_encode([$replacementSerial->serial_number]);
+    }
+
+    protected function resolveReplacementDispatchBundleId(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail
+    ): ?int {
+        $bundleId = $detail->dispatchDetail?->bundle_id
+            ?? $detail->posReturnLine?->line_meta['bundle_id']
+            ?? null;
+
+        return $bundleId !== null ? (int) $bundleId : null;
+    }
+
+    protected function shouldDispatchReplacementAffectStock(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail
+    ): bool {
+        return (string) ($detail->stock_behavior ?? '') !== \Modules\Pos\Entities\PosReturnLine::STOCK_BEHAVIOR_STOCKLESS;
+    }
+
+    protected function applyReplacementSerialDispatch(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        \Modules\Sale\Entities\DispatchDetail $dispatchDetail,
+        \Modules\Sale\Entities\Dispatch $dispatch
+    ): void {
+        $line = $detail->posReturnLine;
+        $replacementSerialId = (int) ($line->replacement_serial_id ?? 0);
+
+        if ($replacementSerialId <= 0) {
+            return;
+        }
+
+        $replacementSerial = $line->replacementSerial
+            ?? \Modules\Product\Entities\ProductSerialNumber::query()->find($replacementSerialId);
+
+        if (! $replacementSerial) {
+            throw new \RuntimeException('Serial pengganti tidak ditemukan saat eksekusi pengiriman pengganti.');
+        }
+
+        if ((int) $replacementSerial->product_id !== (int) $detail->product_id) {
+            throw new \RuntimeException('Serial pengganti harus memiliki SKU yang sama dengan barang retur.');
+        }
+
+        $replacementSerial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'location_id' => $dispatchDetail->location_id,
+            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        \App\Services\SerialNumberHistoryService::record(
+            $replacementSerial->id,
+            \Modules\Product\Entities\SerialNumberHistory::EVENT_SOLD,
+            (int) $dispatchDetail->location_id,
+            $dispatchDetail
+        );
+
+        \Modules\Sale\Entities\SalesOrderSerialTracking::query()->upsert([
+            [
+                'sale_id' => (int) $saleReturn->sale_id,
+                'product_serial_number_id' => $replacementSerial->id,
+                'quantity_allocated' => 1,
+                'dispatch_date' => $dispatch->dispatch_date ?? now(),
+                'return_date' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ], [
+            'sale_id',
+            'product_serial_number_id',
+        ], [
+            'quantity_allocated',
+            'dispatch_date',
+            'return_date',
+            'updated_at',
+        ]);
+    }
+
+    protected function finalizeApprovalExecution(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $completedAt
+    ): void {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            $saleReturn->update([
+                'status' => 'COMPLETED',
+                'approval_status' => 'APPROVED',
+                'approved_by' => $actorId,
+                'approved_at' => $completedAt,
+                'settled_by' => $saleReturn->settled_by ?? $actorId,
+                'settled_at' => $saleReturn->settled_at ?? $completedAt,
+            ]);
+
+            app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
+                ->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn->fresh(), (int) $actorId);
+        }
+
+        $posReturn->update([
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED,
+            'approval_status' => \Modules\Pos\Entities\PosReturn::APPROVAL_STATUS_APPROVED,
+            'approved_by' => $actorId,
+            'approved_at' => $completedAt,
+            'received_by' => $posReturn->received_by ?? $actorId,
+            'received_at' => $posReturn->received_at ?? $completedAt,
+            'settled_by' => $actorId,
+            'settled_at' => $completedAt,
+        ]);
+    }
+
+    protected function resolveDetailResolution(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): string
+    {
+        return (string) ($detail->posReturnLine->resolution ?? \Modules\Pos\Entities\PosReturnLine::RESOLUTION_NONE);
+    }
+
+    protected function resolveCashSettlementAmount(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): float
+    {
+        $line = $detail->posReturnLine;
+        $expectedCashAmount = (float) ($line->expected_cash_amount ?? 0);
+
+        if ($expectedCashAmount > 0) {
+            return $expectedCashAmount;
+        }
+
+        if ($detail->sub_total !== null) {
+            return (float) $detail->sub_total;
+        }
+
+        return (float) ($detail->quantity ?? 0) * (float) ($detail->unit_price ?? $detail->price ?? 0);
+    }
+
+    protected function shouldSkipCommercialCashCorrection(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        return $this->isBundleComponentLine($detail->posReturnLine);
+    }
+
+    protected function isBundleComponentLine(?\Modules\Pos\Entities\PosReturnLine $line): bool
+    {
+        if (! $line) {
+            return false;
+        }
+
+        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
+        $saleDetailId = (int) ($line->sale_detail_id ?? 0);
+
+        if ($parentSaleDetailId <= 0 || $saleDetailId <= 0 || $parentSaleDetailId === $saleDetailId) {
+            return false;
+        }
+
+        return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
     }
 
     /**
@@ -112,6 +802,10 @@ class PosReturnLifecycleService
     protected function applyReceivedDispatchQuantityAdjustments(\Modules\Pos\Entities\PosReturn $posReturn): void
     {
         foreach ($posReturn->lines as $line) {
+            if ((string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN) {
+                continue;
+            }
+
             if (! $line->dispatch_detail_id) {
                 continue;
             }
@@ -402,28 +1096,7 @@ class PosReturnLifecycleService
         ?int $actorId,
         \Illuminate\Support\Carbon $settledAt
     ): void {
-        $dispatch = \Modules\Sale\Entities\Dispatch::create([
-            'sale_id' => $saleReturn->sale_id,
-            'dispatch_date' => $settledAt,
-            'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
-            'approved_by' => $actorId,
-            'approved_at' => $settledAt,
-        ]);
-
-        foreach ($saleReturn->saleReturnDetails as $detail) {
-            $this->assertReplacementDispatchEligibility($detail);
-
-            \Modules\Sale\Entities\DispatchDetail::create([
-                'dispatch_id' => $dispatch->id,
-                'sale_id' => $saleReturn->sale_id,
-                'product_id' => $detail->product_id,
-                'dispatched_quantity' => (int) $detail->quantity,
-                'location_id' => $detail->location_id,
-                'tax_id' => $detail->tax_id,
-            ]);
-
-            $this->adjustStockForReplacement($detail, $actorId);
-        }
+        $this->dispatchReplacementForSaleReturnDetails($saleReturn, $saleReturn->saleReturnDetails, $actorId, $settledAt);
 
         $saleReturn->update([
             'status' => 'COMPLETED',
@@ -506,7 +1179,9 @@ class PosReturnLifecycleService
             throw new \RuntimeException('Detail retur POS tidak memiliki referensi baris sumber untuk pengiriman pengganti.');
         }
 
-        if ((int) $line->replacement_product_id !== (int) $detail->product_id) {
+        $expectedReplacementProductId = (int) ($line->replacement_product_id ?: $line->product_id);
+
+        if ($expectedReplacementProductId !== (int) $detail->product_id) {
             throw new \RuntimeException('Produk pengganti harus menggunakan SKU yang sama dengan barang yang diretur.');
         }
 

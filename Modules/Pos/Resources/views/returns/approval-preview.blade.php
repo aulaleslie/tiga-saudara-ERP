@@ -14,22 +14,48 @@
 
 @section('content')
     <div class="container-fluid">
+        @php
+            $hasBlockers = ! empty($previewPlan['blockers']);
+            $hasWarnings = ! empty($previewPlan['warnings']);
+            $canApprove = ! $hasBlockers && ! $hasWarnings;
+        @endphp
+
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
             <div>
                 <h1 class="h3 mb-1">Preview Persetujuan Retur POS</h1>
                 <p class="text-muted mb-0">Preview ini bersifat baca-saja dan belum melakukan persetujuan final.</p>
             </div>
             <div class="d-flex gap-2">
+                @if($canApprove)
+                    <form method="POST" action="{{ route('pos.returns.approve', $return) }}" onsubmit="return confirm('Jalankan persetujuan final untuk retur POS ini?');">
+                        @csrf
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check2-circle"></i> Setujui Retur
+                        </button>
+                    </form>
+                @elseif($hasWarnings)
+                    <button type="button" class="btn btn-success" disabled aria-disabled="true" title="Persetujuan final dinonaktifkan sampai semua peringatan preview terselesaikan.">
+                        <i class="bi bi-check2-circle"></i> Setujui Retur
+                    </button>
+                @endif
+
                 <a href="{{ route('pos.returns.show', $return) }}" class="btn btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> Kembali ke Detail
                 </a>
             </div>
         </div>
 
-        <div class="alert alert-warning" role="alert">
-            <div class="fw-semibold mb-1">Persetujuan final belum tersedia</div>
-            <div>Perubahan ini hanya membuka preview rencana persetujuan. Tidak ada tombol konfirmasi persetujuan pada halaman ini.</div>
-        </div>
+        @if($canApprove)
+            <div class="alert alert-success" role="alert">
+                <div class="fw-semibold mb-1">Preview siap dieksekusi</div>
+                <div>Tidak ada blocker atau peringatan. Gunakan tombol persetujuan final untuk menjalankan approval.</div>
+            </div>
+        @elseif($hasWarnings)
+            <div class="alert alert-warning" role="alert">
+                <div class="fw-semibold mb-1">Persetujuan final dinonaktifkan</div>
+                <div>Preview masih memiliki peringatan. Selesaikan seluruh peringatan sebelum menjalankan persetujuan final.</div>
+            </div>
+        @endif
 
         @if(! empty($previewPlan['blockers']))
             <div class="alert alert-danger" role="alert">

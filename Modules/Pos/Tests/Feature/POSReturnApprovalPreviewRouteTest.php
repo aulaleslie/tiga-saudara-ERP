@@ -6,6 +6,7 @@ use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Services\PosReturnApprovalPreviewPlannerService;
+use Modules\Pos\Services\PosReturnLifecycleService;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Spatie\Permission\Models\Permission;
 
@@ -88,14 +89,25 @@ class POSReturnApprovalPreviewRouteTest extends PosTransactionFeatureTestCase
     {
         $posReturn = $this->createPosReturn();
 
+        $planner = \Mockery::mock(PosReturnApprovalPreviewPlannerService::class);
+        $planner->shouldReceive('plan')->once()->andReturn([
+            'status' => 'ready',
+            'is_blocked' => false,
+            'blockers' => [],
+            'warnings' => [],
+            'info' => [],
+            'groups' => [],
+        ]);
+        $this->app->instance(PosReturnApprovalPreviewPlannerService::class, $planner);
+
         $this->actingAsInSetting($this->approver, $this->setting);
 
         $response = $this->get(route('pos.returns.approval-preview', $posReturn));
 
         $response->assertOk()
             ->assertSee('Preview Persetujuan Retur POS')
-            ->assertSee('Persetujuan final belum tersedia')
-            ->assertDontSee('Setujui Retur');
+            ->assertSee('Preview siap dieksekusi')
+            ->assertSee('Setujui Retur');
 
         $this->assertDatabaseHas('pos_returns', [
             'id' => $posReturn->id,
@@ -221,19 +233,93 @@ class POSReturnApprovalPreviewRouteTest extends PosTransactionFeatureTestCase
             ->assertSee('SO-COMP-001')
             ->assertDontSee('Ringkasan Resolusi Baris')
             ->assertDontSee('Dispatch')
-            ->assertDontSee('Setujui Retur');
+            ->assertSee('Setujui Retur');
     }
 
     /** @test */
-    public function direct_approval_post_is_blocked_and_redirects_to_preview_without_mutating(): void
+    public function direct_approval_post_rebuilds_preview_and_redirects_to_show_after_success(): void
     {
         $posReturn = $this->createPosReturn();
 
+        $planner = \Mockery::mock(PosReturnApprovalPreviewPlannerService::class);
+        $planner->shouldReceive('plan')->once()->andReturn([
+            'blockers' => [],
+            'warnings' => [],
+        ]);
+        $this->app->instance(PosReturnApprovalPreviewPlannerService::class, $planner);
+
+        $lifecycle = \Mockery::mock(PosReturnLifecycleService::class);
+        $lifecycle->shouldReceive('executeApprovalFromPreview')->once()->with($posReturn->id, null, [
+            'blockers' => [],
+            'warnings' => [],
+        ]);
+        $this->app->instance(PosReturnLifecycleService::class, $lifecycle);
+
         $this->actingAsInSetting($this->approver, $this->setting);
 
-        $response = $this->post(route('pos.returns.approve', $posReturn), [
-            'return_option' => PosReturn::OPTION_CASH_RETURN,
+        $response = $this->post(route('pos.returns.approve', $posReturn));
+
+        $response->assertRedirect(route('pos.returns.show', $posReturn));
+
+        $this->assertDatabaseHas('pos_returns', [
+            'id' => $posReturn->id,
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'approved_by' => null,
+            'approved_at' => null,
         ]);
+    }
+
+    /** @test */
+    public function preview_route_disables_final_approval_when_warnings_exist(): void
+    {
+        $posReturn = $this->createPosReturn();
+
+        $planner = \Mockery::mock(PosReturnApprovalPreviewPlannerService::class);
+        $planner->shouldReceive('plan')->once()->andReturn([
+            'status' => 'ready',
+            'is_blocked' => false,
+            'blockers' => [],
+            'warnings' => [
+                ['message' => 'Warning baru muncul.'],
+            ],
+            'info' => [],
+            'groups' => [],
+        ]);
+        $this->app->instance(PosReturnApprovalPreviewPlannerService::class, $planner);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        $response = $this->get(route('pos.returns.approval-preview', $posReturn));
+
+        $response->assertOk()
+            ->assertSee('Persetujuan final dinonaktifkan')
+            ->assertSee('Peringatan Preview')
+            ->assertSee('Setujui Retur')
+            ->assertSee('disabled', false);
+    }
+
+    /** @test */
+    public function direct_approval_post_redirects_back_to_preview_when_warnings_exist(): void
+    {
+        $posReturn = $this->createPosReturn();
+
+        $planner = \Mockery::mock(PosReturnApprovalPreviewPlannerService::class);
+        $planner->shouldReceive('plan')->once()->andReturn([
+            'blockers' => [],
+            'warnings' => [
+                ['message' => 'Warning baru muncul.'],
+            ],
+        ]);
+        $this->app->instance(PosReturnApprovalPreviewPlannerService::class, $planner);
+
+        $lifecycle = \Mockery::mock(PosReturnLifecycleService::class);
+        $lifecycle->shouldNotReceive('executeApprovalFromPreview');
+        $this->app->instance(PosReturnLifecycleService::class, $lifecycle);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        $response = $this->post(route('pos.returns.approve', $posReturn));
 
         $response->assertRedirect(route('pos.returns.approval-preview', $posReturn));
 

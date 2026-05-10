@@ -6,6 +6,8 @@ use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Services\PosReturnApprovalPlanPersistenceService;
+use Modules\Pos\Services\PosReturnApprovalPreviewPlannerService;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
@@ -85,6 +87,7 @@ class POSReturnSerialSplitOwnerTest extends PosTransactionFeatureTestCase
             'stock_qty' => 2,
         ]);
         $serial = $this->createSerialNumber($product, $this->location, 'SN-' . uniqid());
+        $replacementSerial = $this->createSerialNumber($product, $this->location, 'SN-REPL-' . uniqid());
         $sale = Sale::query()->create([
             'setting_id' => $this->setting->id,
             'customer_id' => null,
@@ -132,6 +135,11 @@ class POSReturnSerialSplitOwnerTest extends PosTransactionFeatureTestCase
             'dispatched_quantity' => 1,
             'location_id' => $this->location->id,
         ]);
+        $dispatchDetail = DispatchDetail::query()->latest('id')->firstOrFail();
+        $serial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_SOLD,
+        ]);
 
         $snapshot = $this->snapshotService->build($transaction->id);
         $posReturn = $this->submissionService->store([
@@ -143,15 +151,19 @@ class POSReturnSerialSplitOwnerTest extends PosTransactionFeatureTestCase
                 [
                     'sale_detail_id' => $detail->id,
                     'quantity' => 1,
-                    'serial_number_ids' => [$serial->id],
+                    'returned_serial_id' => $serial->id,
+                    'replacement_serial_id' => $replacementSerial->id,
                 ],
             ],
         ]);
 
+        $plan = app(PosReturnApprovalPreviewPlannerService::class)->plan($posReturn->fresh());
+        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+
         $returnLine = $posReturn->lines()->firstOrFail();
         $saleReturnDetail = $posReturn->saleReturns()->firstOrFail()->saleReturnDetails()->firstOrFail();
 
-        $this->assertSame([$serial->id], $returnLine->serial_number_ids);
+        $this->assertSame($serial->id, $returnLine->returned_serial_id);
         $this->assertSame([$serial->id], $saleReturnDetail->serial_number_ids);
         $this->assertSame($detail->id, $returnLine->sale_detail_id);
     }
