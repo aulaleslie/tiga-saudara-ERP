@@ -140,10 +140,7 @@ class UnitSearchDropdown extends Component
             }
         }
 
-        $settingId = session('setting_id');
-        $unit = Unit::query()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
-            ->find($id);
+        $unit = Unit::find($id);
 
         if (!$unit) {
             return null;
@@ -174,10 +171,7 @@ class UnitSearchDropdown extends Component
      */
     private function fetchUnits(): array
     {
-        $settingId = session('setting_id');
-
         return Unit::query()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
             ->orderBy('name')
             ->get()
             ->map(fn (Unit $unit) => [

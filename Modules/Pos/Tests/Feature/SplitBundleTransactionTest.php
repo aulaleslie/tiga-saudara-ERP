@@ -9,8 +9,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
+use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -171,6 +174,131 @@ class SplitBundleTransactionTest extends TestCase
         // VAT 11% included in 175,000 -> 175,000 * 11 / 111 = 17342.34 -> rounded to 17342
         $totalTax = (float)$saleTerminal->tax_amount + (float)$saleSource->tax_amount;
         $this->assertEquals(17342.0, round($totalTax, 2));
+    }
+
+    public function test_split_bundle_groups_pkp_fallback_components_with_non_pkp_non_tax_components_separately(): void
+    {
+        $terminalSetting = $this->createSetting('TERMINAL PKP BIZ', 'T-DOC', 'T-SO');
+        $sourceSetting = $this->createSetting('SOURCE NON PKP BIZ', 'S-DOC', 'S-SO');
+        $sourceSetting->update(['is_pkp' => false]);
+
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier-fallback', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        $locTerminal = Location::create(['name' => 'TERMINAL FALLBACK LOC', 'setting_id' => $terminalSetting->id]);
+        $locSource = Location::create(['name' => 'SOURCE FALLBACK LOC', 'setting_id' => $sourceSetting->id]);
+
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal, $locSource]);
+        $methods = $this->seedPaymentMethods($terminalSetting, true);
+        $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
+        $this->assignDefaultWalkInCustomer($sourceSetting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'PARENT-FALLBACK', 100000, 1, $tax);
+        $compA = $this->createStockedProduct($terminalSetting, $locTerminal, 'COMP-A-FALLBACK', 0, 1, $tax);
+        $compB = $this->createStockedProduct($sourceSetting, $locSource, 'COMP-B-FALLBACK', 0, 1, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $terminalSetting->id,
+            'name' => 'Fallback Bundle',
+            'bundle_sale_price' => 175000,
+            'price' => 75000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compA->id, 'quantity' => 1, 'informational_item_price' => 25000]);
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compB->id, 'quantity' => 1, 'informational_item_price' => 50000]);
+
+        foreach ([$parent->id, $compA->id] as $productId) {
+            ProductPrice::query()->where('product_id', $productId)->update(['sale_tax_id' => null]);
+            ProductStock::query()->where('product_id', $productId)->update([
+                'quantity_tax' => 0,
+                'quantity_non_tax' => 1,
+                'tax_id' => null,
+            ]);
+        }
+
+        ProductPrice::query()->where('product_id', $compB->id)->update(['sale_tax_id' => null]);
+        ProductStock::query()->where('product_id', $compB->id)->update([
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 1,
+            'tax_id' => null,
+        ]);
+
+        $this->addCartLine($cashier, $terminalSetting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
+
+        $response = $this->finalize($cashier, $terminalSetting, [
+            'idempotency_key' => 'K-BUNDLE-FALLBACK-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 175000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $payload = $response->json();
+        $this->assertCount(2, $payload['split_groups']);
+
+        $checkout = PosCheckout::with(['checkoutSales.sale.saleDetails.bundleItems.product'])->findOrFail((int) $payload['pos_checkout_id']);
+        $storedPayload = $checkout->response_payload;
+        $storedSplitGroups = $checkout->split_summary['groups'] ?? [];
+
+        $this->assertSame($payload['receipt_number'], $checkout->receipt_number);
+        $this->assertSame($payload['receipt_number'], $storedPayload['receipt_number'] ?? null);
+        $this->assertCount(2, $checkout->checkoutSales);
+        $this->assertCount(2, $storedSplitGroups);
+        $this->assertSame(175000.0, round(array_sum(array_column($payload['split_groups'], 'grand_total')), 2));
+        $this->assertSame(175000.0, round((float) $checkout->checkoutSales->sum('grand_total'), 2));
+        $this->assertSame(175000.0, round((float) $checkout->checkoutSales->sum('paid_total'), 2));
+
+        $checkoutSalesBySplitKey = $checkout->checkoutSales->keyBy('split_key');
+        foreach ($payload['split_groups'] as $group) {
+            /** @var PosCheckoutSale|null $checkoutSale */
+            $checkoutSale = $checkoutSalesBySplitKey->get($group['split_key']);
+            $this->assertNotNull($checkoutSale);
+            $this->assertSame($group['tax_bucket'], $checkoutSale->tax_bucket);
+            $this->assertSame((int) $group['sale_id'], (int) $checkoutSale->sale_id);
+            $this->assertSame((int) $group['sale_payment_id'], (int) $checkoutSale->sale_payment_id);
+            $this->assertSame(round((float) $group['grand_total'], 2), round((float) $checkoutSale->grand_total, 2));
+            $this->assertSame(round((float) $group['paid_total'], 2), round((float) $checkoutSale->paid_total, 2));
+        }
+
+        $receiptData = app(PosReceiptService::class)->getReceiptData($checkout);
+        $this->assertSame($payload['receipt_number'], $receiptData['receipt_number']);
+        $this->assertCount(1, $receiptData['lines']);
+        $compositionNames = array_column($receiptData['lines'][0]['bundle_composition'], 'name');
+        $this->assertContains('COMP-A-FALLBACK NAME', $compositionNames);
+        $this->assertContains('COMP-B-FALLBACK NAME', $compositionNames);
+
+        $saleIds = array_column($payload['split_groups'], 'sale_id');
+        $sales = Sale::with(['saleDetails.bundleItems'])->whereIn('id', $saleIds)->get()->keyBy('setting_id');
+
+        $saleTerminal = $sales->get($terminalSetting->id);
+        $saleSource = $sales->get($sourceSetting->id);
+
+        $this->assertNotNull($saleTerminal);
+        $this->assertNotNull($saleSource);
+
+        $terminalDetail = $saleTerminal->saleDetails->sole();
+        $terminalBundleItem = $terminalDetail->bundleItems->sole();
+        $this->assertSame($tax->id, (int) $terminalDetail->tax_id);
+        $this->assertGreaterThan(0, (float) $terminalDetail->product_tax_amount);
+        $this->assertSame($tax->id, (int) $terminalBundleItem->tax_id);
+        $this->assertGreaterThan(0, (float) $terminalBundleItem->tax_amount);
+
+        $sourceDetail = $saleSource->saleDetails->sole();
+        $sourceBundleItem = $sourceDetail->bundleItems->sole();
+        $this->assertNull($sourceDetail->tax_id);
+        $this->assertSame(0.0, (float) $sourceDetail->product_tax_amount);
+        $this->assertNull($sourceBundleItem->tax_id);
+        $this->assertSame(0.0, (float) $sourceBundleItem->tax_amount);
     }
 
     // ==== HELPER METHODS ====

@@ -137,9 +137,10 @@ class PosCheckoutSplitPlannerService
 
                         // Resolve tax candidate: parent line tax first, then active/default sale tax
                         $candidateTaxId = $line['tax_id'] ?? null;
+                        $taxRequired = $sourceIsPkp;
+
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
-                            $lineTaxable,
-                            $sourceIsPkp,
+                            $taxRequired,
                             (int) $candidateTaxId
                         );
 
@@ -227,9 +228,9 @@ class PosCheckoutSplitPlannerService
                             $candidateTaxId = (int) $chunk['tax_policy_snapshot']['tax_id'];
                         }
 
-                        $effectiveLineTaxable = $lineTaxable || ($candidateTaxId > 0);
+                        $taxRequired = $sourceIsPkp || (bool) ($chunk['tax_bucket_used'] ?? false);
 
-                        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($effectiveLineTaxable, $sourceIsPkp, $candidateTaxId);
+                        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
                         $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
                         $splitKey = $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket);
@@ -431,11 +432,10 @@ class PosCheckoutSplitPlannerService
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
             $serialTaxId = (int) ($record->tax_id ?? 0);
             $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : ($serialTaxId > 0 ? $serialTaxId : 0);
-            $serialLineTaxable = $lineTaxable || $serialTaxId > 0;
+            $taxRequired = $sourceIsPkp;
 
             [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
-                $serialLineTaxable,
-                $sourceIsPkp,
+                $taxRequired,
                 $candidateTaxId
             );
 
@@ -510,11 +510,9 @@ class PosCheckoutSplitPlannerService
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
             $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : (int) ($snapshot['tax_id'] ?? 0);
 
-            [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
-                $lineTaxable,
-                $sourceIsPkp,
-                $candidateTaxId
-            );
+            $taxRequired = $sourceIsPkp || (bool) ($allocation['tax_bucket_used'] ?? false);
+
+            [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
             if ($taxName === null && isset($snapshot['tax_name'])) {
                 $taxName = $snapshot['tax_name'] !== null ? (string) $snapshot['tax_name'] : null;
@@ -602,11 +600,9 @@ class PosCheckoutSplitPlannerService
         $sourceIsPkp = $this->sourceIsPkp($settingId);
         $candidateTaxId = (int) ($line['tax_id'] ?? 0);
 
-        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
-            $lineTaxable,
-            $sourceIsPkp,
-            $candidateTaxId
-        );
+        $taxRequired = $sourceIsPkp;
+
+        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
         $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
         
@@ -650,9 +646,9 @@ class PosCheckoutSplitPlannerService
     /**
      * @return array{0:int|null,1:string|null,2:float}
      */
-    private function resolveEffectiveTax(bool $lineTaxable, bool $sourceIsPkp, int $candidateTaxId): array
+    private function resolveEffectiveTax(bool $taxRequired, int $candidateTaxId): array
     {
-        if (! $lineTaxable || ! $sourceIsPkp) {
+        if (! $taxRequired) {
             return [null, null, 0.0];
         }
 
@@ -665,7 +661,10 @@ class PosCheckoutSplitPlannerService
         }
 
         if (! $tax) {
-            return [null, null, 0.0];
+            throw new PosCheckoutValidationException(
+                'TAX_POLICY_UNRESOLVED',
+                'Checkout requires a fallback tax, but no fallback tax is configured.'
+            );
         }
 
         return [

@@ -390,6 +390,96 @@ class POSStockAllocationResolverTest extends TestCase
         $this->assertNull($result['allocations'][0][1]['tax_policy_snapshot']['tax_id']);
     }
 
+    public function test_quantity_tax_fallback_snapshot_uses_default_tax_when_metadata_is_missing(): void
+    {
+        $setting = $this->createSetting('BIZ-TAX-BUCKET-FALLBACK');
+        $setting->update(['is_pkp' => false]);
+
+        $location = $this->createLocation($setting, 'LOC-TAX-BUCKET-FALLBACK');
+        $this->assignSaleLocation($setting, $location);
+
+        $defaultTax = Tax::query()->create([
+            'name' => 'PPN DEFAULT',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createProduct($setting, 'PROD-TAX-BUCKET-FALLBACK', 21000);
+        ProductPrice::query()->create([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => 21000,
+            'sale_tax_id' => null,
+        ]);
+
+        ProductStock::query()->create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 2,
+            'quantity_non_tax' => 0,
+            'quantity_tax' => 2,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'tax_id' => null,
+        ]);
+        $product->increment('product_quantity', 2);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [
+            ['product_id' => $product->id, 'qty' => 1, 'tax_id' => null],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(1, $result['allocations'][0]);
+        $this->assertTrue((bool) $result['allocations'][0][0]['tax_bucket_used']);
+        $this->assertSame($defaultTax->id, $result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+        $this->assertSame('PPN DEFAULT', $result['allocations'][0][0]['tax_policy_snapshot']['tax_name']);
+        $this->assertSame(11.0, $result['allocations'][0][0]['tax_policy_snapshot']['tax_rate']);
+    }
+
+    public function test_non_pkp_non_tax_allocation_keeps_non_tax_snapshot_even_with_tax_candidates(): void
+    {
+        $setting = $this->createSetting('BIZ-NON-PKP-SNAPSHOT');
+        $setting->update(['is_pkp' => false]);
+
+        $location = $this->createLocation($setting, 'LOC-NON-PKP-SNAPSHOT');
+        $this->assignSaleLocation($setting, $location);
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN CANDIDATE',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $product = $this->createProduct($setting, 'PROD-NON-PKP-SNAPSHOT', 22000);
+        $product->update(['sale_tax_id' => $tax->id]);
+        ProductPrice::query()->create([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => 22000,
+            'sale_tax_id' => $tax->id,
+        ]);
+
+        $this->seedStock($product, $location, 2);
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $location->id)
+            ->update(['tax_id' => $tax->id]);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting->id, [
+            ['product_id' => $product->id, 'qty' => 1, 'tax_id' => null],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(1, $result['allocations'][0]);
+        $this->assertFalse((bool) $result['allocations'][0][0]['tax_bucket_used']);
+        $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+        $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_name']);
+        $this->assertSame(0.0, $result['allocations'][0][0]['tax_policy_snapshot']['tax_rate']);
+    }
+
     // --- Helpers using withoutEvents to stay clean ---
 
     private function createSetting(string $name): Setting

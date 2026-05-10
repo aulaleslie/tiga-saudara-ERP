@@ -172,6 +172,8 @@ class PosReturnSubmissionService
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
                 if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
                     // Task 3.9: Use PTL bundle items as authoritative source when available.
+                    $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
+
                     if ($ptlIsBundle && !empty($ptl->line_meta['bundle_items'])) {
                         $bundleTrace = array_map(function ($item) use ($quantity) {
                             return [
@@ -190,7 +192,10 @@ class PosReturnSubmissionService
                         })->toArray();
                     }
                     if (!empty($bundleTrace)) {
-                        $returnLine->update(['line_meta' => ['bundle_trace' => $bundleTrace]]);
+                        $returnLine->update(['line_meta' => array_filter([
+                            'bundle_id' => $bundleId > 0 ? $bundleId : null,
+                            'bundle_trace' => $bundleTrace,
+                        ], fn ($value) => $value !== null)]);
                     }
                 }
             }
@@ -310,6 +315,8 @@ class PosReturnSubmissionService
                 // Task 3.7/3.9: Trace bundled components for actionable lines.
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
                 if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
+                    $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
+
                     if ($ptlIsBundle && !empty($ptl->line_meta['bundle_items'])) {
                         $bundleTrace = array_map(function ($item) use ($quantity) {
                             return [
@@ -328,7 +335,10 @@ class PosReturnSubmissionService
                         })->toArray();
                     }
                     if (!empty($bundleTrace)) {
-                        $returnLine->update(['line_meta' => ['bundle_trace' => $bundleTrace]]);
+                        $returnLine->update(['line_meta' => array_filter([
+                            'bundle_id' => $bundleId > 0 ? $bundleId : null,
+                            'bundle_trace' => $bundleTrace,
+                        ], fn ($value) => $value !== null)]);
                     }
                 }
             }

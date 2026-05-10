@@ -242,6 +242,77 @@ class POSCheckoutSplitPostingTest extends TestCase
         }
     }
 
+    public function test_finalize_quantity_tax_checkout_persists_fallback_tax_for_non_pkp_source(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        $context['setting']->update(['is_pkp' => false]);
+        $context['source_setting']->update(['is_pkp' => false]);
+
+        ProductPrice::query()
+            ->where('product_id', $context['product']->id)
+            ->update(['sale_tax_id' => null]);
+
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['terminal_location']->id)
+            ->update([
+                'quantity' => 2,
+                'quantity_tax' => 2,
+                'quantity_non_tax' => 0,
+                'tax_id' => null,
+            ]);
+
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['source_location']->id)
+            ->update([
+                'quantity' => 0,
+                'quantity_tax' => 0,
+                'quantity_non_tax' => 0,
+                'tax_id' => null,
+            ]);
+
+        $context['product']->update(['product_quantity' => 2]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-TAX-BUCKET-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonCount(1, 'split_groups');
+
+        $payload = $response->json();
+        $sale = Sale::query()->with('saleDetails')->findOrFail((int) $payload['sale_id']);
+        $saleDetail = $sale->saleDetails->sole();
+
+        $this->assertSame($context['tax']->id, (int) $saleDetail->tax_id);
+        $this->assertGreaterThan(0, (float) $saleDetail->product_tax_amount);
+        $this->assertGreaterThan(0, (float) $sale->tax_amount);
+
+        $this->assertDatabaseHas('dispatch_details', [
+            'sale_id' => $sale->id,
+            'product_id' => $context['product']->id,
+            'tax_id' => $context['tax']->id,
+            'location_id' => $context['terminal_location']->id,
+        ]);
+
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $context['product']->id,
+            'setting_id' => $context['setting']->id,
+            'location_id' => $context['terminal_location']->id,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'type' => 'DISPATCH',
+        ]);
+    }
+
     private function createSplitCheckoutContext(bool $configureSourceWalkIn = true): array
     {
         $setting = $this->createSetting('POS SPLIT TERMINAL BIZ', 'TNC', 'JL');
@@ -278,6 +349,8 @@ class POSCheckoutSplitPostingTest extends TestCase
             'methods' => $methods,
             'customer' => $customer,
             'source_setting' => $sourceSetting,
+            'terminal_location' => $locations[0],
+            'source_location' => $locations[1],
             'product' => $product,
             'tax' => $tax,
         ];

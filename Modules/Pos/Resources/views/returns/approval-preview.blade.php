@@ -167,9 +167,17 @@
         <div class="card mt-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <strong>Planned Sales Return Targets</strong>
-                <span class="text-muted small">Dikelompokkan per sale sumber dan owner/lokasi</span>
+                <span class="text-muted small">Dikelompokkan per Sale sumber, owner, lokasi, dan konteks pajak</span>
             </div>
             <div class="card-body">
+                @php
+                    $plannedRows = collect($previewPlan['groups'] ?? [])->flatMap(fn ($group) => $group['planned_details'] ?? []);
+                    $cashReturnRows = $plannedRows->where('resolution', 'cash_return')->count();
+                    $replacementRows = $plannedRows->where('resolution', 'product_replacement')->count();
+                    $componentRows = $plannedRows->where('row_type', 'component')->count();
+                    $mixedSummaryLabels = $plannedRows->pluck('resolution_label')->filter()->unique()->values()->all();
+                @endphp
+
                 @forelse($previewPlan['groups'] as $group)
                     <div class="border rounded p-3 mb-3">
                         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start mb-3 gap-2">
@@ -202,17 +210,30 @@
                                 <div class="text-muted small">Linked Sales Returns</div>
                                 <div class="fw-semibold">{{ ! empty($group['linked_sale_return_references']) ? implode(', ', $group['linked_sale_return_references']) : '-' }}</div>
                             </div>
+                            <div class="col-md-6">
+                                <div class="text-muted small">Komposisi Target</div>
+                                <div class="fw-semibold">
+                                    {{ $group['planned_header']['line_count'] ?? 0 }} baris target
+                                </div>
+                                <div class="small text-muted">
+                                    Parent: {{ $group['planned_header']['parent_line_count'] ?? 0 }}
+                                    | Komponen: {{ $group['planned_header']['component_line_count'] ?? 0 }}
+                                    | Cash Return: {{ $group['planned_header']['cash_return_line_count'] ?? 0 }}
+                                    | Product Replacement: {{ $group['planned_header']['product_replacement_line_count'] ?? 0 }}
+                                </div>
+                            </div>
                         </div>
 
                         <div class="table-responsive">
                             <table class="table table-sm table-bordered align-middle mb-0">
                                 <thead>
                                     <tr>
+                                        <th>Jenis</th>
                                         <th>Produk</th>
                                         <th>Resolusi</th>
                                         <th class="text-end">Qty</th>
                                         <th class="text-end">Nominal</th>
-                                        <th>Dispatch</th>
+                                        <th>Source Sale / Dokumen</th>
                                         <th>Owner / Lokasi</th>
                                         <th>Tax</th>
                                         <th>SN Retur</th>
@@ -222,25 +243,53 @@
                                 </thead>
                                 <tbody>
                                     @foreach($group['planned_details'] as $detail)
-                                        <tr>
+                                        <tr class="{{ ($detail['row_type'] ?? 'parent') === 'component' ? 'table-info' : '' }}">
+                                            <td>
+                                                @if(($detail['row_type'] ?? 'parent') === 'component')
+                                                    <span class="badge bg-info text-dark">Komponen Bundle</span>
+                                                @else
+                                                    <span class="badge bg-secondary">Item POS Utama</span>
+                                                @endif
+                                            </td>
                                             <td>
                                                 <div class="fw-semibold">{{ $detail['product_name'] }}</div>
                                                 <div class="small text-muted">{{ $detail['product_code'] ?: '-' }}</div>
+                                                @if(($detail['row_type'] ?? 'parent') === 'component')
+                                                    <div class="small text-muted">
+                                                        Dari item POS: {{ $detail['source_pos_product_name'] ?: '-' }}
+                                                        @if(! empty($detail['source_pos_product_code']))
+                                                            ({{ $detail['source_pos_product_code'] }})
+                                                        @endif
+                                                    </div>
+                                                    @if(! empty($detail['returned_serial']))
+                                                        <div class="small text-muted">Trace SN Retur: {{ $detail['returned_serial'] }}</div>
+                                                    @endif
+                                                @endif
                                                 @if(! empty($detail['bundle_trace']))
                                                     <div class="small text-muted">Komponen bundle: {{ count($detail['bundle_trace']) }}</div>
                                                 @endif
                                             </td>
                                             <td>{{ $detail['resolution_label'] }}</td>
-                                            <td class="text-end">{{ rtrim(rtrim(number_format($detail['quantity'], 4, '.', ''), '0'), '.') }}</td>
+                                            <td class="text-end">
+                                                <div>{{ rtrim(rtrim(number_format($detail['quantity'], 4, '.', ''), '0'), '.') }}</div>
+                                                @if(($detail['row_type'] ?? 'parent') === 'component' && ! empty($detail['component_quantity_per_bundle']))
+                                                    <div class="small text-muted">/ bundle: {{ rtrim(rtrim(number_format($detail['component_quantity_per_bundle'], 4, '.', ''), '0'), '.') }}</div>
+                                                @endif
+                                            </td>
                                             <td class="text-end">
                                                 <div>{{ format_currency($detail['amount']) }}</div>
                                                 @if($detail['cash_return_amount'] > 0)
                                                     <div class="small text-success">Cash: {{ format_currency($detail['cash_return_amount']) }}</div>
+                                                @elseif($detail['resolution'] === 'product_replacement')
+                                                    <div class="small text-muted">Penggantian produk</div>
                                                 @endif
                                             </td>
                                             <td>
-                                                <div>#{{ $detail['dispatch_detail_id'] ?: '-' }}</div>
-                                                <div class="small text-muted">{{ $detail['dispatch_resolution'] ?: '-' }}</div>
+                                                <div class="fw-semibold">{{ $group['source_sale']['reference'] ?: ('Sale #' . $group['source_sale']['id']) }}</div>
+                                                <div class="small text-muted">Status: {{ $group['source_sale']['status'] ?: '-' }}</div>
+                                                @if(($detail['row_type'] ?? 'parent') === 'component' && ! empty($detail['component_line_group_key']))
+                                                    <div class="small text-muted">Alokasi: {{ $detail['component_line_group_key'] }}</div>
+                                                @endif
                                             </td>
                                             <td>
                                                 <div>{{ $detail['source_setting_name'] ?: '-' }}</div>
@@ -252,6 +301,14 @@
                                             <td>
                                                 <div class="small">Stok: {{ $detail['stock_movement_intent'] }}</div>
                                                 <div class="small text-muted">Serial: {{ $detail['serial_movement_intent'] }}</div>
+                                                @if(! empty($detail['dispatch_detail_id']) || ! empty($detail['dispatch_resolution']))
+                                                    <div class="small text-muted">
+                                                        Anchor: dispatch #{{ $detail['dispatch_detail_id'] ?: '-' }}
+                                                        @if(! empty($detail['dispatch_resolution']))
+                                                            ({{ $detail['dispatch_resolution'] }})
+                                                        @endif
+                                                    </div>
+                                                @endif
                                             </td>
                                         </tr>
                                     @endforeach
@@ -264,16 +321,25 @@
                 @endforelse
 
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="border rounded p-3 h-100">
                             <div class="text-muted small">Total Potensi Retur Tunai</div>
-                            <div class="fw-semibold fs-5">{{ format_currency($detailView['total_cash_return'] ?? 0) }}</div>
+                            <div class="fw-semibold fs-5">{{ format_currency($plannedRows->sum('cash_return_amount')) }}</div>
+                            <div class="small text-muted">{{ $cashReturnRows }} baris cash return</div>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="border rounded p-3 h-100">
-                            <div class="text-muted small">Linked Sales Return Saat Ini</div>
-                            <div class="fw-semibold fs-5">{{ count($detailView['linked_sale_returns'] ?? []) }}</div>
+                            <div class="text-muted small">Resolusi Aktif</div>
+                            <div class="fw-semibold fs-5">{{ ! empty($mixedSummaryLabels) ? implode(', ', $mixedSummaryLabels) : '-' }}</div>
+                            <div class="small text-muted">{{ $replacementRows }} baris product replacement</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Target Komponen Bundle</div>
+                            <div class="fw-semibold fs-5">{{ $componentRows }}</div>
+                            <div class="small text-muted">{{ count($detailView['linked_sale_returns'] ?? []) }} linked Sales Return saat ini</div>
                         </div>
                     </div>
                 </div>

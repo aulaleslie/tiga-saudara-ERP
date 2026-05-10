@@ -5,6 +5,7 @@ namespace Modules\Pos\Tests\Feature;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Pos\Services\PosReturnApprovalPreviewPlannerService;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Spatie\Permission\Models\Permission;
 
@@ -103,6 +104,124 @@ class POSReturnApprovalPreviewRouteTest extends PosTransactionFeatureTestCase
             'approved_by' => null,
             'approved_at' => null,
         ]);
+    }
+
+    /** @test */
+    public function preview_route_renders_component_targets_and_mixed_resolution_summary(): void
+    {
+        $posReturn = $this->createPosReturn();
+
+        $planner = \Mockery::mock(PosReturnApprovalPreviewPlannerService::class);
+        $planner->shouldReceive('plan')->once()->andReturn([
+            'status' => 'ready',
+            'is_blocked' => false,
+            'blockers' => [],
+            'warnings' => [],
+            'info' => [],
+            'groups' => [
+                [
+                    'source_sale' => [
+                        'id' => 99,
+                        'reference' => 'SO-COMP-001',
+                        'status' => 'DISPATCHED',
+                    ],
+                    'source_owner' => [
+                        'setting_id' => 10,
+                        'name' => 'Owner Split',
+                    ],
+                    'source_location' => [
+                        'location_id' => 20,
+                        'name' => 'Gudang Split',
+                    ],
+                    'tax_context' => [
+                        'tax_id' => null,
+                        'tax_name' => null,
+                    ],
+                    'linked_sale_return_references' => [],
+                    'planned_header' => [
+                        'sale_id' => 99,
+                        'sale_reference' => 'SO-COMP-001',
+                        'setting_id' => 10,
+                        'setting_name' => 'Owner Split',
+                        'location_id' => 20,
+                        'location_name' => 'Gudang Split',
+                        'return_type' => 'mixed',
+                        'line_count' => 2,
+                        'parent_line_count' => 1,
+                        'component_line_count' => 1,
+                        'cash_return_line_count' => 1,
+                        'product_replacement_line_count' => 1,
+                        'resolution_labels' => ['Cash Return', 'Product Replacement'],
+                        'total_amount' => 100,
+                        'cash_return_total' => 100,
+                    ],
+                    'planned_details' => [
+                        [
+                            'row_type' => 'component',
+                            'product_name' => 'Component Battery',
+                            'product_code' => 'COMP-BATT',
+                            'resolution' => 'product_replacement',
+                            'resolution_label' => 'Product Replacement',
+                            'quantity' => 1,
+                            'amount' => 0,
+                            'cash_return_amount' => 0,
+                            'dispatch_detail_id' => null,
+                            'dispatch_resolution' => 'sale_bundle_item',
+                            'source_setting_name' => 'Owner Split',
+                            'source_location_name' => 'Gudang Split',
+                            'tax_name' => null,
+                            'returned_serial' => 'SN-RET-001',
+                            'replacement_serial' => 'SN-NEW-001',
+                            'stock_movement_intent' => 'stok_sumber_akan_bertambah_saat_receiving',
+                            'serial_movement_intent' => 'tidak_ada_mutasi_serial',
+                            'bundle_trace' => [['product_id' => 5]],
+                            'source_pos_product_name' => 'Phone Bundle',
+                            'source_pos_product_code' => 'PHONE-BUNDLE',
+                            'component_line_group_key' => 'standalone-1-5',
+                            'component_quantity_per_bundle' => 1,
+                        ],
+                        [
+                            'row_type' => 'parent',
+                            'product_name' => 'Phone Bundle',
+                            'product_code' => 'PHONE-BUNDLE',
+                            'resolution' => 'cash_return',
+                            'resolution_label' => 'Cash Return',
+                            'quantity' => 1,
+                            'amount' => 100,
+                            'cash_return_amount' => 100,
+                            'dispatch_detail_id' => 44,
+                            'dispatch_resolution' => 'returned_serial.dispatch_detail_id',
+                            'source_setting_name' => 'Owner Split',
+                            'source_location_name' => 'Gudang Split',
+                            'tax_name' => null,
+                            'returned_serial' => 'SN-RET-001',
+                            'replacement_serial' => null,
+                            'stock_movement_intent' => 'stok_sumber_akan_bertambah_saat_receiving',
+                            'serial_movement_intent' => 'serial_retur_dilepas_dari_dispatch_saat_receiving',
+                            'bundle_trace' => [['product_id' => 5]],
+                            'source_pos_product_name' => 'Phone Bundle',
+                            'source_pos_product_code' => 'PHONE-BUNDLE',
+                            'component_line_group_key' => null,
+                            'component_quantity_per_bundle' => null,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+        $this->app->instance(PosReturnApprovalPreviewPlannerService::class, $planner);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+
+        $response = $this->get(route('pos.returns.approval-preview', $posReturn));
+
+        $response->assertOk()
+            ->assertSee('Komponen Bundle')
+            ->assertSee('Dari item POS: Phone Bundle')
+            ->assertSee('Source Sale / Dokumen')
+            ->assertSee('SO-COMP-001')
+            ->assertDontSee('Ringkasan Resolusi Baris')
+            ->assertDontSee('Dispatch')
+            ->assertDontSee('Setujui Retur');
     }
 
     /** @test */

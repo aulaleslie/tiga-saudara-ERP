@@ -3,6 +3,8 @@
 namespace Modules\Pos\Services;
 
 use App\Support\SalesLocationResolver;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Support\PendingDispatchSerialGuard;
@@ -12,6 +14,13 @@ use Modules\Setting\Entities\Tax;
 
 class ResolvePosStockAllocationsService
 {
+    /** @var array<string, int|null> */
+    private array $productSaleTaxCache = [];
+
+    private ?Tax $fallbackTax = null;
+
+    private bool $fallbackTaxResolved = false;
+
     /**
      * Resolve stock allocations for a set of cart lines across configured sales locations.
      *
@@ -383,14 +392,15 @@ class ResolvePosStockAllocationsService
                 $sourceSettingId = $locInfo['source_setting_id'];
                 $sourceIsPkp = $locInfo['source_is_pkp'];
 
-                $effectiveTaxId = $taxId ?: ($stock->tax_id ?? null);
-                $tax = null;
-                if ($effectiveTaxId !== null && $effectiveTaxId > 0) {
-                    if (! isset($taxesCache[$effectiveTaxId])) {
-                        $taxesCache[$effectiveTaxId] = Tax::query()->find($effectiveTaxId);
-                    }
-                    $tax = $taxesCache[$effectiveTaxId];
-                }
+                [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
+                    productId: $productId,
+                    terminalSettingId: $settingId,
+                    explicitLineTaxId: $taxId,
+                    stockTaxId: isset($stock->tax_id) ? (int) $stock->tax_id : null,
+                    sourceIsPkp: $sourceIsPkp,
+                    taxBucketUsed: false,
+                    taxesCache: $taxesCache,
+                );
 
                 $lineAllocations[] = [
                     'source_location_id' => $locationId,
@@ -400,8 +410,8 @@ class ResolvePosStockAllocationsService
                     'tax_policy_snapshot' => [
                         'source_is_pkp' => $sourceIsPkp,
                         'tax_id' => $effectiveTaxId,
-                        'tax_name' => $tax ? (string) $tax->name : null,
-                        'tax_rate' => $tax ? (float) $tax->value : 0.0,
+                        'tax_name' => $taxName,
+                        'tax_rate' => $taxRate,
                     ],
                 ];
 
@@ -433,14 +443,15 @@ class ResolvePosStockAllocationsService
                     $sourceSettingId = $locInfo['source_setting_id'];
                     $sourceIsPkp = $locInfo['source_is_pkp'];
 
-                    $effectiveTaxId = $taxId ?: ($stock->tax_id ?? null);
-                    $tax = null;
-                    if ($effectiveTaxId !== null && $effectiveTaxId > 0) {
-                        if (! isset($taxesCache[$effectiveTaxId])) {
-                            $taxesCache[$effectiveTaxId] = Tax::query()->find($effectiveTaxId);
-                        }
-                        $tax = $taxesCache[$effectiveTaxId];
-                    }
+                    [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
+                        productId: $productId,
+                        terminalSettingId: $settingId,
+                        explicitLineTaxId: $taxId,
+                        stockTaxId: isset($stock->tax_id) ? (int) $stock->tax_id : null,
+                        sourceIsPkp: $sourceIsPkp,
+                        taxBucketUsed: true,
+                        taxesCache: $taxesCache,
+                    );
 
                     $lineAllocations[] = [
                         'source_location_id' => $locationId,
@@ -450,8 +461,8 @@ class ResolvePosStockAllocationsService
                         'tax_policy_snapshot' => [
                             'source_is_pkp' => $sourceIsPkp,
                             'tax_id' => $effectiveTaxId,
-                            'tax_name' => $tax ? (string) $tax->name : null,
-                            'tax_rate' => $tax ? (float) $tax->value : 0.0,
+                            'tax_name' => $taxName,
+                            'tax_rate' => $taxRate,
                         ],
                     ];
 
@@ -471,5 +482,115 @@ class ResolvePosStockAllocationsService
         }
         
         return (int) $stock->quantity_non_tax;
+    }
+
+    /**
+     * @param  array<int, Tax|null>  $taxesCache
+     * @return array{0:int|null,1:string|null,2:float}
+     */
+    private function resolveAllocationTaxPolicySnapshot(
+        int $productId,
+        int $terminalSettingId,
+        ?int $explicitLineTaxId,
+        ?int $stockTaxId,
+        bool $sourceIsPkp,
+        bool $taxBucketUsed,
+        array &$taxesCache
+    ): array {
+        if (! $sourceIsPkp && ! $taxBucketUsed) {
+            return [null, null, 0.0];
+        }
+
+        $resolvedTaxId = $this->resolveTaxCandidateId(
+            $productId,
+            $terminalSettingId,
+            $explicitLineTaxId,
+            $stockTaxId
+        );
+
+        if ($resolvedTaxId === null) {
+            return [null, null, 0.0];
+        }
+
+        if (! isset($taxesCache[$resolvedTaxId])) {
+            $taxesCache[$resolvedTaxId] = Tax::query()->find($resolvedTaxId);
+        }
+
+        $tax = $taxesCache[$resolvedTaxId];
+
+        if (! $tax) {
+            return [null, null, 0.0];
+        }
+
+        return [
+            (int) $tax->id,
+            (string) $tax->name,
+            (float) $tax->value,
+        ];
+    }
+
+    private function resolveTaxCandidateId(
+        int $productId,
+        int $terminalSettingId,
+        ?int $explicitLineTaxId,
+        ?int $stockTaxId
+    ): ?int {
+        $explicitLineTaxId = $explicitLineTaxId !== null && $explicitLineTaxId > 0 ? $explicitLineTaxId : null;
+        if ($explicitLineTaxId !== null) {
+            return $explicitLineTaxId;
+        }
+
+        $productSaleTaxId = $this->productSaleTaxId($productId, $terminalSettingId);
+        if ($productSaleTaxId !== null) {
+            return $productSaleTaxId;
+        }
+
+        $stockTaxId = $stockTaxId !== null && $stockTaxId > 0 ? $stockTaxId : null;
+        if ($stockTaxId !== null) {
+            return $stockTaxId;
+        }
+
+        return $this->fallbackTaxId();
+    }
+
+    private function productSaleTaxId(int $productId, int $terminalSettingId): ?int
+    {
+        $cacheKey = $productId . ':' . $terminalSettingId;
+        if (array_key_exists($cacheKey, $this->productSaleTaxCache)) {
+            return $this->productSaleTaxCache[$cacheKey];
+        }
+
+        $productSaleTaxId = Product::query()->whereKey($productId)->value('sale_tax_id');
+        if ((int) $productSaleTaxId > 0) {
+            return $this->productSaleTaxCache[$cacheKey] = (int) $productSaleTaxId;
+        }
+
+        $productPriceSaleTaxId = ProductPrice::query()
+            ->where('product_id', $productId)
+            ->where('setting_id', $terminalSettingId)
+            ->orderByDesc('id')
+            ->value('sale_tax_id');
+
+        return $this->productSaleTaxCache[$cacheKey] = ((int) $productPriceSaleTaxId > 0)
+            ? (int) $productPriceSaleTaxId
+            : null;
+    }
+
+    private function fallbackTaxId(): ?int
+    {
+        if (! $this->fallbackTaxResolved) {
+            $this->fallbackTax = Tax::query()
+                ->where('is_default', true)
+                ->orderByDesc('id')
+                ->first();
+
+            if (! $this->fallbackTax) {
+                $this->fallbackTax = Tax::query()->orderByDesc('id')->first();
+            }
+
+            $this->fallbackTaxResolved = true;
+        }
+
+        return $this->fallbackTax ? (int) $this->fallbackTax->id : null;
     }
 }

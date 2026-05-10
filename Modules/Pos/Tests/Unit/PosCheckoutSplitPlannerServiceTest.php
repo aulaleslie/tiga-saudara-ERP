@@ -5,6 +5,7 @@ namespace Modules\Pos\Tests\Unit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
+use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Pos\Services\PosCheckoutSplitPlannerService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -18,6 +19,64 @@ use Tests\TestCase;
 class PosCheckoutSplitPlannerServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_pkp_source_without_explicit_line_tax_uses_fallback_tax_bucket(): void
+    {
+        $defaultTax = Tax::query()->create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+        $plan = $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 99,
+                        'product_name' => 'Split Product',
+                        'product_code' => 'SP-001',
+                        'qty' => 1,
+                        'unit_price' => 100,
+                        'tax_id' => null,
+                        'tax_rate' => 0,
+                        'line_discount_type' => 'fixed',
+                        'line_discount_value' => 0,
+                        'line_discount_amount' => 0,
+                        'bill_discount_amount' => 0,
+                        'line_subtotal' => 100,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 10,
+                        'allocated_qty' => 1,
+                        'tax_bucket_used' => false,
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => true,
+                            'tax_id' => null,
+                            'tax_name' => null,
+                            'tax_rate' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('1:10:TAX:' . $defaultTax->id, $groups[0]['split_key']);
+        $this->assertSame('TAX:' . $defaultTax->id, $groups[0]['tax_bucket']);
+        $this->assertSame($defaultTax->id, $groups[0]['lines'][0]['tax_id']);
+    }
 
     public function test_plan_groups_by_source_and_tax_bucket_with_tax_fallback(): void
     {
@@ -93,6 +152,175 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
         $this->assertSame(10.0, $groups[1]['discount_total']);
         $this->assertSame(18.0, $groups[0]['tax_total']);
         $this->assertSame(0.0, $groups[1]['tax_total']);
+    }
+
+    public function test_quantity_tax_allocation_without_line_tax_uses_fallback_tax_bucket(): void
+    {
+        $defaultTax = Tax::query()->create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+        $plan = $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 99,
+                        'product_name' => 'Split Product',
+                        'product_code' => 'SP-001',
+                        'qty' => 1,
+                        'unit_price' => 100,
+                        'tax_id' => null,
+                        'tax_rate' => 0,
+                        'line_discount_type' => 'fixed',
+                        'line_discount_value' => 0,
+                        'line_discount_amount' => 0,
+                        'bill_discount_amount' => 0,
+                        'line_subtotal' => 100,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 1,
+                        'tax_bucket_used' => true,
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => false,
+                            'tax_id' => null,
+                            'tax_name' => null,
+                            'tax_rate' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('2:20:TAX:' . $defaultTax->id, $groups[0]['split_key']);
+        $this->assertSame('TAX:' . $defaultTax->id, $groups[0]['tax_bucket']);
+        $this->assertSame($defaultTax->id, $groups[0]['lines'][0]['tax_id']);
+    }
+
+    public function test_non_pkp_allocation_without_quantity_tax_remains_non_tax(): void
+    {
+        Tax::query()->create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+        $plan = $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 99,
+                        'product_name' => 'Split Product',
+                        'product_code' => 'SP-001',
+                        'qty' => 1,
+                        'unit_price' => 100,
+                        'tax_id' => 999,
+                        'tax_rate' => 11,
+                        'line_discount_type' => 'fixed',
+                        'line_discount_value' => 0,
+                        'line_discount_amount' => 0,
+                        'bill_discount_amount' => 0,
+                        'line_subtotal' => 100,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 1,
+                        'tax_bucket_used' => false,
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => false,
+                            'tax_id' => null,
+                            'tax_name' => null,
+                            'tax_rate' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('2:20:NON_TAX', $groups[0]['split_key']);
+        $this->assertSame('NON_TAX', $groups[0]['tax_bucket']);
+        $this->assertNull($groups[0]['lines'][0]['tax_id']);
+    }
+
+    public function test_tax_required_allocation_throws_actionable_error_when_no_fallback_tax_exists(): void
+    {
+        $planner = new PosCheckoutSplitPlannerService();
+
+        try {
+            $planner->plan([
+                'setting_id' => 1,
+                'cart_snapshot' => [
+                    'lines' => [
+                        [
+                            'line_id' => 1,
+                            'product_id' => 99,
+                            'product_name' => 'Split Product',
+                            'product_code' => 'SP-001',
+                            'qty' => 1,
+                            'unit_price' => 100,
+                            'tax_id' => null,
+                            'tax_rate' => 0,
+                            'line_discount_type' => 'fixed',
+                            'line_discount_value' => 0,
+                            'line_discount_amount' => 0,
+                            'bill_discount_amount' => 0,
+                            'line_subtotal' => 100,
+                            'serial_number_required' => false,
+                            'assigned_serials' => [],
+                        ],
+                    ],
+                ],
+                'allocations' => [
+                    [
+                        [
+                            'source_setting_id' => 1,
+                            'source_location_id' => 10,
+                            'allocated_qty' => 1,
+                            'tax_bucket_used' => true,
+                            'tax_policy_snapshot' => [
+                                'source_is_pkp' => true,
+                                'tax_id' => null,
+                                'tax_name' => null,
+                                'tax_rate' => 0,
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+            $this->fail('Expected planner to throw when taxable allocation has no fallback tax.');
+        } catch (PosCheckoutValidationException $exception) {
+            $this->assertSame('TAX_POLICY_UNRESOLVED', $exception->errorCode());
+            $this->assertStringContainsString('fallback tax', strtolower($exception->getMessage()));
+        }
     }
 
     public function test_plan_uses_serial_tax_context_when_line_tax_is_null(): void
