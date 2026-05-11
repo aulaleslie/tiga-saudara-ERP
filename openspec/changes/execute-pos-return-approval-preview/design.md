@@ -97,15 +97,15 @@ Alternatives considered:
 - Reduce the original line then add a replacement Sale line. Rejected because it creates unnecessary commercial churn.
 - Swap serials in the original dispatch row. Rejected because it obscures the original returned serial.
 
-### Bundle execution mirrors original bundle movement
+### Bundle execution is resolution-sensitive
 
-Bundle returns SHALL be selected only through the parent bundle line. Approval SHALL automatically execute proportional parent and component movements for the returned parent quantity. Cash returns reduce the visible parent Sale line; parent and component stock movements both get mutation transaction rows. Replacement dispatch mirrors normal bundle dispatch behavior for the parent and components.
+Bundle returns SHALL be selected only through the parent bundle line. Cash-return approval SHALL automatically execute proportional parent and component reversals for the cash-returned parent quantity, including split-owner component Sales when the POS transaction posted components to different owner/sale records. Component reversals are not stock-only: when a component belongs to another source Sale or owner, that component Sale, dispatch, payment, and refund evidence SHALL be proportionally corrected from the component movement/value source even when the component's customer-facing `sale_details.quantity` is zero. Returned original serials SHALL remain visible on the source Sale as returned/red while active quantities are reduced. Product-replacement approval SHALL receive the returned parent product and dispatch only the parent replacement product from the original parent owner/location; bundle components remain read-only composition context and MUST NOT create replacement Sale Return details, replacement dispatch details, stock mutations, or Sale/payment adjustments.
 
-Rationale: current POS bundle sales intentionally move both parent and component products. Return execution must mirror the original movement instead of inventing a different inventory truth.
+Rationale: cash/refund corrects the commercial outcome of the original POS bundle sale and therefore must reverse the proportional parent and component sales across split owners. Some split-owner component postings are represented by zero-quantity Sale detail placeholders with actual movement/value context in bundle or dispatch rows; treating those rows as non-returnable leaves the other owner's Sale, payment, and dispatch wrong. Product replacement corrects fulfillment of the selected parent item while preserving the original commercial sale; replacing component items would create extra fulfillment movement that the business does not perform.
 
 Alternatives considered:
-- Move parent stock only. Rejected because original sale moved components too.
-- Move components only. Rejected because original sale moved the parent too.
+- Always move parent stock only. Rejected for cash returns because original bundle components and split-owner component Sales must be reversed when money is refunded.
+- Always move parent and component stock. Rejected for product replacement because bundle components are not replaced; only the parent product is received and dispatched.
 - Allow component-only returns. Rejected because POS user intent and Sale display are parent-bundle based.
 
 ## Risks / Trade-offs
@@ -113,7 +113,7 @@ Alternatives considered:
 - Sale payment invalidation schema expands a mature module. → Keep it additive and compatible with existing rows by defaulting old payments to active.
 - Dispatch detail `dispatched_quantity` may no longer equal count of historical serials shown. → Document and test active quantity semantics; derive serial badge state from tracking/lineage instead of count assumptions.
 - One-click execution has a large blast radius. → Wrap all effects in one transaction and use row locks for POS Return, linked Sales, dispatch details, product stocks, serials, and payments.
-- Bundle execution is complex across split-owner sales. → Reuse the approval preview plan as the source of truth and block execution on any missing or warning component mapping.
+- Bundle execution is complex across split-owner sales. → Reuse the approval preview plan as the source of truth; require component mapping for cash-return reversals, including component Sale/payment/dispatch correction, but keep product-replacement component rows informational only.
 - Sale archival may hide source documents unexpectedly. → Archive only when customer-facing Sale quantities and active dispatch quantities are both zero, and append an audit note referencing the POS Return/Sales Return.
 - Mixed cash-return and replacement returns can affect the same Sale in different ways. → Execute per line resolution while grouping locks and recalculations per source Sale.
 

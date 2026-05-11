@@ -210,6 +210,20 @@ class PosReturnLifecycleService
                 ->get();
         }
 
+        $saleBundleItemIds = $saleReturnDetails
+            ->map(fn ($detail) => (int) data_get($detail->execution_context, 'component_sale_bundle_item_id', 0))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($saleBundleItemIds)) {
+            \Modules\Sale\Entities\SaleBundleItem::query()
+                ->whereIn('id', $saleBundleItemIds)
+                ->lockForUpdate()
+                ->get();
+        }
+
         $dispatchDetailIds = $posReturn->lines
             ->pluck('dispatch_detail_id')
             ->merge($saleReturnDetails->pluck('dispatch_detail_id'))
@@ -327,6 +341,7 @@ class PosReturnLifecycleService
 
             $replacementDetails = $details
                 ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->reject(fn ($detail) => $this->isReplacementInformationalBundleComponentDetail($detail))
                 ->values();
 
             if ($replacementDetails->isNotEmpty()) {
@@ -406,6 +421,7 @@ class PosReturnLifecycleService
     protected function applyCashReturnSaleDetailCorrections(\Illuminate\Support\Collection $cashReturnDetails): void
     {
         $cashReturnDetails
+            ->reject(fn ($detail) => $this->detailUsesBundleItemCommercialSource($detail))
             ->groupBy(fn ($detail) => (int) ($detail->sale_detail_id ?? 0))
             ->each(function (\Illuminate\Support\Collection $detailGroup, int $saleDetailId): void {
                 if ($saleDetailId <= 0) {
@@ -452,6 +468,60 @@ class PosReturnLifecycleService
                     'product_tax_amount' => $this->reduceProratedMoney((float) ($saleDetail->product_tax_amount ?? 0), $reductionRatio),
                 ])->save();
             });
+
+        $cashReturnDetails
+            ->filter(fn ($detail) => $this->detailUsesBundleItemCommercialSource($detail))
+            ->groupBy(fn ($detail) => (int) data_get($detail->execution_context, 'component_sale_bundle_item_id', 0))
+            ->each(function (\Illuminate\Support\Collection $detailGroup, int $bundleItemId): void {
+                if ($bundleItemId <= 0) {
+                    throw new \RuntimeException('Cash return component detail is missing a source sale bundle item reference.');
+                }
+
+                $bundleItem = \Modules\Sale\Entities\SaleBundleItem::query()
+                    ->whereKey($bundleItemId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $bundleItem) {
+                    throw new \RuntimeException('Cash return source sale bundle item could not be found.');
+                }
+
+                $returnedQuantity = (float) $detailGroup->sum(fn ($detail) => (float) ($detail->quantity ?? 0));
+                if ($returnedQuantity <= 0) {
+                    return;
+                }
+
+                $currentQuantity = (float) ($bundleItem->quantity ?? 0);
+                if ($currentQuantity <= 0) {
+                    throw new \RuntimeException('Cash return source sale bundle item has no remaining quantity to reduce.');
+                }
+
+                if ($returnedQuantity > $currentQuantity) {
+                    throw new \RuntimeException('Cash return quantity exceeds the remaining source sale bundle item quantity.');
+                }
+
+                $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
+                $quantityReduction = (int) round($returnedQuantity);
+                $subtotalReduction = round((float) $detailGroup->sum(
+                    fn ($detail) => $this->resolveCashSettlementAmount($detail)
+                ), 2);
+
+                if ($subtotalReduction <= 0) {
+                    $subtotalReduction = round((float) ($bundleItem->sub_total ?? 0) * $reductionRatio, 2);
+                }
+
+                $remainingQuantity = max(0, (int) $bundleItem->quantity - $quantityReduction);
+                $remainingSubTotal = round(max(0, (float) ($bundleItem->sub_total ?? 0) - $subtotalReduction), 2);
+
+                $bundleItem->forceFill([
+                    'quantity' => $remainingQuantity,
+                    'sub_total' => $remainingSubTotal,
+                    'tax_amount' => $this->reduceProratedMoney((float) ($bundleItem->tax_amount ?? 0), $reductionRatio),
+                    'price' => $remainingQuantity > 0
+                        ? round($remainingSubTotal / $remainingQuantity, 2)
+                        : 0,
+                ])->save();
+            });
     }
 
     protected function reduceProratedMoney(float $currentAmount, float $reductionRatio): float
@@ -473,7 +543,7 @@ class PosReturnLifecycleService
         }
 
         $sale = \Modules\Sale\Entities\Sale::query()
-            ->with(['saleDetails', 'salePayments'])
+            ->with(['saleDetails', 'salePayments', 'bundleItems.saleDetail'])
             ->whereKey($saleId)
             ->lockForUpdate()
             ->first();
@@ -493,7 +563,7 @@ class PosReturnLifecycleService
             'discount_amount' => $sale->discount_amount,
             'shipping_amount' => $sale->shipping_amount,
             'paid_amount' => 0,
-        ], $sale->saleDetails, $isPkp);
+        ], $this->buildCashCorrectionNormalizerInputs($sale), $isPkp);
 
         $header = $normalizedSale['header'];
         $activePayments = $sale->salePayments
@@ -541,7 +611,9 @@ class PosReturnLifecycleService
     {
         $baseStatus = 'Paid';
 
-        if (round($dueAmount, 2) >= round($totalAmount, 2)) {
+        if (round($totalAmount, 2) <= 0 && round($dueAmount, 2) <= 0) {
+            $baseStatus = 'Paid';
+        } elseif (round($dueAmount, 2) >= round($totalAmount, 2)) {
             $baseStatus = 'Unpaid';
         } elseif ($dueAmount > 0) {
             $baseStatus = 'Partial';
@@ -556,6 +628,39 @@ class PosReturnLifecycleService
         }
 
         return $baseStatus;
+    }
+
+    protected function buildCashCorrectionNormalizerInputs(\Modules\Sale\Entities\Sale $sale): \Illuminate\Support\Collection
+    {
+        $supplementalBundleItems = $sale->bundleItems
+            ->filter(function ($bundleItem) {
+                $saleDetail = $bundleItem->saleDetail;
+
+                return ! $saleDetail || (float) ($saleDetail->quantity ?? 0) <= 0;
+            })
+            ->map(function ($bundleItem) {
+                $quantity = (float) ($bundleItem->quantity ?? 0);
+                $subTotal = (float) ($bundleItem->sub_total ?? 0);
+                $unitPrice = $quantity > 0 ? round($subTotal / $quantity, 2) : (float) ($bundleItem->price ?? 0);
+
+                return [
+                    'product_id' => (int) ($bundleItem->product_id ?? 0),
+                    'product_name' => (string) ($bundleItem->name ?? ''),
+                    'product_code' => '',
+                    'quantity' => $quantity,
+                    'price' => $unitPrice,
+                    'unit_price' => $unitPrice,
+                    'sub_total' => $subTotal,
+                    'product_discount_amount' => 0,
+                    'product_discount_type' => 'fixed',
+                    'product_tax_amount' => (float) ($bundleItem->tax_amount ?? 0),
+                    'tax_id' => $bundleItem->inherited_tax_id ?? $bundleItem->tax_id,
+                ];
+            })
+            ->filter(fn (array $detail) => (float) $detail['quantity'] > 0 || (float) $detail['sub_total'] > 0 || (float) $detail['product_tax_amount'] > 0)
+            ->values();
+
+        return collect($sale->saleDetails)->concat($supplementalBundleItems)->values();
     }
 
     protected function dispatchReplacementForSaleReturnDetails(
@@ -723,10 +828,20 @@ class PosReturnLifecycleService
 
     protected function resolveCashSettlementAmount(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): float
     {
+        $executionContext = $this->detailExecutionContext($detail);
+
+        if ($this->isComponentSaleReturnDetail($detail)) {
+            $plannedAmount = (float) ($executionContext['planned_amount'] ?? 0);
+
+            if ($plannedAmount > 0) {
+                return $plannedAmount;
+            }
+        }
+
         $line = $detail->posReturnLine;
         $expectedCashAmount = (float) ($line->expected_cash_amount ?? 0);
 
-        if ($expectedCashAmount > 0) {
+        if ($expectedCashAmount > 0 && ! $this->isComponentSaleReturnDetail($detail)) {
             return $expectedCashAmount;
         }
 
@@ -739,7 +854,74 @@ class PosReturnLifecycleService
 
     protected function shouldSkipCommercialCashCorrection(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
     {
-        return $this->isBundleComponentLine($detail->posReturnLine);
+        if ($this->isComponentSaleReturnDetail($detail)) {
+            if ((string) ($detail->stock_behavior ?? '') === \Modules\Pos\Entities\PosReturnLine::STOCK_BEHAVIOR_STOCKLESS) {
+                return true;
+            }
+
+            return ! $this->detailHasCommercialCorrectionTarget($detail);
+        }
+
+        return false;
+    }
+
+    protected function isReplacementInformationalBundleComponentDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        $line = $detail->posReturnLine;
+
+        if (! $line || (string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+            return false;
+        }
+
+        if ($this->isBundleComponentLine($line)) {
+            return true;
+        }
+
+        $bundleTrace = collect(data_get($line->line_meta, 'bundle_trace', []));
+
+        return $bundleTrace->isNotEmpty()
+            && (int) ($detail->product_id ?? 0) !== (int) ($line->product_id ?? 0);
+    }
+
+    protected function detailExecutionContext(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): array
+    {
+        return is_array($detail->execution_context) ? $detail->execution_context : [];
+    }
+
+    protected function isComponentSaleReturnDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        if ((string) data_get($detail->execution_context, 'row_type', '') === 'component') {
+            return true;
+        }
+
+        $line = $detail->posReturnLine;
+
+        if (! $line) {
+            return false;
+        }
+
+        if ($this->isBundleComponentLine($line)) {
+            return true;
+        }
+
+        $bundleTrace = collect(data_get($line->line_meta, 'bundle_trace', []));
+
+        return $bundleTrace->isNotEmpty()
+            && (int) ($detail->product_id ?? 0) !== (int) ($line->product_id ?? 0);
+    }
+
+    protected function detailHasCommercialCorrectionTarget(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        if ($this->detailUsesBundleItemCommercialSource($detail)) {
+            return (int) data_get($detail->execution_context, 'component_sale_bundle_item_id', 0) > 0;
+        }
+
+        return (int) ($detail->sale_detail_id ?? 0) > 0;
+    }
+
+    protected function detailUsesBundleItemCommercialSource(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        return (string) data_get($detail->execution_context, 'commercial_value_source', '') === 'sale_bundle_item';
     }
 
     protected function isBundleComponentLine(?\Modules\Pos\Entities\PosReturnLine $line): bool
@@ -801,21 +983,30 @@ class PosReturnLifecycleService
 
     protected function applyReceivedDispatchQuantityAdjustments(\Modules\Pos\Entities\PosReturn $posReturn): void
     {
-        foreach ($posReturn->lines as $line) {
-            if ((string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN) {
-                continue;
-            }
+        $dispatchAdjustments = $posReturn->saleReturns
+            ->flatMap(fn ($saleReturn) => $saleReturn->saleReturnDetails)
+            ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->filter(fn ($detail) => (int) ($detail->dispatch_detail_id ?? 0) > 0)
+            ->groupBy(fn ($detail) => (int) $detail->dispatch_detail_id);
 
-            if (! $line->dispatch_detail_id) {
-                continue;
-            }
+        foreach ($dispatchAdjustments as $dispatchDetailId => $detailGroup) {
+            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::query()
+                ->whereKey((int) $dispatchDetailId)
+                ->lockForUpdate()
+                ->first();
 
-            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($line->dispatch_detail_id);
             if (! $dispatchDetail) {
                 continue;
             }
 
-            $dispatchDetail->decrement('dispatched_quantity', $line->quantity);
+            $reductionQuantity = (int) round((float) $detailGroup->sum(fn ($detail) => (float) ($detail->quantity ?? 0)));
+            if ($reductionQuantity <= 0) {
+                continue;
+            }
+
+            $dispatchDetail->update([
+                'dispatched_quantity' => max(0, (int) ($dispatchDetail->dispatched_quantity ?? 0) - $reductionQuantity),
+            ]);
         }
     }
 
@@ -830,11 +1021,15 @@ class PosReturnLifecycleService
         $receivedAt = now();
         $actorId = \Illuminate\Support\Facades\Auth::id();
 
-        $details = \Modules\SalesReturn\Entities\SaleReturnDetail::with('dispatchDetail')
+        $details = \Modules\SalesReturn\Entities\SaleReturnDetail::with(['dispatchDetail', 'posReturnLine'])
             ->where('sale_return_id', $saleReturn->id)
             ->get();
 
         foreach ($details as $detail) {
+            if ($this->isReplacementInformationalBundleComponentDetail($detail)) {
+                continue;
+            }
+
             $quantity = (int) ($detail->quantity ?? 0);
             if ($quantity <= 0) {
                 continue;
@@ -1185,7 +1380,9 @@ class PosReturnLifecycleService
             throw new \RuntimeException('Produk pengganti harus menggunakan SKU yang sama dengan barang yang diretur.');
         }
 
-        if ((float) $line->replacement_quantity !== (float) $detail->quantity) {
+        $replacementQuantity = $this->resolveReplacementQuantityForDispatch($detail, $line);
+
+        if (! $this->quantitiesMatch($replacementQuantity, (float) $detail->quantity)) {
             throw new \RuntimeException('Jumlah barang pengganti harus sama dengan jumlah barang retur yang sudah diterima.');
         }
 
@@ -1196,6 +1393,37 @@ class PosReturnLifecycleService
         if ((int) $line->source_location_id !== (int) $detail->location_id) {
             throw new \RuntimeException('Pengiriman pengganti harus berasal dari lokasi sumber asli retur.');
         }
+    }
+
+    private function resolveReplacementQuantityForDispatch(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        \Modules\Pos\Entities\PosReturnLine $line
+    ): float {
+        if ($line->replacement_quantity !== null) {
+            return (float) $line->replacement_quantity;
+        }
+
+        if ((string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+            return 0.0;
+        }
+
+        $lineQuantity = (float) $line->quantity;
+        $detailQuantity = (float) $detail->quantity;
+
+        if ($lineQuantity > 0 && $this->quantitiesMatch($lineQuantity, $detailQuantity)) {
+            $line->forceFill([
+                'replacement_quantity' => $line->quantity,
+            ])->save();
+
+            return $lineQuantity;
+        }
+
+        return 0.0;
+    }
+
+    private function quantitiesMatch(float $left, float $right): bool
+    {
+        return abs($left - $right) < 0.0001;
     }
 
     public function archive(int $posReturnId, ?string $reason = null): void

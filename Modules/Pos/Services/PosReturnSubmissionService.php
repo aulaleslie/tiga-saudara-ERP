@@ -160,6 +160,9 @@ class PosReturnSubmissionService
                     'resolution' => $resolution,
                     'returned_serial_id' => $returnedSerialId,
                     'replacement_serial_id' => $replacementSerialId,
+                    'replacement_quantity' => $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                        ? ($isSerial ? 1 : $quantity)
+                        : null,
                     'expected_cash_amount' => $expectedCashAmount,
                 ];
 
@@ -304,6 +307,9 @@ class PosReturnSubmissionService
                     'resolution' => $resolution,
                     'returned_serial_id' => $returnedSerialId,
                     'replacement_serial_id' => $replacementSerialId,
+                    'replacement_quantity' => $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                        ? ($isSerial ? 1 : $quantity)
+                        : null,
                     'expected_cash_amount' => $expectedCashAmount,
                 ];
 

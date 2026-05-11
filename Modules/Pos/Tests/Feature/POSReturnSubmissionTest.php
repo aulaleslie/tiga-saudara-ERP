@@ -251,6 +251,7 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         $this->assertEquals(1, $posReturn->lines->first()->quantity);
         $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $posReturn->lines->first()->resolution);
         $this->assertEquals($product->id, $posReturn->lines->first()->product_id);
+        $this->assertSame('1.0000', $posReturn->lines->first()->replacement_quantity);
     }
 
     /** @test */

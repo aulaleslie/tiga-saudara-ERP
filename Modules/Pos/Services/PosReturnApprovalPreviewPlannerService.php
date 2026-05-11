@@ -319,11 +319,23 @@ class PosReturnApprovalPreviewPlannerService
             'detail' => $detail,
         ]];
 
-        $componentExpansion = $this->buildComponentEntries($posReturn, $line, $saleDetail, $detail, $planningContext);
-        $blockers = array_merge($blockers, $componentExpansion['blockers']);
-        $warnings = array_merge($warnings, $componentExpansion['warnings']);
-        $info = array_merge($info, $componentExpansion['info']);
-        $entries = array_merge($entries, $componentExpansion['entries']);
+        if ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+            $componentExpansion = $this->buildComponentEntries($posReturn, $line, $saleDetail, $detail, $planningContext);
+            $blockers = array_merge($blockers, $componentExpansion['blockers']);
+            $warnings = array_merge($warnings, $componentExpansion['warnings']);
+            $info = array_merge($info, $componentExpansion['info']);
+            $entries = array_merge($entries, $componentExpansion['entries']);
+        } elseif ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+            && collect(data_get($line->line_meta, 'bundle_trace', []))->isNotEmpty()) {
+            $info[] = $this->message(
+                'replacement_bundle_components_informational',
+                'Komponen bundle hanya menjadi konteks informasi untuk product replacement; mutasi retur dan dispatch pengganti dijalankan pada produk parent saja.',
+                [
+                    'pos_return_line_id' => $line->id,
+                    'component_count' => collect(data_get($line->line_meta, 'bundle_trace', []))->count(),
+                ]
+            );
+        }
 
         return [
             'blockers' => $blockers,
@@ -445,6 +457,10 @@ class PosReturnApprovalPreviewPlannerService
             $sourceSettingId = (int) $componentCheckoutSale->source_setting_id;
             $sourceLocationId = (int) $componentCheckoutSale->source_location_id;
             $taxId = $componentItem->tax_id ? (int) $componentItem->tax_id : null;
+            $componentDispatchResolution = $this->resolveComponentDispatchDetail($componentItem, $sourceLocationId);
+            $blockers = array_merge($blockers, $componentDispatchResolution['blockers']);
+            $info = array_merge($info, $componentDispatchResolution['info']);
+            $componentDispatchDetail = $componentDispatchResolution['dispatch_detail'];
             $linkedSaleReturnReferences = $posReturn->saleReturns
                 ->where('sale_id', $componentItem->sale_id)
                 ->pluck('reference')
@@ -458,8 +474,8 @@ class PosReturnApprovalPreviewPlannerService
                 'resolution' => (string) $line->resolution,
                 'resolution_label' => $this->resolutionLabel((string) $line->resolution),
                 'sale_detail_id' => $componentItem->sale_detail_id ? (int) $componentItem->sale_detail_id : null,
-                'dispatch_detail_id' => null,
-                'dispatch_resolution' => 'sale_bundle_item',
+                'dispatch_detail_id' => $componentDispatchDetail?->id,
+                'dispatch_resolution' => $componentDispatchResolution['source'],
                 'source_setting_id' => $sourceSettingId,
                 'source_setting_name' => $this->settingName($sourceSettingId),
                 'source_location_id' => $sourceLocationId,
@@ -505,6 +521,77 @@ class PosReturnApprovalPreviewPlannerService
             'warnings' => $warnings,
             'info' => $info,
             'entries' => $entries,
+        ];
+    }
+
+    private function resolveComponentDispatchDetail(SaleBundleItem $componentItem, int $sourceLocationId): array
+    {
+        $blockers = [];
+        $info = [];
+
+        if (! ($componentItem->product?->stock_managed ?? false)) {
+            return [
+                'dispatch_detail' => null,
+                'source' => 'stockless',
+                'blockers' => [],
+                'info' => [],
+            ];
+        }
+
+        $query = DispatchDetail::query()
+            ->where('sale_id', (int) $componentItem->sale_id)
+            ->where('product_id', (int) $componentItem->product_id)
+            ->where('location_id', $sourceLocationId);
+
+        if ($componentItem->sale_detail_id && Schema::hasColumn('dispatch_details', 'sale_detail_id')) {
+            $saleDetailMatches = (clone $query)
+                ->where('sale_detail_id', (int) $componentItem->sale_detail_id)
+                ->get();
+
+            if ($saleDetailMatches->count() === 1) {
+                return [
+                    'dispatch_detail' => $saleDetailMatches->first(),
+                    'source' => 'component.sale_detail_id',
+                    'blockers' => $blockers,
+                    'info' => $info,
+                ];
+            }
+
+            if ($saleDetailMatches->count() > 1) {
+                return [
+                    'dispatch_detail' => null,
+                    'source' => 'component.sale_detail_id',
+                    'blockers' => [],
+                    'info' => $info,
+                ];
+            }
+        }
+
+        $productMatches = $query->get();
+
+        if ($productMatches->count() === 1) {
+            return [
+                'dispatch_detail' => $productMatches->first(),
+                'source' => 'component.sale_id+product_id',
+                'blockers' => $blockers,
+                'info' => $info,
+            ];
+        }
+
+        if ($productMatches->count() > 1) {
+            return [
+                'dispatch_detail' => null,
+                'source' => 'component.sale_id+product_id',
+                'blockers' => [],
+                'info' => $info,
+            ];
+        }
+
+        return [
+            'dispatch_detail' => null,
+            'source' => 'unresolved',
+            'blockers' => [],
+            'info' => $info,
         ];
     }
 

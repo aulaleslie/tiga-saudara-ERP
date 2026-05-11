@@ -64,8 +64,8 @@ For every product-replacement POS Return line, the system SHALL receive the retu
 - **AND** the same SKU and same quantity are dispatched from the original source location
 - **AND** stock mutation transaction rows are recorded for both receiving and replacement dispatch
 
-### Requirement: Bundle Parent Return Mirrors Parent And Component Movement
-The system SHALL allow POS bundle returns only through the parent bundle line. Component-only returns MUST be blocked. Returning a parent bundle quantity MUST automatically include proportional parent and component stock movements that mirror the original POS sale/dispatch movement. Missing or ambiguous component mapping MUST block final approval.
+### Requirement: Bundle Parent Return Uses Resolution-Sensitive Component Execution
+The system SHALL allow POS bundle returns only through the parent bundle line. Component-only returns MUST be blocked. Cash-returning a parent bundle quantity MUST automatically include proportional parent and component reversals that mirror the original POS sale/dispatch movement, including split-owner component Sales. Product-replacing a parent bundle quantity MUST receive and dispatch only the parent product replacement; bundle components MUST remain informational context and MUST NOT create replacement movement. Missing or ambiguous component mapping MUST block cash-return execution, but MUST NOT block product-replacement execution when the parent replacement target is complete.
 
 #### Scenario: Partial bundle cash return includes components
 - **WHEN** final approval executes a cash return for part of a bundle parent quantity
@@ -73,10 +73,11 @@ The system SHALL allow POS bundle returns only through the parent bundle line. C
 - **AND** stock is received for both the parent bundle product and every mapped component product
 - **AND** mutation transaction rows are recorded for each affected stock-managed product
 
-#### Scenario: Bundle replacement mirrors normal bundle dispatch
+#### Scenario: Bundle replacement executes parent replacement only
 - **WHEN** final approval executes a product replacement for a bundle parent
-- **THEN** the returned parent and component movements are received
-- **AND** replacement dispatch reduces parent and component stock according to normal bundle movement
+- **THEN** the returned parent product is received back to the original parent source location
+- **AND** replacement dispatch reduces only the parent replacement stock from the original parent source location
+- **AND** bundle component rows remain informational context without Sale Return Detail, dispatch, stock, Sale, or payment mutations
 - **AND** the source Sale parent line money and quantity remain unchanged
 
 #### Scenario: Component only return is blocked

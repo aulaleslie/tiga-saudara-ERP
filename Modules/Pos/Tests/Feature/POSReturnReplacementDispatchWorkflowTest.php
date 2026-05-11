@@ -78,6 +78,29 @@ class POSReturnReplacementDispatchWorkflowTest extends PosTransactionFeatureTest
     }
 
     /** @test */
+    public function it_derives_missing_replacement_quantity_from_the_return_line_quantity_for_legacy_rows()
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, $saleReturn, $detail] = $this->createAwaitingDispatchReturn([
+            'detail_quantity' => 1,
+            'replacement_quantity' => null,
+        ]);
+
+        $this->service->dispatchReplacement($posReturn->id);
+
+        $posReturn->refresh();
+        $saleReturn->refresh();
+        $detail->refresh();
+
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $posReturn->status);
+        $this->assertEquals('COMPLETED', $saleReturn->status);
+        $this->assertSame('1.0000', (string) $detail->posReturnLine->fresh()->replacement_quantity);
+        $this->assertTrue(Dispatch::query()->where('sale_id', $saleReturn->sale_id)->exists());
+        $this->assertSame(9, (int) $detail->product->fresh()->product_quantity);
+    }
+
+    /** @test */
     public function it_blocks_replacement_dispatch_for_cash_return_returns()
     {
         $this->actingAsInSetting($this->actor, $this->setting);
@@ -252,8 +275,11 @@ class POSReturnReplacementDispatchWorkflowTest extends PosTransactionFeatureTest
             'bundle_quantity' => null,
             'component_quantity_per_bundle' => null,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
             'replacement_product_id' => $replacementProductId,
-            'replacement_quantity' => $overrides['replacement_quantity'] ?? $detailQuantity,
+            'replacement_quantity' => array_key_exists('replacement_quantity', $overrides)
+                ? $overrides['replacement_quantity']
+                : $detailQuantity,
         ]);
 
         $detail = SaleReturnDetail::query()->create([

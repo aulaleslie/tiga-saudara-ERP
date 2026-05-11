@@ -5,13 +5,13 @@ POS Return approval preview now provides a reliable read-only execution plan, bu
 ## What Changes
 
 - Add final approval execution from the POS Return approval preview page when the preview has zero blockers and zero warnings.
-- Persist the preview plan into linked owner/sale/location/tax-aligned Sales Return headers and details, including parent bundle lines and automatically included bundle component movements.
+- Persist the preview plan into linked owner/sale/location/tax-aligned Sales Return headers and details, including resolution-sensitive bundle movement: cash returns include proportional component reversals, while product replacement keeps components informational and executes only the parent product replacement.
 - Execute approval as one atomic operation using `pos.returns.approve`: approve, receive returned stock/serials, settle cash-return effects, dispatch replacements, complete linked Sales Returns, and complete the POS Return.
 - For cash-return lines, modify the original Sale to reflect the corrected commercial outcome: reduce customer-facing Sale detail quantity/amount, reduce active dispatch quantity, split/invalidate Sale payments purchase-style, create refund evidence, and archive the Sale as returned when both Sale quantity and active dispatch quantity reach zero.
 - For product-replacement lines, preserve the original Sale quantity and money while receiving the returned item, keeping the original serial visible as returned, creating an approved replacement dispatch from the original source owner/location, and showing the replacement serial as replacement lineage.
 - Extend Sale payment records with purchase-style invalidation metadata so POS cash returns can keep active Sale payments aligned with the modified Sale total.
 - Extend Sale serial/dispatch display lineage so returned original serials remain red and replacement serials appear blue in the Sale document.
-- Enforce bundle return rules: components cannot be returned alone; returning a bundle parent automatically includes proportional parent and component stock movements, and approval blocks when any required component mapping is missing.
+- Enforce bundle return rules: components cannot be returned alone; cash-returning a bundle parent automatically includes proportional parent and component reversals, while replacing a bundle parent receives and dispatches only the parent product and leaves components as read-only composition context.
 
 ## Capabilities
 
@@ -29,4 +29,4 @@ POS Return approval preview now provides a reliable read-only execution plan, bu
 - `Modules/SalesReturn`: linked `SaleReturn` and `SaleReturnDetail` creation/completion, payment/refund records, and existing receiving/settlement/dispatch compatibility.
 - `Modules/Sale`: `Sale`, `SaleDetails`, `Dispatch`, `DispatchDetail`, `SalePayment`, `SalesOrderSerialTracking`, Sale show rendering, Sale payment datatable behavior, and migrations for payment invalidation/dispatch lineage.
 - `Modules/Product`: `ProductStock`, `ProductSerialNumber`, `Transaction`, and `SerialNumberHistory` mutation behavior for returned and replacement serials.
-- Verification must cover atomic rollback, mixed cash/replacement lines, serial and non-serial products, bundle parent/component movement, split-owner sales, Sale payment splitting, Sale archival, and Sale serial badge display.
+- Verification must cover atomic rollback, mixed cash/replacement lines, serial and non-serial products, cash-return bundle parent/component movement, parent-only bundle replacement, split-owner sales, Sale payment splitting, Sale archival, and Sale serial badge display.

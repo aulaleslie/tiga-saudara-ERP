@@ -47,7 +47,7 @@
 - [x] 6.1 Receive returned stock for cash-return and replacement lines back into the original source owner/location/tax bucket
 - [x] 6.2 Update returned serials to active stock at the source location and clear their outbound dispatch linkage while preserving sale return lineage
 - [x] 6.3 Record `SALE_RETURN_GOOD_TAX` or `SALE_RETURN_GOOD_NON_TAX` mutation transaction rows for every stock-managed received product
-- [x] 6.4 Apply parent and component stock receiving for bundle parent returns, recording one mutation transaction row per stock-mutated product
+- [x] 6.4 Apply parent and component stock receiving for cash-return bundle parent returns, recording one mutation transaction row per stock-mutated product
 - [x] 6.5 Keep stockless/audit-only rows from mutating stock while preserving their Sales Return and POS Return traceability
 
 ## 7. Replacement Dispatch Execution
@@ -58,7 +58,7 @@
  [x] 7.4 Reduce replacement stock from the original source location and record `DISPATCH_RETURN` mutation transaction rows
  [x] 7.5 Update replacement serials to sold status, assign their replacement dispatch detail, and record serial history
  [x] 7.6 Create or update `SalesOrderSerialTracking` rows for replacement serials on the original source Sale
- [x] 7.7 Mirror normal bundle dispatch movement for replacement bundle parents and mapped components
+ [x] 7.7 Dispatch only the parent product for replacement bundle parents while keeping mapped components informational
 
 ## 8. Sale Serial Lineage Display
 
@@ -72,9 +72,13 @@
 
 - [x] 9.1 Block final approval when a bundle component is selected without its parent bundle return line
 - [x] 9.2 Allow partial parent bundle returns and calculate proportional component quantities
-- [x] 9.3 Block final approval when any parent or component movement target is missing, ambiguous, or warned by the preview planner
-- [x] 9.4 Ensure cash-return bundle execution reduces only the customer-facing parent Sale line money/quantity while mutating parent and component stock
-- [x] 9.5 Ensure replacement bundle execution preserves parent Sale money/quantity while dispatching parent and component replacement movement
+- [x] 9.3 Block final approval when required parent targets are missing or warned, and when cash-return component movement targets are missing, ambiguous, or warned by the preview planner
+- [x] 9.4 Correct cash-return bundle execution so parent and component reversals proportionally adjust every affected source Sale, including split-owner component Sales with zero-quantity Sale detail placeholders
+- [x] 9.5 Ensure replacement bundle execution preserves parent Sale money/quantity while dispatching only the parent replacement movement
+- [x] 9.6 Persist enough component row metadata from the approval preview plan to distinguish parent rows from component rows during execution, including component source Sale, sale detail, bundle item, dispatch detail, quantity source, and commercial value source
+- [x] 9.7 Reduce cash-return component dispatch quantities and receive component stock back to the component's original owner/location/tax bucket
+- [x] 9.8 Proportionally correct split-owner component Sale totals, active Sale payments, and Sale Return Payment refund evidence when component commercial value exists
+- [x] 9.9 Keep product-replacement bundle components informational only while cash-return bundle components execute stock, dispatch, Sale, payment, and refund corrections
 
 ## 10. Tests And Verification
 
@@ -87,8 +91,10 @@
 - [x] 10.7 Add non-serial product-replacement tests proving receiving and replacement dispatch stock movements use the original owner/location and same quantity
 - [x] 10.8 Add mixed cash-return and product-replacement tests for one POS Return touching the same source Sale
 - [x] 10.9 Add bundle parent cash-return tests covering partial parent quantity, parent and component receiving transactions, and component-only approval block
-- [x] 10.10 Add bundle replacement tests covering parent and component replacement movement and missing component mapping block
+- [x] 10.10 Add bundle replacement tests covering parent-only replacement movement and informational component context
 - [x] 10.11 Add Sale payment invalidation unit/feature tests mirroring Purchase payment active/invalidated scopes and last-payment-first split behavior
 - [x] 10.12 Add atomic rollback tests for failures during stock receive, Sale payment split, replacement dispatch, and Sale archival
 - [x] 10.13 Run focused tests with `php artisan test --filter=POSReturn` and `php artisan test --filter=SalePayment`
 - [x] 10.14 Run broader confidence verification with `composer test:fresh-sqlite -- --filter=POSReturn` when focused tests pass
+- [x] 10.15 Add a regression test for POS Return approval execution where a bundle parent cash return expands to a split-owner component Sale whose `sale_details.quantity` is zero, proving final approval proportionally corrects the component Sale/payment/dispatch instead of throwing "no remaining quantity to reduce"
+- [x] 10.16 Add regression coverage for mixed cash return plus product replacement on the same bundled SKU: cash-returned original serials remain red, replacement serials appear blue, replacement Sale money/quantity stay unchanged, and cash-return component Sales are corrected

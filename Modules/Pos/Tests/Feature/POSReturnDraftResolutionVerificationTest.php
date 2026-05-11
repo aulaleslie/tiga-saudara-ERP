@@ -683,6 +683,7 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
         $this->assertEquals(PosReturn::STATUS_DRAFT, $updatedReturn->status);
         $this->assertEquals(PosReturn::APPROVAL_STATUS_DRAFT, $updatedReturn->approval_status);
         $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $updatedReturn->lines->first()->resolution);
+        $this->assertSame('1.0000', (string) $updatedReturn->lines->first()->replacement_quantity);
     }
 
     /** @test */

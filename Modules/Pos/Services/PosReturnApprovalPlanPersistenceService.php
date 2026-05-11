@@ -104,6 +104,11 @@ class PosReturnApprovalPlanPersistenceService
                     'serial_number_ids' => $this->resolveSerialNumberIds($line),
                     'bundle_group_key' => $this->resolveBundleGroupKey($plannedDetail, $line),
                     'stock_behavior' => $this->resolveStockBehavior($plannedDetail, $line),
+                    'execution_context' => $this->buildExecutionContext(
+                        $plannedDetail,
+                        $saleReturn,
+                        (int) ($header['sale_id'] ?? $saleReturn->sale_id ?? 0)
+                    ),
                 ]);
 
                 if (($plannedDetail['row_type'] ?? 'parent') === 'parent' && $line) {
@@ -329,6 +334,60 @@ class PosReturnApprovalPlanPersistenceService
     private function normalizeDecimal($value): string
     {
         return number_format((float) $value, 2, '.', '');
+    }
+
+    private function buildExecutionContext(array $plannedDetail, ?SaleReturn $saleReturn, ?int $fallbackSourceSaleId = null): array
+    {
+        $dispatchDetailId = $this->nullableInt($plannedDetail['dispatch_detail_id'] ?? null);
+        $saleDetailId = $this->nullableInt($plannedDetail['sale_detail_id'] ?? null);
+        $componentBundleItemId = $this->nullableInt($plannedDetail['component_sale_bundle_item_id'] ?? null);
+
+        $quantitySource = 'sale_detail';
+        $commercialValueSource = 'sale_detail';
+
+        if (($plannedDetail['row_type'] ?? 'parent') === 'component') {
+            $quantitySource = $componentBundleItemId ? 'sale_bundle_item' : 'sale_detail';
+            $commercialValueSource = $componentBundleItemId ? 'sale_bundle_item' : 'sale_detail';
+        }
+
+        return [
+            'row_type' => (string) ($plannedDetail['row_type'] ?? 'parent'),
+            'resolution' => (string) ($plannedDetail['resolution'] ?? ''),
+            'dispatch_resolution' => (string) ($plannedDetail['dispatch_resolution'] ?? ''),
+            'source_sale_id' => $this->nullableInt($saleReturn?->sale_id ?? $plannedDetail['source_sale_id'] ?? $plannedDetail['sale_id'] ?? $fallbackSourceSaleId),
+            'source_sale_detail_id' => $this->nullableInt($plannedDetail['source_pos_sale_detail_id'] ?? null),
+            'component_source_sale_detail_id' => $saleDetailId,
+            'component_dispatch_detail_id' => $dispatchDetailId,
+            'component_sale_bundle_item_id' => $componentBundleItemId,
+            'component_line_group_key' => (string) ($plannedDetail['component_line_group_key'] ?? ''),
+            'component_bundle_id' => $this->nullableInt($plannedDetail['component_bundle_id'] ?? null),
+            'component_quantity_per_bundle' => $plannedDetail['component_quantity_per_bundle'] ?? null,
+            'quantity_source' => $quantitySource,
+            'commercial_value_source' => $commercialValueSource,
+            'cash_return_amount' => (float) ($plannedDetail['cash_return_amount'] ?? 0),
+            'planned_amount' => (float) ($plannedDetail['amount'] ?? 0),
+        ];
+    }
+
+    private function normalizeExecutionContext(array $context): array
+    {
+        return [
+            'row_type' => (string) ($context['row_type'] ?? 'parent'),
+            'resolution' => (string) ($context['resolution'] ?? ''),
+            'dispatch_resolution' => (string) ($context['dispatch_resolution'] ?? ''),
+            'source_sale_id' => $this->nullableInt($context['source_sale_id'] ?? null),
+            'source_sale_detail_id' => $this->nullableInt($context['source_sale_detail_id'] ?? null),
+            'component_source_sale_detail_id' => $this->nullableInt($context['component_source_sale_detail_id'] ?? null),
+            'component_dispatch_detail_id' => $this->nullableInt($context['component_dispatch_detail_id'] ?? null),
+            'component_sale_bundle_item_id' => $this->nullableInt($context['component_sale_bundle_item_id'] ?? null),
+            'component_line_group_key' => (string) ($context['component_line_group_key'] ?? ''),
+            'component_bundle_id' => $this->nullableInt($context['component_bundle_id'] ?? null),
+            'component_quantity_per_bundle' => $this->nullableInt($context['component_quantity_per_bundle'] ?? null),
+            'quantity_source' => (string) ($context['quantity_source'] ?? ''),
+            'commercial_value_source' => (string) ($context['commercial_value_source'] ?? ''),
+            'cash_return_amount' => $this->normalizeDecimal($context['cash_return_amount'] ?? 0),
+            'planned_amount' => $this->normalizeDecimal($context['planned_amount'] ?? 0),
+        ];
     }
 
     private function nullableInt($value): int|string|null

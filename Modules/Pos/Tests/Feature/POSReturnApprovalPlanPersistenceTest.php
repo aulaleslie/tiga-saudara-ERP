@@ -206,6 +206,171 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
         $this->assertSame(PosReturn::APPROVAL_STATUS_PENDING, $posReturn->fresh()->approval_status);
     }
 
+    /** @test */
+    public function it_persists_component_execution_context_metadata_from_the_approval_preview_plan(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [$parentSale, $parentSaleDetail, $parentDispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'CTXP');
+
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'PRD-CTXC-' . uniqid(),
+            'product_name' => 'Persistence Component',
+            'sale_price' => 60,
+        ]);
+        $componentSale = Sale::query()->create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => null,
+            'customer_name' => 'Walk-in Customer',
+            'total_amount' => 120,
+            'paid_amount' => 120,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-CTXC-' . uniqid(),
+        ]);
+
+        PosCheckoutSale::query()->create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $componentSale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'grand_total' => 120,
+            'split_key' => 'SPLIT-CTXC-' . uniqid(),
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        $componentPlaceholderDetail = SaleDetails::query()->create([
+            'sale_id' => $componentSale->id,
+            'product_id' => $componentProduct->id,
+            'quantity' => 0,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+        $componentBundleItem = \Modules\Sale\Entities\SaleBundleItem::query()->create([
+            'sale_id' => $componentSale->id,
+            'sale_detail_id' => $componentPlaceholderDetail->id,
+            'bundle_id' => 9400,
+            'bundle_item_id' => 9401,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 2,
+            'price' => 60,
+            'sub_total' => 120,
+            'tax_amount' => 0,
+            'line_group_key' => 'plan-component-0',
+        ]);
+        $componentDispatch = Dispatch::query()->create([
+            'sale_id' => $componentSale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $componentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $componentDispatch->id,
+            'sale_id' => $componentSale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $parentSaleDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]]);
+        $line = $posReturn->fresh('lines')->lines->firstOrFail();
+
+        $plan = [
+            'blockers' => [],
+            'warnings' => [],
+            'groups' => [
+                [
+                    'planned_header' => [
+                        'sale_id' => $parentSale->id,
+                        'setting_id' => $this->setting->id,
+                        'location_id' => $this->location->id,
+                        'return_type' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                        'total_amount' => 600,
+                    ],
+                    'tax_context' => ['tax_id' => null],
+                    'planned_details' => [[
+                        'row_type' => 'parent',
+                        'pos_return_line_id' => $line->id,
+                        'sale_detail_id' => $parentSaleDetail->id,
+                        'dispatch_detail_id' => $parentDispatchDetail->id,
+                        'source_location_id' => $this->location->id,
+                        'tax_id' => null,
+                        'product_id' => $parentSaleDetail->product_id,
+                        'product_name' => $parentSaleDetail->product_name,
+                        'product_code' => $parentSaleDetail->product_code,
+                        'quantity' => 1,
+                        'amount' => 600,
+                        'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                        'dispatch_resolution' => 'pos_return_line.dispatch_detail_id',
+                        'stock_movement_intent' => 'stok_sumber_akan_bertambah_saat_receiving',
+                        'source_pos_sale_detail_id' => $parentSaleDetail->id,
+                    ]],
+                ],
+                [
+                    'planned_header' => [
+                        'sale_id' => $componentSale->id,
+                        'setting_id' => $this->setting->id,
+                        'location_id' => $this->location->id,
+                        'return_type' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                        'total_amount' => 120,
+                    ],
+                    'tax_context' => ['tax_id' => null],
+                    'planned_details' => [[
+                        'row_type' => 'component',
+                        'pos_return_line_id' => $line->id,
+                        'sale_detail_id' => $componentPlaceholderDetail->id,
+                        'dispatch_detail_id' => $componentDispatchDetail->id,
+                        'source_location_id' => $this->location->id,
+                        'tax_id' => null,
+                        'product_id' => $componentProduct->id,
+                        'product_name' => $componentProduct->product_name,
+                        'product_code' => $componentProduct->product_code,
+                        'quantity' => 2,
+                        'amount' => 120,
+                        'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                        'dispatch_resolution' => 'component.sale_id+product_id',
+                        'stock_movement_intent' => 'stok_sumber_akan_bertambah_saat_receiving',
+                        'source_pos_sale_detail_id' => $parentSaleDetail->id,
+                        'component_sale_bundle_item_id' => $componentBundleItem->id,
+                        'component_line_group_key' => $componentBundleItem->line_group_key,
+                        'component_bundle_id' => $componentBundleItem->bundle_id,
+                        'component_quantity_per_bundle' => 2,
+                    ]],
+                ],
+            ],
+        ];
+
+        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+
+        $componentDetail = SaleReturnDetail::query()
+            ->whereHas('saleReturn', fn ($query) => $query->where('pos_return_id', $posReturn->id)->where('sale_id', $componentSale->id))
+            ->firstOrFail();
+
+        $this->assertSame('component', data_get($componentDetail->execution_context, 'row_type'));
+        $this->assertSame($componentSale->id, data_get($componentDetail->execution_context, 'source_sale_id'));
+        $this->assertSame($parentSaleDetail->id, data_get($componentDetail->execution_context, 'source_sale_detail_id'));
+        $this->assertSame($componentPlaceholderDetail->id, data_get($componentDetail->execution_context, 'component_source_sale_detail_id'));
+        $this->assertSame($componentDispatchDetail->id, data_get($componentDetail->execution_context, 'component_dispatch_detail_id'));
+        $this->assertSame($componentBundleItem->id, data_get($componentDetail->execution_context, 'component_sale_bundle_item_id'));
+        $this->assertSame('sale_bundle_item', data_get($componentDetail->execution_context, 'quantity_source'));
+        $this->assertSame('sale_bundle_item', data_get($componentDetail->execution_context, 'commercial_value_source'));
+        $this->assertSame('component.sale_id+product_id', data_get($componentDetail->execution_context, 'dispatch_resolution'));
+    }
+
     protected function createTransactionWithCheckout(): array
     {
         $transaction = PosTransaction::query()->create([

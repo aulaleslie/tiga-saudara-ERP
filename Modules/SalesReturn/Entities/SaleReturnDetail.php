@@ -33,6 +33,7 @@ class SaleReturnDetail extends BaseModel
         'serial_number_ids',
         'bundle_group_key',
         'stock_behavior',
+        'execution_context',
     ];
 
     protected $with = ['product'];
@@ -45,6 +46,7 @@ class SaleReturnDetail extends BaseModel
         'product_discount_amount' => 'decimal:2',
         'product_tax_amount'      => 'decimal:2',
         'serial_number_ids'       => 'array',
+        'execution_context'       => 'array',
     ];
 
     public function posReturnLine(): BelongsTo
