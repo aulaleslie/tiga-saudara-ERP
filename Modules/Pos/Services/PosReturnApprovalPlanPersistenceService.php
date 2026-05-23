@@ -160,6 +160,7 @@ class PosReturnApprovalPlanPersistenceService
                     'tax_id' => $this->nullableInt($detail['tax_id'] ?? null),
                     'bundle_group_key' => $this->resolveBundleGroupKey($detail, $line),
                     'stock_behavior' => $this->canonicalStockBehavior($this->resolveStockBehavior($detail, $line)),
+                    'replacement_execution' => $this->normalizeReplacementExecutionContext($detail),
                 ];
             })
             ->sortBy(fn (array $detail) => json_encode($detail))
@@ -196,6 +197,7 @@ class PosReturnApprovalPlanPersistenceService
                     'tax_id' => $this->nullableInt($detail->tax_id),
                     'bundle_group_key' => (string) ($detail->bundle_group_key ?? ''),
                     'stock_behavior' => $this->canonicalStockBehavior((string) ($detail->stock_behavior ?? PosReturnLine::STOCK_BEHAVIOR_MANAGED)),
+                    'replacement_execution' => $this->normalizeReplacementExecutionContext(is_array($detail->execution_context) ? $detail->execution_context : []),
                 ];
             })
             ->sortBy(fn (array $detail) => json_encode($detail))
@@ -366,6 +368,12 @@ class PosReturnApprovalPlanPersistenceService
             'commercial_value_source' => $commercialValueSource,
             'cash_return_amount' => (float) ($plannedDetail['cash_return_amount'] ?? 0),
             'planned_amount' => (float) ($plannedDetail['amount'] ?? 0),
+            'replacement_serial_owner_setting_id' => $this->nullableInt($plannedDetail['replacement_serial_owner_setting_id'] ?? null),
+            'replacement_serial_location_id' => $this->nullableInt($plannedDetail['replacement_serial_location_id'] ?? null),
+            'execution_mode' => $this->nullableString($plannedDetail['execution_mode'] ?? null),
+            'original_sale_correction_quantity' => $this->nullableDecimal($plannedDetail['original_sale_correction_quantity'] ?? null),
+            'original_sale_correction_amount' => $this->nullableDecimal($plannedDetail['original_sale_correction_amount'] ?? null),
+            'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($plannedDetail['generated_replacement_sale_effects'] ?? null),
         ];
     }
 
@@ -387,7 +395,68 @@ class PosReturnApprovalPlanPersistenceService
             'commercial_value_source' => (string) ($context['commercial_value_source'] ?? ''),
             'cash_return_amount' => $this->normalizeDecimal($context['cash_return_amount'] ?? 0),
             'planned_amount' => $this->normalizeDecimal($context['planned_amount'] ?? 0),
+            'replacement_serial_owner_setting_id' => $this->nullableInt($context['replacement_serial_owner_setting_id'] ?? null),
+            'replacement_serial_location_id' => $this->nullableInt($context['replacement_serial_location_id'] ?? null),
+            'execution_mode' => $this->nullableString($context['execution_mode'] ?? null),
+            'original_sale_correction_quantity' => $this->nullableDecimal($context['original_sale_correction_quantity'] ?? null),
+            'original_sale_correction_amount' => $this->nullableDecimal($context['original_sale_correction_amount'] ?? null),
+            'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($context['generated_replacement_sale_effects'] ?? null),
         ];
+    }
+
+    private function normalizeReplacementExecutionContext(array $context): array
+    {
+        $normalized = $this->normalizeExecutionContext($context);
+
+        if (($normalized['execution_mode'] ?? null) !== 'cross_owner_replacement') {
+            return [];
+        }
+
+        return [
+            'replacement_serial_owner_setting_id' => $normalized['replacement_serial_owner_setting_id'],
+            'replacement_serial_location_id' => $normalized['replacement_serial_location_id'],
+            'execution_mode' => $normalized['execution_mode'],
+            'original_sale_correction_quantity' => $normalized['original_sale_correction_quantity'],
+            'original_sale_correction_amount' => $normalized['original_sale_correction_amount'],
+            'generated_replacement_sale_effects' => $normalized['generated_replacement_sale_effects'],
+        ];
+    }
+
+    private function normalizeGeneratedReplacementSaleEffects($effects): ?array
+    {
+        if (! is_array($effects) || $effects === []) {
+            return null;
+        }
+
+        return [
+            'setting_id' => $this->nullableInt($effects['setting_id'] ?? null),
+            'setting_name' => $this->nullableString($effects['setting_name'] ?? null),
+            'location_id' => $this->nullableInt($effects['location_id'] ?? null),
+            'location_name' => $this->nullableString($effects['location_name'] ?? null),
+            'sale_reference' => $this->nullableString($effects['sale_reference'] ?? null),
+            'customer_id' => $this->nullableInt($effects['customer_id'] ?? null),
+            'customer_resolution_source' => $this->nullableString($effects['customer_resolution_source'] ?? null),
+            'payment_amount' => $this->nullableDecimal($effects['payment_amount'] ?? null),
+            'dispatch_quantity' => $this->nullableDecimal($effects['dispatch_quantity'] ?? null),
+        ];
+    }
+
+    private function nullableDecimal($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return $this->normalizeDecimal($value);
+    }
+
+    private function nullableString($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (string) $value;
     }
 
     private function nullableInt($value): int|string|null

@@ -2,9 +2,18 @@
 
 namespace Modules\Pos\Services;
 
+use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Exceptions\PosReturnManualCorrectionRequiredException;
+use Modules\Purchase\Entities\PaymentTerm;
 
 class PosReturnLifecycleService
 {
@@ -344,8 +353,25 @@ class PosReturnLifecycleService
                 ->reject(fn ($detail) => $this->isReplacementInformationalBundleComponentDetail($detail))
                 ->values();
 
-            if ($replacementDetails->isNotEmpty()) {
-                $this->dispatchReplacementForSaleReturnDetails($saleReturn, $replacementDetails, $actorId, $executedAt);
+            $sameOwnerReplacementDetails = $replacementDetails
+                ->reject(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
+                ->values();
+
+            $crossOwnerReplacementDetails = $replacementDetails
+                ->filter(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
+                ->values();
+
+            if ($sameOwnerReplacementDetails->isNotEmpty()) {
+                $this->dispatchReplacementForSaleReturnDetails($saleReturn, $sameOwnerReplacementDetails, $actorId, $executedAt);
+            }
+
+            if ($crossOwnerReplacementDetails->isNotEmpty()) {
+                $this->applyCrossOwnerReplacementCashCorrections($crossOwnerReplacementDetails);
+                $this->recalculateCashCorrectedSourceSale($saleReturn);
+
+                foreach ($crossOwnerReplacementDetails as $detail) {
+                    $this->executeCrossOwnerReplacementForDetail($posReturn, $saleReturn, $detail, $actorId, $executedAt);
+                }
             }
         }
     }
@@ -788,6 +814,253 @@ class PosReturnLifecycleService
             'return_date',
             'updated_at',
         ]);
+    }
+
+    protected function isCrossOwnerReplacementDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        return (string) data_get($detail->execution_context, 'execution_mode', '') === 'cross_owner_replacement';
+    }
+
+    protected function applyCrossOwnerReplacementCashCorrections(\Illuminate\Support\Collection $crossOwnerDetails): void
+    {
+        $this->applyCashReturnSaleDetailCorrections($crossOwnerDetails);
+    }
+
+    protected function executeCrossOwnerReplacementForDetail(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $executedAt
+    ): void {
+        $executionContext = $this->detailExecutionContext($detail);
+        $replacementSettingId = (int) ($executionContext['replacement_serial_owner_setting_id'] ?? 0);
+        $replacementLocationId = (int) ($executionContext['replacement_serial_location_id'] ?? 0);
+
+        if ($replacementSettingId <= 0 || $replacementLocationId <= 0) {
+            throw new \RuntimeException('Konteks eksekusi cross-owner replacement tidak memiliki replacement_serial_owner_setting_id atau replacement_serial_location_id yang valid.');
+        }
+
+        $generatedEffects = $executionContext['generated_replacement_sale_effects'] ?? null;
+        if (! is_array($generatedEffects)) {
+            throw new \RuntimeException('Konteks eksekusi cross-owner replacement tidak memiliki generated_replacement_sale_effects yang valid.');
+        }
+
+        $customerId = (int) ($generatedEffects['customer_id'] ?? 0);
+        if ($customerId <= 0) {
+            throw new \RuntimeException('Customer untuk replacement-owner Sale tidak dapat ditentukan dari execution context.');
+        }
+
+        $line = $detail->posReturnLine;
+        $replacementSerialId = (int) ($line->replacement_serial_id ?? 0);
+
+        $replacementSerial = $replacementSerialId > 0
+            ? (ProductSerialNumber::query()->with('location')->find($replacementSerialId))
+            : null;
+
+        if ($replacementSerialId > 0 && ! $replacementSerial) {
+            throw new \RuntimeException('Serial pengganti untuk cross-owner replacement tidak ditemukan.');
+        }
+
+        if ($replacementSerial && (int) $replacementSerial->product_id !== (int) $detail->product_id) {
+            throw new \RuntimeException('Serial pengganti harus memiliki product_id yang sama dengan barang yang diretur (cross-owner).');
+        }
+
+        $paymentAmount = round((float) ($generatedEffects['payment_amount'] ?? 0), 2);
+        $dispatchQuantity = (int) round((float) ($generatedEffects['dispatch_quantity'] ?? $detail->quantity ?? 1));
+
+        $originalSale = \Modules\Sale\Entities\Sale::query()->find((int) $saleReturn->sale_id);
+
+        $replacementOwnerSaleReference = $this->generateCrossOwnerReplacementSaleReference($replacementSettingId);
+
+        $customerRecord = \Modules\People\Entities\Customer::query()->find($customerId);
+        $customerName = $customerRecord?->customer_name ?? ($originalSale?->customer_name ?? '');
+
+        $replacementSale = Sale::query()->create([
+            'date' => $originalSale?->date ?? $executedAt->toDateString(),
+            'due_date' => $originalSale?->due_date ?? $executedAt->toDateString(),
+            'customer_id' => $customerId,
+            'customer_name' => $customerName,
+            'tax_id' => null,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => $paymentAmount,
+            'paid_amount' => $paymentAmount,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => 'Paid',
+            'payment_term_id' => PaymentTerm::defaultCodTermId(),
+            'note' => 'Generated from POS Return ' . $posReturn->reference . ' cross-owner replacement. Original Sale: ' . ($originalSale?->reference ?? ''),
+            'setting_id' => $replacementSettingId,
+            'reference' => $replacementOwnerSaleReference,
+            'is_tax_included' => false,
+            'payment_method' => $originalSale?->payment_method ?? 'CASH',
+        ]);
+
+        $product = \Modules\Product\Entities\Product::query()->find((int) $detail->product_id);
+
+        SaleDetails::query()->create([
+            'sale_id' => $replacementSale->id,
+            'product_id' => $detail->product_id,
+            'product_name' => $product?->product_name ?? $detail->product_name ?? '',
+            'product_code' => $product?->product_code ?? $detail->product_code ?? '',
+            'quantity' => $dispatchQuantity,
+            'price' => $dispatchQuantity > 0 ? round($paymentAmount / $dispatchQuantity, 2) : 0,
+            'unit_price' => $dispatchQuantity > 0 ? round($paymentAmount / $dispatchQuantity, 2) : 0,
+            'sub_total' => $paymentAmount,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        if ($paymentAmount > 0) {
+            SalePayment::query()->create([
+                'sale_id' => $replacementSale->id,
+                'amount' => $paymentAmount,
+                'date' => $originalSale?->date ?? $executedAt->toDateString(),
+                'reference' => 'CROSS-OWNER-REPL/' . $posReturn->reference,
+                'payment_method' => $originalSale?->payment_method ?? 'CASH',
+                'note' => 'Generated cross-owner replacement payment from POS Return ' . $posReturn->reference,
+            ]);
+        }
+
+        $replacementDispatch = Dispatch::query()->create([
+            'sale_id' => $replacementSale->id,
+            'dispatch_date' => $executedAt,
+            'status' => Dispatch::STATUS_APPROVED,
+            'approved_by' => $actorId,
+            'approved_at' => $executedAt,
+        ]);
+
+        $serialNumbers = $replacementSerial ? json_encode([$replacementSerial->serial_number]) : null;
+
+        $replacementDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $replacementDispatch->id,
+            'sale_id' => $replacementSale->id,
+            'product_id' => $detail->product_id,
+            'dispatched_quantity' => $dispatchQuantity,
+            'location_id' => $replacementLocationId,
+            'serial_numbers' => $serialNumbers,
+            'tax_id' => $detail->tax_id,
+            'bundle_id' => null,
+            'pos_return_line_id' => $detail->pos_return_line_id,
+        ]);
+
+        if ($this->shouldDispatchReplacementAffectStock($detail)) {
+            $this->adjustCrossOwnerReplacementStock($detail, $replacementSettingId, $replacementLocationId, $dispatchQuantity, $actorId, $saleReturn->reference ?? '');
+        }
+
+        if ($replacementSerial) {
+            $replacementSerial->update([
+                'dispatch_detail_id' => $replacementDispatchDetail->id,
+                'location_id' => $replacementLocationId,
+                'status' => ProductSerialNumber::STATUS_SOLD,
+            ]);
+
+            \App\Services\SerialNumberHistoryService::record(
+                $replacementSerial->id,
+                SerialNumberHistory::EVENT_SOLD,
+                $replacementLocationId,
+                $replacementDispatchDetail
+            );
+
+            SalesOrderSerialTracking::query()->upsert([
+                [
+                    'sale_id' => (int) $replacementSale->id,
+                    'product_serial_number_id' => $replacementSerial->id,
+                    'quantity_allocated' => 1,
+                    'dispatch_date' => $replacementDispatch->dispatch_date ?? now(),
+                    'return_date' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ],
+            ], [
+                'sale_id',
+                'product_serial_number_id',
+            ], [
+                'quantity_allocated',
+                'dispatch_date',
+                'return_date',
+                'updated_at',
+            ]);
+        }
+    }
+
+    protected function adjustCrossOwnerReplacementStock(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        int $settingId,
+        int $locationId,
+        int $quantity,
+        ?int $actorId,
+        string $saleReturnReference
+    ): void {
+        $product = \Modules\Product\Entities\Product::query()->findOrFail((int) $detail->product_id);
+
+        $productStock = ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $locationId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $productStock) {
+            throw new \RuntimeException("Stok tidak ditemukan untuk produk {$product->product_name} di lokasi replacement owner.");
+        }
+
+        if ((int) $productStock->quantity < $quantity) {
+            throw new \RuntimeException('Stok produk pengganti tidak mencukupi di lokasi replacement owner.');
+        }
+
+        $previousQuantity = (int) $product->product_quantity;
+        $previousQuantityAtLocation = (int) $productStock->quantity;
+
+        $productStock->decrement('quantity', $quantity);
+        $product->decrement('product_quantity', $quantity);
+
+        $taxId = $productStock->tax_id ?? null;
+
+        \Modules\Product\Entities\Transaction::create([
+            'product_id' => $product->id,
+            'setting_id' => $settingId,
+            'quantity' => -$quantity,
+            'current_quantity' => (int) $product->product_quantity,
+            'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
+            'location_id' => $locationId,
+            'user_id' => $actorId,
+            'reason' => 'Cross-owner replacement dispatch for POS Return #' . $saleReturnReference,
+            'type' => 'DISPATCH_RETURN',
+            'previous_quantity' => $previousQuantity,
+            'after_quantity' => (int) $product->product_quantity,
+            'previous_quantity_at_location' => $previousQuantityAtLocation,
+            'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
+            'quantity_non_tax' => $taxId ? 0 : $quantity,
+            'quantity_tax' => $taxId ? $quantity : 0,
+            'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
+            'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
+        ]);
+    }
+
+    protected function generateCrossOwnerReplacementSaleReference(int $settingId): string
+    {
+        $prefix = 'POSREPL';
+        $date = now()->format('Ymd');
+
+        $lastRef = \Modules\Sale\Entities\Sale::query()
+            ->where('setting_id', $settingId)
+            ->where('reference', 'like', "{$prefix}/{$date}/%")
+            ->orderByDesc('reference')
+            ->value('reference');
+
+        $sequence = 1;
+        if ($lastRef) {
+            $parts = explode('/', $lastRef);
+            $sequence = (int) ($parts[2] ?? 0) + 1;
+        }
+
+        return sprintf('%s/%s/%04d', $prefix, $date, $sequence);
     }
 
     protected function finalizeApprovalExecution(

@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Tests\Feature;
 
+use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosReturn;
@@ -236,6 +237,92 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
                 ->values()
                 ->all()
         );
+    }
+
+    /** @test */
+    public function it_marks_same_owner_replacement_preview_without_generated_sale_effects(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'SAME-OWNER-' . uniqid(),
+            'product_name' => 'Same Owner Replacement Product',
+            'serial_number_required' => true,
+        ]);
+        $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-SAME-RET-' . uniqid());
+        $replacementSerial = $this->createSerialNumber($product, $this->location, 'SN-SAME-REP-' . uniqid());
+        [, $detail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'SAME', $product, [
+            'serial_number_ids' => [$returnedSerial->id],
+        ]);
+        $returnedSerial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $detail->id,
+            'returned_serial_id' => $returnedSerial->id,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_serial_id' => $replacementSerial->id,
+        ]]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+        $detailPlan = $plan['groups'][0]['planned_details'][0];
+
+        $this->assertFalse($plan['is_blocked'], json_encode($plan));
+        $this->assertSame('same_owner_replacement', $detailPlan['execution_mode']);
+        $this->assertSame($this->setting->id, $detailPlan['replacement_serial_owner_setting_id']);
+        $this->assertSame($this->location->id, $detailPlan['replacement_serial_location_id']);
+        $this->assertNull($detailPlan['generated_replacement_sale_effects']);
+        $this->assertNull($detailPlan['original_sale_correction_amount']);
+    }
+
+    /** @test */
+    public function it_plans_cross_owner_replacement_preview_with_original_sale_correction_and_generated_sale_effects(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'CROSS-OWNER-' . uniqid(),
+            'product_name' => 'Cross Owner Replacement Product',
+            'serial_number_required' => true,
+        ]);
+        $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-CROSS-RET-' . uniqid());
+        $replacementSerial = $this->createSerialNumber($product, $this->secondLocation, 'SN-CROSS-REP-' . uniqid());
+        $customer = Customer::factory()->create(['setting_id' => $this->setting->id]);
+        [$sale, $detail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'CROSS', $product, [
+            'serial_number_ids' => [$returnedSerial->id],
+        ]);
+        $sale->update([
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+        ]);
+        $returnedSerial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $detail->id,
+            'returned_serial_id' => $returnedSerial->id,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_serial_id' => $replacementSerial->id,
+        ]]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+        $detailPlan = $plan['groups'][0]['planned_details'][0];
+
+        $this->assertFalse($plan['is_blocked'], json_encode($plan));
+        $this->assertSame('cross_owner_replacement', $detailPlan['execution_mode']);
+        $this->assertSame($this->secondSetting->id, $detailPlan['replacement_serial_owner_setting_id']);
+        $this->assertSame($this->secondLocation->id, $detailPlan['replacement_serial_location_id']);
+        $this->assertSame(1.0, (float) $detailPlan['original_sale_correction_quantity']);
+        $this->assertSame((float) $detail->sub_total, (float) $detailPlan['original_sale_correction_amount']);
+        $this->assertSame($this->secondSetting->id, data_get($detailPlan, 'generated_replacement_sale_effects.setting_id'));
+        $this->assertSame($this->secondLocation->id, data_get($detailPlan, 'generated_replacement_sale_effects.location_id'));
+        $this->assertSame('selected', data_get($detailPlan, 'generated_replacement_sale_effects.customer_resolution_source'));
     }
 
     /** @test */

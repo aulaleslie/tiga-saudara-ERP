@@ -10,6 +10,7 @@ use Modules\Pos\Entities\PosReturnLine;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Livewire\PosReturn\PosReturnCreateForm;
 use Modules\Pos\Livewire\PosReturn\PosReturnEditForm;
+use Modules\Pos\Services\PosReturnReplacementOwnerResolver;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
@@ -453,6 +454,95 @@ class POSReturnSharedFormSurfaceTest extends PosTransactionFeatureTestCase
             ->call('scanReplacementSerial', $lineKeyB)
             ->assertHasErrors(["lineSelections.{$lineKeyB}.replacement_serial_input"])
             ->assertSee('Serial pengganti tidak boleh digunakan lebih dari satu kali');
+    }
+
+    /** @test */
+    public function create_surfaces_missing_replacement_owner_errors_without_selecting_the_serial(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $fixture = $this->makeTrackedSerialFixture('CREATE-OWNER');
+        $lineKey = ($fixture['snapshot']['lines'][0]['pos_transaction_line_id'] ?? $fixture['saleDetail']->id) . '-' . $fixture['serialA']->id;
+        $ownerlessReplacement = $this->createSerialNumber($fixture['product'], $this->location, 'SSF-CREATE-OWNERLESS-001');
+        $realResolver = app(PosReturnReplacementOwnerResolver::class);
+
+        $this->partialMock(PosReturnReplacementOwnerResolver::class, function ($mock) use ($realResolver, $ownerlessReplacement) {
+            $mock->shouldReceive('resolveById')
+                ->andReturnUsing(function (int $replacementSerialId) use ($realResolver, $ownerlessReplacement) {
+                    $resolved = $realResolver->resolveById($replacementSerialId);
+
+                    if ($replacementSerialId === (int) $ownerlessReplacement->id) {
+                        $resolved['owner_setting'] = null;
+                        $resolved['owner_setting_id'] = null;
+                    }
+
+                    return $resolved;
+                });
+        });
+
+        Livewire::test(PosReturnCreateForm::class)
+            ->set('identifier', $fixture['transaction']->code)
+            ->call('lookup')
+            ->set("lineSelections.{$lineKey}.resolution", PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ->set("lineSelections.{$lineKey}.replacement_serial_input", $ownerlessReplacement->serial_number)
+            ->call('scanReplacementSerial', $lineKey)
+            ->assertHasErrors(["lineSelections.{$lineKey}.replacement_serial_input"])
+            ->assertSee('owner bisnis')
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_id", null)
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_label", '');
+    }
+
+    /** @test */
+    public function edit_surfaces_missing_replacement_owner_errors_without_overwriting_existing_selection(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $fixture = $this->makeTrackedSerialFixture('EDIT-OWNER');
+        $validReplacement = $this->createSerialNumber($fixture['product'], $this->location, 'SSF-EDIT-OWNER-VALID-001');
+        $ownerlessReplacement = $this->createSerialNumber($fixture['product'], $this->location, 'SSF-EDIT-OWNERLESS-001');
+        $realResolver = app(PosReturnReplacementOwnerResolver::class);
+
+        $this->partialMock(PosReturnReplacementOwnerResolver::class, function ($mock) use ($realResolver, $ownerlessReplacement) {
+            $mock->shouldReceive('resolveById')
+                ->andReturnUsing(function (int $replacementSerialId) use ($realResolver, $ownerlessReplacement) {
+                    $resolved = $realResolver->resolveById($replacementSerialId);
+
+                    if ($replacementSerialId === (int) $ownerlessReplacement->id) {
+                        $resolved['owner_setting'] = null;
+                        $resolved['owner_setting_id'] = null;
+                    }
+
+                    return $resolved;
+                });
+        });
+
+        $posReturn = $this->submissionService->store([
+            'pos_transaction_id' => $fixture['transaction']->id,
+            'source_snapshot' => $fixture['snapshot'],
+            'source_snapshot_hash' => $fixture['snapshot']['hash'],
+            'lines' => [[
+                'sale_id' => $fixture['sale']->id,
+                'sale_detail_id' => $fixture['saleDetail']->id,
+                'pos_transaction_line_id' => $fixture['snapshot']['lines'][0]['pos_transaction_line_id'] ?? null,
+                'returned_serial_id' => $fixture['serialA']->id,
+                'quantity' => 1,
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            ]],
+        ]);
+
+        $lineKey = ($fixture['snapshot']['lines'][0]['pos_transaction_line_id'] ?? $fixture['saleDetail']->id) . '-' . $fixture['serialA']->id;
+
+        Livewire::test(PosReturnEditForm::class, ['return' => $posReturn])
+            ->set("lineSelections.{$lineKey}.resolution", PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ->set("lineSelections.{$lineKey}.replacement_serial_input", $validReplacement->serial_number)
+            ->call('scanReplacementSerial', $lineKey)
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_id", $validReplacement->id)
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_label", $validReplacement->serial_number)
+            ->set("lineSelections.{$lineKey}.replacement_serial_input", $ownerlessReplacement->serial_number)
+            ->call('scanReplacementSerial', $lineKey)
+            ->assertHasErrors(["lineSelections.{$lineKey}.replacement_serial_input"])
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_id", $validReplacement->id)
+            ->assertSet("lineSelections.{$lineKey}.replacement_serial_label", $validReplacement->serial_number);
     }
 
     protected function makeTrackedSerialFixture(string $prefix): array

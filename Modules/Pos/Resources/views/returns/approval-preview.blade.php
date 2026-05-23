@@ -320,6 +320,15 @@
                                             <td>
                                                 <div>{{ $detail['source_setting_name'] ?: '-' }}</div>
                                                 <div class="small text-muted">{{ $detail['source_location_name'] ?: '-' }}</div>
+                                                @if(! empty($detail['execution_mode_label']))
+                                                    <div class="small text-primary">Mode: {{ $detail['execution_mode_label'] }}</div>
+                                                @endif
+                                                @if(! empty($detail['replacement_serial_owner_setting_name']) || ! empty($detail['replacement_serial_location_name']))
+                                                    <div class="small text-muted">
+                                                        Pengganti: {{ $detail['replacement_serial_owner_setting_name'] ?: '-' }}
+                                                        / {{ $detail['replacement_serial_location_name'] ?: '-' }}
+                                                    </div>
+                                                @endif
                                             </td>
                                             <td>{{ $detail['tax_name'] ?: 'NON TAX' }}</td>
                                             <td>{{ $detail['returned_serial'] ?: '-' }}</td>
@@ -327,6 +336,23 @@
                                             <td>
                                                 <div class="small">Stok: {{ $detail['stock_movement_intent'] }}</div>
                                                 <div class="small text-muted">Serial: {{ $detail['serial_movement_intent'] }}</div>
+                                                @if(! empty($detail['original_sale_correction_amount']) || ! empty($detail['original_sale_correction_quantity']))
+                                                    <div class="small text-warning">
+                                                        Koreksi sale asal:
+                                                        Qty {{ rtrim(rtrim(number_format((float) ($detail['original_sale_correction_quantity'] ?? 0), 4, '.', ''), '0'), '.') }}
+                                                        / {{ format_currency((float) ($detail['original_sale_correction_amount'] ?? 0)) }}
+                                                    </div>
+                                                @endif
+                                                @if(! empty($detail['generated_replacement_sale_effects']))
+                                                    <div class="small text-success">
+                                                        Sale pengganti: {{ data_get($detail, 'generated_replacement_sale_effects.setting_name', '-') }}
+                                                        / {{ data_get($detail, 'generated_replacement_sale_effects.location_name', '-') }}
+                                                    </div>
+                                                    <div class="small text-muted">
+                                                        Customer: {{ data_get($detail, 'generated_replacement_sale_effects.customer_resolution_source', '-') }}
+                                                        | Bayar: {{ format_currency((float) data_get($detail, 'generated_replacement_sale_effects.payment_amount', 0)) }}
+                                                    </div>
+                                                @endif
                                                 @if(! empty($detail['dispatch_detail_id']) || ! empty($detail['dispatch_resolution']))
                                                     <div class="small text-muted">
                                                         Anchor: dispatch #{{ $detail['dispatch_detail_id'] ?: '-' }}

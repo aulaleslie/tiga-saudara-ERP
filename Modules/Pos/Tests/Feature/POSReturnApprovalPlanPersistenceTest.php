@@ -33,7 +33,11 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
 
     protected $setting;
 
+    protected $secondSetting;
+
     protected $location;
+
+    protected $secondLocation;
 
     protected $terminal;
 
@@ -50,7 +54,9 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
         $this->planner = app(PosReturnApprovalPreviewPlannerService::class);
         $this->lifecycleService = app(PosReturnLifecycleService::class);
         $this->setting = $this->createSetting('POS Return Approval Plan Persistence Test');
+        $this->secondSetting = $this->createSetting('POS Return Approval Plan Persistence Test 2');
         [$this->terminal, $this->location] = $this->createTerminalWithLocation($this->setting);
+        [, $this->secondLocation] = $this->createTerminalWithLocation($this->secondSetting);
 
         foreach (['pos.returns.create', 'pos.returns.approve'] as $permission) {
             Permission::findOrCreate($permission, 'web');
@@ -369,6 +375,320 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
         $this->assertSame('sale_bundle_item', data_get($componentDetail->execution_context, 'quantity_source'));
         $this->assertSame('sale_bundle_item', data_get($componentDetail->execution_context, 'commercial_value_source'));
         $this->assertSame('component.sale_id+product_id', data_get($componentDetail->execution_context, 'dispatch_resolution'));
+    }
+
+    /** @test */
+    public function it_persists_cross_owner_replacement_execution_context_metadata_from_the_approval_preview_plan(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [$sale, $saleDetail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'XOWN');
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $saleDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+        ]]);
+        $line = $posReturn->fresh('lines')->lines->firstOrFail();
+
+        $plan = [
+            'blockers' => [],
+            'warnings' => [],
+            'groups' => [[
+                'planned_header' => [
+                    'sale_id' => $sale->id,
+                    'setting_id' => $this->setting->id,
+                    'location_id' => $this->location->id,
+                    'return_type' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'total_amount' => 600,
+                ],
+                'tax_context' => ['tax_id' => null],
+                'planned_details' => [[
+                    'row_type' => 'parent',
+                    'pos_return_line_id' => $line->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'dispatch_detail_id' => $dispatchDetail->id,
+                    'source_location_id' => $this->location->id,
+                    'tax_id' => null,
+                    'product_id' => $saleDetail->product_id,
+                    'product_name' => $saleDetail->product_name,
+                    'product_code' => $saleDetail->product_code,
+                    'quantity' => 1,
+                    'amount' => 600,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'dispatch_resolution' => 'returned_serial.dispatch_detail_id',
+                    'stock_movement_intent' => 'stok_retur_kembali_ke_owner_asal_dan_serial_pengganti_keluar_dari_owner_pengganti',
+                    'replacement_serial_owner_setting_id' => $this->secondSetting->id,
+                    'replacement_serial_location_id' => $this->secondLocation->id,
+                    'execution_mode' => 'cross_owner_replacement',
+                    'original_sale_correction_quantity' => 1,
+                    'original_sale_correction_amount' => 600,
+                    'generated_replacement_sale_effects' => [
+                        'setting_id' => $this->secondSetting->id,
+                        'setting_name' => $this->secondSetting->company_name,
+                        'location_id' => $this->secondLocation->id,
+                        'location_name' => $this->secondLocation->name,
+                        'sale_reference' => 'generated_on_approval',
+                        'customer_id' => null,
+                        'customer_resolution_source' => 'selected',
+                        'payment_amount' => 600,
+                        'dispatch_quantity' => 1,
+                    ],
+                ]],
+            ]],
+        ];
+
+        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+
+        $detail = SaleReturnDetail::query()
+            ->whereHas('saleReturn', fn ($query) => $query->where('pos_return_id', $posReturn->id)->where('sale_id', $sale->id))
+            ->firstOrFail();
+
+        $this->assertSame('cross_owner_replacement', data_get($detail->execution_context, 'execution_mode'));
+        $this->assertSame($this->secondSetting->id, data_get($detail->execution_context, 'replacement_serial_owner_setting_id'));
+        $this->assertSame($this->secondLocation->id, data_get($detail->execution_context, 'replacement_serial_location_id'));
+        $this->assertSame('1.00', data_get($detail->execution_context, 'original_sale_correction_quantity'));
+        $this->assertSame('600.00', data_get($detail->execution_context, 'original_sale_correction_amount'));
+        $this->assertSame($this->secondSetting->id, data_get($detail->execution_context, 'generated_replacement_sale_effects.setting_id'));
+        $this->assertSame('600.00', data_get($detail->execution_context, 'generated_replacement_sale_effects.payment_amount'));
+    }
+
+    /** @test */
+    public function it_blocks_when_existing_linked_sales_return_cross_owner_execution_metadata_differs_from_the_latest_plan(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [$sale, $saleDetail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'XMM');
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $saleDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+        ]]);
+        $line = $posReturn->fresh('lines')->lines->firstOrFail();
+
+        $saleReturn = SaleReturn::query()->create([
+            'date' => now()->toDateString(),
+            'reference' => 'SR-XMM-' . uniqid(),
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'customer_id' => $sale->customer_id,
+            'customer_name' => $sale->customer_name,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 600,
+            'paid_amount' => 0,
+            'due_amount' => 600,
+            'status' => 'PENDING APPROVAL',
+            'payment_status' => 'PENDING',
+            'payment_method' => $sale->payment_method,
+            'note' => 'Pre-linked cross-owner mismatch from test',
+            'pos_return_id' => $posReturn->id,
+            'approval_status' => 'PENDING',
+            'return_type' => 'Replacement',
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $saleDetail->product_id,
+            'product_name' => $saleDetail->product_name,
+            'product_code' => $saleDetail->product_code,
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'serial_number_ids' => [],
+            'bundle_group_key' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'execution_context' => [
+                'execution_mode' => 'cross_owner_replacement',
+                'replacement_serial_owner_setting_id' => $this->secondSetting->id,
+                'replacement_serial_location_id' => $this->location->id,
+                'original_sale_correction_quantity' => 1,
+                'original_sale_correction_amount' => 600,
+                'generated_replacement_sale_effects' => [
+                    'setting_id' => $this->secondSetting->id,
+                    'location_id' => $this->location->id,
+                    'customer_resolution_source' => 'selected',
+                    'payment_amount' => 600,
+                    'dispatch_quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $plan = [
+            'blockers' => [],
+            'warnings' => [],
+            'groups' => [[
+                'planned_header' => [
+                    'sale_id' => $sale->id,
+                    'setting_id' => $this->setting->id,
+                    'location_id' => $this->location->id,
+                    'return_type' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'total_amount' => 600,
+                ],
+                'tax_context' => ['tax_id' => null],
+                'planned_details' => [[
+                    'row_type' => 'parent',
+                    'pos_return_line_id' => $line->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'dispatch_detail_id' => $dispatchDetail->id,
+                    'source_location_id' => $this->location->id,
+                    'tax_id' => null,
+                    'product_id' => $saleDetail->product_id,
+                    'product_name' => $saleDetail->product_name,
+                    'product_code' => $saleDetail->product_code,
+                    'quantity' => 1,
+                    'amount' => 600,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'dispatch_resolution' => 'returned_serial.dispatch_detail_id',
+                    'stock_movement_intent' => 'stok_retur_kembali_ke_owner_asal_dan_serial_pengganti_keluar_dari_owner_pengganti',
+                    'replacement_serial_owner_setting_id' => $this->secondSetting->id,
+                    'replacement_serial_location_id' => $this->secondLocation->id,
+                    'execution_mode' => 'cross_owner_replacement',
+                    'original_sale_correction_quantity' => 1,
+                    'original_sale_correction_amount' => 600,
+                    'generated_replacement_sale_effects' => [
+                        'setting_id' => $this->secondSetting->id,
+                        'setting_name' => $this->secondSetting->company_name,
+                        'location_id' => $this->secondLocation->id,
+                        'location_name' => $this->secondLocation->name,
+                        'sale_reference' => 'generated_on_approval',
+                        'customer_id' => null,
+                        'customer_resolution_source' => 'selected',
+                        'payment_amount' => 600,
+                        'dispatch_quantity' => 1,
+                    ],
+                ]],
+            ]],
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Linked Sales Returns conflict with the latest approval preview plan.');
+
+        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+    }
+
+    /** @test */
+    public function it_allows_legacy_same_owner_replacement_links_without_new_execution_metadata(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [$sale, $saleDetail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'SOWN');
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $saleDetail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+        ]]);
+        $line = $posReturn->fresh('lines')->lines->firstOrFail();
+
+        $saleReturn = SaleReturn::query()->create([
+            'date' => now()->toDateString(),
+            'reference' => 'SR-SOWN-' . uniqid(),
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'customer_id' => $sale->customer_id,
+            'customer_name' => $sale->customer_name,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 600,
+            'paid_amount' => 0,
+            'due_amount' => 600,
+            'status' => 'PENDING APPROVAL',
+            'payment_status' => 'PENDING',
+            'payment_method' => $sale->payment_method,
+            'note' => 'Pre-linked same-owner legacy test',
+            'pos_return_id' => $posReturn->id,
+            'approval_status' => 'PENDING',
+            'return_type' => 'Replacement',
+        ]);
+        $legacyDetail = SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $line->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $saleDetail->product_id,
+            'product_name' => $saleDetail->product_name,
+            'product_code' => $saleDetail->product_code,
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'serial_number_ids' => [],
+            'bundle_group_key' => null,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'execution_context' => [
+                'row_type' => 'parent',
+                'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                'dispatch_resolution' => 'returned_serial.dispatch_detail_id',
+                'source_sale_id' => $sale->id,
+                'cash_return_amount' => 0,
+                'planned_amount' => 600,
+            ],
+        ]);
+
+        $plan = [
+            'blockers' => [],
+            'warnings' => [],
+            'groups' => [[
+                'planned_header' => [
+                    'sale_id' => $sale->id,
+                    'setting_id' => $this->setting->id,
+                    'location_id' => $this->location->id,
+                    'return_type' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'total_amount' => 600,
+                ],
+                'tax_context' => ['tax_id' => null],
+                'planned_details' => [[
+                    'row_type' => 'parent',
+                    'pos_return_line_id' => $line->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'dispatch_detail_id' => $dispatchDetail->id,
+                    'source_location_id' => $this->location->id,
+                    'tax_id' => null,
+                    'product_id' => $saleDetail->product_id,
+                    'product_name' => $saleDetail->product_name,
+                    'product_code' => $saleDetail->product_code,
+                    'quantity' => 1,
+                    'amount' => 600,
+                    'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'dispatch_resolution' => 'returned_serial.dispatch_detail_id',
+                    'stock_movement_intent' => 'stok_sumber_tetap_akan_dikoreksi_melalui_dispatch_pengganti',
+                    'replacement_serial_owner_setting_id' => $this->setting->id,
+                    'replacement_serial_location_id' => $this->location->id,
+                    'execution_mode' => 'same_owner_replacement',
+                ]],
+            ]],
+        ];
+
+        $result = app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
+
+        $this->assertCount(1, $result);
+        $this->assertSame($saleReturn->id, (int) $result->first()->id);
+        $this->assertSame($legacyDetail->id, (int) $result->first()->saleReturnDetails->first()->id);
     }
 
     protected function createTransactionWithCheckout(): array

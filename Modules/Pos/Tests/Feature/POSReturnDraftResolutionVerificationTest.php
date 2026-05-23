@@ -5,6 +5,7 @@ namespace Modules\Pos\Tests\Feature;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
+use Modules\Pos\Services\PosReturnReplacementOwnerResolver;
 use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Sale\Entities\Sale;
@@ -330,7 +331,46 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
             ]);
             $this->fail('Should have thrown exception: replacement must be same product.');
         } catch (\Exception $e) {
-            $this->assertStringContainsString('produk yang sama', $e->getMessage());
+            $this->assertStringContainsString('product_id yang sama', $e->getMessage());
+        }
+
+        // Case E: Validation - Replacement serial owner cannot be resolved from its location.
+        $snapshot = $this->snapshotService->build($transaction->id);
+        $ownerlessReplacement = $this->createSerialNumber($product, $this->location, 'SN-ORPHAN-OWNER-001');
+        $realResolver = app(PosReturnReplacementOwnerResolver::class);
+
+        $this->partialMock(PosReturnReplacementOwnerResolver::class, function ($mock) use ($realResolver, $ownerlessReplacement) {
+            $mock->shouldReceive('resolveById')
+                ->andReturnUsing(function (int $replacementSerialId) use ($realResolver, $ownerlessReplacement) {
+                    $resolved = $realResolver->resolveById($replacementSerialId);
+
+                    if ($replacementSerialId === (int) $ownerlessReplacement->id) {
+                        $resolved['owner_setting'] = null;
+                        $resolved['owner_setting_id'] = null;
+                    }
+
+                    return $resolved;
+                });
+        });
+
+        $submissionService = app(PosReturnSubmissionService::class);
+
+        try {
+            $submissionService->store([
+                'pos_transaction_id' => $transaction->id,
+                'source_snapshot_hash' => $snapshot['hash'],
+                'lines' => [
+                    [
+                        'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
+                        'returned_serial_id' => $sn1->id,
+                        'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                        'replacement_serial_id' => $ownerlessReplacement->id,
+                    ]
+                ]
+            ]);
+            $this->fail('Should have thrown exception: replacement owner must be resolvable from serial location.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('owner bisnis', $e->getMessage());
         }
     }
 

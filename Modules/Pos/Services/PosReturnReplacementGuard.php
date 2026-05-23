@@ -2,12 +2,17 @@
 
 namespace Modules\Pos\Services;
 
-use Modules\Product\Entities\ProductSerialNumber;
-use Modules\Pos\Entities\PosReturnLine;
 use Illuminate\Validation\ValidationException;
+use Modules\Pos\Entities\PosReturnLine;
+use Modules\Product\Entities\ProductSerialNumber;
 
 class PosReturnReplacementGuard
 {
+    public function __construct(
+        private readonly PosReturnReplacementOwnerResolver $replacementOwnerResolver,
+    ) {
+    }
+
     /**
      * Validate that the replacement serial is valid for the given product and location.
      *
@@ -26,7 +31,9 @@ class PosReturnReplacementGuard
             ]);
         }
 
-        $serial = ProductSerialNumber::find($replacementSerialId);
+        $resolvedContext = $this->resolveReplacementSerialContext($replacementSerialId);
+        /** @var ProductSerialNumber|null $serial */
+        $serial = $resolvedContext['serial'];
 
         if (!$serial) {
             throw ValidationException::withMessages([
@@ -34,10 +41,9 @@ class PosReturnReplacementGuard
             ]);
         }
 
-        // 4.2 Implement validation that a specified replacement serial number belongs to the identical SKU as the returned parent line.
         if ($serial->product_id !== $productId) {
             throw ValidationException::withMessages([
-                'replacement_serial' => 'Serial pengganti harus memiliki produk yang sama dengan produk yang diretur.'
+                'replacement_serial' => 'Serial pengganti harus memiliki product_id yang sama dengan produk yang diretur. Penggantian lintas owner dengan kode atau SKU serupa tetapi produk berbeda tidak didukung.'
             ]);
         }
 
@@ -47,10 +53,20 @@ class PosReturnReplacementGuard
             ]);
         }
 
-        // 4.4 Implement validation that the replacement serial is not locked by another active outbound dispatch or draft return.
+        if (($resolvedContext['location_id'] ?? null) === null) {
+            throw ValidationException::withMessages([
+                'replacement_serial' => 'Serial pengganti belum memiliki lokasi aktif yang valid.'
+            ]);
+        }
+
+        if (($resolvedContext['owner_setting_id'] ?? null) === null) {
+            throw ValidationException::withMessages([
+                'replacement_serial' => 'Lokasi serial pengganti belum terhubung ke owner bisnis, sehingga owner pengganti tidak dapat ditentukan.'
+            ]);
+        }
+
         $draftLockQuery = PosReturnLine::where('replacement_serial_id', $replacementSerialId)
             ->whereHas('posReturn', function ($q) {
-                // Draft or pending approval POS returns (active and not completed/cancelled/rejected)
                 $q->active()->whereIn('status', [
                     \Modules\Pos\Entities\PosReturn::STATUS_DRAFT,
                     \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL,
@@ -70,9 +86,11 @@ class PosReturnReplacementGuard
             ]);
         }
 
-        // Note: we can also check dispatch locking here if needed, but AVAILABLE status usually implies it's not locked by an active dispatch.
-        // If the system has a separate lock table for dispatches, we would check it here. For now, AVAILABLE is sufficient for dispatch check.
-
         return $serial;
+    }
+
+    public function resolveReplacementSerialContext(int $replacementSerialId): array
+    {
+        return $this->replacementOwnerResolver->resolveById($replacementSerialId);
     }
 }

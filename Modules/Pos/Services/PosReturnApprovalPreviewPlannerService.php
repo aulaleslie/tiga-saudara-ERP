@@ -27,6 +27,7 @@ class PosReturnApprovalPreviewPlannerService
     public function __construct(
         private readonly PosReturnSnapshotService $snapshotService,
         private readonly PosReturnReplacementGuard $replacementGuard,
+        private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver,
     ) {
     }
 
@@ -270,6 +271,15 @@ class PosReturnApprovalPreviewPlannerService
         $sourceSettingId = (int) ($line->source_setting_id ?: $checkoutSale->source_setting_id);
         $sourceLocationId = (int) ($dispatchDetail?->location_id ?: $line->source_location_id ?: $checkoutSale->source_location_id);
         $taxId = $line->tax_id ?? $dispatchDetail?->tax_id ?? $saleDetail->tax_id;
+        $replacementPreview = $this->buildReplacementPreviewContext(
+            $posReturn,
+            $line,
+            $sale,
+            $sourceSettingId,
+            $sourceLocationId,
+        );
+        $blockers = array_merge($blockers, $replacementPreview['blockers']);
+
         $detail = [
             'row_type' => 'parent',
             'pos_return_line_id' => (int) $line->id,
@@ -292,11 +302,18 @@ class PosReturnApprovalPreviewPlannerService
             'cash_return_amount' => (float) ($line->expected_cash_amount ?? 0),
             'returned_serial' => $line->returnedSerial?->serial_number,
             'replacement_serial' => $line->replacementSerial?->serial_number,
-            'stock_movement_intent' => $this->stockMovementIntent($line),
-            'serial_movement_intent' => $this->serialMovementIntent($line),
-            'replacement_effect' => $line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
-                ? 'serial_pengganti_akan_dikirim_pada_fase_dispatch'
-                : null,
+            'replacement_serial_owner_setting_id' => $replacementPreview['replacement_serial_owner_setting_id'],
+            'replacement_serial_owner_setting_name' => $replacementPreview['replacement_serial_owner_setting_name'],
+            'replacement_serial_location_id' => $replacementPreview['replacement_serial_location_id'],
+            'replacement_serial_location_name' => $replacementPreview['replacement_serial_location_name'],
+            'execution_mode' => $replacementPreview['execution_mode'],
+            'execution_mode_label' => $replacementPreview['execution_mode_label'],
+            'original_sale_correction_quantity' => $replacementPreview['original_sale_correction_quantity'],
+            'original_sale_correction_amount' => $replacementPreview['original_sale_correction_amount'],
+            'generated_replacement_sale_effects' => $replacementPreview['generated_replacement_sale_effects'],
+            'stock_movement_intent' => $replacementPreview['stock_movement_intent'],
+            'serial_movement_intent' => $replacementPreview['serial_movement_intent'],
+            'replacement_effect' => $replacementPreview['replacement_effect'],
             'bundle_trace' => collect(data_get($line->line_meta, 'bundle_trace', []))->values()->all(),
             'source_pos_product_id' => (int) $line->product_id,
             'source_pos_product_name' => (string) $line->product_name,
@@ -490,6 +507,15 @@ class PosReturnApprovalPreviewPlannerService
                 'cash_return_amount' => 0.0,
                 'returned_serial' => $parentDetail['returned_serial'],
                 'replacement_serial' => $parentDetail['replacement_serial'],
+                'replacement_serial_owner_setting_id' => $parentDetail['replacement_serial_owner_setting_id'] ?? null,
+                'replacement_serial_owner_setting_name' => $parentDetail['replacement_serial_owner_setting_name'] ?? null,
+                'replacement_serial_location_id' => $parentDetail['replacement_serial_location_id'] ?? null,
+                'replacement_serial_location_name' => $parentDetail['replacement_serial_location_name'] ?? null,
+                'execution_mode' => $parentDetail['execution_mode'] ?? null,
+                'execution_mode_label' => $parentDetail['execution_mode_label'] ?? null,
+                'original_sale_correction_quantity' => $parentDetail['original_sale_correction_quantity'] ?? null,
+                'original_sale_correction_amount' => $parentDetail['original_sale_correction_amount'] ?? null,
+                'generated_replacement_sale_effects' => $parentDetail['generated_replacement_sale_effects'] ?? null,
                 'stock_movement_intent' => $this->componentStockMovementIntent($componentItem),
                 'serial_movement_intent' => $this->componentSerialMovementIntent($componentItem, $line),
                 'replacement_effect' => $parentDetail['replacement_effect'],
@@ -521,6 +547,105 @@ class PosReturnApprovalPreviewPlannerService
             'warnings' => $warnings,
             'info' => $info,
             'entries' => $entries,
+        ];
+    }
+
+    private function buildReplacementPreviewContext(
+        PosReturn $posReturn,
+        PosReturnLine $line,
+        Sale $sale,
+        int $sourceSettingId,
+        int $sourceLocationId,
+    ): array {
+        $default = [
+            'blockers' => [],
+            'replacement_serial_owner_setting_id' => null,
+            'replacement_serial_owner_setting_name' => null,
+            'replacement_serial_location_id' => null,
+            'replacement_serial_location_name' => null,
+            'execution_mode' => null,
+            'execution_mode_label' => null,
+            'original_sale_correction_quantity' => null,
+            'original_sale_correction_amount' => null,
+            'generated_replacement_sale_effects' => null,
+            'stock_movement_intent' => $this->stockMovementIntent($line),
+            'serial_movement_intent' => $this->serialMovementIntent($line),
+            'replacement_effect' => $line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                ? 'serial_pengganti_akan_dikirim_pada_fase_dispatch'
+                : null,
+        ];
+
+        if ($line->resolution !== PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT || ! $line->replacement_serial_id) {
+            return $default;
+        }
+
+        $resolved = $this->replacementGuard->resolveReplacementSerialContext((int) $line->replacement_serial_id);
+        $replacementOwnerSettingId = isset($resolved['owner_setting_id']) ? (int) $resolved['owner_setting_id'] : 0;
+        $replacementLocationId = isset($resolved['location_id']) ? (int) $resolved['location_id'] : 0;
+
+        if ($replacementOwnerSettingId <= 0 || $replacementLocationId <= 0) {
+            return $default;
+        }
+
+        $executionMode = $replacementOwnerSettingId === $sourceSettingId
+            ? 'same_owner_replacement'
+            : 'cross_owner_replacement';
+
+        $generatedSaleEffects = null;
+        $blockers = [];
+
+        if ($executionMode === 'cross_owner_replacement') {
+            try {
+                $customerResolution = $this->groupCustomerResolver->resolve(
+                    (int) $posReturn->setting_id,
+                    $replacementOwnerSettingId,
+                    $sale->customer_id ? (int) $sale->customer_id : null,
+                );
+
+                $generatedSaleEffects = [
+                    'setting_id' => $replacementOwnerSettingId,
+                    'setting_name' => $this->settingName($replacementOwnerSettingId),
+                    'location_id' => $replacementLocationId,
+                    'location_name' => $this->locationName($replacementLocationId),
+                    'sale_reference' => 'generated_on_approval',
+                    'customer_id' => (int) ($customerResolution['customer_id'] ?? 0),
+                    'customer_resolution_source' => (string) ($customerResolution['resolution_source'] ?? 'unknown'),
+                    'payment_amount' => (float) $line->line_total,
+                    'dispatch_quantity' => (float) $line->quantity,
+                ];
+            } catch (\Throwable $throwable) {
+                $blockers[] = $this->message(
+                    'replacement_sale_prerequisite_missing',
+                    'Generated Sale owner pengganti belum dapat direncanakan karena customer target belum dapat dipetakan.',
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'replacement_owner_setting_id' => $replacementOwnerSettingId,
+                        'replacement_location_id' => $replacementLocationId,
+                    ]
+                );
+            }
+        }
+
+        return [
+            'blockers' => $blockers,
+            'replacement_serial_owner_setting_id' => $replacementOwnerSettingId,
+            'replacement_serial_owner_setting_name' => $this->settingName($replacementOwnerSettingId),
+            'replacement_serial_location_id' => $replacementLocationId,
+            'replacement_serial_location_name' => $this->locationName($replacementLocationId),
+            'execution_mode' => $executionMode,
+            'execution_mode_label' => $this->executionModeLabel($executionMode),
+            'original_sale_correction_quantity' => $executionMode === 'cross_owner_replacement' ? (float) $line->quantity : null,
+            'original_sale_correction_amount' => $executionMode === 'cross_owner_replacement' ? (float) $line->line_total : null,
+            'generated_replacement_sale_effects' => $generatedSaleEffects,
+            'stock_movement_intent' => $executionMode === 'cross_owner_replacement'
+                ? 'stok_retur_kembali_ke_owner_asal_dan_serial_pengganti_keluar_dari_owner_pengganti'
+                : $this->stockMovementIntent($line),
+            'serial_movement_intent' => $executionMode === 'cross_owner_replacement'
+                ? 'serial_retur_kembali_ke_sale_asal_dan_serial_pengganti_dikirim_dari_owner_pengganti'
+                : $this->serialMovementIntent($line),
+            'replacement_effect' => $executionMode === 'cross_owner_replacement'
+                ? 'sale_asal_dikoreksi_dan_sale_owner_pengganti_akan_dibuat_saat_approval'
+                : 'serial_pengganti_akan_dikirim_pada_fase_dispatch',
         ];
     }
 
@@ -1057,6 +1182,15 @@ class PosReturnApprovalPreviewPlannerService
             PosReturnLine::RESOLUTION_CASH_RETURN => 'Cash Return',
             PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT => 'Product Replacement',
             default => 'Tidak Ada Aksi',
+        };
+    }
+
+    private function executionModeLabel(?string $executionMode): ?string
+    {
+        return match ($executionMode) {
+            'same_owner_replacement' => 'Same-owner replacement',
+            'cross_owner_replacement' => 'Cross-owner replacement',
+            default => null,
         };
     }
 
