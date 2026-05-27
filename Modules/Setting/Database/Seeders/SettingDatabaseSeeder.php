@@ -22,6 +22,7 @@ class SettingDatabaseSeeder extends Seeder
             ['name' => 'White Knight Computer', 'document_prefix' => 'WKC'],
             ['name' => 'Dunia Computer', 'document_prefix' => 'DC'],
             ['name' => 'Perdana', 'document_prefix' => 'PD'],
+            ['name' => 'Daizu Kedelai', 'document_prefix' => 'DK'],
         ];
 
         foreach ($companies as $company) {
@@ -40,6 +41,8 @@ class SettingDatabaseSeeder extends Seeder
                 'purchase_return_prefix_document' => 'PRRN',
                 'sale_prefix_document' => 'JL',
                 'sale_return_prefix_document' => 'SLRN',
+                'pos_enabled' => true,
+                'pos_transactions_enabled' => true,
             ]);
 
             Location::create([
@@ -54,5 +57,13 @@ class SettingDatabaseSeeder extends Seeder
             ChartOfAccountSeeder::class,
             PaymentMethodSeeder::class,
         ]);
+
+        // Enable all POS payment methods for every setting
+        Setting::with('posPaymentMethods')->get()->each(function ($setting) {
+            $ids = $setting->posPaymentMethods->pluck('id')->toArray();
+            if (! empty($ids)) {
+                $setting->posPaymentMethods()->updateExistingPivot($ids, ['is_enabled' => true]);
+            }
+        });
     }
 }
