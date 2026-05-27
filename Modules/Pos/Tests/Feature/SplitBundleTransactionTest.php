@@ -150,6 +150,9 @@ class SplitBundleTransactionTest extends TestCase
         $this->assertCount(1, $saleTerminal->saleDetails);
         $detailT = $saleTerminal->saleDetails->first();
         $this->assertEquals(1, $detailT->quantity);
+        // unit_price must reflect only the parent residual share (100k),
+        // NOT the full group subtotal (125k = 100k parent + 25k Comp A).
+        $this->assertEquals(100000.0, (float)$detailT->unit_price, 'Parent unit_price should be parent residual, not full group subtotal');
         $this->assertEquals(125000.0, (float)$detailT->sub_total); // 100k residual + 25k Comp A
         $this->assertCount(1, $detailT->bundleItems);
         $biA = $detailT->bundleItems->first();

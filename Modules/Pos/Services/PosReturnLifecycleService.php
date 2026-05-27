@@ -1223,7 +1223,7 @@ class PosReturnLifecycleService
     {
         $this->runLifecycleMutation($posReturnId, 'receive', function () use ($posReturnId) {
             \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
-            $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns.saleReturnDetails', 'lines'])->findOrFail($posReturnId);
+            $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns.saleReturnDetails.posReturnLine', 'lines'])->findOrFail($posReturnId);
 
             $this->assertManualCorrectionIsNotRequired($posReturn);
 

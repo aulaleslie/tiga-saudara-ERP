@@ -275,10 +275,17 @@ class PosReturnApprovalPreviewPlannerService
             $posReturn,
             $line,
             $sale,
+            $saleDetail,
             $sourceSettingId,
             $sourceLocationId,
         );
         $blockers = array_merge($blockers, $replacementPreview['blockers']);
+
+        // Bundled product replacements use the source sale detail commercial amount
+        // because the POS return snapshot may still carry the original bundle list price.
+        $detailAmount = ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ? $this->resolveReplacementCommercialAmount($line, $saleDetail)
+            : (float) $line->line_total;
 
         $detail = [
             'row_type' => 'parent',
@@ -298,7 +305,7 @@ class PosReturnApprovalPreviewPlannerService
             'product_name' => (string) $line->product_name,
             'product_code' => (string) $line->product_code,
             'quantity' => (float) $line->quantity,
-            'amount' => (float) $line->line_total,
+            'amount' => $detailAmount,
             'cash_return_amount' => (float) ($line->expected_cash_amount ?? 0),
             'returned_serial' => $line->returnedSerial?->serial_number,
             'replacement_serial' => $line->replacementSerial?->serial_number,
@@ -554,6 +561,7 @@ class PosReturnApprovalPreviewPlannerService
         PosReturn $posReturn,
         PosReturnLine $line,
         Sale $sale,
+        SaleDetails $saleDetail,
         int $sourceSettingId,
         int $sourceLocationId,
     ): array {
@@ -591,6 +599,9 @@ class PosReturnApprovalPreviewPlannerService
             ? 'same_owner_replacement'
             : 'cross_owner_replacement';
 
+        // Use canonical commercial amount from source sale detail for bundled replacement lines.
+        $canonicalAmount = $this->resolveReplacementCommercialAmount($line, $saleDetail);
+
         $generatedSaleEffects = null;
         $blockers = [];
 
@@ -610,7 +621,7 @@ class PosReturnApprovalPreviewPlannerService
                     'sale_reference' => 'generated_on_approval',
                     'customer_id' => (int) ($customerResolution['customer_id'] ?? 0),
                     'customer_resolution_source' => (string) ($customerResolution['resolution_source'] ?? 'unknown'),
-                    'payment_amount' => (float) $line->line_total,
+                    'payment_amount' => $canonicalAmount,
                     'dispatch_quantity' => (float) $line->quantity,
                 ];
             } catch (\Throwable $throwable) {
@@ -635,7 +646,7 @@ class PosReturnApprovalPreviewPlannerService
             'execution_mode' => $executionMode,
             'execution_mode_label' => $this->executionModeLabel($executionMode),
             'original_sale_correction_quantity' => $executionMode === 'cross_owner_replacement' ? (float) $line->quantity : null,
-            'original_sale_correction_amount' => $executionMode === 'cross_owner_replacement' ? (float) $line->line_total : null,
+            'original_sale_correction_amount' => $executionMode === 'cross_owner_replacement' ? $canonicalAmount : null,
             'generated_replacement_sale_effects' => $generatedSaleEffects,
             'stock_movement_intent' => $executionMode === 'cross_owner_replacement'
                 ? 'stok_retur_kembali_ke_owner_asal_dan_serial_pengganti_keluar_dari_owner_pengganti'
@@ -1269,5 +1280,54 @@ class PosReturnApprovalPreviewPlannerService
         }
 
         return $this->taxNames[$taxId];
+    }
+
+    /**
+     * Resolve the canonical replacement commercial amount for a bundled return line.
+     *
+     * For bundled source sale details, the source sale detail's commercial amount
+     * (unit_price * returned quantity) is preferred over the POS return snapshot line_total
+     * because the snapshot may contain the original POS bundle list price rather than the
+     * owner-specific parent residual amount after split decomposition.
+     *
+     * For non-bundled lines, falls back to the POS return line_total.
+     */
+    private function resolveReplacementCommercialAmount(PosReturnLine $line, SaleDetails $saleDetail): float
+    {
+        $lineTotal = (float) $line->line_total;
+
+        if (! $this->isBundledSourceLine($line, $saleDetail)) {
+            return $lineTotal;
+        }
+
+        $returnedQuantity = (float) $line->quantity;
+        $saleDetailUnitPrice = (float) ($saleDetail->unit_price ?? $saleDetail->price ?? 0);
+
+        if ($saleDetailUnitPrice > 0 && $returnedQuantity > 0) {
+            $saleDetailCommercialAmount = round($saleDetailUnitPrice * $returnedQuantity, 2);
+
+            if (abs($saleDetailCommercialAmount - $lineTotal) > 0.01) {
+                return $saleDetailCommercialAmount;
+            }
+        }
+
+        return $lineTotal;
+    }
+
+    private function isBundledSourceLine(PosReturnLine $line, SaleDetails $saleDetail): bool
+    {
+        if (collect(data_get($line->line_meta, 'bundle_trace', []))->isNotEmpty()) {
+            return true;
+        }
+
+        if ((string) ($line->bundle_group_key ?? '') !== '') {
+            return true;
+        }
+
+        if ($saleDetail->relationLoaded('bundleItems')) {
+            return $saleDetail->bundleItems->isNotEmpty();
+        }
+
+        return $saleDetail->bundleItems()->exists();
     }
 }

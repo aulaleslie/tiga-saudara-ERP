@@ -1481,6 +1481,166 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         $this->assertContains('source_identity_mismatch', collect($plan['blockers'])->pluck('code')->all());
     }
 
+    /** @test */
+    public function it_uses_source_sale_detail_commercial_amount_for_bundled_replacement_preview(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+
+        // Parent product sale price = 1500 (POS bundle list price)
+        // After split posting with bundle components, the sale detail unit_price
+        // should be the parent residual (e.g. 1000) not the bundle list price (1500).
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BND-REPL-VAL-' . uniqid(),
+            'product_name' => 'Bundled Replacement Valuation Product',
+            'serial_number_required' => true,
+            'sale_price' => 1500,
+        ]);
+        $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-BND-REPL-RET-' . uniqid());
+        $replacementSerial = $this->createSerialNumber($product, $this->secondLocation, 'SN-BND-REPL-REP-' . uniqid());
+
+        // The source sale detail has unit_price=1000 (parent residual after split),
+        // which differs from the POS bundle list price of 1500.
+        [$sale, $detail, $dispatchDetail] = $this->createSaleGraph(
+            $checkout,
+            $this->setting->id,
+            $this->location->id,
+            'BNDVAL',
+            $product,
+            [
+                'serial_number_ids' => [$returnedSerial->id],
+                'sub_total' => 1000,
+                'unit_price' => 1000,
+                'price' => 1000,
+            ]
+        );
+        $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BND-REPL-COMP-' . uniqid(),
+            'product_name' => 'Bundled Replacement Component',
+            'sale_price' => 0,
+        ]);
+        SaleBundleItem::query()->create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detail->id,
+            'bundle_id' => 9101,
+            'bundle_item_id' => 9201,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 1,
+            'price' => 500,
+            'sub_total' => 500,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'replacement-0-0',
+        ]);
+        $returnedSerial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $sale->update([
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+        ]);
+
+        // The POS return line stores the original bundle list price (1500)
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $detail->id,
+            'returned_serial_id' => $returnedSerial->id,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_serial_id' => $replacementSerial->id,
+        ]]);
+
+        // Override the line_total to simulate the POS bundle list price
+        $posReturn->lines()->update([
+            'line_total' => 1500,
+            'line_meta' => [
+                'bundle_trace' => [[
+                    'product_id' => $componentProduct->id,
+                    'quantity_per_bundle' => 1,
+                    'total_component_quantity' => 1,
+                ]],
+            ],
+        ]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+        $detailPlan = $plan['groups'][0]['planned_details'][0];
+
+        $this->assertFalse($plan['is_blocked'], json_encode($plan));
+
+        // The canonical amount must be derived from the source sale detail (1000),
+        // not the POS return line_total (1500).
+        $this->assertSame(1000.0, (float) $detailPlan['amount'],
+            'Preview amount should use source sale detail commercial amount, not POS bundle list price');
+
+        // For cross-owner replacement, the generated sale effects should also use the canonical amount
+        if ($detailPlan['execution_mode'] === 'cross_owner_replacement') {
+            $this->assertSame(1000.0, (float) data_get($detailPlan, 'generated_replacement_sale_effects.payment_amount'),
+                'Cross-owner payment amount should use source sale detail commercial amount');
+            $this->assertSame(1000.0, (float) $detailPlan['original_sale_correction_amount'],
+                'Cross-owner correction amount should use source sale detail commercial amount');
+        }
+    }
+
+    /** @test */
+    public function it_keeps_pos_return_line_amount_for_non_bundled_replacement_preview(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'STD-REPL-VAL-' . uniqid(),
+            'product_name' => 'Standard Replacement Valuation Product',
+            'serial_number_required' => true,
+            'sale_price' => 1500,
+        ]);
+        $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-STD-REPL-RET-' . uniqid());
+        $replacementSerial = $this->createSerialNumber($product, $this->secondLocation, 'SN-STD-REPL-REP-' . uniqid());
+
+        [$sale, $detail, $dispatchDetail] = $this->createSaleGraph(
+            $checkout,
+            $this->setting->id,
+            $this->location->id,
+            'STDVAL',
+            $product,
+            [
+                'serial_number_ids' => [$returnedSerial->id],
+                'sub_total' => 1000,
+                'unit_price' => 1000,
+                'price' => 1000,
+            ]
+        );
+        $returnedSerial->update([
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $sale->update([
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $detail->id,
+            'returned_serial_id' => $returnedSerial->id,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_serial_id' => $replacementSerial->id,
+        ]]);
+
+        $posReturn->lines()->update(['line_total' => 1500]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+        $detailPlan = $plan['groups'][0]['planned_details'][0];
+
+        $this->assertFalse($plan['is_blocked'], json_encode($plan));
+        $this->assertSame(1500.0, (float) $detailPlan['amount'],
+            'Non-bundled replacement preview should keep the POS return line amount');
+    }
+
     protected function createTransactionWithCheckout(): array
     {
         $transaction = PosTransaction::query()->create([

@@ -187,6 +187,7 @@ class PosCheckoutSplitPlannerService
                 }
 
                 $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $parentResidualShares[$chunkIndex];
+                $lineRevenueByGroup[$splitKey]['parent_residual_minor'] += $parentResidualShares[$chunkIndex];
                 $lineRevenueByGroup[$splitKey]['discount_minor'] += $lineDiscountShares[$chunkIndex];
                 $lineRevenueByGroup[$splitKey]['bill_discount_minor'] += $billDiscountShares[$chunkIndex];
                 $lineRevenueByGroup[$splitKey]['parent_qty'] += (int) $chunk['allocated_qty'];
@@ -319,8 +320,9 @@ class PosCheckoutSplitPlannerService
                 
                 $finalGroupLineQty = $rev['parent_qty'];
                 $groupLine['qty'] = $finalGroupLineQty;
+                $parentResidualMinorForGroup = $rev['parent_residual_minor'];
                 $groupLine['unit_price'] = $finalGroupLineQty > 0 
-                    ? $this->fromMinor((int) round($chunkSubtotalMinor / $finalGroupLineQty))
+                    ? $this->fromMinor((int) round($parentResidualMinorForGroup / $finalGroupLineQty))
                     : 0;
 
                 // If this group didn't fulfill any parent stock, mark it as non-stock-managed 
@@ -864,6 +866,7 @@ class PosCheckoutSplitPlannerService
             'tax_name' => $chunk['tax_name'],
             'tax_rate' => $chunk['tax_rate'],
             'subtotal_minor' => 0,
+            'parent_residual_minor' => 0,
             'discount_minor' => 0,
             'bill_discount_minor' => 0,
             'parent_qty' => 0,

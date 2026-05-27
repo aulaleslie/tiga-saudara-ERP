@@ -114,7 +114,8 @@ class POSReturnDispatchQuantityAdjustmentTest extends PosTransactionFeatureTestC
         $this->assertSame(2, (int) $dispatchA->fresh()->dispatched_quantity);
         $this->assertSame(2, (int) $dispatchB->fresh()->dispatched_quantity);
 
-        $this->lifecycleService->approve($posReturn->id);
+        $plan = app(\Modules\Pos\Services\PosReturnApprovalPreviewPlannerService::class)->plan($posReturn->fresh());
+        $this->lifecycleService->approve($posReturn->id, null, $plan);
         $this->assertSame(2, (int) $dispatchA->fresh()->dispatched_quantity);
         $this->assertSame(2, (int) $dispatchB->fresh()->dispatched_quantity);
 
