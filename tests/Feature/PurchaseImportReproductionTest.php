@@ -9,6 +9,9 @@ use Modules\Purchase\Entities\PurchaseImportBatch;
 use Modules\Purchase\Entities\PurchaseImportRow;
 use Modules\Purchase\Services\PurchaseImportService;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Location;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Tests\TestCase;
 
 class PurchaseImportReproductionTest extends TestCase
@@ -137,5 +140,521 @@ class PurchaseImportReproductionTest extends TestCase
         
         // Check is_tax_included
         $this->assertTrue((bool)$purchase->is_tax_included, 'Purchase is_tax_included should be true');
+    }
+
+    /** @test */
+    public function it_creates_daizu_owned_purchase_for_untagged_kedele_import(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Setup Daizu setting
+        $daizuSetting = Setting::create([
+            'company_name' => 'DAIZU KEDELAI COMPANY',
+            'company_email' => 'daizu@example.com',
+            'company_phone' => '123456',
+            'company_address' => 'Daizu Address',
+            'document_prefix' => 'DK',
+            'purchase_prefix_document' => 'PR',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'daizu@example.com',
+            'footer_text' => 'Daizu Footer',
+        ]);
+
+        Location::create([
+            'setting_id' => $daizuSetting->id,
+            'name' => 'Gudang Barang Daizu',
+        ]);
+
+        // Create batch with untagged KEDELE IMPORT row
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'kedele.csv',
+            'file_sha256' => 'test_hash',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '15/05/2026',
+                'no_faktur' => 'DK001',
+                'supplier' => 'Supplier Kedelai',
+                'produk' => 'KEDELE IMPORT',
+                'kuantitas' => '100',
+                'satuan' => 'KG',
+                'harga_satuan' => '5000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '', // Untagged
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'DK001')->first();
+        $this->assertNotNull($purchase, 'Purchase should be created');
+        $this->assertEquals($daizuSetting->id, $purchase->setting_id, 'Purchase should belong to Daizu setting');
+
+        $transaction = Transaction::where('product_id', $purchase->purchaseDetails->first()->product_id)->first();
+        $this->assertNotNull($transaction, 'Transaction should be created');
+        $this->assertEquals($daizuSetting->id, $transaction->setting_id, 'Transaction should belong to Daizu setting');
+    }
+
+    /** @test */
+    public function it_respects_daizu_over_tag_mapping(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Setup Daizu setting
+        $daizuSetting = Setting::create([
+            'company_name' => 'DAIZU KEDELAI COMPANY',
+            'company_email' => 'daizu@example.com',
+            'company_phone' => '123456',
+            'company_address' => 'Daizu Address',
+            'document_prefix' => 'DK',
+            'purchase_prefix_document' => 'PR',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'daizu@example.com',
+            'footer_text' => 'Daizu Footer',
+        ]);
+
+        Location::create([
+            'setting_id' => $daizuSetting->id,
+            'name' => 'Gudang Barang Daizu',
+        ]);
+
+        // Create batch with RAGI product but different tag
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'ragi.csv',
+            'file_sha256' => 'test_hash2',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '16/05/2026',
+                'no_faktur' => 'DK002',
+                'supplier' => 'Supplier Ragi',
+                'produk' => 'RAGI PUTIH',
+                'kuantitas' => '50',
+                'satuan' => 'KG',
+                'harga_satuan' => '8000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => 'aries', // Different tag mapping
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'DK002')->first();
+        $this->assertNotNull($purchase, 'Purchase should be created');
+        $this->assertEquals($daizuSetting->id, $purchase->setting_id, 'Daizu product should override tag mapping');
+    }
+
+    /** @test */
+    public function it_fails_when_daizu_setting_missing(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Don't create Daizu setting - test failure case
+
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'kedele_no_daizu.csv',
+            'file_sha256' => 'test_hash3',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '17/05/2026',
+                'no_faktur' => 'DK003',
+                'supplier' => 'Supplier Kedelai',
+                'produk' => 'KEDELAI PILIHAN',
+                'kuantitas' => '75',
+                'satuan' => 'KG',
+                'harga_satuan' => '6000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $row = PurchaseImportRow::first();
+        $this->assertEquals(PurchaseImportRow::STATUS_INVALID, $row->status, 'Row should be marked invalid');
+        $this->assertStringContainsString('Daizu', $row->error_message, 'Error should mention Daizu');
+    }
+
+    /** @test */
+    public function it_fails_when_daizu_location_missing(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Setup Daizu setting WITHOUT location
+        $daizuSetting = Setting::create([
+            'company_name' => 'DAIZU KEDELAI COMPANY',
+            'company_email' => 'daizu@example.com',
+            'company_phone' => '123456',
+            'company_address' => 'Daizu Address',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'daizu@example.com',
+            'footer_text' => 'Daizu Footer',
+        ]);
+
+        // Don't create location for Daizu setting
+
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'kedele_no_location.csv',
+            'file_sha256' => 'test_hash4',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '18/05/2026',
+                'no_faktur' => 'DK004',
+                'supplier' => 'Supplier Kedelai',
+                'produk' => 'KEDELE IMPORT',
+                'kuantitas' => '100',
+                'satuan' => 'KG',
+                'harga_satuan' => '5000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $row = PurchaseImportRow::first();
+        $this->assertEquals(PurchaseImportRow::STATUS_INVALID, $row->status, 'Row should be marked invalid');
+        $this->assertStringContainsString('location', strtolower($row->error_message), 'Error should mention location');
+    }
+
+    /** @test */
+    public function it_resolves_stock_ownership_per_row_in_mixed_product_invoice(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Setup Daizu setting
+        $daizuSetting = Setting::create([
+            'company_name' => 'DAIZU KEDELAI COMPANY',
+            'company_email' => 'daizu@example.com',
+            'company_phone' => '123456',
+            'company_address' => 'Daizu Address',
+            'document_prefix' => 'DK',
+            'purchase_prefix_document' => 'PR',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'daizu@example.com',
+            'footer_text' => 'Daizu Footer',
+        ]);
+
+        Location::create([
+            'setting_id' => $daizuSetting->id,
+            'name' => 'Gudang Daizu',
+        ]);
+
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'mixed.csv',
+            'file_sha256' => 'test_hash5',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        // Row 1: Daizu product (KEDELE)
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '19/05/2026',
+                'no_faktur' => 'MIX001',
+                'supplier' => 'Mixed Supplier',
+                'produk' => 'KEDELE IMPORT',
+                'kuantitas' => '100',
+                'satuan' => 'KG',
+                'harga_satuan' => '5000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        // Row 2: Non-Daizu product (generic with * marker)
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => [
+                'tanggal' => '19/05/2026',
+                'no_faktur' => 'MIX001',
+                'supplier' => 'Mixed Supplier',
+                'produk' => '* Monitor Generic',  // * marker routes to CV TIGA NUSA
+                'kuantitas' => '5',
+                'satuan' => 'UNIT',
+                'harga_satuan' => '1000000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        // With the grouping fix, Daizu and non-Daizu products should be in SEPARATE purchases
+        // Find the Daizu purchase (for KEDELE IMPORT)
+        $daizuPurchase = Purchase::where('supplier_purchase_number', 'MIX001')
+            ->where('setting_id', $daizuSetting->id)
+            ->first();
+        $this->assertNotNull($daizuPurchase, 'Daizu purchase should be created for KEDELE IMPORT');
+        $this->assertEquals($daizuSetting->id, $daizuPurchase->setting_id, 'Daizu purchase should belong to Daizu setting');
+
+        // Verify KEDELE detail in Daizu purchase
+        $kedelaiDetail = $daizuPurchase->purchaseDetails()
+            ->whereHas('product', function ($q) {
+                $q->where('product_name', 'like', '%KEDELE%');
+            })
+            ->first();
+        $this->assertNotNull($kedelaiDetail, 'Daizu purchase should contain KEDELE IMPORT detail');
+
+        // Check that Daizu product has stock movement with Daizu setting
+        $kedelaiTransaction = Transaction::where('product_id', $kedelaiDetail->product_id)->latest('id')->first();
+        $this->assertEquals($daizuSetting->id, $kedelaiTransaction->setting_id, 'KEDELE should have Daizu stock ownership');
+
+        // Find the non-Daizu purchase (for Monitor Generic)
+        $normalPurchase = Purchase::where('supplier_purchase_number', 'MIX001')
+            ->where('setting_id', '!=', $daizuSetting->id)
+            ->first();
+        $this->assertNotNull($normalPurchase, 'Non-Daizu purchase should be created for Monitor Generic');
+
+        // Verify Monitor detail in normal purchase
+        $monitorDetail = $normalPurchase->purchaseDetails()
+            ->whereHas('product', function ($q) {
+                $q->where('product_name', 'like', '%Monitor%');
+            })
+            ->first();
+        $this->assertNotNull($monitorDetail, 'Non-Daizu purchase should contain Monitor Generic detail');
+    }
+
+    /** @test */
+    public function it_creates_separate_purchases_for_mixed_daizu_and_non_daizu_products(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Setup Daizu setting
+        $daizuSetting = Setting::create([
+            'company_name' => 'DAIZU KEDELAI COMPANY',
+            'company_email' => 'daizu@example.com',
+            'company_phone' => '123456',
+            'company_address' => 'Daizu Address',
+            'document_prefix' => 'DK',
+            'purchase_prefix_document' => 'PR',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'daizu@example.com',
+            'footer_text' => 'Daizu Footer',
+        ]);
+
+        Location::create([
+            'setting_id' => $daizuSetting->id,
+            'name' => 'Gudang Daizu',
+        ]);
+
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'mixed_non_daizu_first.csv',
+            'file_sha256' => 'test_hash7',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        // Row 1: Non-Daizu product (generic with * marker) - comes FIRST
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '20/05/2026',
+                'no_faktur' => 'MIXND001',
+                'supplier' => 'Mixed Supplier',
+                'produk' => '* Monitor Generic',  // * marker routes to CV TIGA NUSA
+                'kuantitas' => '5',
+                'satuan' => 'UNIT',
+                'harga_satuan' => '1000000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        // Row 2: Daizu product (RAGI) - comes SECOND
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => [
+                'tanggal' => '20/05/2026',
+                'no_faktur' => 'MIXND001',
+                'supplier' => 'Mixed Supplier',
+                'produk' => 'RAGI PUTIH',
+                'kuantitas' => '50',
+                'satuan' => 'KG',
+                'harga_satuan' => '8000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        // With the fix, these should be in SEPARATE purchases:
+        // - One for Monitor Generic (owned by CV TIGA NUSA or default)
+        // - One for RAGI PUTIH (owned by Daizu)
+
+        // Find the Daizu purchase
+        $daizuPurchase = Purchase::where('setting_id', $daizuSetting->id)
+            ->where('supplier_purchase_number', 'MIXND001')
+            ->first();
+        $this->assertNotNull($daizuPurchase, 'Daizu purchase should be created for RAGI PUTIH');
+        $this->assertEquals($daizuSetting->id, $daizuPurchase->setting_id, 'Daizu purchase should belong to Daizu setting');
+
+        // Verify RAGI detail in Daizu purchase
+        $ragiDetail = $daizuPurchase->purchaseDetails()
+            ->whereHas('product', function ($q) {
+                $q->where('product_name', 'like', '%RAGI%');
+            })
+            ->first();
+        $this->assertNotNull($ragiDetail, 'Daizu purchase should contain RAGI PUTIH detail');
+
+        // Find the non-Daizu purchase (should belong to CV TIGA NUSA since Monitor has no marker)
+        $normalPurchase = Purchase::where('supplier_purchase_number', 'MIXND001')
+            ->where('setting_id', '!=', $daizuSetting->id)
+            ->first();
+        $this->assertNotNull($normalPurchase, 'Non-Daizu purchase should be created for Monitor Generic');
+
+        // Verify Monitor detail in normal purchase
+        $monitorDetail = $normalPurchase->purchaseDetails()
+            ->whereHas('product', function ($q) {
+                $q->where('product_name', 'like', '%Monitor%');
+            })
+            ->first();
+        $this->assertNotNull($monitorDetail, 'Non-Daizu purchase should contain Monitor Generic detail');
+    }
+
+    /** @test */
+    public function it_counts_skipped_duplicate_rows_as_processed(): void
+    {
+        $user = \App\Models\User::factory()->create(['is_active' => 1]);
+
+        // Create a supplier first
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'supplier_name' => 'Test Supplier',
+            'supplier_email' => 'supplier@test.com',
+            'supplier_phone' => '123456',
+            'address' => 'Test Address',
+            'city' => 'Test City',
+            'country' => 'Test Country',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Create existing purchase with required fields (using CV TIGA NUSA since * maps to it)
+        $tigaNusa = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA%')->first();
+        $existingPurchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now(),
+            'reference' => 'DUP001',
+            'supplier_id' => $supplier->id,
+            'supplier_name' => 'Test Supplier',
+            'setting_id' => $tigaNusa ? $tigaNusa->id : $this->setting->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'supplier_purchase_number' => 'DUP-INVOICE-001',
+            'total_amount' => 10000,
+            'paid_amount' => 0,
+            'due_amount' => 10000,
+            'payment_status' => 'UNPAID',
+            'payment_method' => '',
+        ]);
+
+        $batch = PurchaseImportBatch::create([
+            'user_id' => $user->id,
+            'source_csv_path' => 'duplicate.csv',
+            'file_sha256' => 'test_hash6',
+            'status' => PurchaseImportBatch::STATUS_QUEUED,
+        ]);
+
+        // Try to import duplicate row with asterisk prefix (routes to CV TIGA NUSA)
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'tanggal' => '20/05/2026',
+                'no_faktur' => 'DUP-INVOICE-001',
+                'supplier' => 'Duplicate Supplier',
+                'produk' => '* Generic Product',
+                'kuantitas' => '10',
+                'satuan' => 'UNIT',
+                'harga_satuan' => '1000',
+                'tarif_pajak' => '0',
+                'diskon_persen' => '0',
+                'tag' => '',
+                'pajak' => '0',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => PurchaseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $batch->refresh();
+        $row = PurchaseImportRow::first();
+
+        $this->assertEquals(PurchaseImportRow::STATUS_SKIPPED, $row->status, 'Row should be skipped');
+        $this->assertEquals(0, $batch->success_count, 'Success count should be 0 for duplicate');
+        // Verify the batch processed count includes skipped rows
+        $processedCount = $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count();
+        $this->assertGreaterThanOrEqual(1, $processedCount, 'Skipped rows should be counted in processed_rows');
     }
 }

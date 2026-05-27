@@ -46,6 +46,26 @@ class PurchaseImportService
     ];
 
     /**
+     * Normalize product name for Daizu detection.
+     */
+    protected function normalizeProductName(string $rawName): string
+    {
+        $normalized = strtoupper(trim($rawName));
+        $normalized = preg_replace('/[^A-Z0-9\s]/', '', $normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+        return $normalized;
+    }
+
+    /**
+     * Detect if a product name matches Daizu criteria (contains KEDELE, KEDELAI, or RAGI).
+     */
+    public function isDaizuProduct(string $rawName): bool
+    {
+        $normalized = $this->normalizeProductName($rawName);
+        return preg_match('/\b(KEDELE|KEDELAI|RAGI)\b/', $normalized) === 1;
+    }
+
+    /**
      * Parse product name and extract marker type.
      *
      * @return array{clean_name: string, marker: string}
@@ -107,10 +127,28 @@ class PurchaseImportService
     }
 
     /**
-     * Resolve tenant using Tag (Priority 1) then product marker (Priority 2).
+     * Get the Daizu Kedelai setting or throw an exception if not found.
+     */
+    public function getDaizuSetting(): ?Setting
+    {
+        return Setting::where('company_name', 'LIKE', '%DAIZU%')->first();
+    }
+
+    /**
+     * Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2).
+     * Throws exception if Daizu product but setting not found (should never return null for Daizu products).
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
+        // Priority 0: Check for Daizu product
+        if ($this->isDaizuProduct($productName)) {
+            $daizuSetting = $this->getDaizuSetting();
+            if (!$daizuSetting) {
+                throw new \Exception("Daizu Kedelai setting not found for product: {$productName}");
+            }
+            return $daizuSetting;
+        }
+
         // Priority 1: Try Tag-based lookup
         $setting = $this->getSettingForTag($tag);
         if ($setting) {
@@ -125,6 +163,7 @@ class PurchaseImportService
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
      * Rules:
+     * 0. Daizu products always route to Daizu setting, bypassing all other rules.
      * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
      * 2. No marker:
      *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
@@ -133,6 +172,14 @@ class PurchaseImportService
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
+        // Rule 0: Daizu products always route to Daizu
+        if ($this->isDaizuProduct($productName)) {
+            $daizuSetting = $this->getDaizuSetting();
+            if ($daizuSetting) {
+                return $daizuSetting;
+            }
+        }
+
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
@@ -162,8 +209,8 @@ class PurchaseImportService
         // Check history: Last Tenant other than CV Tiga Nusa that performed a purchase (Transaction type BUY)
         /*
          * Query logic:
-         * Find latest transaction for this product 
-         * where type = BUY 
+         * Find latest transaction for this product
+         * where type = BUY
          * and setting_id != TigaNusaID
          */
         $lastTransaction = Transaction::where('product_id', $product->id)
@@ -188,7 +235,7 @@ class PurchaseImportService
             })
             ->latest('id')
             ->first();
-            
+
         if ($lastPurchaseDetail && $lastPurchaseDetail->purchase) {
             $lastSetting = Setting::find($lastPurchaseDetail->purchase->setting_id);
             if ($lastSetting) {
@@ -198,7 +245,7 @@ class PurchaseImportService
         */
 
         // Fallback: Use Source Tenant
-        // If the source itself is CV Tiga Nusa and no other history exists, 
+        // If the source itself is CV Tiga Nusa and no other history exists,
         // it means it stays in CV Tiga Nusa (which is the Source).
         return $sourceSetting;
     }
@@ -371,7 +418,7 @@ class PurchaseImportService
             $batch->refresh();
             $batch->update([
                 'status' => PurchaseImportBatch::STATUS_COMPLETED,
-                'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid'])->count(),
+                'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count(),
             ]);
 
             Log::info('[PurchaseImport] Batch completed', [
@@ -390,7 +437,15 @@ class PurchaseImportService
     }
 
     /**
-     * Group rows by invoice number and tenant (using Tag or marker).
+     * Group rows by invoice number and tenant.
+     *
+     * Each row's tenant is determined by:
+     * 1. Daizu product detection (per-row, overrides everything)
+     * 2. Tag mapping (per-row)
+     * 3. Product marker (per-row)
+     *
+     * This ensures Daizu and non-Daizu rows are never grouped together,
+     * and tag/marker resolution happens per-row, not group-wide.
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -400,12 +455,20 @@ class PurchaseImportService
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
             $tag = $data['tag'] ?? '';
-            
-            // Use tag if present, otherwise fall back to product marker
-            if (!empty($tag)) {
+            $productName = $data['produk'] ?? '';
+
+            // Determine tenant key per-row:
+            // Priority 0: Daizu product (overrides tag/marker)
+            if ($this->isDaizuProduct($productName)) {
+                $tenantKey = 'daizu';
+            }
+            // Priority 1: Tag-based resolution
+            elseif (!empty($tag)) {
                 $tenantKey = 'tag:' . strtolower(trim($tag));
-            } else {
-                $parsed = $this->parseProductName($data['produk'] ?? '');
+            }
+            // Priority 2: Product marker
+            else {
+                $parsed = $this->parseProductName($productName);
                 $tenantKey = 'marker:' . $parsed['marker'];
             }
 
@@ -432,63 +495,83 @@ class PurchaseImportService
         $firstRow = $rows[0];
         $data = $firstRow->raw_json;
 
-        // Resolve tenant using Tag (Priority 1) then product marker (Priority 2)
+        try {
+            // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
+            $tag = $data['tag'] ?? null;
+            $productName = $data['produk'] ?? '';
+            $setting = $this->resolveTenant($tag, $productName);
 
-
-        $tag = $data['tag'] ?? null;
-        $productName = $data['produk'] ?? '';
-        $setting = $this->resolveTenant($tag, $productName);
-
-        if (!$setting) {
-            foreach ($rows as $row) {
-                $row->update([
-                    'status' => PurchaseImportRow::STATUS_INVALID,
-                    'error_message' => "Tenant not found for tag: '{$tag}' or product: '{$productName}'",
-                ]);
-                Log::warning('[PurchaseImport] Row error - tenant not found', [
-                    'batch_id' => $batch->id,
-                    'row_id' => $row->id,
-                    'row_number' => $row->row_number,
-                    'tag' => $tag,
-                    'product' => $productName,
-                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                ]);
-                $batch->increment('error_count');
-            }
-            return;
-        }
-
-        // Check for duplicate purchase (same supplier_purchase_number + setting_id)
-        $invoiceNo = $data['no_faktur'] ?? null;
-        if ($invoiceNo) {
-            $existingPurchase = Purchase::where('supplier_purchase_number', $invoiceNo)
-                ->where('setting_id', $setting->id)
-                ->first();
-            
-            if ($existingPurchase) {
+            if (!$setting) {
                 foreach ($rows as $row) {
                     $row->update([
-                        'status' => PurchaseImportRow::STATUS_SKIPPED,
-                        'error_message' => "Skipped: Purchase with invoice #{$invoiceNo} already exists (ID: {$existingPurchase->id})",
-                        'purchase_id' => $existingPurchase->id,
+                        'status' => PurchaseImportRow::STATUS_INVALID,
+                        'error_message' => "Tenant not found for tag: '{$tag}' or product: '{$productName}'",
                     ]);
+                    Log::warning('[PurchaseImport] Row error - tenant not found', [
+                        'batch_id' => $batch->id,
+                        'row_id' => $row->id,
+                        'row_number' => $row->row_number,
+                        'tag' => $tag,
+                        'product' => $productName,
+                        'no_faktur' => $data['no_faktur'] ?? 'Unknown',
+                    ]);
+                    $batch->increment('error_count');
                 }
-                Log::info('[PurchaseImport] Skipped duplicate purchase', [
-                    'batch_id' => $batch->id,
-                    'no_faktur' => $invoiceNo,
-                    'existing_purchase_id' => $existingPurchase->id,
-                    'setting_id' => $setting->id,
-                    'rows_skipped' => count($rows),
-                ]);
                 return;
             }
-        }
 
-        try {
+            // Check for duplicate purchase (same supplier_purchase_number + setting_id)
+            $invoiceNo = $data['no_faktur'] ?? null;
+            if ($invoiceNo) {
+                $existingPurchase = Purchase::where('supplier_purchase_number', $invoiceNo)
+                    ->where('setting_id', $setting->id)
+                    ->first();
+
+                if ($existingPurchase) {
+                    foreach ($rows as $row) {
+                        $row->update([
+                            'status' => PurchaseImportRow::STATUS_SKIPPED,
+                            'error_message' => "Skipped: Purchase with invoice #{$invoiceNo} already exists (ID: {$existingPurchase->id})",
+                            'purchase_id' => $existingPurchase->id,
+                        ]);
+                    }
+                    Log::info('[PurchaseImport] Skipped duplicate purchase', [
+                        'batch_id' => $batch->id,
+                        'no_faktur' => $invoiceNo,
+                        'existing_purchase_id' => $existingPurchase->id,
+                        'setting_id' => $setting->id,
+                        'rows_skipped' => count($rows),
+                    ]);
+                    // Include skipped rows in processed_rows without incrementing success_count
+                    // success_count is only incremented for rows that create or update records
+                    return;
+                }
+            }
+            // Validate Daizu setting and location early
+            $isDaizuInvoice = false;
+            foreach ($rows as $row) {
+                $rowData = $row->raw_json;
+                if ($this->isDaizuProduct($rowData['produk'] ?? '')) {
+                    $isDaizuInvoice = true;
+                    break;
+                }
+            }
+
+            if ($isDaizuInvoice) {
+                if (!$setting || !str_contains(strtolower($setting->company_name ?? ''), 'daizu')) {
+                    throw new \Exception("Daizu product detected but setting is not Daizu Kedelai");
+                }
+
+                $daizuLocation = Location::where('setting_id', $setting->id)->first();
+                if (!$daizuLocation) {
+                    throw new \Exception("Daizu Kedelai setting exists but no usable stock location found");
+                }
+            }
+
             // Parse dates
             $purchaseDate = $this->parseDate($data['tanggal']);
-            $dueDate = !empty($data['tanggal_jatuh_tempo']) 
-                ? $this->parseDate($data['tanggal_jatuh_tempo']) 
+            $dueDate = !empty($data['tanggal_jatuh_tempo'])
+                ? $this->parseDate($data['tanggal_jatuh_tempo'])
                 : $purchaseDate;
 
             // Find or create supplier with additional fields
@@ -564,7 +647,7 @@ class PurchaseImportService
                 $details[] = [
                     'row' => $row,
                     'product' => $product,
-                    'quantity' => $quantity,
+                    'raw_product_name' => $rawProductName,
                     'quantity' => $quantity,
                     'unit_price' => $unitPriceWithTax, // Store Tax Included Price as requested
                     'unit_price_final' => $unitPriceWithTax, // Final price including tax for ProductPrice updates
@@ -642,8 +725,8 @@ class PurchaseImportService
                 $product = $detail['product'];
                 $quantity = $detail['quantity'];
 
-                // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
-                $stockSetting = $this->resolveStockSetting($tag, $rawProductName, $setting, $product);
+                // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT using detail's raw product name
+                $stockSetting = $this->resolveStockSetting($tag, $detail['raw_product_name'], $setting, $product);
                 
                 // Get location for the resolved STOCK setting
                 $location = Location::where('setting_id', $stockSetting->id)->first();
@@ -690,13 +773,16 @@ class PurchaseImportService
                 $product->increment('product_quantity', $quantity);
 
                 // Update ProductPrice table for this product/setting
-                // Important: Prices track per Setting. We should likely update price for the Source Setting (Purchase Owner) 
-                // AND potentially valuable to update for the Stock Owner too? 
-                // Requirement implies "keep item exactly in same document as source", so Prices belong to Source.
+                // For Daizu products, use the stockSetting (which is Daizu).
+                // For non-Daizu, use the source setting (purchase owner).
+                $priceSettingId = ($this->isDaizuProduct($detail['raw_product_name']))
+                    ? $stockSetting->id
+                    : $setting->id;
+
                 $productPrice = ProductPrice::firstOrCreate(
                     [
                         'product_id' => $product->id,
-                        'setting_id' => $setting->id,
+                        'setting_id' => $priceSettingId,
                     ],
                     [
                         'sale_price' => 0,

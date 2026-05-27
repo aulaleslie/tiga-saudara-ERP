@@ -280,4 +280,60 @@ class PurchaseImportServiceTest extends TestCase
         $result = $this->service->parseDiscountPercent('25.5');
         $this->assertEquals(25.5, $result);
     }
+
+    /**
+     * Test Daizu product detection for KEDELE.
+     */
+    public function test_is_daizu_product_kedele(): void
+    {
+        $this->assertTrue($this->service->isDaizuProduct('KEDELE IMPORT'));
+        $this->assertTrue($this->service->isDaizuProduct('kedele import'));
+        $this->assertTrue($this->service->isDaizuProduct('KEDELE - IMPORT 50KG'));
+    }
+
+    /**
+     * Test Daizu product detection for KEDELAI.
+     */
+    public function test_is_daizu_product_kedelai(): void
+    {
+        $this->assertTrue($this->service->isDaizuProduct('KEDELAI PILIHAN'));
+        $this->assertTrue($this->service->isDaizuProduct('kedelai baik'));
+    }
+
+    /**
+     * Test Daizu product detection for RAGI.
+     */
+    public function test_is_daizu_product_ragi(): void
+    {
+        $this->assertTrue($this->service->isDaizuProduct('RAGI PUTIH'));
+        $this->assertTrue($this->service->isDaizuProduct('ragi merah'));
+    }
+
+    /**
+     * Test Daizu product detection ignores non-Daizu products.
+     */
+    public function test_is_daizu_product_non_daizu(): void
+    {
+        $this->assertFalse($this->service->isDaizuProduct('Monitor LG 24 Inch'));
+        $this->assertFalse($this->service->isDaizuProduct('Scanner Plustek'));
+        $this->assertFalse($this->service->isDaizuProduct('Printer Canon'));
+    }
+
+    /**
+     * Test Daizu product detection with punctuation and whitespace.
+     */
+    public function test_is_daizu_product_with_punctuation(): void
+    {
+        $this->assertTrue($this->service->isDaizuProduct('KEDELE - IMPORT @50kg'));
+        $this->assertTrue($this->service->isDaizuProduct('  KEDELAI  PREMIUM  '));
+    }
+
+    /**
+     * Test Daizu product detection does not match partial tokens.
+     */
+    public function test_is_daizu_product_partial_token_not_matched(): void
+    {
+        $this->assertFalse($this->service->isDaizuProduct('PREKEDELAI IMPORTED'));
+        $this->assertFalse($this->service->isDaizuProduct('RAGING BULL'));
+    }
 }
