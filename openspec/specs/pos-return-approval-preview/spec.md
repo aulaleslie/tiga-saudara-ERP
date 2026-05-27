@@ -1,155 +1,51 @@
-# pos-return-approval-preview Specification
-
-## Purpose
-TBD - created by archiving change add-pos-return-approval-preview. Updated by expand-pos-return-approval-preview-targets to support bundle component expansion and mixed resolution line-level targeting.
-## Requirements
-### Requirement: Approve Action Opens Approval Preview
-The system SHALL route an authorized pending POS Return approve action to an approval preview page instead of approving the POS Return immediately. Preview access MUST require POS Return view access and `pos.returns.approve`. Opening the approval preview MUST NOT mutate POS Return lifecycle fields, linked Sales Return records, stock, serials, dispatches, payments, source sales, or audit approval fields.
-
-#### Scenario: Pending return approve opens preview
-- **WHEN** an authorized user clicks the approve action for a POS Return in `pending_approval` status and `pending` approval status
-- **THEN** the system opens the POS Return approval preview page
-- **AND** the POS Return remains in `pending_approval` status and `pending` approval status
-- **AND** no Sales Return, Sales Return Detail, stock, serial, dispatch, payment, source sale, or approval audit mutation occurs
-
-#### Scenario: Non pending return cannot open approval preview
-- **WHEN** a user attempts to open approval preview for a POS Return that is not in `pending_approval` status with `pending` approval status
-- **THEN** the system blocks the preview action with a clear lifecycle message
-- **AND** keeps the POS Return unchanged
-
-#### Scenario: Direct approval submission is unavailable during preview-only phase
-- **WHEN** a user attempts to submit the direct POS Return approval mutation endpoint during this preview-only change
-- **THEN** the system rejects the request with a clear preview-only lifecycle message
-- **AND** the POS Return remains in `pending_approval` status and `pending` approval status
-- **AND** no Sales Return, Sales Return Detail, stock, serial, dispatch, payment, source sale, or approval audit mutation occurs
-
-### Requirement: Approval Preview Shows Generated Execution Target
-The system SHALL generate and display a read-only POS Return execution target preview that shows how the POS Return would map into owner/sale-aligned Sales Return records, original Sale corrections, and replacement-owner Sales if approval execution is confirmed. The preview MUST use persisted POS Return lines as the selected return intent and verify that intent against current source checkout sale, generated sale, sale detail, sale bundle item, dispatch detail, serial, replacement serial, replacement serial owner/location, owner/location, tax, product, and bundle data. The preview MUST show generated split sale groups, planned Sales Return headers, planned Sales Return details, source owner and location, tax context, dispatch detail anchors, selected line resolutions, returned quantities, cash-return amounts, replacement serials, replacement serial owner, same-owner or cross-owner replacement execution mode, planned generated replacement-owner Sale effects when applicable, serial movement intent, stock movement intent, and explicit bundle/component target rows when available.
-
-#### Scenario: Split sale target preview is displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return whose source POS checkout produced multiple generated sales
-- **THEN** the preview groups planned execution targets by generated source sale and owner context
-- **AND** each target group shows the source sale reference, source setting, source location, tax bucket when available, and planned Sales Return header fields
-
-#### Scenario: Split-owner bundle component target preview is displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return with an actionable bundled POS item whose checkout generated component allocations in one or more additional Sales documents
-- **THEN** the preview shows each affected generated Sales document as its own planned target group
-- **AND** component allocation rows from `sale_bundle_items` are displayed as explicit planned Sales Return detail targets under their owning source Sale
-- **AND** each component target row shows the source POS item, returned serial when available, component product, component quantity, source owner, source location, tax context, selected line resolution, and planned stock behavior
-
-#### Scenario: Line target preview is displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return with actionable return lines
-- **THEN** each actionable POS Return line shows its planned Sales Return Detail target
-- **AND** the preview includes product, quantity, amount, resolution, sale detail, dispatch detail, source owner, source location, tax context, and stock behavior
-
-#### Scenario: Serial target preview is displayed
-- **WHEN** an actionable POS Return line has a returned serial
-- **THEN** the preview shows the returned serial identity
-- **AND** the preview resolves the dispatch anchor from the returned serial's `product_serial_numbers.dispatch_detail_id` before using any sale/product fallback
-- **AND** the preview shows the dispatch detail that anchors the serial's original sale movement
-- **AND** product replacement lines show the selected replacement serial identity when present
-
-#### Scenario: Cross-owner replacement sale target preview is displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return with a product-replacement line whose replacement serial owner differs from the original source owner
-- **THEN** the preview identifies the replacement serial owner from the replacement serial location setting
-- **AND** the preview labels the line as cross-owner replacement
-- **AND** the preview shows the original Sale correction quantity and amount
-- **AND** the preview shows the planned generated replacement-owner Sale header, detail, payment, dispatch, stock, and serial effects
-
-#### Scenario: Mixed line resolutions are displayed
-- **WHEN** a pending POS Return contains both `cash_return` and `product_replacement` actionable lines
-- **THEN** the preview remains available when each individual line has a resolvable planned target
-- **AND** the preview treats each line's resolution as authoritative for cash-return totals, replacement serial display, replacement owner display, stock movement intent, and serial movement intent
-- **AND** mixed resolutions alone do not block the preview
-
-#### Scenario: Intake-only pending return derives planned targets
-- **WHEN** a pending POS Return has actionable lines but no existing linked Sales Returns
-- **THEN** the preview derives planned Sales Return targets from POS Return lines and current source data
-- **AND** absence of linked Sales Returns alone does not block the preview when planned targets are resolvable
-
-#### Scenario: Non serial dispatch anchor uses unique safe fallback
-- **WHEN** an actionable non-serial stock-managed POS Return line lacks a persisted dispatch detail
-- **THEN** the preview may infer the dispatch detail only when there is exactly one safe source match for the sale detail or sale/product context
-- **AND** ambiguous or missing dispatch matches are reported as blockers
-
-### Requirement: Approval Preview Reports Blockers
-The system SHALL report preview blockers when the POS Return cannot yet be mapped to a safe approval execution target. The preview MUST revalidate source snapshot freshness, current live execution identities, replacement serial owner, replacement serial location, replacement stock availability, and generated replacement-owner Sale prerequisites before reporting a ready state. Blockers MUST be shown without mutating data and MUST identify the affected line, source sale, dispatch detail, serial, replacement serial, owner/location, replacement owner/location, resolution, or bundle context when available.
-
-#### Scenario: Missing linked execution target is reported
-- **WHEN** approval preview cannot resolve the planned Sales Return target for one or more actionable POS Return lines
-- **THEN** the preview shows a blocked state
-- **AND** the preview lists the unresolved lines and missing execution identities
-- **AND** no approval mutation occurs
-
-#### Scenario: Missing bundle component target is reported
-- **WHEN** an actionable bundled POS Return line implies component-owned Sales targets but the preview cannot map one or more components to a unique generated Sale and bundle allocation row
-- **THEN** the preview shows a blocked state
-- **AND** the blocker identifies the affected POS Return line, source POS item, component product, and missing or ambiguous component target context when available
-- **AND** no approval mutation occurs
-
-#### Scenario: Missing dispatch detail is reported
-- **WHEN** an actionable stock-managed POS Return line lacks a resolvable dispatch detail
-- **THEN** the preview shows a blocker for that line
-- **AND** the blocker explains that stock or serial reversal cannot be planned without a dispatch detail
-
-#### Scenario: Source state drift is reported as blocker
-- **WHEN** the persisted POS Return source snapshot or captured source identity no longer matches the current source sale, dispatch, serial, owner/location, tax, product, replacement serial, replacement serial owner/location, or bundle state needed for execution
-- **THEN** the preview shows a blocked state
-- **AND** the preview lists all detected source-state mismatches
-- **AND** no approval mutation occurs
-
-#### Scenario: Invalid line-level replacement target is reported
-- **WHEN** a pending POS Return contains a `product_replacement` line whose replacement serial, replacement owner, replacement Sale generation context, or replacement dispatch intent cannot be validated
-- **THEN** the preview shows a blocker for that line
-- **AND** the blocker does not block other lines merely because their resolutions differ
-- **AND** no approval mutation occurs
-
-#### Scenario: Replacement serial owner cannot be resolved
-- **WHEN** a pending POS Return contains a `product_replacement` line whose replacement serial has no current location owner setting
-- **THEN** the preview shows a blocker for the replacement line
-- **AND** final approval is unavailable
-- **AND** no approval mutation occurs
+## MODIFIED Requirements
 
 ### Requirement: Approval Preview Separates Warnings From Blockers
-The system SHALL distinguish approval blockers from warnings and informational notes. Warnings or informational notes MUST NOT change lifecycle state and MUST NOT prevent preview rendering when all required execution identities are resolved.
+The system SHALL distinguish approval blockers from warnings and informational notes. Warnings or informational notes MUST NOT change lifecycle state and MUST NOT prevent read-only preview rendering when all required execution identities are resolved. Final approval execution from the preview page MUST require zero blockers and zero warnings; informational notes alone MUST NOT block final approval.
 
 #### Scenario: No linked Sales Returns is informational when targets are derived
 - **WHEN** a pending POS Return has no linked Sales Returns
 - **AND** the preview can derive complete planned Sales Return headers and details
 - **THEN** the preview remains available
-- **AND** reports the absence of existing linked Sales Returns as a warning or informational note instead of a blocker
+- **AND** reports the absence of existing linked Sales Returns as an informational note instead of a blocker or warning
+
+#### Scenario: Warning disables final approval
+- **WHEN** an authorized user opens approval preview for a pending POS Return and the latest plan contains one or more warnings
+- **THEN** the preview renders the warning details
+- **AND** the final approval execution control is unavailable
+- **AND** opening the preview does not mutate lifecycle, stock, serial, dispatch, payment, source Sale, or Sales Return records
 
 ### Requirement: Approval Preview Is Preview Only
-The system SHALL NOT expose a final approval submission control from the approval preview page in this change. The approval preview page MAY provide navigation back to the POS Return detail page and MAY show disabled or informational messaging about future approval execution, but it MUST NOT submit approval.
+The system SHALL keep approval preview read-only until the user explicitly confirms final approval execution. The approval preview page SHALL provide final approval execution only for authorized pending POS Returns whose latest preview has zero blockers and zero warnings. Opening or refreshing the approval preview MUST NOT mutate data; only the explicit final approval confirmation may mutate POS Return lifecycle fields, linked Sales Return records, stock, serials, dispatches, payments, source Sales, or audit approval fields.
 
-#### Scenario: Preview page has no final approve submission
-- **WHEN** an authorized user opens approval preview for a pending POS Return
-- **THEN** the page does not provide an enabled final approve or confirm approval submission action
-- **AND** the only available lifecycle-changing action on the preview page is no lifecycle-changing action
+#### Scenario: Preview page exposes final approval only when executable
+- **WHEN** an authorized user opens approval preview for a pending POS Return whose latest preview has zero blockers and zero warnings
+- **THEN** the page provides a final approval confirmation control
+- **AND** the POS Return remains pending until that control is submitted
+
+#### Scenario: Preview page has no final approval when blocked
+- **WHEN** an authorized user opens approval preview for a pending POS Return whose latest preview has blockers or warnings
+- **THEN** the page does not provide an enabled final approval submission action
 - **AND** the user can navigate back to the POS Return detail page
+- **AND** no lifecycle-changing action occurs from opening the page
 
-### Requirement: Approval Preview Resolves Same-Sale Bundle Component Targets
-The system SHALL treat a `sale_bundle_items` row from the same generated Sale as the parent POS Return line as a valid approval preview component target when persisted source data uniquely maps that row to the returned bundle component. Same-sale component target resolution MUST use deterministic evidence such as component product id, bundle id, component quantity, POS bundle trace index, `line_group_key`, and POS transaction line bundle metadata when available. The system MUST NOT reject a component target solely because the component row belongs to the same Sale as the parent line.
+#### Scenario: Opening preview remains non-mutating
+- **WHEN** an authorized user opens or refreshes approval preview for a pending POS Return
+- **THEN** the system does not mutate POS Return lifecycle fields, linked Sales Return records, stock, serials, dispatches, payments, source sales, or audit approval fields
 
-#### Scenario: Same-sale bundle component target is displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return with an actionable bundled POS item
-- **AND** one returned bundle component maps uniquely to a `sale_bundle_items` row whose `sale_id` equals the parent POS Return line `sale_id`
-- **THEN** the preview includes that component allocation row as an explicit planned Sales Return detail target under the same source Sale
-- **AND** the preview does not report `component_target_missing` for that component solely because the target belongs to the parent Sale
+## ADDED Requirements
 
-#### Scenario: Mixed same-sale and split-sale bundle component targets are displayed
-- **WHEN** an authorized user opens approval preview for a pending POS Return whose bundled POS item has one component allocation in the parent generated Sale and another component allocation in a different generated Sale
-- **THEN** the preview shows both component allocation rows under their owning source Sales
-- **AND** each component row preserves the selected line resolution, source POS item, component product, quantity, owner, location, tax context, stock movement intent, and serial movement intent
-- **AND** the preview remains ready when every component target is uniquely mapped
+### Requirement: Approval Preview Submits Explicit Final Execution
+The approval preview page SHALL submit final approval execution through an explicit confirmation action protected by `pos.returns.approve`. The final execution request MUST rebuild and validate the latest preview plan server-side before any mutation. Successful execution MUST redirect to the POS Return detail page showing completed status.
 
-#### Scenario: Ambiguous same-sale component candidates remain blocked
-- **WHEN** approval preview finds more than one plausible `sale_bundle_items` target for a returned bundle component after applying available POS lineage and quantity evidence
-- **THEN** the preview shows a blocked state with `component_target_ambiguous`
-- **AND** no approval mutation occurs
+#### Scenario: Final approval redirects to completed return
+- **WHEN** an authorized user confirms final approval execution for an executable preview
+- **THEN** the system executes the POS Return approval lifecycle
+- **AND** redirects the user to the POS Return detail page
+- **AND** the POS Return detail page shows completed status
 
-#### Scenario: Missing same-sale component target remains blocked
-- **WHEN** approval preview cannot find a same-sale or split-sale `sale_bundle_items` target for a returned bundle component in a multi-sale checkout
-- **THEN** the preview shows a blocked state with `component_target_missing`
-- **AND** no approval mutation occurs
-
+#### Scenario: Final approval revalidates stale preview
+- **WHEN** the source Sale, dispatch, serial, payment, or bundle state changes after the preview page was opened but before final approval is submitted
+- **THEN** the final approval request rebuilds the preview plan
+- **AND** blocks execution if the rebuilt plan has blockers or warnings
+- **AND** no mutation occurs
