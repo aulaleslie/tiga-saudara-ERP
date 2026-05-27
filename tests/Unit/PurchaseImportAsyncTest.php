@@ -26,89 +26,125 @@ class PurchaseImportAsyncTest extends TestCase
 
         // Manual Schema Setup for Test
         $this->createTables();
+
+        // Clean up data between tests
+        $this->cleanupTestData();
+    }
+
+    protected function cleanupTestData()
+    {
+        $schema = \Illuminate\Support\Facades\Schema::connection('sqlite');
+
+        if ($schema->hasTable('purchase_import_rows')) {
+            \Illuminate\Support\Facades\DB::connection('sqlite')->table('purchase_import_rows')->truncate();
+        }
+        if ($schema->hasTable('purchase_import_batches')) {
+            \Illuminate\Support\Facades\DB::connection('sqlite')->table('purchase_import_batches')->truncate();
+        }
+        if ($schema->hasTable('users')) {
+            \Illuminate\Support\Facades\DB::connection('sqlite')->table('users')->truncate();
+        }
     }
 
     protected function createTables()
     {
         $schema = \Illuminate\Support\Facades\Schema::connection('sqlite');
 
-        $schema->create('users', function ($table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
-            $table->boolean('is_active');
-            $table->rememberToken();
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('users')) {
+            $schema->create('users', function ($table) {
+                $table->id();
+                $table->string('name');
+                $table->string('email')->unique();
+                $table->timestamp('email_verified_at')->nullable();
+                $table->string('password');
+                $table->boolean('is_active');
+                $table->rememberToken();
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('purchase_import_batches', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
-            $table->string('source_csv_path');
-            $table->string('file_sha256');
-            $table->string('status');
-            $table->integer('total_rows')->default(0);
-            $table->integer('processed_rows')->default(0);
-            $table->integer('success_count')->default(0);
-            $table->integer('error_count')->default(0);
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('purchase_import_batches')) {
+            $schema->create('purchase_import_batches', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('source_csv_path');
+                $table->string('file_sha256');
+                $table->string('status');
+                $table->integer('total_rows')->default(0);
+                $table->integer('processed_rows')->default(0);
+                $table->integer('success_count')->default(0);
+                $table->integer('error_count')->default(0);
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('purchase_import_rows', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('batch_id');
-            $table->integer('row_number');
-            $table->json('raw_json');
-            $table->string('status');
-            $table->text('error_message')->nullable();
-            $table->unsignedBigInteger('purchase_id')->nullable();
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('purchase_import_rows')) {
+            $schema->create('purchase_import_rows', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('batch_id');
+                $table->integer('row_number');
+                $table->json('raw_json');
+                $table->string('status');
+                $table->text('error_message')->nullable();
+                $table->unsignedBigInteger('purchase_id')->nullable();
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('roles', function ($table) {
-            $table->id();
-            $table->string('name');
-            $table->string('guard_name');
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('roles')) {
+            $schema->create('roles', function ($table) {
+                $table->id();
+                $table->string('name');
+                $table->string('guard_name');
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('model_has_roles', function ($table) {
-            $table->unsignedBigInteger('role_id');
-            $table->string('model_type');
-            $table->unsignedBigInteger('model_id');
-            $table->index(['model_id', 'model_type'], 'model_has_roles_model_id_model_type_index');
-            $table->foreign('role_id')->references('id')->on('roles')->onDelete('cascade');
-            $table->primary(['role_id', 'model_id', 'model_type'], 'model_has_roles_role_model_type_primary');
-        });
+        if (!$schema->hasTable('model_has_roles')) {
+            $schema->create('model_has_roles', function ($table) {
+                $table->unsignedBigInteger('role_id');
+                $table->string('model_type');
+                $table->unsignedBigInteger('model_id');
+                $table->index(['model_id', 'model_type'], 'model_has_roles_model_id_model_type_index');
+                $table->foreign('role_id')->references('id')->on('roles')->onDelete('cascade');
+                $table->primary(['role_id', 'model_id', 'model_type'], 'model_has_roles_role_model_type_primary');
+            });
+        }
 
-        $schema->create('settings', function ($table) {
-            $table->id();
-            $table->string('company_name');
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('settings')) {
+            $schema->create('settings', function ($table) {
+                $table->id();
+                $table->string('company_name');
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('user_setting', function ($table) {
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('setting_id');
-            $table->unsignedBigInteger('role_id')->nullable();
-        });
+        if (!$schema->hasTable('user_setting')) {
+            $schema->create('user_setting', function ($table) {
+                $table->unsignedBigInteger('user_id');
+                $table->unsignedBigInteger('setting_id');
+                $table->unsignedBigInteger('role_id')->nullable();
+            });
+        }
 
-        $schema->create('permissions', function ($table) {
-            $table->id();
-            $table->string('name');
-            $table->string('guard_name');
-            $table->timestamps();
-        });
+        if (!$schema->hasTable('permissions')) {
+            $schema->create('permissions', function ($table) {
+                $table->id();
+                $table->string('name');
+                $table->string('guard_name');
+                $table->timestamps();
+            });
+        }
 
-        $schema->create('role_has_permissions', function ($table) {
-            $table->unsignedBigInteger('permission_id');
-            $table->unsignedBigInteger('role_id');
-            $table->foreign('permission_id')->references('id')->on('permissions')->onDelete('cascade');
-            $table->foreign('role_id')->references('id')->on('roles')->onDelete('cascade');
-            $table->primary(['permission_id', 'role_id'], 'role_has_permissions_permission_id_role_id_primary');
-        });
+        if (!$schema->hasTable('role_has_permissions')) {
+            $schema->create('role_has_permissions', function ($table) {
+                $table->unsignedBigInteger('permission_id');
+                $table->unsignedBigInteger('role_id');
+                $table->foreign('permission_id')->references('id')->on('permissions')->onDelete('cascade');
+                $table->foreign('role_id')->references('id')->on('roles')->onDelete('cascade');
+                $table->primary(['permission_id', 'role_id'], 'role_has_permissions_permission_id_role_id_primary');
+            });
+        }
     }
 
     /** @test */

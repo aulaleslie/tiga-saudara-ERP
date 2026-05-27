@@ -653,8 +653,9 @@ class PurchaseImportReproductionTest extends TestCase
 
         $this->assertEquals(PurchaseImportRow::STATUS_SKIPPED, $row->status, 'Row should be skipped');
         $this->assertEquals(0, $batch->success_count, 'Success count should be 0 for duplicate');
-        // Verify the batch processed count includes skipped rows
+        $this->assertEquals(1, $batch->processed_rows, 'Processed rows should include the skipped duplicate row');
+        // Verify the batch processed count includes skipped rows (regression check)
         $processedCount = $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count();
-        $this->assertGreaterThanOrEqual(1, $processedCount, 'Skipped rows should be counted in processed_rows');
+        $this->assertEquals($batch->processed_rows, $processedCount, 'Persisted processed_rows should match row count');
     }
 }

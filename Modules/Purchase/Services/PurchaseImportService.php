@@ -172,12 +172,13 @@ class PurchaseImportService
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
-        // Rule 0: Daizu products always route to Daizu
+        // Rule 0: Daizu products always route to Daizu, fail explicitly if missing
         if ($this->isDaizuProduct($productName)) {
             $daizuSetting = $this->getDaizuSetting();
-            if ($daizuSetting) {
-                return $daizuSetting;
+            if (!$daizuSetting) {
+                throw new \Exception("Daizu Kedelai setting not found for product: {$productName}");
             }
+            return $daizuSetting;
         }
 
         $parsed = $this->parseProductName($productName);
