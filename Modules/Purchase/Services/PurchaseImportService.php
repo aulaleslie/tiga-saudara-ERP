@@ -795,10 +795,17 @@ class PurchaseImportService
         // Read the baseline average from the product's owner-setting row for a deterministic result.
         // product_quantity is a global field on the product, so the canonical prior average must
         // come from a single consistent row — the owner-setting record is that anchor.
+        // If the owner-setting row is missing or stale (null/zero) but other rows exist with a
+        // positive average — e.g. products imported before this all-settings sync change — fall
+        // back to the MAX existing average so we don't understate the weighted average.
         $existingPrice = ProductPrice::where('product_id', $productId)
             ->where('setting_id', $ownerSettingId)
             ->value('average_purchase_price');
         $currentAvg = (float) ($existingPrice ?? 0);
+        if ($currentAvg <= 0) {
+            $fallback = ProductPrice::where('product_id', $productId)->max('average_purchase_price');
+            $currentAvg = (float) ($fallback ?? 0);
+        }
 
         $currentTotalValue = $currentAvg * $previousQuantity;
         $newTotalValue = $unitPriceFinal * $incomingQuantity;

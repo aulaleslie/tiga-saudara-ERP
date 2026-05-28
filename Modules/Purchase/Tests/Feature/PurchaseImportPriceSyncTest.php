@@ -170,6 +170,57 @@ class PurchaseImportPriceSyncTest extends TestCase
         }
     }
 
+    // Fallback baseline — owner-setting row missing/stale, other setting has a real average
+    public function test_weighted_average_uses_best_available_baseline_when_owner_row_is_stale(): void
+    {
+        $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Piece', 'short_name' => 'PCS']);
+
+        // Product owned by settingA, existing global quantity 20
+        $product = Product::create([
+            'product_name'     => 'Widget',
+            'product_code'     => 'WGT-001',
+            'unit_id'          => $unit->id,
+            'setting_id'       => $this->settingA->id,
+            'product_cost'     => 0,
+            'product_price'    => 0,
+            'product_quantity' => 20,
+        ]);
+
+        // Owner-setting row (settingA) is stale — average is 0
+        ProductPrice::create([
+            'product_id'             => $product->id,
+            'setting_id'             => $this->settingA->id,
+            'sale_price'             => 0,
+            'last_purchase_price'    => 4000,
+            'average_purchase_price' => 0,
+        ]);
+
+        // settingB row has the real historical average (4000) from a prior sync
+        ProductPrice::create([
+            'product_id'             => $product->id,
+            'setting_id'             => $this->settingB->id,
+            'sale_price'             => 0,
+            'last_purchase_price'    => 4000,
+            'average_purchase_price' => 4000,
+        ]);
+
+        $batch = $this->makeBatch();
+        // Import 10 more units at 6000
+        $this->makeRow($batch, ['produk' => 'Widget', 'kuantitas' => '10', 'harga_satuan' => '6000']);
+
+        $this->service->processBatch($batch);
+
+        // Fallback picks 4000 from settingB. Weighted avg = (4000*20 + 6000*10) / 30 = 4666.67
+        $expectedAvg = round((4000 * 20 + 6000 * 10) / 30, 2);
+
+        foreach ([$this->settingA->id, $this->settingB->id] as $settingId) {
+            $price = ProductPrice::where('product_id', $product->id)
+                ->where('setting_id', $settingId)
+                ->firstOrFail();
+            $this->assertEqualsWithDelta($expectedAvg, (float) $price->average_purchase_price, 0.01, "average_purchase_price wrong for setting {$settingId}");
+        }
+    }
+
     // Task 1.6 — duplicate purchase invoice skips product price sync
     public function test_duplicate_purchase_invoice_does_not_update_product_prices(): void
     {
