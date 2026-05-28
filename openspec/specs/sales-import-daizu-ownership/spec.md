@@ -1,7 +1,7 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Daizu product sales import ownership
-The sales importer SHALL resolve rows whose product name contains whole-word `KEDELE`, `KEDELAI`, or `RAGI` to the Daizu Kedelai setting for sales document ownership.
+The sales importer SHALL resolve rows whose product name contains whole-word `KEDELE`, `KEDELAI`, or `RAGI` to the Daizu Kedelai setting for sales document ownership before evaluating any other product-name marker.
 
 #### Scenario: Untagged kedelai sale row creates Daizu sale
 - **WHEN** a sales CSV row has an empty `Tag` and product name `KEDELE IMPORT`
@@ -10,6 +10,7 @@ The sales importer SHALL resolve rows whose product name contains whole-word `KE
 #### Scenario: Existing tag does not override Daizu sale ownership
 - **WHEN** a sales CSV row has product name `RAGI` and a `Tag` mapped to another setting
 - **THEN** the created sale MUST still have `setting_id` for Daizu Kedelai
+- **AND** the sale MAY retain the CSV tag as metadata
 
 #### Scenario: Product marker does not override Daizu sale ownership
 - **WHEN** a sales CSV row has product name `* KEDELAI IMPORT TP`
@@ -17,10 +18,10 @@ The sales importer SHALL resolve rows whose product name contains whole-word `KE
 
 #### Scenario: Non-whole-word names do not match Daizu rule
 - **WHEN** a sales CSV row has product name `PREKEDELAI SAMPLE` or `RAGING BULL`
-- **THEN** the sales importer MUST resolve ownership using the existing Tag, marker, and fallback rules
+- **THEN** the sales importer MUST resolve ownership using the non-Daizu product-name marker rules
 
 ### Requirement: Daizu sales stock ownership alignment
-The sales importer SHALL resolve stock movement ownership for Daizu-matched product rows to Daizu Kedelai and SHALL bypass marker and purchase-history fallback for those rows.
+The sales importer SHALL resolve stock movement ownership for Daizu-matched product rows to Daizu Kedelai and SHALL bypass marker, tag, and purchase-history fallback for those rows.
 
 #### Scenario: Daizu sale row decrements Daizu stock
 - **WHEN** a sales CSV row has product name containing whole-word `KEDELE`
@@ -39,38 +40,6 @@ The sales importer SHALL resolve stock movement ownership for Daizu-matched prod
 - **AND** the product stock decrement MUST occur at that Daizu location
 - **AND** the inventory Transaction `setting_id` MUST be Daizu Kedelai
 
-### Requirement: Daizu sales warehouse resolution
-The sales importer SHALL resolve CSV `Gudang` for Daizu-matched rows within Daizu Kedelai locations and SHALL fail explicitly when a required Daizu location cannot be found.
-
-#### Scenario: Daizu row with Gudang uses matching Daizu location
-- **WHEN** a Daizu-matched sales CSV row includes `Gudang` matching a location owned by Daizu Kedelai
-- **THEN** the dispatch detail and product stock decrement MUST use that Daizu location
-
-#### Scenario: Blank Gudang uses Daizu default location
-- **WHEN** a Daizu-matched sales CSV row has an empty `Gudang`
-- **THEN** the dispatch detail and product stock decrement MUST use the default available Daizu Kedelai location
-
-#### Scenario: Gudang cannot fall back to another setting
-- **WHEN** a Daizu-matched sales CSV row includes `Gudang` that does not match any Daizu Kedelai location
-- **THEN** the row MUST be marked invalid
-- **AND** the row error message MUST identify the missing Daizu location
-
-### Requirement: Daizu sales setup failures are explicit
-The sales importer SHALL mark Daizu-matched rows invalid when the Daizu Kedelai setting or a usable Daizu stock location cannot be found.
-
-#### Scenario: Missing Daizu setting invalidates matching sales rows
-- **WHEN** a sales CSV row has product name containing whole-word `KEDELE`
-- **AND** the Daizu Kedelai setting does not exist
-- **THEN** the row MUST be marked invalid
-- **AND** the row error message MUST identify the missing Daizu setting
-
-#### Scenario: Missing default Daizu location invalidates blank Gudang row
-- **WHEN** a sales CSV row has product name containing whole-word `RAGI`
-- **AND** the Daizu Kedelai setting exists without a usable location
-- **AND** the row has an empty `Gudang`
-- **THEN** the row MUST be marked invalid
-- **AND** the row error message MUST identify the missing Daizu location
-
 ### Requirement: Daizu sales duplicate handling
 The sales importer SHALL prevent duplicate Daizu product sales by checking both Daizu-owned duplicates and legacy non-Daizu sales for the same imported invoice reference.
 
@@ -85,6 +54,41 @@ The sales importer SHALL prevent duplicate Daizu product sales by checking both 
 - **THEN** matching import rows MUST be marked invalid
 - **AND** the row error message MUST identify the legacy ownership conflict
 
-#### Scenario: Non-Daizu duplicate behavior remains unchanged
-- **WHEN** a non-Daizu sales CSV invoice has already been imported under its resolved setting
-- **THEN** the importer MUST continue to apply the existing duplicate skip behavior for that resolved setting
+#### Scenario: Non-Daizu duplicate behavior uses product-name ownership
+- **WHEN** a non-Daizu sales CSV invoice has already been imported under the setting resolved from its product-name marker
+- **THEN** the importer MUST continue to apply duplicate skip behavior for that resolved setting
+- **AND** CSV `Tag` values MUST NOT redirect the duplicate check to another setting
+
+## ADDED Requirements
+
+### Requirement: Non-Daizu sales import product-name ownership
+The sales importer SHALL resolve non-Daizu sales import ownership from the raw product name and SHALL ignore CSV `Tag` for ownership mapping.
+
+#### Scenario: Asterisk sale row routes to Tiga Nusa despite tag
+- **WHEN** a sales CSV row has product name `* MONITOR SAMPLE` and `Tag` value `perdana`
+- **THEN** the created sale MUST have `setting_id` for `CV TIGA NUSA COMPUTER`
+- **AND** the sale MUST retain the CSV tag as metadata when tag syncing is available
+
+#### Scenario: TP suffix sale row routes to TOP IT despite tag
+- **WHEN** a sales CSV row has product name `MONITOR SAMPLE TP` and `Tag` value `cv tiga nusa`
+- **THEN** the created sale MUST have `setting_id` for `CV TOP IT INTERNUSA`
+- **AND** the sale MUST retain the CSV tag as metadata when tag syncing is available
+
+#### Scenario: Unmarked sale row routes to Perdana despite tag
+- **WHEN** a sales CSV row has product name `MONITOR SAMPLE` and `Tag` value `rahmat`
+- **THEN** the created sale MUST have `setting_id` for `PERDANA`
+- **AND** the sale MUST retain the CSV tag as metadata when tag syncing is available
+
+### Requirement: Non-Daizu sales import owner alignment
+The sales importer SHALL keep document owner, ProductPrice owner, stock owner, dispatch location owner, and inventory Transaction owner aligned to the product-name ownership rule for non-Daizu rows.
+
+#### Scenario: Historical purchase owner is ignored for unmarked sales
+- **WHEN** a non-Daizu product has prior `BUY` transaction history under a setting other than `PERDANA`
+- **AND** a sales CSV row imports that product without `*` or ` TP` markers
+- **THEN** the created sale MUST have `setting_id` for `PERDANA`
+- **AND** the stock decrement and inventory Transaction MUST also use `PERDANA`
+
+#### Scenario: Tag differences do not split sales invoice ownership
+- **WHEN** two sales CSV rows share the same invoice number and resolve to the same product-name owner
+- **AND** the rows have different non-empty `Tag` values
+- **THEN** the importer MUST group them into the same sale document for that product-name owner
