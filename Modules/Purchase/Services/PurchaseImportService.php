@@ -135,8 +135,8 @@ class PurchaseImportService
     }
 
     /**
-     * Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2).
-     * Throws exception if Daizu product but setting not found (should never return null for Daizu products).
+     * Resolve tenant using product-name ownership only: Daizu (Priority 0), then marker (Priority 1).
+     * CSV Tag is ignored for ownership resolution.
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
@@ -149,26 +149,18 @@ class PurchaseImportService
             return $daizuSetting;
         }
 
-        // Priority 1: Try Tag-based lookup
-        $setting = $this->getSettingForTag($tag);
-        if ($setting) {
-            return $setting;
-        }
-
-        // Priority 2: Fallback to product marker
+        // Priority 1: Product marker (tag is ignored for ownership)
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
 
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
+     * Uses product-name ownership only — tag and purchase-history fallback are ignored.
      * Rules:
-     * 0. Daizu products always route to Daizu setting, bypassing all other rules.
-     * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
-     * 2. No marker:
-     *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
-     *    - If found, use that tenant.
-     *    - Else, use Source Tenant.
+     * 0. Daizu products: always use Daizu Kedelai.
+     * 1. Markers (*, TP): CV Tiga Nusa or CV Top IT.
+     * 2. No marker: Perdana.
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
@@ -186,69 +178,18 @@ class PurchaseImportService
 
         // Rule 1: Markers are absolute
         if ($marker === 'asterisk') {
-            // * -> CV TIGA NUSA COMPUTER
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) return $setting;
         }
 
         if ($marker === 'tp') {
-            // TP -> CV TOP IT INTERNUSA
             $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
             if ($setting) return $setting;
         }
 
-        // Rule 2: No marker (or marker tenant not found/fallback)
-        // Find CV Tiga Nusa ID to exclude it
-        $tigaNusa = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
-        $tigaNusaId = $tigaNusa ? $tigaNusa->id : 0;
-
-        // If product doesn't exist yet, we can't check history, so default to source
-        if (!$product) {
-            return $sourceSetting;
-        }
-
-        // Check history: Last Tenant other than CV Tiga Nusa that performed a purchase (Transaction type BUY)
-        /*
-         * Query logic:
-         * Find latest transaction for this product
-         * where type = BUY
-         * and setting_id != TigaNusaID
-         */
-        $lastTransaction = Transaction::where('product_id', $product->id)
-            ->where('type', 'BUY')
-            ->where('setting_id', '!=', $tigaNusaId)
-            ->latest('id')
-            ->first();
-
-        if ($lastTransaction) {
-            $lastSetting = Setting::find($lastTransaction->setting_id);
-            if ($lastSetting) {
-                return $lastSetting;
-            }
-        }
-
-        // Search in Purchase table if Transaction history is missing/incomplete (redundancy check)
-        // This might be slower but useful if Transactions are purged or not synced
-        /*
-        $lastPurchaseDetail = PurchaseDetail::where('product_id', $product->id)
-            ->whereHas('purchase', function($q) use ($tigaNusaId) {
-                $q->where('setting_id', '!=', $tigaNusaId);
-            })
-            ->latest('id')
-            ->first();
-
-        if ($lastPurchaseDetail && $lastPurchaseDetail->purchase) {
-            $lastSetting = Setting::find($lastPurchaseDetail->purchase->setting_id);
-            if ($lastSetting) {
-                return $lastSetting;
-            }
-        }
-        */
-
-        // Fallback: Use Source Tenant
-        // If the source itself is CV Tiga Nusa and no other history exists,
-        // it means it stays in CV Tiga Nusa (which is the Source).
-        return $sourceSetting;
+        // Rule 2: No marker — always Perdana (no history fallback)
+        $perdana = Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
+        return $perdana ?? $sourceSetting;
     }
 
     /**
@@ -438,15 +379,8 @@ class PurchaseImportService
     }
 
     /**
-     * Group rows by invoice number and tenant.
-     *
-     * Each row's tenant is determined by:
-     * 1. Daizu product detection (per-row, overrides everything)
-     * 2. Tag mapping (per-row)
-     * 3. Product marker (per-row)
-     *
-     * This ensures Daizu and non-Daizu rows are never grouped together,
-     * and tag/marker resolution happens per-row, not group-wide.
+     * Group rows by invoice number and product-name-resolved tenant key.
+     * Tag is never used as a grouping key.
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -455,20 +389,11 @@ class PurchaseImportService
         foreach ($rows as $row) {
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
-            $tag = $data['tag'] ?? '';
             $productName = $data['produk'] ?? '';
 
-            // Determine tenant key per-row:
-            // Priority 0: Daizu product (overrides tag/marker)
             if ($this->isDaizuProduct($productName)) {
                 $tenantKey = 'daizu';
-            }
-            // Priority 1: Tag-based resolution
-            elseif (!empty($tag)) {
-                $tenantKey = 'tag:' . strtolower(trim($tag));
-            }
-            // Priority 2: Product marker
-            else {
+            } else {
                 $parsed = $this->parseProductName($productName);
                 $tenantKey = 'marker:' . $parsed['marker'];
             }
@@ -506,7 +431,7 @@ class PurchaseImportService
                 foreach ($rows as $row) {
                     $row->update([
                         'status' => PurchaseImportRow::STATUS_INVALID,
-                        'error_message' => "Tenant not found for tag: '{$tag}' or product: '{$productName}'",
+                        'error_message' => "Tenant not found for product: '{$productName}'",
                     ]);
                     Log::warning('[PurchaseImport] Row error - tenant not found', [
                         'batch_id' => $batch->id,

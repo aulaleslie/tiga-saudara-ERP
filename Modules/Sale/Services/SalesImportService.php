@@ -188,7 +188,8 @@ class SalesImportService
     }
 
     /**
-     * Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2).
+     * Resolve tenant using product-name ownership only: Daizu (Priority 0), then marker (Priority 1).
+     * CSV Tag is ignored for ownership resolution.
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
@@ -197,26 +198,18 @@ class SalesImportService
             return $this->getDaizuSetting();
         }
 
-        // Priority 1: Try Tag-based lookup
-        $setting = $this->getSettingForTag($tag);
-        if ($setting) {
-            return $setting;
-        }
-
-        // Priority 2: Fallback to product marker
+        // Priority 1: Product marker (tag is ignored for ownership)
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
 
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
+     * Uses product-name ownership only — tag and purchase-history fallback are ignored.
      * Rules:
-     * 0. Daizu products: always use Daizu Kedelai (bypass all other rules).
-     * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
-     * 2. No marker:
-     *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
-     *    - If found, use that tenant.
-     *    - Else, use Source Tenant.
+     * 0. Daizu products: always use Daizu Kedelai.
+     * 1. Markers (*, TP): CV Tiga Nusa or CV Top IT.
+     * 2. No marker: Perdana.
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
@@ -233,43 +226,18 @@ class SalesImportService
 
         // Rule 1: Markers are absolute
         if ($marker === 'asterisk') {
-            // * -> CV TIGA NUSA COMPUTER
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) return $setting;
         }
 
         if ($marker === 'tp') {
-            // TP -> CV TOP IT INTERNUSA
             $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
             if ($setting) return $setting;
         }
 
-        // Rule 2: No marker (or marker tenant not found/fallback)
-        // Find CV Tiga Nusa ID to exclude it
-        $tigaNusa = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
-        $tigaNusaId = $tigaNusa ? $tigaNusa->id : 0;
-
-        // If product doesn't exist yet, we can't check history, so default to source
-        if (!$product) {
-            return $sourceSetting;
-        }
-
-        // Check history: Last Tenant other than CV Tiga Nusa that performed a purchase (Transaction type BUY)
-        $lastTransaction = Transaction::where('product_id', $product->id)
-            ->where('type', 'BUY')
-            ->where('setting_id', '!=', $tigaNusaId)
-            ->latest('id')
-            ->first();
-
-        if ($lastTransaction) {
-            $lastSetting = Setting::find($lastTransaction->setting_id);
-            if ($lastSetting) {
-                return $lastSetting;
-            }
-        }
-
-        // Fallback: Use Source Tenant
-        return $sourceSetting;
+        // Rule 2: No marker — always Perdana (no history fallback)
+        $perdana = Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
+        return $perdana ?? $sourceSetting;
     }
 
     /**
@@ -634,7 +602,6 @@ class SalesImportService
                 $lastRow = $initialRows->last();
                 $lastRowData = $lastRow->raw_json;
                 $lastInvoiceNo = $lastRowData['no_faktur'] ?? '';
-                $lastTag = $lastRowData['tag'] ?? '';
                 $lastProductName = $lastRowData['produk'] ?? '';
 
                 // Check if there are more rows with the same invoice after this chunk
@@ -642,32 +609,28 @@ class SalesImportService
                 if (!empty($lastInvoiceNo)) {
                     // Load additional rows that belong to the same invoice group
                     $lastRowNumber = $lastRow->row_number;
-                    
+                    $lastOwnerKey = $this->isDaizuProduct($lastProductName)
+                        ? 'daizu'
+                        : 'marker:' . $this->parseProductName($lastProductName)['marker'];
+
                     $additionalRows = $batch->pendingRows()
                         ->where('row_number', '>', $lastRowNumber)
                         ->orderBy('row_number')
                         ->get()
-                        ->takeWhile(function ($row) use ($lastInvoiceNo, $lastTag, $lastProductName) {
+                        ->takeWhile(function ($row) use ($lastInvoiceNo, $lastOwnerKey) {
                             $rowData = $row->raw_json;
                             $rowInvoiceNo = $rowData['no_faktur'] ?? '';
-                            $rowTag = $rowData['tag'] ?? '';
-                            
-                            // Check if this row belongs to same invoice group
+
                             if ($rowInvoiceNo !== $lastInvoiceNo) {
-                                return false; // Different invoice, stop here
+                                return false;
                             }
-                            
-                            // Same invoice number, check if same tenant
-                            if (!empty($lastTag) && !empty($rowTag)) {
-                                return strtolower(trim($rowTag)) === strtolower(trim($lastTag));
-                            }
-                            
-                            // Fallback to product marker matching
+
                             $rowProductName = $rowData['produk'] ?? '';
-                            $lastParsed = $this->parseProductName($lastProductName);
-                            $rowParsed = $this->parseProductName($rowProductName);
-                            
-                            return $lastParsed['marker'] === $rowParsed['marker'];
+                            $rowOwnerKey = $this->isDaizuProduct($rowProductName)
+                                ? 'daizu'
+                                : 'marker:' . $this->parseProductName($rowProductName)['marker'];
+
+                            return $rowOwnerKey === $lastOwnerKey;
                         });
                 }
 
@@ -781,7 +744,8 @@ class SalesImportService
 
 
     /**
-     * Group rows by invoice number and effective tenant (using Daizu, Tag, or marker).
+     * Group rows by invoice number and product-name-resolved tenant key.
+     * Tag is never used as a grouping key.
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -790,18 +754,11 @@ class SalesImportService
         foreach ($rows as $row) {
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
-            $tag = $data['tag'] ?? '';
             $productName = $data['produk'] ?? '';
 
-            // Determine effective tenant key based on priority
-            // Priority 0: Daizu products
             if ($this->isDaizuProduct($productName)) {
                 $tenantKey = 'daizu';
-            } elseif (!empty($tag)) {
-                // Priority 1: Tag
-                $tenantKey = 'tag:' . strtolower(trim($tag));
             } else {
-                // Priority 2: Product marker
                 $parsed = $this->parseProductName($productName);
                 $tenantKey = 'marker:' . $parsed['marker'];
             }
@@ -858,7 +815,7 @@ class SalesImportService
             foreach ($rows as $row) {
                 $row->update([
                     'status' => SalesImportRow::STATUS_INVALID,
-                    'error_message' => "Tenant not found for tag: '{$tag}' or product: '{$productName}'",
+                    'error_message' => "Tenant not found for product: '{$productName}'",
                 ]);
                 Log::warning('[SalesImport] Row error - tenant not found', [
                     'batch_id' => $batch->id,
