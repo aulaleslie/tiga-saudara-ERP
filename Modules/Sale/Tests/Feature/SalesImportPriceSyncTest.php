@@ -139,7 +139,9 @@ class SalesImportPriceSyncTest extends TestCase
         $prices = ProductPrice::where('product_id', $product->id)->get();
 
         foreach ($prices as $price) {
-            $this->assertEquals(12000.0, (float) $price->sale_price, "sale_price should be 12000 (last row) for setting {$price->setting_id}");
+            $this->assertEquals(12000.0, (float) $price->sale_price,   "sale_price should be 12000 (last row) for setting {$price->setting_id}");
+            $this->assertEquals(12000.0, (float) $price->tier_1_price, "tier_1_price should be 12000 (last row) for setting {$price->setting_id}");
+            $this->assertEquals(12000.0, (float) $price->tier_2_price, "tier_2_price should be 12000 (last row) for setting {$price->setting_id}");
         }
     }
 
@@ -148,7 +150,7 @@ class SalesImportPriceSyncTest extends TestCase
     {
         $unit = Unit::create(['name' => 'Piece', 'short_name' => 'PCS']);
         $product = Product::create([
-            'product_name'     => 'GADGET',
+            'product_name'     => 'Gadget',
             'product_code'     => 'GDG-001',
             'unit_id'          => $unit->id,
             'setting_id'       => $this->settingA->id,
@@ -175,7 +177,6 @@ class SalesImportPriceSyncTest extends TestCase
         $this->service->processBatch($batch);
 
         // The sale detail row should still have been created for this product
-        // (import reuses the existing GADGET product via case-insensitive lookup)
         $saleDetail = SaleDetails::first();
         $this->assertNotNull($saleDetail, 'Sale detail must be created even for zero price');
 

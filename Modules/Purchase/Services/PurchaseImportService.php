@@ -708,6 +708,7 @@ class PurchaseImportService
                 $unitPriceFinal = $detail['unit_price_final'];
                 $newAveragePrice = $this->calculateWeightedAveragePurchasePrice(
                     $product->id,
+                    $product->setting_id,
                     $previousQuantity,
                     $unitPriceFinal,
                     $quantity
@@ -786,12 +787,17 @@ class PurchaseImportService
      */
     protected function calculateWeightedAveragePurchasePrice(
         int $productId,
+        int $ownerSettingId,
         int $previousQuantity,
         float $unitPriceFinal,
         int $incomingQuantity
     ): float {
-        // Use the first existing product_prices row to read the current average (all settings share the same global average)
-        $existingPrice = ProductPrice::where('product_id', $productId)->value('average_purchase_price');
+        // Read the baseline average from the product's owner-setting row for a deterministic result.
+        // product_quantity is a global field on the product, so the canonical prior average must
+        // come from a single consistent row — the owner-setting record is that anchor.
+        $existingPrice = ProductPrice::where('product_id', $productId)
+            ->where('setting_id', $ownerSettingId)
+            ->value('average_purchase_price');
         $currentAvg = (float) ($existingPrice ?? 0);
 
         $currentTotalValue = $currentAvg * $previousQuantity;

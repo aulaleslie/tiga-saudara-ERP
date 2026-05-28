@@ -123,7 +123,8 @@ class PurchaseImportPriceSyncTest extends TestCase
             $price = $prices->get($settingId);
             $this->assertNotNull($price, "Missing product_prices row for setting {$settingId}");
             $this->assertEquals(5000.0, (float) $price->last_purchase_price, "last_purchase_price mismatch for setting {$settingId}");
-            $this->assertGreaterThan(0, (float) $price->average_purchase_price, "average_purchase_price must be > 0 for setting {$settingId}");
+            // New product: qty=0 before import, 10 units at 5000 → weighted avg = (0*0 + 5000*10) / 10 = 5000
+            $this->assertEquals(5000.0, (float) $price->average_purchase_price, "average_purchase_price mismatch for setting {$settingId}");
         }
     }
 

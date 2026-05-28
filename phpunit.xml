@@ -14,6 +14,12 @@
         <testsuite name="Pos">
             <directory suffix="Test.php">./Modules/Pos/Tests</directory>
         </testsuite>
+        <testsuite name="Purchase">
+            <directory suffix="Test.php">./Modules/Purchase/Tests</directory>
+        </testsuite>
+        <testsuite name="Sale">
+            <directory suffix="Test.php">./Modules/Sale/Tests</directory>
+        </testsuite>
     </testsuites>
     <coverage>
         <include>
