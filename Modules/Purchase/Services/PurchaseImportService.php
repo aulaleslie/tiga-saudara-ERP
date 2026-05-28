@@ -704,43 +704,18 @@ class PurchaseImportService
                 // Increment product global quantity
                 $product->increment('product_quantity', $quantity);
 
-                // Update ProductPrice table for this product/setting
-                // For Daizu products, use the stockSetting (which is Daizu).
-                // For non-Daizu, use the source setting (purchase owner).
-                $priceSettingId = ($this->isDaizuProduct($detail['raw_product_name']))
-                    ? $stockSetting->id
-                    : $setting->id;
-
-                $productPrice = ProductPrice::firstOrCreate(
-                    [
-                        'product_id' => $product->id,
-                        'setting_id' => $priceSettingId,
-                    ],
-                    [
-                        'sale_price' => 0,
-                        'last_purchase_price' => 0,
-                        'average_purchase_price' => 0,
-                    ]
+                // Calculate new average purchase price (weighted average) using FINAL price (DPP + tax)
+                $unitPriceFinal = $detail['unit_price_final'];
+                $newAveragePrice = $this->calculateWeightedAveragePurchasePrice(
+                    $product->id,
+                    $previousQuantity,
+                    $unitPriceFinal,
+                    $quantity
                 );
 
-                // Calculate new average purchase price (weighted average) using FINAL price (DPP + tax)
-                $previousQty = $previousQuantity;
-                $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
-                $currentTotalValue = $currentAvgPrice * $previousQty;
-                $unitPriceFinal = $detail['unit_price_final'];
-                $newTotalValue = $unitPriceFinal * $quantity;
-                $newTotalQuantity = $previousQty + $quantity;
-
-                if ($newTotalQuantity > 0) {
-                    $newAveragePrice = ($currentTotalValue + $newTotalValue) / $newTotalQuantity;
-                } else {
-                    $newAveragePrice = $unitPriceFinal;
-                }
-
-                $productPrice->update([
-                    'last_purchase_price' => $unitPriceFinal,
-                    'average_purchase_price' => $newAveragePrice,
-                ]);
+                // Synchronize purchase-price fields (last_purchase_price, average_purchase_price)
+                // across ALL settings. Selling price fields are never touched here.
+                $this->syncPurchasePricesAcrossSettings($product->id, $unitPriceFinal, $newAveragePrice);
 
                 // Create Transaction log with purchase date
                 Transaction::create([
@@ -802,6 +777,49 @@ class PurchaseImportService
             Log::error('[PurchaseImport] Failed to process invoice group', [
                 'invoice' => $data['no_faktur'] ?? 'Unknown',
                 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Calculate weighted average purchase price given current product quantity and the incoming batch.
+     */
+    protected function calculateWeightedAveragePurchasePrice(
+        int $productId,
+        int $previousQuantity,
+        float $unitPriceFinal,
+        int $incomingQuantity
+    ): float {
+        // Use the first existing product_prices row to read the current average (all settings share the same global average)
+        $existingPrice = ProductPrice::where('product_id', $productId)->value('average_purchase_price');
+        $currentAvg = (float) ($existingPrice ?? 0);
+
+        $currentTotalValue = $currentAvg * $previousQuantity;
+        $newTotalValue = $unitPriceFinal * $incomingQuantity;
+        $newTotalQuantity = $previousQuantity + $incomingQuantity;
+
+        return $newTotalQuantity > 0
+            ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
+            : $unitPriceFinal;
+    }
+
+    /**
+     * Upsert purchase-price fields (last_purchase_price, average_purchase_price) across every setting.
+     * Selling price fields (sale_price, tier_1_price, tier_2_price) are never modified.
+     */
+    protected function syncPurchasePricesAcrossSettings(int $productId, float $lastPurchasePrice, float $averagePurchasePrice): void
+    {
+        $allSettingIds = Setting::pluck('id');
+
+        foreach ($allSettingIds as $settingId) {
+            $productPrice = ProductPrice::firstOrCreate(
+                ['product_id' => $productId, 'setting_id' => $settingId],
+                ['sale_price' => 0, 'last_purchase_price' => 0, 'average_purchase_price' => 0]
+            );
+
+            $productPrice->update([
+                'last_purchase_price'    => $lastPurchasePrice,
+                'average_purchase_price' => $averagePurchasePrice,
             ]);
         }
     }

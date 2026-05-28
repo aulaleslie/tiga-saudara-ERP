@@ -1076,32 +1076,11 @@ class SalesImportService
                     'tax_id' => $detail['tax_id'],
                 ]);
 
-                // Update ProductPrice with sale_price (final price including tax)
-                $settingCacheKey = "setting_{$setting->id}";
-                $productPrice = $this->productPricesCache[$settingCacheKey][$detail['product']->id] ?? null;
-                
-                if (!$productPrice) {
-                    $productPrice = ProductPrice::firstOrCreate(
-                        [
-                            'product_id' => $detail['product']->id,
-                            'setting_id' => $setting->id,
-                        ],
-                        [
-                            'sale_price' => 0,
-                            'last_purchase_price' => 0,
-                            'average_purchase_price' => 0,
-                        ]
-                    );
-                    // Cache it
-                    $this->productPricesCache[$settingCacheKey][$detail['product']->id] = $productPrice;
-                }
-
-                // Update sale_price if current is 0 or if new price is higher (latest price)
+                // Synchronize selling-price fields across ALL settings when price is positive.
+                // Zero or blank prices still create the sale detail row but skip catalog sync.
                 $unitPriceFinal = $detail['unit_price_final'];
-                if (($productPrice->sale_price ?? 0) == 0 || $unitPriceFinal > 0) {
-                    $productPrice->update([
-                        'sale_price' => $unitPriceFinal,
-                    ]);
+                if ($unitPriceFinal > 0) {
+                    $this->syncSalePricesAcrossSettings($detail['product']->id, $unitPriceFinal);
                 }
             }
 
@@ -1276,6 +1255,29 @@ class SalesImportService
             'sale_id' => $sale->id,
             'details_count' => count($details),
         ]);
+    }
+
+    /**
+     * Upsert selling-price fields (sale_price, tier_1_price, tier_2_price) across every setting.
+     * All three tier prices are set to the same imported value so POS and Sales tier pricing stays aligned.
+     * Purchase price fields are never modified.
+     */
+    protected function syncSalePricesAcrossSettings(int $productId, float $salePrice): void
+    {
+        $allSettingIds = Setting::pluck('id');
+
+        foreach ($allSettingIds as $settingId) {
+            $productPrice = ProductPrice::firstOrCreate(
+                ['product_id' => $productId, 'setting_id' => $settingId],
+                ['sale_price' => 0, 'last_purchase_price' => 0, 'average_purchase_price' => 0]
+            );
+
+            $productPrice->update([
+                'sale_price'   => $salePrice,
+                'tier_1_price' => $salePrice,
+                'tier_2_price' => $salePrice,
+            ]);
+        }
     }
 
     /**
