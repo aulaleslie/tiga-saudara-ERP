@@ -786,6 +786,12 @@ class SalesImportService
         $firstRow = $rows[0];
         $data = $firstRow->raw_json;
 
+        // Collect all distinct non-empty tags from every row in the group (rows may carry different tags)
+        $allTags = array_values(array_unique(array_filter(array_map(
+            fn($r) => trim($r->raw_json['tag'] ?? ''),
+            $rows
+        ))));
+
         // Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2)
         $tag = $data['tag'] ?? null;
         $productName = $data['produk'] ?? '';
@@ -860,7 +866,7 @@ class SalesImportService
             if ($isDaizu) {
                 $legacySale = Sale::where('imported_sales_reference_number', $invoiceNo)
                     ->where('setting_id', '!=', $setting->id)
-                    ->with('details.product')
+                    ->with('saleDetails.product')
                     ->first();
 
                 if ($legacySale) {
@@ -1034,9 +1040,9 @@ class SalesImportService
             $sale->is_tax_included = $totalTaxAmount > 0;
             $sale->save();
 
-            // Sync tag to sale
-            if (!empty($tag)) {
-                $sale->syncTags([trim($tag)]);
+            // Sync all distinct tags from every row in the group
+            if (!empty($allTags)) {
+                $sale->syncTags($allTags);
             }
 
             // Get first location for this setting (use cache)

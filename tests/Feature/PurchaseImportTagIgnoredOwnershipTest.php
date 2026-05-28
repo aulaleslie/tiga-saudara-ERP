@@ -213,6 +213,10 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $purchases = Purchase::where('supplier_purchase_number', 'PO-GROUP-001')->get();
         $this->assertCount(1, $purchases);
         $this->assertEquals($this->perdanaSetting->id, $purchases->first()->setting_id);
+        // All distinct tags from every row must be preserved on the document
+        $tagNames = $purchases->first()->tags->pluck('name')->toArray();
+        $this->assertContains('perdana', $tagNames);
+        $this->assertContains('rahmat', $tagNames);
     }
 
     /** @test */

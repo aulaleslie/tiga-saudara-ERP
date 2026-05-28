@@ -254,6 +254,10 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
         // Both rows resolve to PERDANA — should be grouped into a single sale
         $this->assertCount(1, $sales);
         $this->assertEquals($this->perdanaSetting->id, $sales->first()->setting_id);
+        // All distinct tags from every row must be preserved on the document
+        $tagNames = $sales->first()->tags->pluck('name')->toArray();
+        $this->assertContains('perdana', $tagNames);
+        $this->assertContains('rahmat', $tagNames);
     }
 
     /** @test */

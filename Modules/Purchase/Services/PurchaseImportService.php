@@ -422,6 +422,12 @@ class PurchaseImportService
         $data = $firstRow->raw_json;
 
         try {
+            // Collect all distinct non-empty tags from every row in the group (rows may carry different tags)
+            $allTags = array_values(array_unique(array_filter(array_map(
+                fn($r) => trim($r->raw_json['tag'] ?? ''),
+                $rows
+            ))));
+
             // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
             $tag = $data['tag'] ?? null;
             $productName = $data['produk'] ?? '';
@@ -623,9 +629,9 @@ class PurchaseImportService
             $purchase->is_tax_included = $totalTaxAmount > 0;
             $purchase->save();
 
-            // Sync tag to purchase (matching CreateForm/EditForm pattern)
-            if (!empty($tag)) {
-                $purchase->syncTags([trim($tag)]);
+            // Sync all distinct tags from every row in the group
+            if (!empty($allTags)) {
+                $purchase->syncTags($allTags);
             }
 
 
