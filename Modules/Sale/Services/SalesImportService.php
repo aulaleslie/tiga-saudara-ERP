@@ -134,10 +134,69 @@ class SalesImportService
     }
 
     /**
-     * Resolve tenant using Tag (Priority 1) then product marker (Priority 2).
+     * Normalize product name: uppercase, remove punctuation, collapse whitespace.
+     */
+    public function normalizeProductName(string $rawName): string
+    {
+        $normalized = strtoupper($rawName);
+        $normalized = preg_replace('/[^\w\s]/', ' ', $normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+        return trim($normalized);
+    }
+
+    /**
+     * Detect if a product name matches Daizu criteria (contains whole-word KEDELE, KEDELAI, or RAGI).
+     */
+    public function isDaizuProduct(string $rawName): bool
+    {
+        $normalized = $this->normalizeProductName($rawName);
+        return preg_match('/\b(KEDELE|KEDELAI|RAGI)\b/', $normalized) === 1;
+    }
+
+    /**
+     * Get the Daizu Kedelai setting or return null if not found.
+     */
+    public function getDaizuSetting(): ?Setting
+    {
+        return Setting::where('company_name', 'LIKE', '%DAIZU%')->first();
+    }
+
+    /**
+     * Resolve a Daizu location by name or return the default Daizu location.
+     * Returns null if location cannot be found and no default is available.
+     */
+    public function resolveDaizuLocation(?string $gudangName, Setting $daizuSetting): ?Location
+    {
+        // If gudang name is provided, try to find it within Daizu
+        if (!empty($gudangName)) {
+            $location = Location::where('setting_id', $daizuSetting->id)
+                ->where('name', 'LIKE', "%{$gudangName}%")
+                ->first();
+
+            if ($location) {
+                return $location;
+            }
+
+            // If specified gudang is not found, return null (don't fall back)
+            return null;
+        }
+
+        // Blank gudang: use the default available Daizu location (first one ordered by ID)
+        return Location::where('setting_id', $daizuSetting->id)
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2).
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
+        // Priority 0: Check for Daizu product
+        if ($this->isDaizuProduct($productName)) {
+            return $this->getDaizuSetting();
+        }
+
         // Priority 1: Try Tag-based lookup
         $setting = $this->getSettingForTag($tag);
         if ($setting) {
@@ -152,6 +211,7 @@ class SalesImportService
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
      * Rules:
+     * 0. Daizu products: always use Daizu Kedelai (bypass all other rules).
      * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
      * 2. No marker:
      *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
@@ -160,6 +220,14 @@ class SalesImportService
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
+        // Rule 0: Daizu products bypass all other rules
+        if ($this->isDaizuProduct($productName)) {
+            $daizuSetting = $this->getDaizuSetting();
+            if ($daizuSetting) {
+                return $daizuSetting;
+            }
+        }
+
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
@@ -713,7 +781,7 @@ class SalesImportService
 
 
     /**
-     * Group rows by invoice number and tenant (using Tag or marker).
+     * Group rows by invoice number and effective tenant (using Daizu, Tag, or marker).
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -723,12 +791,18 @@ class SalesImportService
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
             $tag = $data['tag'] ?? '';
-            
-            // Use tag if present, otherwise fall back to product marker
-            if (!empty($tag)) {
+            $productName = $data['produk'] ?? '';
+
+            // Determine effective tenant key based on priority
+            // Priority 0: Daizu products
+            if ($this->isDaizuProduct($productName)) {
+                $tenantKey = 'daizu';
+            } elseif (!empty($tag)) {
+                // Priority 1: Tag
                 $tenantKey = 'tag:' . strtolower(trim($tag));
             } else {
-                $parsed = $this->parseProductName($data['produk'] ?? '');
+                // Priority 2: Product marker
+                $parsed = $this->parseProductName($productName);
                 $tenantKey = 'marker:' . $parsed['marker'];
             }
 
@@ -755,10 +829,30 @@ class SalesImportService
         $firstRow = $rows[0];
         $data = $firstRow->raw_json;
 
-        // Resolve tenant using Tag (Priority 1) then product marker (Priority 2)
+        // Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2)
         $tag = $data['tag'] ?? null;
         $productName = $data['produk'] ?? '';
+        $isDaizu = $this->isDaizuProduct($productName);
         $setting = $this->resolveTenant($tag, $productName);
+
+        // For Daizu products, validate that the setting exists
+        if ($isDaizu && !$setting) {
+            foreach ($rows as $row) {
+                $row->update([
+                    'status' => SalesImportRow::STATUS_INVALID,
+                    'error_message' => "Daizu Kedelai setting not found for product: '{$productName}'",
+                ]);
+                Log::warning('[SalesImport] Row error - Daizu setting not found', [
+                    'batch_id' => $batch->id,
+                    'row_id' => $row->id,
+                    'row_number' => $row->row_number,
+                    'product' => $productName,
+                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
+                ]);
+                $batch->increment('error_count');
+            }
+            return;
+        }
 
         if (!$setting) {
             foreach ($rows as $row) {
@@ -785,7 +879,7 @@ class SalesImportService
             $existingSale = Sale::where('imported_sales_reference_number', $invoiceNo)
                 ->where('setting_id', $setting->id)
                 ->first();
-            
+
             if ($existingSale) {
                 foreach ($rows as $row) {
                     $row->update([
@@ -801,6 +895,73 @@ class SalesImportService
                     'setting_id' => $setting->id,
                     'rows_skipped' => count($rows),
                 ]);
+                return;
+            }
+
+            // For Daizu products, also check for legacy non-Daizu sales with same invoice
+            // that contain Daizu-matched products (conflict detection)
+            if ($isDaizu) {
+                $legacySale = Sale::where('imported_sales_reference_number', $invoiceNo)
+                    ->where('setting_id', '!=', $setting->id)
+                    ->with('details.product')
+                    ->first();
+
+                if ($legacySale) {
+                    // Check if this legacy sale contains any Daizu-matched products
+                    $hasDaizuProduct = false;
+                    $daizuProductName = null;
+
+                    foreach ($legacySale->saleDetails as $detail) {
+                        if ($detail->product && $this->isDaizuProduct($detail->product->product_name)) {
+                            $hasDaizuProduct = true;
+                            $daizuProductName = $detail->product->product_name;
+                            break;
+                        }
+                    }
+
+                    if ($hasDaizuProduct) {
+                        foreach ($rows as $row) {
+                            $row->update([
+                                'status' => SalesImportRow::STATUS_INVALID,
+                                'error_message' => "Conflict: Invoice #{$invoiceNo} already exists under different setting (ID: {$legacySale->id}) with Daizu-matched product '{$daizuProductName}'. This is a legacy ownership conflict.",
+                            ]);
+                        }
+                        Log::warning('[SalesImport] Legacy Daizu-product conflict detected', [
+                            'batch_id' => $batch->id,
+                            'no_faktur' => $invoiceNo,
+                            'existing_sale_id' => $legacySale->id,
+                            'existing_setting_id' => $legacySale->setting_id,
+                            'daizu_setting_id' => $setting->id,
+                            'daizu_product_name' => $daizuProductName,
+                            'rows_conflicted' => count($rows),
+                        ]);
+                        $batch->increment('error_count', count($rows));
+                        return;
+                    }
+                }
+            }
+        }
+
+        // For Daizu products, validate that the location can be resolved
+        if ($isDaizu) {
+            $gudangName = $data['gudang'] ?? null;
+            $daizuLocation = $this->resolveDaizuLocation($gudangName, $setting);
+            if (!$daizuLocation) {
+                $gudangDesc = $gudangName ? "'{$gudangName}'" : "(blank - default location)";
+                foreach ($rows as $row) {
+                    $row->update([
+                        'status' => SalesImportRow::STATUS_INVALID,
+                        'error_message' => "Daizu location not found for gudang {$gudangDesc}",
+                    ]);
+                }
+                Log::warning('[SalesImport] Daizu location not found', [
+                    'batch_id' => $batch->id,
+                    'no_faktur' => $invoiceNo,
+                    'gudang' => $gudangName,
+                    'daizu_setting_id' => $setting->id,
+                    'rows_invalidated' => count($rows),
+                ]);
+                $batch->increment('error_count', count($rows));
                 return;
             }
         }
@@ -983,7 +1144,7 @@ class SalesImportService
 
             // Auto-dispatch: Create Dispatch and DispatchDetail, decrement stock
             // Note: Location resolution is now done inside dispatchSale per product
-            $this->dispatchSale($sale, $details, $setting, $tag, $saleDate);
+            $this->dispatchSale($sale, $details, $setting, $tag, $saleDate, $isDaizu, $data['gudang'] ?? null);
 
             // Update row statuses
             foreach ($details as $detail) {
@@ -1030,10 +1191,7 @@ class SalesImportService
     /**
      * Create dispatch and decrement stock for the sale.
      */
-    /**
-     * Create dispatch and decrement stock for the sale.
-     */
-    protected function dispatchSale(Sale $sale, array $details, Setting $setting, ?string $tag, Carbon $saleDate): void
+    protected function dispatchSale(Sale $sale, array $details, Setting $setting, ?string $tag, Carbon $saleDate, bool $isDaizu = false, ?string $gudang = null): void
     {
         // Create Dispatch record
         $dispatch = Dispatch::create([
@@ -1049,21 +1207,32 @@ class SalesImportService
 
             // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
             $stockSetting = $this->resolveStockSetting($tag, $rawProductName, $setting, $product);
-            
+
             // Get location for the resolved STOCK setting
-            // Use cache if possible? We only cache by setting_id in locationsCache
-            $location = $this->locationsCache[$stockSetting->id] ?? null;
-            if (!$location) {
-                $location = Location::where('setting_id', $stockSetting->id)->first();
+            $location = null;
+
+            // For Daizu products, resolve location from Daizu setting using gudang parameter
+            if ($this->isDaizuProduct($rawProductName) && $stockSetting->company_name && stripos($stockSetting->company_name, 'DAIZU') !== false) {
+                $location = $this->resolveDaizuLocation($gudang, $stockSetting);
                 if (!$location) {
-                     // Fallback to source setting location
-                     $location = Location::where('setting_id', $setting->id)->first();
+                    $gudangDesc = $gudang ? "'{$gudang}'" : "(blank - default location)";
+                    throw new \Exception("Daizu location not found for gudang {$gudangDesc} in Daizu Kedelai setting");
                 }
+            } else {
+                // Non-Daizu: use cache if possible
+                $location = $this->locationsCache[$stockSetting->id] ?? null;
                 if (!$location) {
-                    throw new \Exception("No location found for setting: {$stockSetting->company_name}");
+                    $location = Location::where('setting_id', $stockSetting->id)->first();
+                    if (!$location) {
+                        // Fallback to source setting location
+                        $location = Location::where('setting_id', $setting->id)->first();
+                    }
+                    if (!$location) {
+                        throw new \Exception("No location found for setting: {$stockSetting->company_name}");
+                    }
+                    // Cache it
+                    $this->locationsCache[$stockSetting->id] = $location;
                 }
-                // Cache it
-                $this->locationsCache[$stockSetting->id] = $location;
             }
 
             // Get or create ProductStock for this product/location (use cache)
