@@ -4,7 +4,6 @@ namespace App\Services\Reports;
 
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Purchase\Entities\Purchase;
-use Illuminate\Support\Facades\DB;
 
 class PurchaseReportQueryService
 {
@@ -39,7 +38,9 @@ class PurchaseReportQueryService
         }
 
         if ($filter->paymentStatus) {
-            $query->where('payment_status', ucfirst(strtolower($filter->paymentStatus)));
+            $upperStatus = strtoupper($filter->paymentStatus);
+            $titleStatus = ucfirst(strtolower($filter->paymentStatus));
+            $query->whereIn('payment_status', [$upperStatus, $titleStatus]);
         }
 
         return $query;

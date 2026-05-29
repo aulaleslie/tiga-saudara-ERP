@@ -10,7 +10,6 @@ use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Events\AfterSheet;
 use Modules\Purchase\Entities\Purchase;
-use Modules\Purchase\Entities\PurchasePayment;
 
 class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
 {

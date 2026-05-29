@@ -440,21 +440,11 @@ class PurchaseReportHardeningTest extends TestCase
             'due_date' => now()->format('Y-m-d'),
             'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED, // Delivery status
             'reference' => 'PR-002',
-            'payment_status' => 'UNPAID',
+            'payment_status' => 'PARTIAL',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
-            'paid_amount' => 0,
-            'due_amount' => 1000,
-        ]);
-
-        // Create partial payment
-        \Illuminate\Support\Facades\DB::table('purchase_payments')->insert([
-            'purchase_id' => $purchase->id,
-            'amount' => 500,
-            'status' => 'ACTIVE',
-            'date' => now()->format('Y-m-d'),
-            'payment_method' => 'CASH',
-            'reference' => 'test'
+            'paid_amount' => 500,
+            'due_amount' => 500,
         ]);
 
         \Livewire\Livewire::actingAs($this->user)
