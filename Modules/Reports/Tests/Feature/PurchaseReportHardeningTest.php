@@ -510,7 +510,7 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
-    public function it_can_export_excel_with_filters()
+    public function it_prevents_export_in_v1_scope()
     {
         \Maatwebsite\Excel\Facades\Excel::fake();
 
@@ -520,8 +520,11 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('startDate', now()->format('Y-m-d'))
             ->set('endDate', now()->format('Y-m-d'))
             ->call('applyFilters')
-            ->call('exportExcel');
-
-        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('laporan-pembelian.xlsx');
+            ->call('exportExcel')
+            ->assertDispatched('alert', function ($eventName, $eventData) {
+                return $eventName === 'alert' && 
+                       isset($eventData[0]['message']) &&
+                       str_contains($eventData[0]['message'], 'belum tersedia');
+            });
     }
 }

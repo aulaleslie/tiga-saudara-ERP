@@ -32,6 +32,8 @@ class PurchaseReport extends Component
     public $isGlobal = false;
     public $settingId;
 
+    public $appliedFilters = [];
+
     // Searchable filter states
     public $supplierSearch = '';
     public $supplierOptions = [];
@@ -76,6 +78,7 @@ class PurchaseReport extends Component
         $this->settingId = session('setting_id');
         $this->startDate = $isGlobal ? now()->startOfMonth()->format('Y-m-d') : now()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
+        $this->appliedFilters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
     }
 
     public function updatedPeriodPreset($value)
@@ -134,6 +137,45 @@ class PurchaseReport extends Component
             ->toArray();
     }
 
+    public function cancelFilters()
+    {
+        if (!empty($this->appliedFilters)) {
+            $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
+            $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
+            $this->supplierIds = $this->appliedFilters['supplierIds'] ?? [];
+            $this->withTax = $this->appliedFilters['withTax'] ?? '';
+            $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
+            $this->deliveryStatus = $this->appliedFilters['deliveryStatus'] ?? '';
+            $this->paymentStatus = $this->appliedFilters['paymentStatus'] ?? '';
+            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
+            $this->dateBasis = $this->appliedFilters['dateBasis'] ?? 'transaction_date';
+            $this->transactionType = $this->appliedFilters['transactionType'] ?? 'purchase_invoice';
+        }
+        $this->supplierSearch = '';
+        $this->supplierOptions = [];
+        $this->tagSearch = '';
+        $this->tagOptions = [];
+    }
+
+    public function resetFilters()
+    {
+        $this->startDate = $this->isGlobal ? now()->startOfMonth()->format('Y-m-d') : now()->format('Y-m-d');
+        $this->endDate = now()->format('Y-m-d');
+        $this->supplierIds = [];
+        $this->tagIds = [];
+        $this->withTax = '';
+        $this->deliveryStatus = '';
+        $this->paymentStatus = '';
+        $this->periodPreset = '';
+        $this->dateBasis = 'transaction_date';
+        $this->transactionType = 'purchase_invoice';
+        
+        $this->supplierSearch = '';
+        $this->supplierOptions = [];
+        $this->tagSearch = '';
+        $this->tagOptions = [];
+    }
+
     public function applyFilters(
         PurchaseReportValidator $validator,
         PurchaseReportQueryService $queryService,
@@ -151,6 +193,7 @@ class PurchaseReport extends Component
 
             $snapshotService->createSnapshot($filterData, $count);
 
+            $this->appliedFilters = $validated;
             $this->filterTriggered = true;
             $this->resetPage();
         } catch (ValidationException $e) {
@@ -161,47 +204,25 @@ class PurchaseReport extends Component
 
     public function exportExcel(PurchaseReportSnapshotService $snapshotService)
     {
-        if (!$this->canExport($snapshotService)) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan jalankan laporan terlebih dahulu atau perbarui hasil laporan sebelum mengekspor.']);
-            return null;
-        }
-
-        $filters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
-        $filename = $this->isGlobal ? 'laporan-pembelian-global.xlsx' : 'laporan-pembelian.xlsx';
-        return Excel::download(new PurchaseReportExport($filters), $filename);
+        $this->dispatch('alert', ['type' => 'error', 'message' => 'Fitur ekspor belum tersedia untuk versi ini.']);
+        return null;
     }
 
     public function exportCsv(PurchaseReportSnapshotService $snapshotService)
     {
-        if (!$this->canExport($snapshotService)) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan jalankan laporan terlebih dahulu atau perbarui hasil laporan sebelum mengekspor.']);
-            return null;
-        }
-
-        $filters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
-        $filename = $this->isGlobal ? 'laporan-pembelian-global.csv' : 'laporan-pembelian.csv';
-        return Excel::download(new PurchaseReportExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
+        $this->dispatch('alert', ['type' => 'error', 'message' => 'Fitur ekspor belum tersedia untuk versi ini.']);
+        return null;
     }
 
     public function exportPdf(PurchaseReportSnapshotService $snapshotService)
     {
-        if (!$this->canExport($snapshotService)) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan jalankan laporan terlebih dahulu atau perbarui hasil laporan sebelum mengekspor.']);
-            return null;
-        }
-
-        $filters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
-        $purchases = (new PurchaseReportExport($filters))->collection();
-        $pdf = Pdf::loadView('exports.purchase-pdf', ['purchases' => $purchases]);
-        $filename = $this->isGlobal ? 'laporan-pembelian-global.pdf' : 'laporan-pembelian.pdf';
-        return response()->streamDownload(fn () => print($pdf->stream()), $filename);
+        $this->dispatch('alert', ['type' => 'error', 'message' => 'Fitur ekspor belum tersedia untuk versi ini.']);
+        return null;
     }
 
     private function canExport(PurchaseReportSnapshotService $snapshotService): bool
     {
-        $currentFilter = PurchaseReportFilterData::fromArray(
-            array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId])
-        );
+        $currentFilter = PurchaseReportFilterData::fromArray($this->appliedFilters);
         return $snapshotService->isValidForExport($currentFilter);
     }
 
@@ -226,9 +247,7 @@ class PurchaseReport extends Component
     {
         $purchases = collect();
         if ($this->filterTriggered) {
-            $filterData = PurchaseReportFilterData::fromArray(
-                array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId])
-            );
+            $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
             $purchases = $queryService->build($filterData)->paginate(15);
         }
 

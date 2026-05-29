@@ -1,4 +1,4 @@
-<div x-data="{ showDrawer: false }">
+<div x-data="{ showDrawer: false, isApplying: false }" x-init="$watch('showDrawer', value => { if(!value && !isApplying) { $wire.cancelFilters(); } isApplying = false; })">
     @if ($errors->any())
         <div class="alert alert-danger">
             <ul class="mb-0">
@@ -34,7 +34,7 @@
                 <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Filter
             </button>
             <button type="button" @click="showDrawer = true" class="btn btn-outline-secondary">
-                <i class="bi bi-funnel"></i> Filter lainnya
+                <i class="bi bi-funnel"></i> Filter laporan
             </button>
             <div class="dropdown">
                 <button class="btn btn-outline-success dropdown-toggle" type="button" id="exportDropdown" data-coreui-toggle="dropdown" aria-expanded="false">
@@ -56,28 +56,28 @@
          style="visibility: visible; z-index: 1050; background: white; position: fixed; top: 0; right: 0; height: 100vh; width: 400px; box-shadow: -5px 0 15px rgba(0,0,0,0.1); display: flex; flex-direction: column;"
          aria-labelledby="filterDrawerLabel" x-cloak>
         <div class="offcanvas-header p-3 border-bottom d-flex justify-content-between align-items-center">
-            <h5 class="offcanvas-title mb-0" id="filterDrawerLabel">Filter Lainnya</h5>
+            <h5 class="offcanvas-title mb-0" id="filterDrawerLabel">Filter laporan</h5>
             <button type="button" class="btn-close text-reset" @click="showDrawer = false"></button>
         </div>
         <div class="offcanvas-body p-3" style="overflow-y: auto; flex-grow: 1;">
             <div class="mb-3">
-                <label class="form-label small">Dasar Tanggal</label>
+                <label class="form-label small">Tanggal berdasarkan</label>
                 <select wire:model="dateBasis" class="form-control">
                     <option value="transaction_date">Tanggal Transaksi</option>
                     <option value="due_date">Tanggal Jatuh Tempo</option>
                 </select>
             </div>
             <div class="mb-3">
-                <label class="form-label small">Jenis Transaksi</label>
+                <label class="form-label small">Tipe transaksi</label>
                 <select wire:model="transactionType" class="form-control">
                     <option value="purchase_invoice">Faktur Pembelian</option>
                 </select>
             </div>
             <div class="mb-3">
-                <label class="form-label small">Pemasok</label>
+                <label class="form-label small">Supplier</label>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="supplierSearch" 
-                           class="form-control" placeholder="Cari Pemasok (min 2 karakter)...">
+                           class="form-control" placeholder="Cari Supplier (min 2 karakter)...">
                     @if(strlen($supplierSearch) >= 2)
                         <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($supplierOptions as $option)
@@ -88,7 +88,7 @@
                                 </button>
                             @empty
                                 <div class="list-group-item disabled small py-3 text-center text-muted">
-                                    <i class="bi bi-search me-1"></i> Tidak ada pemasok ditemukan
+                                    <i class="bi bi-search me-1"></i> Tidak ada supplier ditemukan
                                 </div>
                             @endforelse
                         </div>
@@ -110,7 +110,7 @@
                 </div>
             </div>
             <div class="mb-3">
-                <label class="form-label small">Status Pengiriman / Persetujuan</label>
+                <label class="form-label small">Status Pengiriman</label>
                 <select wire:model="deliveryStatus" class="form-control">
                     <option value="">-- Semua --</option>
                     @foreach($statuses as $key => $label)
@@ -178,10 +178,10 @@
             </div>
         </div>
         <div class="offcanvas-footer p-3 border-top d-flex justify-content-between">
-            <button type="button" wire:click="$refresh" class="btn btn-link text-decoration-none px-0">Reset filter</button>
+            <button type="button" wire:click="resetFilters" class="btn btn-link text-decoration-none px-0">Reset filter</button>
             <div>
                 <button type="button" @click="showDrawer = false" class="btn btn-outline-secondary">Batalkan</button>
-                <button type="button" wire:click="applyFilters" @click="showDrawer = false" class="btn btn-primary">Filter</button>
+                <button type="button" wire:click="applyFilters" @click="isApplying = true; showDrawer = false" class="btn btn-primary">Filter</button>
             </div>
         </div>
     </div>
