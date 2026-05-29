@@ -18,8 +18,9 @@ class PurchaseReportQueryService
         }
 
         // Basic filters
-        $query->where('date', '>=', $filter->startDate)
-            ->where('date', '<=', $filter->endDate);
+        $dateColumn = $filter->dateBasis === 'due_date' ? 'due_date' : 'date';
+        $query->where($dateColumn, '>=', $filter->startDate)
+            ->where($dateColumn, '<=', $filter->endDate);
 
         if (!empty($filter->supplierIds)) {
             $query->whereIn('supplier_id', $filter->supplierIds);
@@ -33,8 +34,8 @@ class PurchaseReportQueryService
             $query->whereHas('tags', fn($q) => $q->whereIn('tags.id', $filter->tagIds));
         }
 
-        if ($filter->status) {
-            $query->where('status', $filter->status);
+        if ($filter->deliveryStatus) {
+            $query->where('status', $filter->deliveryStatus);
         }
 
         // Active payment status derivation (FR-014, FR-015)

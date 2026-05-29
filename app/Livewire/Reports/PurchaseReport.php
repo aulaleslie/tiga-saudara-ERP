@@ -24,7 +24,10 @@ class PurchaseReport extends Component
     public $startDate, $endDate, $withTax;
     public $supplierIds = [];
     public $tagIds = [];
-    public $status, $paymentStatus;
+    public $deliveryStatus, $paymentStatus;
+    public $periodPreset = '';
+    public $dateBasis = 'transaction_date';
+    public $transactionType = 'purchase_invoice';
     public $filterTriggered = false;
     public $isGlobal = false;
     public $settingId;
@@ -71,8 +74,30 @@ class PurchaseReport extends Component
     {
         $this->isGlobal = $isGlobal;
         $this->settingId = session('setting_id');
-        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->startDate = $isGlobal ? now()->startOfMonth()->format('Y-m-d') : now()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
+    }
+
+    public function updatedPeriodPreset($value)
+    {
+        switch ($value) {
+            case 'today':
+                $this->startDate = now()->format('Y-m-d');
+                $this->endDate = now()->format('Y-m-d');
+                break;
+            case 'this_week':
+                $this->startDate = now()->startOfWeek()->format('Y-m-d');
+                $this->endDate = now()->endOfWeek()->format('Y-m-d');
+                break;
+            case 'this_month':
+                $this->startDate = now()->startOfMonth()->format('Y-m-d');
+                $this->endDate = now()->endOfMonth()->format('Y-m-d');
+                break;
+            case 'this_year':
+                $this->startDate = now()->startOfYear()->format('Y-m-d');
+                $this->endDate = now()->endOfYear()->format('Y-m-d');
+                break;
+        }
     }
 
     public function updatedSupplierSearch($value)
@@ -188,9 +213,12 @@ class PurchaseReport extends Component
             'supplierIds' => $this->supplierIds,
             'withTax' => $this->withTax,
             'tagIds' => $this->tagIds,
-            'status' => $this->status,
+            'deliveryStatus' => $this->deliveryStatus,
             'paymentStatus' => $this->paymentStatus,
             'isGlobal' => $this->isGlobal,
+            'periodPreset' => $this->periodPreset,
+            'dateBasis' => $this->dateBasis,
+            'transactionType' => $this->transactionType,
         ];
     }
 
@@ -213,6 +241,8 @@ class PurchaseReport extends Component
                 Purchase::STATUS_REJECTED => 'Ditolak',
                 Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
                 Purchase::STATUS_RECEIVED => 'Diterima',
+                Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
+                Purchase::STATUS_RETURNED => 'Diretur',
             ],
             'isGlobal' => $this->isGlobal,
         ]);

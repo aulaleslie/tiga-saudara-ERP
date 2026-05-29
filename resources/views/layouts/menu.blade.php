@@ -51,30 +51,37 @@
             </li>
         </ul>
         @endif
-        @can('purchaseReports.access')
-        @if(Route::has('reports.purchase-report.index'))
+        @canany(['purchaseReports.access', 'purchaseReports.global.access'])
         <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.index') ? 'c-active' : '' }}"
-                   href="{{ route('reports.purchase-report.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-clipboard-data" style="line-height: 1;"></i> Laporan Pembelian
+            <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.purchase-report.*') ? 'c-show' : '' }}">
+                <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+                    <i class="c-sidebar-nav-icon bi bi-bag" style="line-height: 1;"></i> Pembelian
                 </a>
+                <ul class="c-sidebar-nav-dropdown-items">
+                    @can('purchaseReports.access')
+                    @if(Route::has('reports.purchase-report.index'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.index') ? 'c-active' : '' }}"
+                               href="{{ route('reports.purchase-report.index') }}">
+                                <i class="c-sidebar-nav-icon bi bi-clipboard-data" style="line-height: 1;"></i> Daftar Pembelian
+                            </a>
+                        </li>
+                    @endif
+                    @endcan
+                    @can('purchaseReports.global.access')
+                    @if(Route::has('reports.purchase-report.global'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.global') ? 'c-active' : '' }}"
+                               href="{{ route('reports.purchase-report.global') }}">
+                                <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Pembelian Global
+                            </a>
+                        </li>
+                    @endif
+                    @endcan
+                </ul>
             </li>
         </ul>
-        @endif
-        @endcan
-        @can('purchaseReports.global.access')
-        @if(Route::has('reports.purchase-report.global'))
-        <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.global') ? 'c-active' : '' }}"
-                   href="{{ route('reports.purchase-report.global') }}">
-                    <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Pembelian Global
-                </a>
-            </li>
-        </ul>
-        @endif
-        @endcan
+        @endcanany
         @can('saleReports.access')
         @if(Route::has('reports.sale-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">

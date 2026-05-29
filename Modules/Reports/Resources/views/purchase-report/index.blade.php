@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', $isGlobal ? 'Laporan Pembelian Global' : 'Laporan Pembelian')
+@section('title', $isGlobal ? 'Daftar Pembelian Global' : 'Daftar Pembelian')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">{{ $isGlobal ? 'Laporan Pembelian Global' : 'Laporan Pembelian' }}</li>
+        <li class="breadcrumb-item active">{{ $isGlobal ? 'Daftar Pembelian Global' : 'Daftar Pembelian' }}</li>
     </ol>
 @endsection
 

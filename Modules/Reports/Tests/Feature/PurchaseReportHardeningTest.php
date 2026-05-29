@@ -69,6 +69,43 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
+    public function it_shows_purchase_report_menu_for_authorized_users()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('home'));
+        
+        $response->assertStatus(200);
+        $response->assertSee('Daftar Pembelian');
+    }
+
+    /** @test */
+    public function it_hides_purchase_report_menu_for_unauthorized_users()
+    {
+        $unauthorizedUser = User::factory()->create();
+        $this->actingAs($unauthorizedUser);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('home'));
+        
+        $response->assertStatus(200);
+        $response->assertDontSee('Daftar Pembelian');
+    }
+
+    /** @test */
+    public function it_renders_page_title_and_breadcrumb_as_daftar_pembelian()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.purchase-report.index'));
+
+        $response->assertStatus(200);
+        $response->assertSee('Daftar Pembelian');
+    }
+
+    /** @test */
     public function it_filters_purchases_by_date_range()
     {
         $supplier = Supplier::create([
@@ -247,9 +284,9 @@ class PurchaseReportHardeningTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('status', 'INVALID_STATUS')
+            ->set('deliveryStatus', 'INVALID_STATUS')
             ->call('applyFilters')
-            ->assertHasErrors(['status']);
+            ->assertHasErrors(['deliveryStatus']);
     }
 
     /** @test */
@@ -300,5 +337,191 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('tagSearch', 'Te')
             ->assertCount('tagOptions', 1)
             ->assertSet('tagOptions.0.id', $tag->id);
+    }
+
+    /** @test */
+    public function it_defaults_start_and_end_date_to_today_for_non_global_report()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('startDate', now()->format('Y-m-d'))
+            ->assertSet('endDate', now()->format('Y-m-d'));
+    }
+
+    /** @test */
+    public function it_updates_dates_when_period_preset_changes_without_auto_filtering()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('periodPreset', 'this_month')
+            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->assertSet('filterTriggered', false);
+    }
+
+    /** @test */
+    public function it_filters_by_date_basis_transaction_date_and_due_date()
+    {
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Supplier 1',
+            'supplier_email' => 's1@test.com',
+            'supplier_phone' => '1',
+            'address' => 'A',
+            'city' => 'C',
+            'country' => 'C',
+        ]);
+
+        $date1 = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'date' => now()->subDays(5)->format('Y-m-d'),
+            'due_date' => now()->addDays(5)->format('Y-m-d'),
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
+            'reference' => 'PR-001',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+
+        // Filter by transaction date (subdays(5))
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->subDays(6)->format('Y-m-d'))
+            ->set('endDate', now()->subDays(4)->format('Y-m-d'))
+            ->set('dateBasis', 'transaction_date')
+            ->call('applyFilters')
+            ->assertHasNoErrors()
+            ->assertViewHas('purchases', function($purchases) use ($date1) {
+                return $purchases->contains('id', $date1->id);
+            });
+
+        // Filter by due date (adddays(5))
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->addDays(4)->format('Y-m-d'))
+            ->set('endDate', now()->addDays(6)->format('Y-m-d'))
+            ->set('dateBasis', 'due_date')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function($purchases) use ($date1) {
+                return $purchases->contains('id', $date1->id);
+            });
+    }
+
+    /** @test */
+    public function it_defaults_transaction_type_to_purchase_invoice()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('transactionType', 'purchase_invoice');
+    }
+
+    /** @test */
+    public function it_filters_delivery_status_separately_from_payment_status()
+    {
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Supplier 1',
+            'supplier_email' => 's1@test.com',
+            'supplier_phone' => '1',
+            'address' => 'A',
+            'city' => 'C',
+            'country' => 'C',
+        ]);
+
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d'),
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED, // Delivery status
+            'reference' => 'PR-002',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+
+        // Create partial payment
+        \Illuminate\Support\Facades\DB::table('purchase_payments')->insert([
+            'purchase_id' => $purchase->id,
+            'amount' => 500,
+            'status' => 'ACTIVE',
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'CASH',
+            'reference' => 'test'
+        ]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->format('Y-m-d'))
+            ->set('endDate', now()->format('Y-m-d'))
+            ->set('deliveryStatus', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
+            ->set('paymentStatus', 'PARTIAL')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function($purchases) use ($purchase) {
+                return $purchases->contains('id', $purchase->id);
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_unpaid_payment_status()
+    {
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Supplier 1',
+            'supplier_email' => 's1@test.com',
+            'supplier_phone' => '1',
+            'address' => 'A',
+            'city' => 'C',
+            'country' => 'C',
+        ]);
+
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d'),
+            'status' => 'APPROVED',
+            'reference' => 'PR-003',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->format('Y-m-d'))
+            ->set('endDate', now()->format('Y-m-d'))
+            ->set('paymentStatus', 'UNPAID')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function($purchases) use ($purchase) {
+                return $purchases->contains('id', $purchase->id);
+            });
+    }
+
+    /** @test */
+    public function it_can_export_excel_with_filters()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->format('Y-m-d'))
+            ->set('endDate', now()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('laporan-pembelian.xlsx');
     }
 }

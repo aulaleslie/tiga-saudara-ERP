@@ -29,10 +29,12 @@ class PurchaseReportValidator
             'withTax' => 'nullable|in:1,0',
             'tagIds' => 'nullable|array',
             'tagIds.*' => 'exists:tags,id',
-            'status' => 'nullable|in:' . implode(',', $allowedStatuses),
+            'deliveryStatus' => 'nullable|in:' . implode(',', $allowedStatuses),
             'paymentStatus' => 'nullable|in:PAID,PARTIAL,UNPAID,paid,partial,unpaid',
             'isGlobal' => 'boolean',
             'scopeSettingId' => 'nullable|integer',
+            'dateBasis' => 'nullable|in:transaction_date,due_date',
+            'transactionType' => 'nullable|in:purchase_invoice',
         ], [
             'endDate.after_or_equal' => 'Tanggal akhir harus sama atau setelah tanggal awal.',
         ]);
