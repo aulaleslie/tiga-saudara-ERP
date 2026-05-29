@@ -34,7 +34,7 @@
                 <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Filter
             </button>
             <button type="button" @click="showDrawer = true" class="btn btn-outline-secondary">
-                <i class="bi bi-funnel"></i> Filter laporan
+                <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
                 <button class="btn btn-outline-success dropdown-toggle" type="button" id="exportDropdown" data-coreui-toggle="dropdown" aria-expanded="false">

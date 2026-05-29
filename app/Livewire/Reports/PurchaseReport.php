@@ -140,14 +140,11 @@ class PurchaseReport extends Component
     public function cancelFilters()
     {
         if (!empty($this->appliedFilters)) {
-            $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
-            $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
             $this->supplierIds = $this->appliedFilters['supplierIds'] ?? [];
             $this->withTax = $this->appliedFilters['withTax'] ?? '';
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
             $this->deliveryStatus = $this->appliedFilters['deliveryStatus'] ?? '';
             $this->paymentStatus = $this->appliedFilters['paymentStatus'] ?? '';
-            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
             $this->dateBasis = $this->appliedFilters['dateBasis'] ?? 'transaction_date';
             $this->transactionType = $this->appliedFilters['transactionType'] ?? 'purchase_invoice';
         }

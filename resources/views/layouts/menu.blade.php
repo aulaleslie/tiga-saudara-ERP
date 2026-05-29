@@ -25,6 +25,7 @@
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
         </a>
+        @can('reports.access')
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.mekari-converter.*') ? 'c-active' : '' }}"
@@ -51,6 +52,7 @@
             </li>
         </ul>
         @endif
+        @endcan
         @canany(['purchaseReports.access', 'purchaseReports.global.access'])
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.purchase-report.*') ? 'c-show' : '' }}">
