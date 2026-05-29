@@ -13,20 +13,20 @@ class PurchaseReportQueryService
 
         // Scope enforcement
         if (!$filter->isGlobal) {
-            $query->where('setting_id', $filter->scopeSettingId ?: session('setting_id'));
+            $query->where('purchases.setting_id', $filter->scopeSettingId ?: session('setting_id'));
         }
 
         // Basic filters
-        $dateColumn = $filter->dateBasis === 'due_date' ? 'due_date' : 'date';
+        $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : 'purchases.date';
         $query->where($dateColumn, '>=', $filter->startDate)
             ->where($dateColumn, '<=', $filter->endDate);
 
         if (!empty($filter->supplierIds)) {
-            $query->whereIn('supplier_id', $filter->supplierIds);
+            $query->whereIn('purchases.supplier_id', $filter->supplierIds);
         }
 
         if ($filter->withTax !== null && $filter->withTax !== '') {
-            $query->where('is_tax_included', $filter->withTax);
+            $query->where('purchases.is_tax_included', $filter->withTax);
         }
 
         if (!empty($filter->tagIds)) {
@@ -34,13 +34,13 @@ class PurchaseReportQueryService
         }
 
         if ($filter->deliveryStatus) {
-            $query->where('status', $filter->deliveryStatus);
+            $query->where('purchases.status', $filter->deliveryStatus);
         }
 
         if ($filter->paymentStatus) {
             $upperStatus = strtoupper($filter->paymentStatus);
             $titleStatus = ucfirst(strtolower($filter->paymentStatus));
-            $query->whereIn('payment_status', [$upperStatus, $titleStatus]);
+            $query->whereIn('purchases.payment_status', [$upperStatus, $titleStatus]);
         }
 
         return $query;

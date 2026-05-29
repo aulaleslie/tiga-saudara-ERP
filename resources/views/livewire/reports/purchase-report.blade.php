@@ -239,7 +239,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">
+                        <td colspan="9" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2"></i>
                             Tidak ada data pembelian yang sesuai dengan filter ini.
                         </td>
@@ -247,7 +247,7 @@
                 @endforelse
             @else
                 <tr>
-                    <td colspan="8" class="text-center py-5 text-muted">
+                    <td colspan="9" class="text-center py-5 text-muted">
                         <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
                         Silakan atur filter dan klik <strong>Tampilkan Laporan</strong>.
                     </td>

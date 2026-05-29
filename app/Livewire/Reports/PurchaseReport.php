@@ -48,12 +48,23 @@ class PurchaseReport extends Component
 
     public function sortBy($field)
     {
+        $allowedFields = [
+            'date', 'reference', 'supplier_purchase_number', 'supplier_name', 
+            'status', 'payment_status', 'total_amount', 'tax_amount', 'due_amount'
+        ];
+
+        if (!in_array($field, $allowedFields)) {
+            return;
+        }
+
         if ($this->sortField === $field) {
             $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
             $this->sortField = $field;
             $this->sortDirection = 'asc';
         }
+
+        $this->resetPage();
     }
 
     public function sortIcon($field)
@@ -269,13 +280,19 @@ class PurchaseReport extends Component
             $query = $queryService->build($filterData);
             
             // Apply sorting
-            if ($this->sortField) {
+            $allowedSortFields = [
+                'date', 'reference', 'supplier_purchase_number', 'supplier_name', 
+                'status', 'payment_status', 'total_amount', 'tax_amount', 'due_amount'
+            ];
+
+            if ($this->sortField && in_array($this->sortField, $allowedSortFields)) {
+                $direction = $this->sortDirection === 'asc' ? 'asc' : 'desc';
                 if ($this->sortField === 'supplier_name') {
                     $query->join('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
-                          ->orderBy('suppliers.supplier_name', $this->sortDirection)
+                          ->orderBy('suppliers.supplier_name', $direction)
                           ->select('purchases.*');
                 } else {
-                    $query->orderBy('purchases.' . $this->sortField, $this->sortDirection);
+                    $query->orderBy('purchases.' . $this->sortField, $direction);
                 }
             }
             

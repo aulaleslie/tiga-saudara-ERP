@@ -71,6 +71,7 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
         return [
             'Tanggal',
             'No. Referensi',
+            'Nomor Pembelian Supplier',
             'Pemasok',
             'Status',
             'Status Pembayaran',
@@ -95,7 +96,7 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
 
                 // Title row
                 $sheet->setCellValue('A1', 'LAPORAN PEMBELIAN');
-                $sheet->mergeCells('A1:I1');
+                $sheet->mergeCells('A1:J1');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
                 $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
 
@@ -106,11 +107,11 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
                     $endDate ? date('d/m/Y', strtotime($endDate)) : '-'
                 );
                 $sheet->setCellValue('A2', $periodText);
-                $sheet->mergeCells('A2:I2');
+                $sheet->mergeCells('A2:J2');
                 $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
 
                 // Style header row (now row 3)
-                $sheet->getStyle('A3:I3')->getFont()->setBold(true);
+                $sheet->getStyle('A3:J3')->getFont()->setBold(true);
             },
         ];
     }
