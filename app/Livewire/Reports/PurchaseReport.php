@@ -22,6 +22,8 @@ class PurchaseReport extends Component
     use WithPagination;
 
     public $startDate, $endDate, $withTax;
+    public $sortField = 'date';
+    public $sortDirection = 'desc';
     public $supplierIds = [];
     public $tagIds = [];
     public $deliveryStatus, $paymentStatus;
@@ -43,6 +45,25 @@ class PurchaseReport extends Component
     protected $paginationTheme = 'bootstrap';
 
     protected $listeners = ['supplierSelected', 'tagSelected'];
+
+    public function sortBy($field)
+    {
+        if ($this->sortField === $field) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortField = $field;
+            $this->sortDirection = 'asc';
+        }
+    }
+
+    public function sortIcon($field)
+    {
+        if ($field !== $this->sortField) return '';
+        if ($this->sortDirection === 'asc') {
+            return '<i class="bi bi-caret-up-fill text-primary ms-1"></i>';
+        }
+        return '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
+    }
 
     public function selectSupplier($id)
     {
@@ -245,7 +266,23 @@ class PurchaseReport extends Component
         $purchases = collect();
         if ($this->filterTriggered) {
             $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
-            $purchases = $queryService->build($filterData)->paginate(15);
+            $query = $queryService->build($filterData);
+            
+            // Apply sorting
+            if ($this->sortField) {
+                if ($this->sortField === 'supplier_name') {
+                    $query->join('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
+                          ->orderBy('suppliers.supplier_name', $this->sortDirection)
+                          ->select('purchases.*');
+                } else {
+                    $query->orderBy('purchases.' . $this->sortField, $this->sortDirection);
+                }
+            }
+            
+            // Add a deterministic fallback sort to prevent unstable pagination
+            $query->orderBy('purchases.id', 'desc');
+            
+            $purchases = $query->paginate(15);
         }
 
         return view('livewire.reports.purchase-report', [

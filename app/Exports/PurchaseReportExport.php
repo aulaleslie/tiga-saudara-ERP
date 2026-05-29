@@ -29,6 +29,7 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
             return [
                 'Tanggal' => date('d/m/Y', strtotime($p->date)),
                 'No. Referensi' => $p->reference,
+                'Nomor Pembelian Supplier' => $p->supplier_purchase_number ?? '-',
                 'Pemasok' => $p->supplier->supplier_name ?? '-',
                 'Status' => $this->translateStatus($p->status),
                 'Status Pembayaran' => $this->translatePaymentStatus($p->payment_status),

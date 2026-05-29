@@ -192,14 +192,15 @@
         <table class="table table-hover table-bordered mb-0">
             <thead class="table-light">
             <tr>
-                <th>Tanggal</th>
-                <th>No. Referensi</th>
-                <th>Pemasok</th>
-                <th>Status</th>
-                <th>Status Pembayaran</th>
-                <th class="text-end">Total</th>
-                <th class="text-end">Pajak</th>
-                <th class="text-end">Sisa Tagihan</th>
+                <th wire:click="sortBy('date')" style="cursor:pointer">Tanggal {!! $this->sortIcon('date') !!}</th>
+                <th wire:click="sortBy('reference')" style="cursor:pointer">No. Referensi {!! $this->sortIcon('reference') !!}</th>
+                <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}</th>
+                <th wire:click="sortBy('supplier_name')" style="cursor:pointer">Pemasok {!! $this->sortIcon('supplier_name') !!}</th>
+                <th wire:click="sortBy('status')" style="cursor:pointer">Status {!! $this->sortIcon('status') !!}</th>
+                <th wire:click="sortBy('payment_status')" style="cursor:pointer">Status Pembayaran {!! $this->sortIcon('payment_status') !!}</th>
+                <th wire:click="sortBy('total_amount')" class="text-end" style="cursor:pointer">Total {!! $this->sortIcon('total_amount') !!}</th>
+                <th wire:click="sortBy('tax_amount')" class="text-end" style="cursor:pointer">Pajak {!! $this->sortIcon('tax_amount') !!}</th>
+                <th wire:click="sortBy('due_amount')" class="text-end" style="cursor:pointer">Sisa Tagihan {!! $this->sortIcon('due_amount') !!}</th>
             </tr>
             </thead>
             <tbody class="bg-white text-dark">
@@ -207,7 +208,16 @@
                 @forelse($purchases as $p)
                     <tr>
                         <td>{{ date('d/m/Y', strtotime($p->date)) }}</td>
-                        <td><span class="fw-bold">{{ $p->reference }}</span></td>
+                        <td>
+                            @can('purchases.show')
+                                <a href="{{ route('purchases.show', $p->id) }}" class="text-primary fw-bold">
+                                    {{ $p->reference }}
+                                </a>
+                            @else
+                                <strong>{{ $p->reference }}</strong>
+                            @endcan
+                        </td>
+                        <td>{{ $p->supplier_purchase_number ?? '-' }}</td>
                         <td>{{ $p->supplier->supplier_name ?? '-' }}</td>
                         <td>
                             <span class="badge bg-secondary">
