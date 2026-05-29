@@ -144,7 +144,7 @@
                                     <td>{{ Str::limit($row->raw_json['supplier'] ?? '-', 20) }}</td>
                                     <td>{{ Str::limit($row->raw_json['produk'] ?? '-', 25) }}</td>
                                     <td>{{ $row->raw_json['kuantitas'] ?? '-' }}</td>
-                                    <td>{{ number_format($row->raw_json['harga_satuan'] ?? 0, 0, ',', '.') }}</td>
+                                    <td>{{ number_format((float) ($row->raw_json['harga_satuan'] ?? 0), 0, ',', '.') }}</td>
                                     <td style="max-width:200px;">
                                         @if($row->error_message)
                                             <small class="text-danger">{{ $row->error_message }}</small>
