@@ -20,7 +20,7 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-@can('reports.access')
+@canany(['reports.access', 'purchaseReports.access', 'purchaseReports.global.access', 'saleReports.access', 'saleReports.global.access', 'stockMutationReports.access', 'stockMutationReports.global.access', 'inventoryValuationReports.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('profit-loss-report.index') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('reports.inventory-valuation-report.index') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
@@ -143,7 +143,7 @@
         @endif
         @endcan
     </li>
-@endcan
+@endcanany
 
 @php
     $currentSetting = settings();

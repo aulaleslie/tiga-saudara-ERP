@@ -27,7 +27,7 @@ class PurchaseReportHardeningTest extends TestCase
         parent::setUp();
         
         Permission::create(['name' => 'purchaseReports.access']);
-        Role::create(['name' => 'Super Admin']);
+        Role::create(['name' => 'Staff']);
         
         $currency = Currency::create([
             'currency_name' => 'Rupiah',
@@ -50,11 +50,11 @@ class PurchaseReportHardeningTest extends TestCase
         ]);
 
         $this->user = User::factory()->create();
-        $this->user->assignRole('Super Admin');
+        $this->user->assignRole('Staff');
         $this->user->givePermissionTo('purchaseReports.access');
         
-        $superAdminRole = Role::where('name', 'Super Admin')->first();
-        $this->user->settings()->attach($this->setting->id, ['role_id' => $superAdminRole->id]);
+        $staffRole = Role::where('name', 'Staff')->first();
+        $this->user->settings()->attach($this->setting->id, ['role_id' => $staffRole->id]);
     }
 
     /** @test */
