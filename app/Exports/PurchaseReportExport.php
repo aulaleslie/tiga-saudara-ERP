@@ -27,20 +27,16 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
         $purchases = $queryService->build($this->filterData)->get();
 
         return $purchases->map(function ($p) {
-            $paid = $p->purchasePayments()->where('status', PurchasePayment::STATUS_ACTIVE)->sum('amount') / 100;
-            $due = $p->total_amount - $paid;
-            $effectivePaymentStatus = $due <= 0 ? 'PAID' : ($paid > 0 ? 'PARTIAL' : 'UNPAID');
-
             return [
                 'Tanggal' => date('d/m/Y', strtotime($p->date)),
                 'No. Referensi' => $p->reference,
                 'Pemasok' => $p->supplier->supplier_name ?? '-',
                 'Status' => $this->translateStatus($p->status),
-                'Status Pembayaran' => $this->translatePaymentStatus($effectivePaymentStatus),
+                'Status Pembayaran' => $this->translatePaymentStatus($p->payment_status),
                 'Total' => $p->total_amount,
                 'Pajak' => $p->tax_amount,
                 'Termasuk Pajak' => $p->is_tax_included ? 'Ya' : 'Tidak',
-                'Sisa Tagihan' => $due,
+                'Sisa Tagihan' => $p->due_amount,
             ];
         });
     }

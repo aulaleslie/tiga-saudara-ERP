@@ -202,7 +202,7 @@
                 <th class="text-end">Sisa Tagihan</th>
             </tr>
             </thead>
-            <tbody class="bg-white">
+            <tbody class="bg-white text-dark">
             @if($filterTriggered)
                 @forelse($purchases as $p)
                     <tr>
@@ -215,14 +215,9 @@
                             </span>
                         </td>
                         <td>
-                            @php
-                                $paid = $p->purchasePayments()->where('status', 'ACTIVE')->sum('amount');
-                                $due = $p->total_amount - $paid;
-                                $effectivePaymentStatus = $due <= 0 ? 'PAID' : ($paid > 0 ? 'PARTIAL' : 'UNPAID');
-                            @endphp
-                            @if($effectivePaymentStatus === 'PAID')
+                            @if($p->payment_status === 'Paid' || strtoupper($p->payment_status) === 'PAID')
                                 <span class="badge bg-success">Lunas</span>
-                            @elseif($effectivePaymentStatus === 'PARTIAL')
+                            @elseif($p->payment_status === 'Partial' || strtoupper($p->payment_status) === 'PARTIAL')
                                 <span class="badge bg-warning text-dark">Sebagian</span>
                             @else
                                 <span class="badge bg-danger">Belum Dibayar</span>
@@ -230,7 +225,7 @@
                         </td>
                         <td class="text-end fw-bold text-primary">{{ number_format($p->total_amount, 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format($p->tax_amount, 0, ',', '.') }}</td>
-                        <td class="text-end text-danger">{{ number_format($due, 0, ',', '.') }}</td>
+                        <td class="text-end text-danger">{{ number_format($p->due_amount, 0, ',', '.') }}</td>
                     </tr>
                 @empty
                     <tr>

@@ -38,27 +38,8 @@ class PurchaseReportQueryService
             $query->where('status', $filter->deliveryStatus);
         }
 
-        // Active payment status derivation (FR-014, FR-015)
-        // We need to filter based on derived payment status if provided
         if ($filter->paymentStatus) {
-            $query->where(function ($q) use ($filter) {
-                $subquery = DB::table('purchase_payments')
-                    ->select(DB::raw('SUM(amount)'))
-                    ->whereColumn('purchase_id', 'purchases.id')
-                    ->where('status', 'ACTIVE');
-
-                if ($filter->paymentStatus === 'PAID') {
-                    $q->whereRaw('total_amount <= (' . $subquery->toSql() . ')', $subquery->getBindings());
-                } elseif ($filter->paymentStatus === 'PARTIAL') {
-                    $q->whereRaw('0 < (' . $subquery->toSql() . ')', $subquery->getBindings())
-                      ->whereRaw('total_amount > (' . $subquery->toSql() . ')', $subquery->getBindings());
-                } elseif ($filter->paymentStatus === 'UNPAID') {
-                    $q->where(function($sq) use ($subquery) {
-                        $sq->whereRaw('(' . $subquery->toSql() . ') IS NULL', $subquery->getBindings())
-                          ->orWhereRaw('(' . $subquery->toSql() . ') = 0', $subquery->getBindings());
-                    });
-                }
-            });
+            $query->where('payment_status', ucfirst(strtolower($filter->paymentStatus)));
         }
 
         return $query;
