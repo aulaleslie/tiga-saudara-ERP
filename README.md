@@ -66,3 +66,5 @@ If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-s
 
 # License
 **[Creative Commons Attribution 4.0	cc-by-4.0](https://creativecommons.org/licenses/by/4.0/)**
+
+php artisan queue:work --queue=default --tries=3 --timeout=7200
