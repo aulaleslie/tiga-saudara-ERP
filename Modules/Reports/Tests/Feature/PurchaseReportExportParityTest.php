@@ -3,7 +3,6 @@
 namespace Modules\Reports\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
 use Tests\TestCase;
 use App\Models\User;
 
@@ -60,22 +59,7 @@ class PurchaseReportExportParityTest extends TestCase
     }
 
     /** @test */
-    public function it_invalidates_export_when_filters_change()
-    {
-        $this->actingAs($this->user);
-        session(['setting_id' => $this->setting->id]);
-
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->set('settingId', $this->setting->id)
-            ->call('applyFilters') // Create snapshot
-            ->set('startDate', '2020-01-01') // Change filter
-            ->call('exportExcel')
-            ->assertDispatched('alert');
-    }
-
-    /** @test */
-    public function it_allows_export_after_successful_report_run()
+    public function it_blocks_excel_export_with_disabled_message()
     {
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
@@ -85,45 +69,15 @@ class PurchaseReportExportParityTest extends TestCase
             ->set('settingId', $this->setting->id)
             ->call('applyFilters')
             ->call('exportExcel')
-            ->assertNotDispatched('alert');
+            ->assertDispatched('alert', function ($eventName, $eventData) {
+                return $eventName === 'alert'
+                    && isset($eventData[0]['message'])
+                    && str_contains($eventData[0]['message'], 'belum tersedia');
+            });
     }
 
     /** @test */
-    public function it_exports_with_period_metadata()
-    {
-        $this->actingAs($this->user);
-        session(['setting_id' => $this->setting->id]);
-
-        $startDate = '2025-01-15';
-        $endDate = '2025-01-31';
-
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->set('settingId', $this->setting->id)
-            ->set('startDate', $startDate)
-            ->set('endDate', $endDate)
-            ->call('applyFilters')
-            ->assertViewHas('purchases');
-
-        // Verify export can be created with same filter parameters
-        $export = new \App\Exports\PurchaseReportExport([
-            'startDate' => $startDate,
-            'endDate' => $endDate,
-            'supplierIds' => [],
-            'withTax' => null,
-            'tagIds' => [],
-            'status' => null,
-            'paymentStatus' => null,
-            'isGlobal' => false,
-            'scopeSettingId' => $this->setting->id,
-        ]);
-
-        $collection = $export->collection();
-        $this->assertIsIterable($collection, 'Export collection should be iterable');
-    }
-
-    /** @test */
-    public function it_blocks_export_after_filter_modification_during_csv_export()
+    public function it_blocks_csv_export_with_disabled_message()
     {
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
@@ -132,13 +86,16 @@ class PurchaseReportExportParityTest extends TestCase
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
             ->call('applyFilters')
-            ->set('supplierIds', [999]) // Change filter
             ->call('exportCsv')
-            ->assertDispatched('alert');
+            ->assertDispatched('alert', function ($eventName, $eventData) {
+                return $eventName === 'alert'
+                    && isset($eventData[0]['message'])
+                    && str_contains($eventData[0]['message'], 'belum tersedia');
+            });
     }
 
     /** @test */
-    public function it_blocks_export_after_filter_modification_during_pdf_export()
+    public function it_blocks_pdf_export_with_disabled_message()
     {
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
@@ -147,8 +104,23 @@ class PurchaseReportExportParityTest extends TestCase
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
             ->call('applyFilters')
-            ->set('paymentStatus', 'PAID') // Change filter
             ->call('exportPdf')
-            ->assertDispatched('alert');
+            ->assertDispatched('alert', function ($eventName, $eventData) {
+                return $eventName === 'alert'
+                    && isset($eventData[0]['message'])
+                    && str_contains($eventData[0]['message'], 'belum tersedia');
+            });
+    }
+
+    /** @test */
+    public function it_initializes_with_current_month_dates()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
     }
 }

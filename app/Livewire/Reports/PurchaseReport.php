@@ -2,11 +2,8 @@
 
 namespace App\Livewire\Reports;
 
-use App\Exports\PurchaseReportExport;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Maatwebsite\Excel\Facades\Excel;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
 use Spatie\Tags\Tag;
@@ -21,15 +18,15 @@ class PurchaseReport extends Component
 {
     use WithPagination;
 
-    public $startDate, $endDate, $withTax;
+    public $startDate, $endDate;
     public $sortField = 'date';
     public $sortDirection = 'desc';
     public $supplierIds = [];
     public $tagIds = [];
-    public $deliveryStatus, $paymentStatus;
+    public $documentStatuses = [];
+    public $paymentStatuses = [];
     public $periodPreset = '';
     public $dateBasis = 'transaction_date';
-    public $transactionType = 'purchase_invoice';
     public $filterTriggered = false;
     public $isGlobal = false;
     public $settingId;
@@ -42,16 +39,15 @@ class PurchaseReport extends Component
     public $tagSearch = '';
     public $tagOptions = [];
 
+    // Selected labels for display pills (id => name)
+    public $supplierLabels = [];
+    public $tagLabels = [];
+
     protected $paginationTheme = 'bootstrap';
 
-    protected $listeners = ['supplierSelected', 'tagSelected'];
-
-    public function sortBy($field)
+    public function sortBy($field): void
     {
-        $allowedFields = [
-            'date', 'reference', 'supplier_purchase_number', 'supplier_name', 
-            'status', 'payment_status', 'total_amount', 'tax_amount', 'due_amount'
-        ];
+        $allowedFields = ['date', 'reference', 'supplier_purchase_number'];
 
         if (!in_array($field, $allowedFields)) {
             return;
@@ -67,77 +63,86 @@ class PurchaseReport extends Component
         $this->resetPage();
     }
 
-    public function sortIcon($field)
+    public function sortIcon($field): string
     {
         if ($field !== $this->sortField) return '';
-        if ($this->sortDirection === 'asc') {
-            return '<i class="bi bi-caret-up-fill text-primary ms-1"></i>';
-        }
-        return '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
+        return $this->sortDirection === 'asc'
+            ? '<i class="bi bi-caret-up-fill text-primary ms-1"></i>'
+            : '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
     }
 
-    public function selectSupplier($id)
+    public function selectSupplier(int $id, string $name): void
     {
         if (!in_array($id, $this->supplierIds)) {
             $this->supplierIds[] = $id;
+            $this->supplierLabels[$id] = $name;
         }
         $this->supplierSearch = '';
         $this->supplierOptions = [];
     }
 
-    public function removeSupplier($id)
+    public function removeSupplier(int $id): void
     {
-        $this->supplierIds = array_diff($this->supplierIds, [$id]);
+        $this->supplierIds = array_values(array_diff($this->supplierIds, [$id]));
+        unset($this->supplierLabels[$id]);
     }
 
-    public function selectTag($id)
+    public function selectTag(int $id, string $name): void
     {
         if (!in_array($id, $this->tagIds)) {
             $this->tagIds[] = $id;
+            $this->tagLabels[$id] = $name;
         }
         $this->tagSearch = '';
         $this->tagOptions = [];
     }
 
-    public function removeTag($id)
+    public function removeTag(int $id): void
     {
-        $this->tagIds = array_diff($this->tagIds, [$id]);
+        $this->tagIds = array_values(array_diff($this->tagIds, [$id]));
+        unset($this->tagLabels[$id]);
     }
 
-    public function mount($isGlobal = false)
+    public function toggleDocumentStatus(string $status): void
     {
-        $this->isGlobal = $isGlobal;
-        $this->settingId = session('setting_id');
-        $this->startDate = $isGlobal ? now()->startOfMonth()->format('Y-m-d') : now()->format('Y-m-d');
-        $this->endDate = now()->format('Y-m-d');
-        $this->appliedFilters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
-    }
-
-    public function updatedPeriodPreset($value)
-    {
-        switch ($value) {
-            case 'today':
-                $this->startDate = now()->format('Y-m-d');
-                $this->endDate = now()->format('Y-m-d');
-                break;
-            case 'this_week':
-                $this->startDate = now()->startOfWeek()->format('Y-m-d');
-                $this->endDate = now()->endOfWeek()->format('Y-m-d');
-                break;
-            case 'this_month':
-                $this->startDate = now()->startOfMonth()->format('Y-m-d');
-                $this->endDate = now()->endOfMonth()->format('Y-m-d');
-                break;
-            case 'this_year':
-                $this->startDate = now()->startOfYear()->format('Y-m-d');
-                $this->endDate = now()->endOfYear()->format('Y-m-d');
-                break;
+        if (in_array($status, $this->documentStatuses)) {
+            $this->documentStatuses = array_values(array_diff($this->documentStatuses, [$status]));
+        } else {
+            $this->documentStatuses[] = $status;
         }
     }
 
-    public function updatedSupplierSearch($value)
+    public function togglePaymentStatus(string $status): void
     {
-        
+        if (in_array($status, $this->paymentStatuses)) {
+            $this->paymentStatuses = array_values(array_diff($this->paymentStatuses, [$status]));
+        } else {
+            $this->paymentStatuses[] = $status;
+        }
+    }
+
+    public function mount($isGlobal = false): void
+    {
+        $this->isGlobal = $isGlobal;
+        $this->settingId = session('setting_id');
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->appliedFilters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
+    }
+
+    public function updatedPeriodPreset($value): void
+    {
+        match ($value) {
+            'today'      => [$this->startDate, $this->endDate] = [now()->format('Y-m-d'), now()->format('Y-m-d')],
+            'this_week'  => [$this->startDate, $this->endDate] = [now()->startOfWeek()->format('Y-m-d'), now()->endOfWeek()->format('Y-m-d')],
+            'this_month' => [$this->startDate, $this->endDate] = [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')],
+            'this_year'  => [$this->startDate, $this->endDate] = [now()->startOfYear()->format('Y-m-d'), now()->endOfYear()->format('Y-m-d')],
+            default      => null,
+        };
+    }
+
+    public function updatedSupplierSearch($value): void
+    {
         if (strlen($value) < 2) {
             $this->supplierOptions = [];
             return;
@@ -152,9 +157,8 @@ class PurchaseReport extends Component
             ->toArray();
     }
 
-    public function updatedTagSearch($value)
+    public function updatedTagSearch($value): void
     {
-
         if (strlen($value) < 2) {
             $this->tagOptions = [];
             return;
@@ -169,16 +173,16 @@ class PurchaseReport extends Component
             ->toArray();
     }
 
-    public function cancelFilters()
+    public function cancelFilters(): void
     {
         if (!empty($this->appliedFilters)) {
             $this->supplierIds = $this->appliedFilters['supplierIds'] ?? [];
-            $this->withTax = $this->appliedFilters['withTax'] ?? '';
+            $this->supplierLabels = $this->appliedFilters['supplierLabels'] ?? [];
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
-            $this->deliveryStatus = $this->appliedFilters['deliveryStatus'] ?? '';
-            $this->paymentStatus = $this->appliedFilters['paymentStatus'] ?? '';
+            $this->tagLabels = $this->appliedFilters['tagLabels'] ?? [];
+            $this->documentStatuses = $this->appliedFilters['documentStatuses'] ?? [];
+            $this->paymentStatuses = $this->appliedFilters['paymentStatuses'] ?? [];
             $this->dateBasis = $this->appliedFilters['dateBasis'] ?? 'transaction_date';
-            $this->transactionType = $this->appliedFilters['transactionType'] ?? 'purchase_invoice';
         }
         $this->supplierSearch = '';
         $this->supplierOptions = [];
@@ -186,19 +190,18 @@ class PurchaseReport extends Component
         $this->tagOptions = [];
     }
 
-    public function resetFilters()
+    public function resetFilters(): void
     {
-        $this->startDate = $this->isGlobal ? now()->startOfMonth()->format('Y-m-d') : now()->format('Y-m-d');
-        $this->endDate = now()->format('Y-m-d');
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->supplierIds = [];
+        $this->supplierLabels = [];
         $this->tagIds = [];
-        $this->withTax = '';
-        $this->deliveryStatus = '';
-        $this->paymentStatus = '';
+        $this->tagLabels = [];
+        $this->documentStatuses = [];
+        $this->paymentStatuses = [];
         $this->periodPreset = '';
         $this->dateBasis = 'transaction_date';
-        $this->transactionType = 'purchase_invoice';
-        
         $this->supplierSearch = '';
         $this->supplierOptions = [];
         $this->tagSearch = '';
@@ -209,20 +212,23 @@ class PurchaseReport extends Component
         PurchaseReportValidator $validator,
         PurchaseReportQueryService $queryService,
         PurchaseReportSnapshotService $snapshotService
-    ) {
+    ): void {
         $filterArray = $this->exportFilters();
         $filterArray['scopeSettingId'] = $this->settingId;
 
         try {
             $validated = $validator->validate($filterArray);
             $filterData = PurchaseReportFilterData::fromArray($validated);
-            
+
             $query = $queryService->build($filterData);
             $count = $query->count();
 
             $snapshotService->createSnapshot($filterData, $count);
 
-            $this->appliedFilters = $validated;
+            $this->appliedFilters = array_merge($validated, [
+                'supplierLabels' => $this->supplierLabels,
+                'tagLabels' => $this->tagLabels,
+            ]);
             $this->filterTriggered = true;
             $this->resetPage();
         } catch (ValidationException $e) {
@@ -249,72 +255,62 @@ class PurchaseReport extends Component
         return null;
     }
 
-    private function canExport(PurchaseReportSnapshotService $snapshotService): bool
-    {
-        $currentFilter = PurchaseReportFilterData::fromArray($this->appliedFilters);
-        return $snapshotService->isValidForExport($currentFilter);
-    }
-
     private function exportFilters(): array
     {
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
             'supplierIds' => $this->supplierIds,
-            'withTax' => $this->withTax,
             'tagIds' => $this->tagIds,
-            'deliveryStatus' => $this->deliveryStatus,
-            'paymentStatus' => $this->paymentStatus,
+            'documentStatuses' => $this->documentStatuses,
+            'paymentStatuses' => $this->paymentStatuses,
             'isGlobal' => $this->isGlobal,
-            'periodPreset' => $this->periodPreset,
             'dateBasis' => $this->dateBasis,
-            'transactionType' => $this->transactionType,
         ];
     }
 
     public function render(PurchaseReportQueryService $queryService)
     {
-        $purchases = collect();
+        $purchaseDetails = collect();
         if ($this->filterTriggered) {
             $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
             $query = $queryService->build($filterData);
-            
-            // Apply sorting
-            $allowedSortFields = [
-                'date', 'reference', 'supplier_purchase_number', 'supplier_name', 
-                'status', 'payment_status', 'total_amount', 'tax_amount', 'due_amount'
-            ];
 
-            if ($this->sortField && in_array($this->sortField, $allowedSortFields)) {
-                $direction = $this->sortDirection === 'asc' ? 'asc' : 'desc';
-                if ($this->sortField === 'supplier_name') {
-                    $query->join('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
-                          ->orderBy('suppliers.supplier_name', $direction)
-                          ->select('purchases.*');
-                } else {
-                    $query->orderBy('purchases.' . $this->sortField, $direction);
-                }
-            }
-            
-            // Add a deterministic fallback sort to prevent unstable pagination
-            $query->orderBy('purchases.id', 'desc');
-            
-            $purchases = $query->paginate(15);
+            $direction = $this->sortDirection === 'asc' ? 'asc' : 'desc';
+            match ($this->sortField) {
+                'date'                     => $query->orderBy('purchases.date', $direction),
+                'reference'                => $query->orderBy('purchases.reference', $direction),
+                'supplier_purchase_number' => $query->orderBy('purchases.supplier_purchase_number', $direction),
+                default                    => null,
+            };
+
+            $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
+
+            $purchaseDetails = $query->paginate(15);
         }
 
+        $documentStatusLabels = [
+            Purchase::STATUS_DRAFTED            => 'Draf',
+            Purchase::STATUS_WAITING_APPROVAL   => 'Menunggu Persetujuan',
+            Purchase::STATUS_APPROVED           => 'Disetujui',
+            Purchase::STATUS_REJECTED           => 'Ditolak',
+            Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
+            Purchase::STATUS_RECEIVED           => 'Diterima',
+            Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
+            Purchase::STATUS_RETURNED           => 'Diretur',
+        ];
+
+        $paymentStatusLabels = [
+            'UNPAID'  => 'Belum Dibayar',
+            'PARTIAL' => 'Terbayar Sebagian',
+            'PAID'    => 'Lunas',
+        ];
+
         return view('livewire.reports.purchase-report', [
-            'purchases' => $purchases,
-            'statuses' => [
-                Purchase::STATUS_DRAFTED => 'Draft',
-                Purchase::STATUS_WAITING_APPROVAL => 'Menunggu Persetujuan',
-                Purchase::STATUS_APPROVED => 'Disetujui',
-                Purchase::STATUS_REJECTED => 'Ditolak',
-                Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
-                Purchase::STATUS_RECEIVED => 'Diterima',
-                Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
-                Purchase::STATUS_RETURNED => 'Diretur',
-            ],
-            'isGlobal' => $this->isGlobal,
+            'purchases'            => $purchaseDetails,
+            'documentStatusLabels' => $documentStatusLabels,
+            'paymentStatusLabels'  => $paymentStatusLabels,
+            'isGlobal'             => $this->isGlobal,
         ]);
     }
 }

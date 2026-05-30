@@ -3,14 +3,17 @@
 namespace Modules\Reports\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
 use Tests\TestCase;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\People\Entities\Supplier;
 use App\Models\User;
 use Spatie\Tags\Tag;
-
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Location;
 use Modules\Currency\Entities\Currency;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
@@ -25,10 +28,10 @@ class PurchaseReportHardeningTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         Permission::create(['name' => 'purchaseReports.access']);
         Role::create(['name' => 'Staff']);
-        
+
         $currency = Currency::create([
             'currency_name' => 'Rupiah',
             'code' => 'IDR',
@@ -52,10 +55,76 @@ class PurchaseReportHardeningTest extends TestCase
         $this->user = User::factory()->create();
         $this->user->assignRole('Staff');
         $this->user->givePermissionTo('purchaseReports.access');
-        
+
         $staffRole = Role::where('name', 'Staff')->first();
         $this->user->settings()->attach($this->setting->id, ['role_id' => $staffRole->id]);
     }
+
+    protected function makeSupplier(string $name = 'Supplier 1', ?int $settingId = null): Supplier
+    {
+        static $counter = 0;
+        $counter++;
+        return Supplier::create([
+            'setting_id' => $settingId ?? $this->setting->id,
+            'supplier_name' => $name,
+            'supplier_email' => "s{$counter}@test.com",
+            'supplier_phone' => (string) $counter,
+            'address' => 'A',
+            'city' => 'C',
+            'country' => 'C',
+        ]);
+    }
+
+    protected function makePurchase(Supplier $supplier, array $overrides = []): Purchase
+    {
+        static $ref = 0;
+        $ref++;
+        return Purchase::create(array_merge([
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d'),
+            'setting_id' => $this->setting->id,
+            'reference' => 'PR-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ], $overrides));
+    }
+
+    protected function makePayment(Purchase $purchase, float $amount, string $status = null): PurchasePayment
+    {
+        static $pref = 0;
+        $pref++;
+        return PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'reference' => 'PP-' . str_pad($pref, 4, '0', STR_PAD_LEFT),
+            'amount' => $amount,
+            'status' => $status ?? PurchasePayment::STATUS_ACTIVE,
+            'payment_method' => 'Cash',
+            'date' => now()->format('Y-m-d'),
+        ]);
+    }
+
+    protected function makePurchaseDetail(Purchase $purchase, array $overrides = []): PurchaseDetail
+    {
+        return PurchaseDetail::create(array_merge([
+            'purchase_id' => $purchase->id,
+            'product_id' => null,
+            'quantity' => 1,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_name' => 'Product A',
+            'product_code' => 'PA-001',
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ], $overrides));
+    }
+
+    // ─── Page render ───────────────────────────────────────────────────────────
 
     /** @test */
     public function it_can_render_the_purchase_report_page()
@@ -64,7 +133,6 @@ class PurchaseReportHardeningTest extends TestCase
         session(['setting_id' => $this->setting->id]);
 
         $response = $this->get(route('reports.purchase-report.index'));
-
         $response->assertStatus(200);
     }
 
@@ -74,10 +142,9 @@ class PurchaseReportHardeningTest extends TestCase
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
 
-        $response = $this->get(route('home'));
-        
-        $response->assertStatus(200);
-        $response->assertSee('Daftar Pembelian');
+        $this->get(route('home'))
+            ->assertStatus(200)
+            ->assertSee('Daftar Pembelian');
     }
 
     /** @test */
@@ -87,10 +154,9 @@ class PurchaseReportHardeningTest extends TestCase
         $this->actingAs($unauthorizedUser);
         session(['setting_id' => $this->setting->id]);
 
-        $response = $this->get(route('home'));
-        
-        $response->assertStatus(200);
-        $response->assertDontSee('Daftar Pembelian');
+        $this->get(route('home'))
+            ->assertStatus(200)
+            ->assertDontSee('Daftar Pembelian');
     }
 
     /** @test */
@@ -99,51 +165,442 @@ class PurchaseReportHardeningTest extends TestCase
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
 
-        $response = $this->get(route('reports.purchase-report.index'));
-
-        $response->assertStatus(200);
-        $response->assertSee('Daftar Pembelian');
+        $this->get(route('reports.purchase-report.index'))
+            ->assertStatus(200)
+            ->assertSee('Daftar Pembelian');
     }
+
+    // ─── Task 1.2: Default date range is current month ─────────────────────────
+
+    /** @test */
+    public function it_defaults_start_and_end_date_to_current_month()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
+    }
+
+    // ─── Task 1.3: One purchase with multiple details → multiple report rows ───
+
+    /** @test */
+    public function it_returns_one_row_per_purchase_detail_for_a_single_purchase()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+        ]);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product A']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product B']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product C']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                return $purchases->count() === 3;
+            });
+    }
+
+    /** @test */
+    public function it_produces_separate_rows_for_each_detail_of_different_purchases()
+    {
+        $supplier = $this->makeSupplier();
+        $p1 = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $p2 = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $this->makePurchaseDetail($p1, ['product_name' => 'P1-A']);
+        $this->makePurchaseDetail($p1, ['product_name' => 'P1-B']);
+        $this->makePurchaseDetail($p2, ['product_name' => 'P2-A']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                return $purchases->count() === 3;
+            });
+    }
+
+    // ─── Task 1.4: Bahasa Indonesia labels, no Tipe transaksi/product/Gudang filters
+
+    /** @test */
+    public function it_does_not_render_a_tipe_transaksi_filter()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $this->get(route('reports.purchase-report.index'))
+            ->assertStatus(200)
+            ->assertDontSee('Tipe transaksi');
+    }
+
+    /** @test */
+    public function it_does_not_render_a_product_filter()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.purchase-report.index'));
+        $response->assertStatus(200);
+        // Ensure no product-filter input is present
+        $response->assertDontSee('wire:model="productId"');
+        $response->assertDontSee('wire:model="productSearch"');
+    }
+
+    /** @test */
+    public function it_does_not_render_a_gudang_filter()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.purchase-report.index'));
+        $response->assertStatus(200);
+        $response->assertDontSee('wire:model="locationId"');
+        $response->assertDontSee('wire:model="locationSearch"');
+    }
+
+    /** @test */
+    public function it_renders_bahasa_indonesia_filter_labels()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.purchase-report.index'));
+        $response->assertStatus(200);
+        $response->assertSee('Tanggal awal');
+        $response->assertSee('Tanggal akhir');
+        $response->assertSee('Supplier');
+        $response->assertSee('Status Dokumen');
+        $response->assertSee('Status Pembayaran');
+        $response->assertSee('Grup dengan tag');
+    }
+
+    // ─── Task 1.5: Supplier/tag min 2-char lookup ──────────────────────────────
+
+    /** @test */
+    public function it_only_triggers_supplier_lookup_after_min_chars()
+    {
+        $this->makeSupplier('Test Supplier');
+        session(['setting_id' => $this->setting->id]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('supplierSearch', 'T')
+            ->assertSet('supplierOptions', [])
+            ->set('supplierSearch', 'Te')
+            ->assertCount('supplierOptions', 1);
+    }
+
+    /** @test */
+    public function it_only_triggers_tag_lookup_after_min_chars_and_respects_locale()
+    {
+        $tag = Tag::create(['name' => ['en' => 'Test Tag', 'id' => 'Tag Tes']]);
+        session(['setting_id' => $this->setting->id]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('tagSearch', 'T')
+            ->assertSet('tagOptions', [])
+            ->set('tagSearch', 'Te')
+            ->assertCount('tagOptions', 1)
+            ->assertSet('tagOptions.0.id', $tag->id);
+    }
+
+    // ─── Task 1.6: Multi-select OR behavior ───────────────────────────────────
+
+    /** @test */
+    public function it_filters_by_multiple_suppliers_with_or_semantics()
+    {
+        $s1 = $this->makeSupplier('Alpha Supplier');
+        $s2 = $this->makeSupplier('Beta Supplier');
+        $s3 = $this->makeSupplier('Gamma Supplier');
+        $p1 = $this->makePurchase($s1, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $p2 = $this->makePurchase($s2, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $p3 = $this->makePurchase($s3, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $this->makePurchaseDetail($p1);
+        $this->makePurchaseDetail($p2);
+        $this->makePurchaseDetail($p3);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('supplierIds', [$s1->id, $s2->id])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($p1, $p2, $p3) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($p1->id, $ids)
+                    && in_array($p2->id, $ids)
+                    && !in_array($p3->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_multiple_tags_with_or_semantics()
+    {
+        $tagA = Tag::create(['name' => ['en' => 'TagA']]);
+        $tagB = Tag::create(['name' => ['en' => 'TagB']]);
+        $tagC = Tag::create(['name' => ['en' => 'TagC']]);
+
+        $supplier = $this->makeSupplier();
+        $pA = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $pB = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $pC = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $pA->attachTag($tagA);
+        $pB->attachTag($tagB);
+        $pC->attachTag($tagC);
+        $this->makePurchaseDetail($pA);
+        $this->makePurchaseDetail($pB);
+        $this->makePurchaseDetail($pC);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('tagIds', [$tagA->id, $tagB->id])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($pA, $pB, $pC) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($pA->id, $ids)
+                    && in_array($pB->id, $ids)
+                    && !in_array($pC->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_multiple_document_statuses_with_or_semantics()
+    {
+        $supplier = $this->makeSupplier();
+        $pApproved = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED,
+        ]);
+        $pReceived = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_RECEIVED,
+        ]);
+        $pDrafted = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_DRAFTED,
+        ]);
+        $this->makePurchaseDetail($pApproved);
+        $this->makePurchaseDetail($pReceived);
+        $this->makePurchaseDetail($pDrafted);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('documentStatuses', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($pApproved, $pReceived, $pDrafted) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($pApproved->id, $ids)
+                    && in_array($pReceived->id, $ids)
+                    && !in_array($pDrafted->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_multiple_payment_statuses_with_or_semantics()
+    {
+        $supplier = $this->makeSupplier();
+        $pUnpaid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+        $pPartial = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 500,
+            'due_amount' => 500,
+        ]);
+        $pPaid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+        ]);
+        $this->makePayment($pPartial, 500);
+        $this->makePayment($pPaid, 1000);
+        $this->makePurchaseDetail($pUnpaid);
+        $this->makePurchaseDetail($pPartial);
+        $this->makePurchaseDetail($pPaid);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['UNPAID', 'PARTIAL'])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($pUnpaid, $pPartial, $pPaid) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($pUnpaid->id, $ids)
+                    && in_array($pPartial->id, $ids)
+                    && !in_array($pPaid->id, $ids);
+            });
+    }
+
+    // ─── Task 1.7: Derived payment status ignores invalidated payments ─────────
+
+    /** @test */
+    public function it_derives_payment_status_as_unpaid_when_all_payments_are_invalidated()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+        $this->makePayment($purchase, 1000, PurchasePayment::STATUS_INVALIDATED);
+        $this->makePurchaseDetail($purchase);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['UNPAID'])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('purchase_id')->contains($purchase->id);
+            });
+    }
+
+    /** @test */
+    public function it_derives_payment_status_as_partial_using_active_payments_only()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+        // One active payment of 300 and one invalidated of 700 → derived = PARTIAL
+        $this->makePayment($purchase, 300);
+        $this->makePayment($purchase, 700, PurchasePayment::STATUS_INVALIDATED);
+        $this->makePurchaseDetail($purchase);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['PARTIAL'])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('purchase_id')->contains($purchase->id);
+            });
+    }
+
+    // ─── Task 1.8: Gudang column from approved receiving-note locations ─────────
+
+    /** @test */
+    public function it_populates_gudang_column_from_approved_receiving_note_location()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+        ]);
+        $detail = $this->makePurchaseDetail($purchase);
+
+        $location = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Gudang Utama',
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'location_id' => $location->id,
+            'date' => now()->format('Y-m-d'),
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detail->id,
+            'quantity_received' => 1,
+        ]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $row = $purchases->first();
+                return $row && stripos($row->gudang ?? '', 'Gudang Utama') !== false;
+            });
+    }
+
+    /** @test */
+    public function it_joins_multiple_distinct_approved_receiving_locations_in_gudang_without_duplicating_rows()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+        ]);
+        $detail = $this->makePurchaseDetail($purchase);
+
+        $loc1 = Location::create(['setting_id' => $this->setting->id, 'name' => 'Gudang A']);
+        $loc2 = Location::create(['setting_id' => $this->setting->id, 'name' => 'Gudang B']);
+
+        $rn1 = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'location_id' => $loc1->id,
+            'date' => now()->format('Y-m-d'),
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+        $rn2 = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'location_id' => $loc2->id,
+            'date' => now()->format('Y-m-d'),
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+        ReceivedNoteDetail::create(['received_note_id' => $rn1->id, 'po_detail_id' => $detail->id, 'quantity_received' => 1]);
+        ReceivedNoteDetail::create(['received_note_id' => $rn2->id, 'po_detail_id' => $detail->id, 'quantity_received' => 1]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                // Only 1 detail → 1 row, Gudang contains both location names
+                if ($purchases->count() !== 1) {
+                    return false;
+                }
+                $gudang = $purchases->first()->gudang ?? '';
+                return stripos($gudang, 'Gudang A') !== false && stripos($gudang, 'Gudang B') !== false;
+            });
+    }
+
+    // ─── Existing behaviour: date filters & scope ──────────────────────────────
 
     /** @test */
     public function it_filters_purchases_by_date_range()
     {
-        $supplier = Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Supplier 1',
-            'supplier_email' => 's1@test.com',
-            'supplier_phone' => '1',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
-        ]);
-
-        Purchase::create([
-            'date' => '2026-01-01',
-            'due_date' => '2026-01-01',
-            'setting_id' => $this->setting->id,
-            'reference' => 'PR-001',
-            'supplier_id' => $supplier->id,
-            'status' => 'APPROVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 1000,
-            'due_amount' => 0,
-        ]);
-        Purchase::create([
-            'date' => '2026-02-01',
-            'due_date' => '2026-02-01',
-            'setting_id' => $this->setting->id,
-            'reference' => 'PR-002',
-            'supplier_id' => $supplier->id,
-            'status' => 'APPROVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 1000,
-            'due_amount' => 0,
-        ]);
+        $supplier = $this->makeSupplier();
+        $p1 = $this->makePurchase($supplier, ['date' => '2026-01-15', 'due_date' => '2026-01-15']);
+        $p2 = $this->makePurchase($supplier, ['date' => '2026-02-01', 'due_date' => '2026-02-01']);
+        $this->makePurchaseDetail($p1);
+        $this->makePurchaseDetail($p2);
 
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class, ['isGlobal' => false])
@@ -159,16 +616,6 @@ class PurchaseReportHardeningTest extends TestCase
     /** @test */
     public function it_enforces_setting_id_scope_in_non_global_mode()
     {
-        $supplier = Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Supplier 1',
-            'supplier_email' => 's1@test.com',
-            'supplier_phone' => '1',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
-        ]);
-
         $otherSetting = Setting::create([
             'company_name' => 'Other Company',
             'company_email' => 'other@example.com',
@@ -180,42 +627,12 @@ class PurchaseReportHardeningTest extends TestCase
             'company_address' => 'Address'
         ]);
 
-        $otherSupplier = Supplier::create([
-            'setting_id' => $otherSetting->id,
-            'supplier_name' => 'Supplier 2',
-            'supplier_email' => 's2@test.com',
-            'supplier_phone' => '2',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
-        ]);
-        
-        Purchase::create([
-            'date' => '2026-01-01',
-            'due_date' => '2026-01-01',
-            'setting_id' => $this->setting->id,
-            'reference' => 'PR-S1',
-            'supplier_id' => $supplier->id,
-            'status' => 'APPROVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 1000,
-            'due_amount' => 0,
-        ]);
-        Purchase::create([
-            'date' => '2026-01-01',
-            'due_date' => '2026-01-01',
-            'setting_id' => $otherSetting->id,
-            'reference' => 'PR-S2',
-            'supplier_id' => $otherSupplier->id,
-            'status' => 'APPROVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 1000,
-            'due_amount' => 0,
-        ]);
+        $s1 = $this->makeSupplier('S1', $this->setting->id);
+        $s2 = $this->makeSupplier('S2', $otherSetting->id);
+        $p1 = $this->makePurchase($s1, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $p2 = $this->makePurchase($s2, ['date' => now()->startOfMonth()->format('Y-m-d'), 'setting_id' => $otherSetting->id]);
+        $this->makePurchaseDetail($p1);
+        $this->makePurchaseDetail($p2);
 
         session(['setting_id' => $this->setting->id]);
 
@@ -224,7 +641,7 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('settingId', $this->setting->id)
             ->call('applyFilters')
             ->assertViewHas('purchases', function ($purchases) {
-                return $purchases->every(fn($p) => $p->setting_id === $this->setting->id);
+                return $purchases->every(fn($row) => $row->purchase->setting_id === $this->setting->id);
             });
     }
 
@@ -243,30 +660,6 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
-    public function it_only_triggers_supplier_lookup_after_min_chars()
-    {
-        Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Test Supplier',
-            'supplier_email' => 'supplier@test.com',
-            'supplier_phone' => '12345',
-            'address' => 'Test Address',
-            'city' => 'Test City',
-            'country' => 'Test Country',
-        ]);
-
-        session(['setting_id' => $this->setting->id]);
-
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->set('settingId', $this->setting->id)
-            ->set('supplierSearch', 'T')
-            ->assertSet('supplierOptions', [])
-            ->set('supplierSearch', 'Te')
-            ->assertCount('supplierOptions', 1);
-    }
-
-    /** @test */
     public function it_rejects_end_date_before_start_date()
     {
         \Livewire\Livewire::actingAs($this->user)
@@ -279,14 +672,14 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
-    public function it_rejects_invalid_status_value()
+    public function it_rejects_invalid_document_status_value()
     {
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('deliveryStatus', 'INVALID_STATUS')
+            ->set('documentStatuses', ['INVALID_STATUS'])
             ->call('applyFilters')
-            ->assertHasErrors(['deliveryStatus']);
+            ->assertHasErrors(['documentStatuses.*']);
     }
 
     /** @test */
@@ -295,9 +688,9 @@ class PurchaseReportHardeningTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('paymentStatus', 'INVALID_PAYMENT')
+            ->set('paymentStatuses', ['INVALID_PAYMENT'])
             ->call('applyFilters')
-            ->assertHasErrors(['paymentStatus']);
+            ->assertHasErrors(['paymentStatuses.*']);
     }
 
     /** @test */
@@ -323,32 +716,6 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
-    public function it_only_triggers_tag_lookup_after_min_chars_and_respects_locale()
-    {
-        $tag = Tag::create(['name' => ['en' => 'Test Tag', 'id' => 'Tag Tes']]);
-        
-        session(['setting_id' => $this->setting->id]);
-
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->set('settingId', $this->setting->id)
-            ->set('tagSearch', 'T')
-            ->assertSet('tagOptions', [])
-            ->set('tagSearch', 'Te')
-            ->assertCount('tagOptions', 1)
-            ->assertSet('tagOptions.0.id', $tag->id);
-    }
-
-    /** @test */
-    public function it_defaults_start_and_end_date_to_today_for_non_global_report()
-    {
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->assertSet('startDate', now()->format('Y-m-d'))
-            ->assertSet('endDate', now()->format('Y-m-d'));
-    }
-
-    /** @test */
     public function it_updates_dates_when_period_preset_changes_without_auto_filtering()
     {
         \Livewire\Livewire::actingAs($this->user)
@@ -362,31 +729,13 @@ class PurchaseReportHardeningTest extends TestCase
     /** @test */
     public function it_filters_by_date_basis_transaction_date_and_due_date()
     {
-        $supplier = \Modules\People\Entities\Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Supplier 1',
-            'supplier_email' => 's1@test.com',
-            'supplier_phone' => '1',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
-        ]);
-
-        $date1 = \Modules\Purchase\Entities\Purchase::create([
-            'setting_id' => $this->setting->id,
-            'supplier_id' => $supplier->id,
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
             'date' => now()->subDays(5)->format('Y-m-d'),
             'due_date' => now()->addDays(5)->format('Y-m-d'),
-            'status' => \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
-            'reference' => 'PR-001',
-            'payment_status' => 'UNPAID',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 0,
-            'due_amount' => 1000,
         ]);
+        $this->makePurchaseDetail($purchase);
 
-        // Filter by transaction date (subdays(5))
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
@@ -395,11 +744,10 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('dateBasis', 'transaction_date')
             ->call('applyFilters')
             ->assertHasNoErrors()
-            ->assertViewHas('purchases', function($purchases) use ($date1) {
-                return $purchases->contains('id', $date1->id);
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('purchase_id')->contains($purchase->id);
             });
 
-        // Filter by due date (adddays(5))
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
@@ -407,95 +755,65 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('endDate', now()->addDays(6)->format('Y-m-d'))
             ->set('dateBasis', 'due_date')
             ->call('applyFilters')
-            ->assertViewHas('purchases', function($purchases) use ($date1) {
-                return $purchases->contains('id', $date1->id);
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('purchase_id')->contains($purchase->id);
             });
     }
 
     /** @test */
-    public function it_defaults_transaction_type_to_purchase_invoice()
+    public function it_filters_document_status()
     {
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->assertSet('transactionType', 'purchase_invoice');
-    }
-
-    /** @test */
-    public function it_filters_delivery_status_separately_from_payment_status()
-    {
-        $supplier = \Modules\People\Entities\Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Supplier 1',
-            'supplier_email' => 's1@test.com',
-            'supplier_phone' => '1',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
+        $supplier = $this->makeSupplier();
+        $pApproved = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED,
         ]);
-
-        $purchase = \Modules\Purchase\Entities\Purchase::create([
-            'setting_id' => $this->setting->id,
-            'supplier_id' => $supplier->id,
-            'date' => now()->format('Y-m-d'),
-            'due_date' => now()->format('Y-m-d'),
-            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED, // Delivery status
-            'reference' => 'PR-002',
-            'payment_status' => 'PARTIAL',
-            'payment_method' => 'Cash',
-            'total_amount' => 1000,
-            'paid_amount' => 500,
-            'due_amount' => 500,
+        $pDrafted = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_DRAFTED,
         ]);
+        $this->makePurchaseDetail($pApproved);
+        $this->makePurchaseDetail($pDrafted);
 
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('startDate', now()->format('Y-m-d'))
-            ->set('endDate', now()->format('Y-m-d'))
-            ->set('deliveryStatus', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
-            ->set('paymentStatus', 'PARTIAL')
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('documentStatuses', [Purchase::STATUS_APPROVED])
             ->call('applyFilters')
-            ->assertViewHas('purchases', function($purchases) use ($purchase) {
-                return $purchases->contains('id', $purchase->id);
+            ->assertViewHas('purchases', function ($purchases) use ($pApproved, $pDrafted) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($pApproved->id, $ids) && !in_array($pDrafted->id, $ids);
             });
     }
 
     /** @test */
-    public function it_filters_by_unpaid_payment_status()
+    public function it_filters_by_unpaid_derived_payment_status()
     {
-        $supplier = \Modules\People\Entities\Supplier::create([
-            'setting_id' => $this->setting->id,
-            'supplier_name' => 'Supplier 1',
-            'supplier_email' => 's1@test.com',
-            'supplier_phone' => '1',
-            'address' => 'A',
-            'city' => 'C',
-            'country' => 'C',
-        ]);
-
-        $purchase = \Modules\Purchase\Entities\Purchase::create([
-            'setting_id' => $this->setting->id,
-            'supplier_id' => $supplier->id,
-            'date' => now()->format('Y-m-d'),
-            'due_date' => now()->format('Y-m-d'),
-            'status' => 'APPROVED',
-            'reference' => 'PR-003',
-            'payment_status' => 'UNPAID',
-            'payment_method' => 'Cash',
+        $supplier = $this->makeSupplier();
+        $pUnpaid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
             'total_amount' => 1000,
-            'paid_amount' => 0,
-            'due_amount' => 1000,
         ]);
+        $pPaid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+        ]);
+        $this->makePayment($pPaid, 1000);
+        $this->makePurchaseDetail($pUnpaid);
+        $this->makePurchaseDetail($pPaid);
 
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('startDate', now()->format('Y-m-d'))
-            ->set('endDate', now()->format('Y-m-d'))
-            ->set('paymentStatus', 'UNPAID')
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['UNPAID'])
             ->call('applyFilters')
-            ->assertViewHas('purchases', function($purchases) use ($purchase) {
-                return $purchases->contains('id', $purchase->id);
+            ->assertViewHas('purchases', function ($purchases) use ($pUnpaid, $pPaid) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($pUnpaid->id, $ids) && !in_array($pPaid->id, $ids);
             });
     }
 
@@ -507,12 +825,10 @@ class PurchaseReportHardeningTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
             ->set('settingId', $this->setting->id)
-            ->set('startDate', now()->format('Y-m-d'))
-            ->set('endDate', now()->format('Y-m-d'))
             ->call('applyFilters')
             ->call('exportExcel')
             ->assertDispatched('alert', function ($eventName, $eventData) {
-                return $eventName === 'alert' && 
+                return $eventName === 'alert' &&
                        isset($eventData[0]['message']) &&
                        str_contains($eventData[0]['message'], 'belum tersedia');
             });

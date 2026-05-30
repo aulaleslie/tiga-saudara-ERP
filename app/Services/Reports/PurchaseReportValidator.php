@@ -10,7 +10,7 @@ class PurchaseReportValidator
 {
     public function validate(array $data): array
     {
-        $allowedStatuses = [
+        $allowedDocumentStatuses = [
             Purchase::STATUS_DRAFTED,
             Purchase::STATUS_WAITING_APPROVAL,
             Purchase::STATUS_APPROVED,
@@ -26,15 +26,15 @@ class PurchaseReportValidator
             'endDate' => 'required|date|after_or_equal:startDate',
             'supplierIds' => 'nullable|array',
             'supplierIds.*' => 'exists:suppliers,id',
-            'withTax' => 'nullable|in:1,0',
             'tagIds' => 'nullable|array',
             'tagIds.*' => 'exists:tags,id',
-            'deliveryStatus' => 'nullable|in:' . implode(',', $allowedStatuses),
-            'paymentStatus' => 'nullable|in:PAID,PARTIAL,UNPAID,paid,partial,unpaid',
+            'documentStatuses' => 'nullable|array',
+            'documentStatuses.*' => 'in:' . implode(',', $allowedDocumentStatuses),
+            'paymentStatuses' => 'nullable|array',
+            'paymentStatuses.*' => 'in:PAID,PARTIAL,UNPAID,paid,partial,unpaid',
             'isGlobal' => 'boolean',
             'scopeSettingId' => 'nullable|integer',
             'dateBasis' => 'nullable|in:transaction_date,due_date',
-            'transactionType' => 'nullable|in:purchase_invoice',
         ], [
             'endDate.after_or_equal' => 'Tanggal akhir harus sama atau setelah tanggal awal.',
         ]);
@@ -45,9 +45,8 @@ class PurchaseReportValidator
 
         $validated = $validator->validated();
 
-        // Normalization
-        if (isset($validated['paymentStatus'])) {
-            $validated['paymentStatus'] = strtoupper($validated['paymentStatus']);
+        if (!empty($validated['paymentStatuses'])) {
+            $validated['paymentStatuses'] = array_map('strtoupper', $validated['paymentStatuses']);
         }
 
         return $validated;
