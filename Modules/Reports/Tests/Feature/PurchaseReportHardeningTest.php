@@ -508,6 +508,96 @@ class PurchaseReportHardeningTest extends TestCase
             });
     }
 
+    /** @test */
+    public function it_derives_payment_status_from_header_amounts_when_no_payment_rows_exist()
+    {
+        $supplier = $this->makeSupplier();
+        $partial = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 500,
+            'due_amount' => 500,
+        ]);
+        $paid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+        ]);
+        $this->makePurchaseDetail($partial);
+        $this->makePurchaseDetail($paid);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($partial, $paid) {
+                $rows = $purchases->keyBy('purchase_id');
+
+                return \App\Services\Reports\PurchaseReportQueryService::mapRow($rows[$partial->id])['Status Pembayaran'] === 'Terbayar Sebagian'
+                    && \App\Services\Reports\PurchaseReportQueryService::mapRow($rows[$paid->id])['Status Pembayaran'] === 'Lunas';
+            });
+    }
+
+    /** @test */
+    public function it_filters_payment_status_from_header_amounts_when_no_payment_rows_exist()
+    {
+        $supplier = $this->makeSupplier();
+        $unpaid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+        $paid = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+        ]);
+        $this->makePurchaseDetail($unpaid);
+        $this->makePurchaseDetail($paid);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['PAID'])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($unpaid, $paid) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($paid->id, $ids) && !in_array($unpaid->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_ignores_stale_header_amounts_when_payment_rows_exist()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+        ]);
+        $this->makePayment($purchase, 1000, PurchasePayment::STATUS_INVALIDATED);
+        $this->makePurchaseDetail($purchase);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->set('paymentStatuses', ['UNPAID'])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('purchase_id')->contains($purchase->id);
+            });
+    }
+
     // ─── Task 1.8: Gudang column from approved receiving-note locations ─────────
 
     /** @test */

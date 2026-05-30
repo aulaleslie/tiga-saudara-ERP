@@ -13,10 +13,14 @@ class PurchaseReportQueryService
 {
     public function build(PurchaseReportFilterData $filter): Builder
     {
-        // Sub-query: sum of active payment amounts per purchase (amounts stored as x100 integers)
+        // Sub-query: payment rows per purchase. Amounts are stored as x100 integers.
         $activePaymentSub = DB::table('purchase_payments')
-            ->select('purchase_id', DB::raw('SUM(amount) / 100.0 as active_paid'))
-            ->where('status', PurchasePayment::STATUS_ACTIVE)
+            ->select('purchase_id')
+            ->selectRaw(
+                'SUM(CASE WHEN status = ? THEN amount ELSE 0 END) / 100.0 as active_paid',
+                [PurchasePayment::STATUS_ACTIVE]
+            )
+            ->selectRaw('COUNT(*) as payment_count')
             ->groupBy('purchase_id');
 
         // Sub-query: distinct approved receiving location names per purchase_detail
@@ -30,6 +34,7 @@ class PurchaseReportQueryService
 
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
         $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : 'purchases.date';
+        $effectivePaidExpression = $this->effectivePaidExpression();
 
         $query = PurchaseDetail::with([
                 'purchase.supplier',
@@ -45,7 +50,7 @@ class PurchaseReportQueryService
             ->select(
                 'purchase_details.*',
                 'gd.gudang',
-                DB::raw('COALESCE(ap.active_paid, 0) as derived_active_paid'),
+                DB::raw($effectivePaidExpression . ' as derived_active_paid'),
             )
             ->when(!$filter->isGlobal, fn($q) => $q->where('purchases.setting_id', $scopeSettingId))
             ->where($dateColumn, '>=', $filter->startDate)
@@ -72,14 +77,14 @@ class PurchaseReportQueryService
                 foreach ($filter->paymentStatuses as $status) {
                     match (strtoupper($status)) {
                         'UNPAID'  => $q->orWhere(function ($sub) {
-                                $sub->whereRaw('COALESCE(ap.active_paid, 0) <= 0');
+                                $sub->whereRaw('(' . $this->effectivePaidExpression() . ') <= 0');
                             }),
                         'PARTIAL' => $q->orWhere(function ($sub) {
-                                $sub->whereRaw('COALESCE(ap.active_paid, 0) > 0')
-                                    ->whereRaw('COALESCE(ap.active_paid, 0) < purchases.total_amount');
+                                $sub->whereRaw('(' . $this->effectivePaidExpression() . ') > 0')
+                                    ->whereRaw('(' . $this->effectivePaidExpression() . ') < purchases.total_amount');
                             }),
                         'PAID'    => $q->orWhere(function ($sub) {
-                                $sub->whereRaw('COALESCE(ap.active_paid, 0) >= purchases.total_amount')
+                                $sub->whereRaw('(' . $this->effectivePaidExpression() . ') >= purchases.total_amount')
                                     ->whereRaw('purchases.total_amount > 0');
                             }),
                         default   => null,
@@ -89,6 +94,19 @@ class PurchaseReportQueryService
         }
 
         return $query;
+    }
+
+    private function effectivePaidExpression(): string
+    {
+        return <<<'SQL'
+CASE
+    WHEN COALESCE(ap.payment_count, 0) > 0 THEN COALESCE(ap.active_paid, 0)
+    WHEN COALESCE(purchases.paid_amount, 0) > 0 THEN COALESCE(purchases.paid_amount, 0)
+    WHEN COALESCE(purchases.total_amount, 0) - COALESCE(purchases.due_amount, 0) > 0
+        THEN COALESCE(purchases.total_amount, 0) - COALESCE(purchases.due_amount, 0)
+    ELSE 0
+END
+SQL;
     }
 
     /**
