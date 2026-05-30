@@ -402,4 +402,82 @@ class PurchaseBySupplierReportTest extends TestCase
                 return true;
             });
     }
+    /** @test */
+    public function it_groups_supplier_rows_together_without_interleaving_when_dates_alternate()
+    {
+        $supplierA = $this->makeSupplier('Supplier A');
+        $supplierB = $this->makeSupplier('Supplier B');
+
+        // Alternating dates: B, A, B
+        $purchaseB1 = $this->makePurchase($supplierB, ['date' => '2026-05-01']);
+        $this->makePurchaseDetail($purchaseB1, ['product_name' => 'B 01']);
+
+        $purchaseA1 = $this->makePurchase($supplierA, ['date' => '2026-05-02']);
+        $this->makePurchaseDetail($purchaseA1, ['product_name' => 'A 02']);
+
+        $purchaseB2 = $this->makePurchase($supplierB, ['date' => '2026-05-03']);
+        $this->makePurchaseDetail($purchaseB2, ['product_name' => 'B 03']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('sortField', 'date')
+            ->set('sortDirection', 'desc')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $rows = $purchases->values();
+                \PHPUnit\Framework\Assert::assertCount(3, $rows);
+
+                // Both B rows must be adjacent, and A must be by itself.
+                // With max date DESC:
+                // B's max date is 2026-05-03.
+                // A's max date is 2026-05-02.
+                // So Supplier B group comes first, then Supplier A group.
+                // Within B, dates are DESC: 03 then 01.
+
+                \PHPUnit\Framework\Assert::assertEquals('SUPPLIER B', strtoupper($rows[0]->supplier_name));
+                \PHPUnit\Framework\Assert::assertEquals('B 03', $rows[0]->product_name);
+
+                \PHPUnit\Framework\Assert::assertEquals('SUPPLIER B', strtoupper($rows[1]->supplier_name));
+                \PHPUnit\Framework\Assert::assertEquals('B 01', $rows[1]->product_name);
+
+                \PHPUnit\Framework\Assert::assertEquals('SUPPLIER A', strtoupper($rows[2]->supplier_name));
+                \PHPUnit\Framework\Assert::assertEquals('A 02', $rows[2]->product_name);
+
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_computes_running_totals_correctly_on_page_two()
+    {
+        $supplier = $this->makeSupplier('Supplier A');
+        
+        // Create 20 purchases so page 2 has 5 items (default perPage is 15)
+        for ($i = 1; $i <= 20; $i++) {
+            $purchase = $this->makePurchase($supplier, ['date' => '2026-05-01']);
+            $this->makePurchaseDetail($purchase, ['sub_total' => 100]);
+        }
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('setPage', 2)
+            ->assertViewHas('purchases', function ($purchases) {
+                $rows = $purchases->values();
+                \PHPUnit\Framework\Assert::assertCount(5, $rows);
+                
+                // The first 15 items had sub_total 100, so running total before page 2 is 1500.
+                // The first item on page 2 should have a running total of 1600.
+                \PHPUnit\Framework\Assert::assertEquals(1600, $rows[0]->running_total);
+                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[4]->running_total);
+                
+                return true;
+            });
+    }
 }

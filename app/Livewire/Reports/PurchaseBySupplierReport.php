@@ -271,11 +271,11 @@ class PurchaseBySupplierReport extends Component
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->addSelect('purchases.supplier_id as _sid');
+                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 foreach ($previousRows as $row) {
-                    $supplierId = $row->_sid;
+                    $supplierId = $row->supplier_id;
                     if ($supplierId) {
                         $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total;
                     }
