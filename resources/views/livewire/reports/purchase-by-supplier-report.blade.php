@@ -67,7 +67,7 @@
                                     </button>
                                 @else
                                     <button type="button"
-                                            wire:click="selectSupplier({{ $option['id'] }}, '{{ addslashes($option['supplier_name']) }}')"
+                                            wire:click='selectSupplier({{ $option['id'] }}, @json($option['supplier_name']))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $option['supplier_name'] }}
                                     </button>
@@ -115,7 +115,7 @@
                                     </button>
                                 @else
                                     <button type="button"
-                                            wire:click="selectCategory({{ $option['id'] }}, '{{ addslashes($option['category_name']) }}')"
+                                            wire:click='selectCategory({{ $option['id'] }}, @json($option['category_name']))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $option['category_name'] }}
                                     </button>
@@ -168,7 +168,7 @@
                                     </button>
                                 @else
                                     <button type="button"
-                                            wire:click="selectTag({{ $option['id'] }}, '{{ addslashes($tagName) }}')"
+                                            wire:click='selectTag({{ $option['id'] }}, @json($tagName))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $tagName }}
                                     </button>
@@ -246,12 +246,19 @@
                     @php
                         $supplierId = $row->purchase->supplier_id;
                         $mapped = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRow($row, $row->running_total ?? 0);
+                        $isFirstRow = $loop->first;
+                        $isContinuation = $isFirstRow && $supplierId === ($previousPageLastSupplierId ?? null);
                         $isNewSupplier = $currentSupplierId !== $supplierId;
                         $currentSupplierId = $supplierId;
                     @endphp
                     @if($isNewSupplier)
                         <tr class="table-active fw-bold">
-                            <td colspan="10">{{ $mapped['Supplier / Tanggal'] }}</td>
+                            <td colspan="10">
+                                {{ $mapped['Supplier / Tanggal'] }}
+                                @if($isContinuation)
+                                    <span class="fw-normal fst-italic text-muted ms-1">(Lanjutan)</span>
+                                @endif
+                            </td>
                         </tr>
                     @endif
                     <tr>

@@ -164,6 +164,9 @@ class PurchaseBySupplierReport extends Component
     public function cancelFilters(): void
     {
         if (!empty($this->appliedFilters)) {
+            $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
+            $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
+            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
             $this->supplierIds = $this->appliedFilters['supplierIds'] ?? [];
             $this->supplierLabels = $this->appliedFilters['supplierLabels'] ?? [];
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
@@ -185,6 +188,9 @@ class PurchaseBySupplierReport extends Component
 
     public function resetFilters(): void
     {
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->periodPreset = '';
         $this->supplierIds = [];
         $this->supplierLabels = [];
         $this->tagIds = [];
@@ -267,12 +273,18 @@ class PurchaseBySupplierReport extends Component
             // Compute running totals for the displayed rows
             $runningTotals = [];
             
+            $previousPageLastSupplierId = null;
+            
             if ($purchases->currentPage() > 1) {
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
                 $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total');
                 $previousRows = $previousQuery->limit($offset)->get();
+                
+                if ($previousRows->isNotEmpty()) {
+                    $previousPageLastSupplierId = $previousRows->last()->supplier_id;
+                }
                 
                 foreach ($previousRows as $row) {
                     $supplierId = $row->supplier_id;
@@ -296,7 +308,8 @@ class PurchaseBySupplierReport extends Component
         }
 
         return view('livewire.reports.purchase-by-supplier-report', [
-            'purchases' => $purchases
+            'purchases' => $purchases,
+            'previousPageLastSupplierId' => $previousPageLastSupplierId ?? null,
         ]);
     }
 }

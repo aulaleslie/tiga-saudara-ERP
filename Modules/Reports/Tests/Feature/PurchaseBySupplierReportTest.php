@@ -480,4 +480,29 @@ class PurchaseBySupplierReportTest extends TestCase
                 return true;
             });
     }
+
+    /** @test */
+    public function it_restores_date_filters_when_cancel_filters_is_called()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->set('startDate', '2026-06-01') // Unapplied change
+            ->call('cancelFilters')
+            ->assertSet('startDate', '2026-05-01'); // Restored from appliedFilters
+    }
+
+    /** @test */
+    public function it_resets_date_filters_to_current_month_when_reset_filters_is_called()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('resetFilters')
+            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
+    }
 }
