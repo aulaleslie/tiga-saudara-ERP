@@ -77,12 +77,29 @@ class PurchaseBySupplierReportQueryService
 
             $query->leftJoinSub($supplierTotals, 'st', 'st.supplier_id', '=', 'purchases.supplier_id')
                   ->orderBy('st.total_nominal', $direction)
+                  ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
                   ->orderBy('purchases.date', 'desc');
         } elseif ($sortField === 'supplier_name') {
             $query->orderBy('suppliers.supplier_name', $direction)
+                  ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
                   ->orderBy('purchases.date', 'desc');
         } else {
-            $query->orderBy('purchases.date', $direction);
+            // For date sorting, group suppliers by their max/min date first, so their rows don't interleave
+            $aggFunc = $direction === 'asc' ? 'MIN' : 'MAX';
+            
+            $baseQuery = clone $query;
+            $baseQuery->setEagerLoads([]);
+            $baseQuery->getQuery()->columns = [];
+            $baseQuery->getQuery()->orders = [];
+            
+            $supplierDates = $baseQuery
+                ->select('purchases.supplier_id', DB::raw("{$aggFunc}(purchases.date) as group_date"))
+                ->groupBy('purchases.supplier_id');
+
+            $query->leftJoinSub($supplierDates, 'sd', 'sd.supplier_id', '=', 'purchases.supplier_id')
+                  ->orderBy('sd.group_date', $direction)
+                  ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
+                  ->orderBy('purchases.date', $direction);
         }
         
         $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');

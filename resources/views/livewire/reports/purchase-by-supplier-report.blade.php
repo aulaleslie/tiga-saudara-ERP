@@ -227,7 +227,7 @@
         <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1200px;">
             <thead class="table-light">
             <tr>
-                <th wire:click="sortBy('date')" style="cursor:pointer; white-space:nowrap">Supplier / Tanggal {!! $this->sortIcon('date') !!}</th>
+                <th style="white-space:nowrap">Supplier / Tanggal</th>
                 <th style="white-space:nowrap">Tipe transaksi</th>
                 <th style="white-space:nowrap">No. transaksi</th>
                 <th style="white-space:nowrap">Nama produk</th>

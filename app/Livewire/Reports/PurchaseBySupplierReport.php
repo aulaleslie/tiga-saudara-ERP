@@ -70,42 +70,7 @@ class PurchaseBySupplierReport extends Component
         };
     }
 
-    public function sortBy($field): void
-    {
-        $allowedFields = ['date', 'supplier_name', 'supplier_total'];
 
-        if (!in_array($field, $allowedFields)) {
-            return;
-        }
-
-        $currentSortField = $this->appliedFilters['sortField'] ?? $this->sortField;
-        $currentSortDirection = $this->appliedFilters['sortDirection'] ?? $this->sortDirection;
-
-        if ($currentSortField === $field) {
-            $this->sortDirection = $currentSortDirection === 'asc' ? 'desc' : 'asc';
-        } else {
-            $this->sortDirection = 'asc';
-        }
-        $this->sortField = $field;
-
-        if ($this->filterTriggered) {
-            $this->appliedFilters['sortField'] = $this->sortField;
-            $this->appliedFilters['sortDirection'] = $this->sortDirection;
-        }
-
-        $this->resetPage();
-    }
-
-    public function sortIcon($field): string
-    {
-        $currentSortField = $this->appliedFilters['sortField'] ?? $this->sortField;
-        $currentSortDirection = $this->appliedFilters['sortDirection'] ?? $this->sortDirection;
-
-        if ($field !== $currentSortField) return '';
-        return $currentSortDirection === 'asc'
-            ? '<i class="bi bi-caret-up-fill text-primary ms-1"></i>'
-            : '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
-    }
 
     // Select/Remove Methods
     public function selectSupplier(int $id, string $name): void
