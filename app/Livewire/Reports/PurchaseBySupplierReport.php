@@ -31,7 +31,7 @@ class PurchaseBySupplierReport extends Component
     public $categoryLogic = 'Salah satu';
     public $periodPreset = '';
 
-    public $filterTriggered = true; // Determines if the report is actively rendering results
+    public $filterTriggered = false; // Determines if the report is actively rendering results
     
     public $appliedFilters = [];
 
@@ -56,7 +56,7 @@ class PurchaseBySupplierReport extends Component
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->appliedFilters = $this->exportFilters();
-        $this->filterTriggered = true; // Auto trigger for test compatibility
+        $this->filterTriggered = false; // Require explicit Filter click to fetch data
     }
 
     public function updatedPeriodPreset($value): void
@@ -154,6 +154,7 @@ class PurchaseBySupplierReport extends Component
             return;
         }
         $this->supplierOptions = Supplier::query()
+            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(supplier_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)->get(['id', 'supplier_name'])->toArray();
     }
@@ -179,6 +180,7 @@ class PurchaseBySupplierReport extends Component
             return;
         }
         $this->categoryOptions = Category::query()
+            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(category_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)->get(['id', 'category_name'])->toArray();
     }
@@ -282,6 +284,21 @@ class PurchaseBySupplierReport extends Component
 
             // Compute running totals for the displayed rows
             $runningTotals = [];
+            
+            if ($purchases->currentPage() > 1) {
+                $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
+                $previousQuery = clone $query;
+                $previousQuery->setEagerLoads([]);
+                $previousQuery->addSelect('purchases.supplier_id as _sid');
+                $previousRows = $previousQuery->limit($offset)->get();
+                
+                foreach ($previousRows as $row) {
+                    $supplierId = $row->_sid;
+                    if ($supplierId) {
+                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total;
+                    }
+                }
+            }
             
             // Calculate sequential running totals down the displayed rows for each supplier.
             $purchases->getCollection()->transform(function ($detail) use (&$runningTotals) {

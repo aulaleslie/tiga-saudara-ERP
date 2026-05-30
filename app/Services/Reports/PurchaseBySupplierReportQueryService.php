@@ -27,7 +27,6 @@ class PurchaseBySupplierReportQueryService
                 'purchases.date as purchase_date'
             )
             ->where('purchases.setting_id', $scopeSettingId)
-            ->where('purchases.status', Purchase::STATUS_APPROVED) // Fixed to Faktur pembelian (Approved)
             ->where('purchases.date', '>=', $filter->startDate)
             ->where('purchases.date', '<=', $filter->endDate);
 
@@ -92,14 +91,10 @@ class PurchaseBySupplierReportQueryService
     public static function mapRow(PurchaseDetail $detail, float $runningTotal): array
     {
         $purchase = $detail->purchase;
-        
-        $documentStatusLabels = [
-            Purchase::STATUS_APPROVED => 'Faktur Pembelian',
-        ];
 
         return [
             'Supplier / Tanggal'    => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
-            'Tipe transaksi'        => $purchase?->status ? ($documentStatusLabels[$purchase->status] ?? $purchase->status) : '-',
+            'Tipe transaksi'        => 'Faktur Pembelian',
             'No. transaksi'         => $purchase?->reference ?? '-',
             'Nama produk'           => $detail->product_name ?? '-',
             'Keterangan'            => $purchase?->note ?? '-',
