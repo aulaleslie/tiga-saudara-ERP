@@ -486,11 +486,14 @@ class PurchaseBySupplierReportTest extends TestCase
     {
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('periodPreset', 'this_month')
             ->set('startDate', '2026-05-01')
             ->set('endDate', '2026-05-31')
             ->call('applyFilters')
+            ->set('periodPreset', 'today')
             ->set('startDate', '2026-06-01') // Unapplied change
             ->call('cancelFilters')
+            ->assertSet('periodPreset', 'this_month') // Restored from appliedFilters
             ->assertSet('startDate', '2026-05-01'); // Restored from appliedFilters
     }
 
@@ -499,9 +502,11 @@ class PurchaseBySupplierReportTest extends TestCase
     {
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('periodPreset', 'this_month')
             ->set('startDate', '2026-05-01')
             ->set('endDate', '2026-05-31')
             ->call('resetFilters')
+            ->assertSet('periodPreset', '')
             ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
     }

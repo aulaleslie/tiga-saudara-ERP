@@ -214,6 +214,7 @@ class PurchaseBySupplierReport extends Component
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
+            'periodPreset' => $this->periodPreset,
             'supplierIds' => $this->supplierIds,
             'tagIds' => $this->tagIds,
             'tagLogic' => $this->tagLogic,
@@ -232,6 +233,7 @@ class PurchaseBySupplierReport extends Component
             $validated = $validator->validate($filterArray);
             
             $this->appliedFilters = array_merge($validated, [
+                'periodPreset' => $this->periodPreset,
                 'supplierLabels' => $this->supplierLabels,
                 'tagLabels' => $this->tagLabels,
                 'categoryLabels' => $this->categoryLabels,

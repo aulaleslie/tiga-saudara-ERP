@@ -3,7 +3,6 @@
 namespace Modules\Reports\Http\Controllers;
 
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Contracts\Support\Renderable;
 
 class PurchaseBySupplierReportController extends Controller
@@ -14,7 +13,6 @@ class PurchaseBySupplierReportController extends Controller
      */
     public function index(): Renderable
     {
-        abort_if(Gate::denies('purchaseReports.access'), 403);
 
         return view('reports::purchase-by-supplier.index');
     }
