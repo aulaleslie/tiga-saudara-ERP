@@ -130,11 +130,8 @@ SQL;
             $derivedPaymentStatus = 'Terbayar Sebagian';
         }
 
-        $locale  = app()->getLocale();
-        $tagNames = $purchase?->tags->map(function ($tag) use ($locale) {
-            $nameData = is_array($tag->name) ? $tag->name : (json_decode($tag->name, true) ?? []);
-            return $nameData[$locale] ?? ($nameData['en'] ?? (is_array($nameData) ? reset($nameData) : $tag->name));
-        })->implode(', ') ?? '-';
+        $tagNames = $purchase?->tags->pluck('name')->filter()->implode(', ');
+        $tagNames = !empty($tagNames) ? $tagNames : '-';
 
         return [
             'Tanggal'                     => $purchase?->date ? date('d/m/Y', strtotime($purchase->date)) : '-',

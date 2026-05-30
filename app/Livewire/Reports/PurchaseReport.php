@@ -47,7 +47,18 @@ class PurchaseReport extends Component
 
     public function sortBy($field): void
     {
-        $allowedFields = ['date', 'reference', 'supplier_purchase_number'];
+        $allowedFields = [
+            'date',
+            'reference',
+            'supplier_purchase_number',
+            'supplier_name',
+            'status',
+            'payment_status',
+            'total_amount',
+            'due_date',
+            'product_name',
+            'product_code'
+        ];
 
         if (!in_array($field, $allowedFields)) {
             return;
@@ -278,6 +289,19 @@ class PurchaseReport extends Component
                 'date'                     => $query->orderBy('purchases.date', $direction),
                 'reference'                => $query->orderBy('purchases.reference', $direction),
                 'supplier_purchase_number' => $query->orderBy('purchases.supplier_purchase_number', $direction),
+                'supplier_name'            => $query->orderBy('suppliers.supplier_name', $direction),
+                'status'                   => $query->orderBy('purchases.status', $direction),
+                'payment_status'           => $query->orderByRaw('
+                    (CASE 
+                        WHEN derived_active_paid <= 0 THEN 1 
+                        WHEN purchases.total_amount > 0 AND derived_active_paid >= purchases.total_amount THEN 3 
+                        ELSE 2 
+                    END) ' . $direction
+                ),
+                'total_amount'             => $query->orderBy('purchases.total_amount', $direction),
+                'due_date'                 => $query->orderBy('purchases.due_date', $direction),
+                'product_name'             => $query->orderBy('purchase_details.product_name', $direction),
+                'product_code'             => $query->orderBy('purchase_details.product_code', $direction),
                 default                    => null,
             };
 

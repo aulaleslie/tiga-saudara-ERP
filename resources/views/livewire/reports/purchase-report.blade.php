@@ -203,13 +203,13 @@
                 <th wire:click="sortBy('date')" style="cursor:pointer; white-space:nowrap">Tanggal {!! $this->sortIcon('date') !!}</th>
                 <th wire:click="sortBy('reference')" style="cursor:pointer; white-space:nowrap">Nomor Transaksi {!! $this->sortIcon('reference') !!}</th>
                 <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer; white-space:nowrap">Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}</th>
-                <th style="white-space:nowrap">Nama Panggilan</th>
-                <th style="white-space:nowrap">Status Dokumen</th>
-                <th style="white-space:nowrap">Status Pembayaran</th>
+                <th wire:click="sortBy('supplier_name')" style="cursor:pointer; white-space:nowrap">Nama Panggilan {!! $this->sortIcon('supplier_name') !!}</th>
+                <th wire:click="sortBy('status')" style="cursor:pointer; white-space:nowrap">Status Dokumen {!! $this->sortIcon('status') !!}</th>
+                <th wire:click="sortBy('payment_status')" style="cursor:pointer; white-space:nowrap">Status Pembayaran {!! $this->sortIcon('payment_status') !!}</th>
                 <th style="white-space:nowrap">Memo</th>
-                <th class="text-end" style="white-space:nowrap">Total</th>
+                <th wire:click="sortBy('total_amount')" class="text-end" style="cursor:pointer; white-space:nowrap">Total {!! $this->sortIcon('total_amount') !!}</th>
                 <th class="text-end" style="white-space:nowrap">Sisa Tagihan</th>
-                <th style="white-space:nowrap">Tanggal Jatuh Tempo</th>
+                <th wire:click="sortBy('due_date')" style="cursor:pointer; white-space:nowrap">Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}</th>
                 <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak</th>
                 <th class="text-end" style="white-space:nowrap">Total Pajak</th>
                 <th class="text-end" style="white-space:nowrap">Pembayaran</th>
@@ -219,8 +219,8 @@
                 <th style="white-space:nowrap">No Ref</th>
                 <th style="white-space:nowrap">Tag</th>
                 <th style="white-space:nowrap">Gudang</th>
-                <th style="white-space:nowrap">Nama Produk</th>
-                <th style="white-space:nowrap">Kode Produk</th>
+                <th wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
+                <th wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
                 <th style="white-space:nowrap">Deskripsi</th>
                 <th class="text-end" style="white-space:nowrap">Kuantitas</th>
                 <th style="white-space:nowrap">Satuan</th>
