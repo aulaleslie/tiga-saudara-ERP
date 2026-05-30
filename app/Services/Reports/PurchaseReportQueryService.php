@@ -135,14 +135,14 @@ class PurchaseReportQueryService
             'Email'                       => $supplier?->supplier_email ?? '-',
             'Alamat Penagihan'            => $supplier?->billing_address ?? $supplier?->address ?? '-',
             'Alamat Pengiriman'           => $supplier?->shipping_address ?? $supplier?->address ?? '-',
-            'No Ref'                      => $purchase?->reference ?? '-',
+            'No Ref'                      => $purchase?->supplier_reference_no ?? '-',
             'Tag'                         => $tagNames,
             'Gudang'                      => $detail->gudang ?? '-',
             'Nama Produk'                 => $detail->product_name ?? '-',
             'Kode Produk'                 => $detail->product_code ?? '-',
             'Deskripsi'                   => $detail->product?->description ?? '-',
             'Kuantitas'                   => $detail->quantity ?? 0,
-            'Satuan'                      => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product_unit ?? '-',
+            'Satuan'                      => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
             'Harga per Unit'              => $detail->unit_price ?? 0,
             'Diskon Per Baris %'          => $detail->product_discount_type === 'percentage'
                                                 ? ($detail->product_discount_amount ?? 0)
