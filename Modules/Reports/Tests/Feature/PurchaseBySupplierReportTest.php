@@ -458,7 +458,12 @@ class PurchaseBySupplierReportTest extends TestCase
         // Create 20 purchases so page 2 has 5 items (default perPage is 15)
         for ($i = 1; $i <= 20; $i++) {
             $purchase = $this->makePurchase($supplier, ['date' => '2026-05-01']);
-            $this->makePurchaseDetail($purchase, ['sub_total' => 100]);
+            // The very first inserted row gets a massive sub_total of 1000.
+            // Since the report sorts by date DESC, id DESC, this row will be the LAST row on page 2.
+            // Page 1 contains rows 20 down to 6. They all have sub_total = 100.
+            // So the correct running total at the start of page 2 (after page 1) MUST be 15 * 100 = 1500.
+            $subTotal = ($i === 1) ? 1000 : 100;
+            $this->makePurchaseDetail($purchase, ['sub_total' => $subTotal]);
         }
 
         \Livewire\Livewire::actingAs($this->user)
@@ -472,10 +477,12 @@ class PurchaseBySupplierReportTest extends TestCase
                 $rows = $purchases->values();
                 \PHPUnit\Framework\Assert::assertCount(5, $rows);
                 
-                // The first 15 items had sub_total 100, so running total before page 2 is 1500.
-                // The first item on page 2 should have a running total of 1600.
+                // The first 15 items (rows 20 down to 6) had sub_total 100, so running total before page 2 is 1500.
+                // The first item on page 2 (row 5) should have a running total of 1600.
                 \PHPUnit\Framework\Assert::assertEquals(1600, $rows[0]->running_total);
-                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[4]->running_total);
+                
+                // The last item on page 2 (row 1) has sub_total 1000, so its running total should be 2500.
+                \PHPUnit\Framework\Assert::assertEquals(2900, $rows[4]->running_total);
                 
                 return true;
             });

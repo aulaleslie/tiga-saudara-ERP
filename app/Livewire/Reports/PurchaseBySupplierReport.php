@@ -130,7 +130,6 @@ class PurchaseBySupplierReport extends Component
             return;
         }
         $this->supplierOptions = Supplier::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(supplier_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)->get(['id', 'supplier_name'])->toArray();
     }
