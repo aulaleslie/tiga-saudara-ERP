@@ -77,15 +77,22 @@
                     <input type="text" wire:model.live.debounce.300ms="supplierSearch"
                            class="form-control" placeholder="Cari Supplier (min 2 karakter)...">
                     @if(strlen($supplierSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($supplierOptions as $option)
-                                <button type="button"
-                                        wire:click="selectSupplier({{ $option['id'] }}, '{{ addslashes($option['supplier_name']) }}')"
-                                        class="list-group-item list-group-item-action small py-2">
-                                    {{ $option['supplier_name'] }}
-                                </button>
+                                @if(in_array($option['id'], $supplierIds))
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action bg-light text-muted small py-2" disabled>
+                                        {{ $option['supplier_name'] }} <span class="badge bg-secondary ms-1">Sudah dipilih</span>
+                                    </button>
+                                @else
+                                    <button type="button"
+                                            wire:click="selectSupplier({{ $option['id'] }}, '{{ addslashes($option['supplier_name']) }}')"
+                                            class="list-group-item list-group-item-action bg-white text-dark small py-2">
+                                        {{ $option['supplier_name'] }}
+                                    </button>
+                                @endif
                             @empty
-                                <div class="list-group-item disabled small py-3 text-center text-muted">
+                                <div class="list-group-item bg-white disabled small py-3 text-center text-muted">
                                     <i class="bi bi-search me-1"></i> Tidak ada supplier ditemukan
                                 </div>
                             @endforelse
@@ -148,24 +155,33 @@
                     <input type="text" wire:model.live.debounce.300ms="tagSearch"
                            class="form-control" placeholder="Cari Tag (min 2 karakter)...">
                     @if(strlen($tagSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($tagOptions as $option)
                                 @php
                                     $locale = app()->getLocale();
                                     $nameData = is_string($option['name']) ? json_decode($option['name'], true) : $option['name'];
                                     $tagName = $nameData[$locale] ?? ($nameData['en'] ?? (is_array($nameData) ? reset($nameData) : $nameData));
                                 @endphp
-                                <button type="button"
-                                        wire:click="selectTag({{ $option['id'] }}, '{{ addslashes($tagName) }}')"
-                                        class="list-group-item list-group-item-action small py-2">
-                                    {{ $tagName }}
-                                </button>
+                                @if(in_array($option['id'], $tagIds))
+                                    <button type="button"
+                                            class="list-group-item list-group-item-action bg-light text-muted small py-2" disabled>
+                                        {{ $tagName }} <span class="badge bg-secondary ms-1">Sudah dipilih</span>
+                                    </button>
+                                @else
+                                    <button type="button"
+                                            wire:click="selectTag({{ $option['id'] }}, '{{ addslashes($tagName) }}')"
+                                            class="list-group-item list-group-item-action bg-white text-dark small py-2">
+                                        {{ $tagName }}
+                                    </button>
+                                @endif
                             @empty
-                                <div class="list-group-item disabled small py-3 text-center text-muted">
+                                <div class="list-group-item bg-white disabled small py-3 text-center text-muted">
                                     <i class="bi bi-search me-1"></i> Tidak ada tag ditemukan
                                 </div>
                             @endforelse
                         </div>
+                        <!-- Spacer to prevent the absolute dropdown from being clipped by the offcanvas body's overflow-y boundary -->
+                        <div style="height: 260px;" class="d-block w-100 pointer-events-none"></div>
                     @endif
                     @if(count($tagIds) > 0)
                         <div class="mt-2 d-flex flex-wrap gap-1">

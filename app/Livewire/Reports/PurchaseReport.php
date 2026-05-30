@@ -154,15 +154,14 @@ class PurchaseReport extends Component
 
     public function updatedSupplierSearch($value): void
     {
+        $value = trim($value);
         if (strlen($value) < 2) {
             $this->supplierOptions = [];
             return;
         }
 
         $this->supplierOptions = Supplier::query()
-            ->when(!$this->isGlobal, fn($q) => $q->where('setting_id', $this->settingId))
-            ->when(!empty($this->supplierIds), fn($q) => $q->whereNotIn('id', $this->supplierIds))
-            ->where('supplier_name', 'like', '%' . $value . '%')
+            ->whereRaw('LOWER(supplier_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)
             ->get(['id', 'supplier_name'])
             ->toArray();
@@ -170,6 +169,7 @@ class PurchaseReport extends Component
 
     public function updatedTagSearch($value): void
     {
+        $value = trim($value);
         if (strlen($value) < 2) {
             $this->tagOptions = [];
             return;
@@ -177,8 +177,10 @@ class PurchaseReport extends Component
 
         $locale = app()->getLocale();
         $this->tagOptions = Tag::query()
-            ->when(!empty($this->tagIds), fn($q) => $q->whereNotIn('id', $this->tagIds))
-            ->where("name->$locale", 'like', '%' . $value . '%')
+            ->where(function ($query) use ($value, $locale) {
+                $query->containing($value, $locale)
+                      ->orWhere(fn($q) => $q->containing($value, 'en'));
+            })
             ->limit(10)
             ->get(['id', 'name'])
             ->toArray();
