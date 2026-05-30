@@ -247,16 +247,61 @@ class PurchaseReport extends Component
         }
     }
 
-    public function exportExcel(PurchaseReportSnapshotService $snapshotService)
+    public function exportExcel(PurchaseReportSnapshotService $snapshotService, PurchaseReportQueryService $queryService)
     {
-        $this->dispatch('alert', ['type' => 'error', 'message' => 'Fitur ekspor belum tersedia untuk versi ini.']);
-        return null;
+        if (!$this->filterTriggered || empty($this->appliedFilters)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
+            return null;
+        }
+
+        $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
+        if (!$snapshotService->isValidForExport($filterData)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah diubah. Silakan klik tombol Filter kembali sebelum mengekspor.']);
+            return null;
+        }
+
+        $query = $queryService->build($filterData);
+        $queryService->applySort($query, $this->sortField, $this->sortDirection);
+
+        $fileName = sprintf(
+            'purchases_list_%s_%s.xlsx',
+            date('d-m-Y', strtotime($filterData->startDate)),
+            date('d-m-Y', strtotime($filterData->endDate))
+        );
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\PurchaseReportExport($query, $filterData, false),
+            $fileName
+        );
     }
 
-    public function exportCsv(PurchaseReportSnapshotService $snapshotService)
+    public function exportCsv(PurchaseReportSnapshotService $snapshotService, PurchaseReportQueryService $queryService)
     {
-        $this->dispatch('alert', ['type' => 'error', 'message' => 'Fitur ekspor belum tersedia untuk versi ini.']);
-        return null;
+        if (!$this->filterTriggered || empty($this->appliedFilters)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
+            return null;
+        }
+
+        $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
+        if (!$snapshotService->isValidForExport($filterData)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah diubah. Silakan klik tombol Filter kembali sebelum mengekspor.']);
+            return null;
+        }
+
+        $query = $queryService->build($filterData);
+        $queryService->applySort($query, $this->sortField, $this->sortDirection);
+
+        $fileName = sprintf(
+            'purchases_list_%s_%s.csv',
+            date('d-m-Y', strtotime($filterData->startDate)),
+            date('d-m-Y', strtotime($filterData->endDate))
+        );
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\PurchaseReportExport($query, $filterData, true),
+            $fileName,
+            \Maatwebsite\Excel\Excel::CSV
+        );
     }
 
     public function exportPdf(PurchaseReportSnapshotService $snapshotService)
@@ -286,28 +331,7 @@ class PurchaseReport extends Component
             $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
             $query = $queryService->build($filterData);
 
-            $direction = $this->sortDirection === 'asc' ? 'asc' : 'desc';
-            match ($this->sortField) {
-                'date'                     => $query->orderBy('purchases.date', $direction),
-                'reference'                => $query->orderBy('purchases.reference', $direction),
-                'supplier_purchase_number' => $query->orderBy('purchases.supplier_purchase_number', $direction),
-                'supplier_name'            => $query->orderBy('suppliers.supplier_name', $direction),
-                'status'                   => $query->orderBy('purchases.status', $direction),
-                'payment_status'           => $query->orderByRaw('
-                    (CASE 
-                        WHEN derived_active_paid <= 0 THEN 1 
-                        WHEN purchases.total_amount > 0 AND derived_active_paid >= purchases.total_amount THEN 3 
-                        ELSE 2 
-                    END) ' . $direction
-                ),
-                'total_amount'             => $query->orderBy('purchases.total_amount', $direction),
-                'due_date'                 => $query->orderBy('purchases.due_date', $direction),
-                'product_name'             => $query->orderBy('purchase_details.product_name', $direction),
-                'product_code'             => $query->orderBy('purchase_details.product_code', $direction),
-                default                    => null,
-            };
-
-            $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
+            $queryService->applySort($query, $this->sortField, $this->sortDirection);
 
             $purchaseDetails = $query->paginate(15);
         }

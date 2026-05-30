@@ -37,12 +37,12 @@
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
-                <button class="btn btn-outline-success dropdown-toggle" type="button" data-coreui-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
                     <i class="bi bi-download"></i> Ekspor
                 </button>
                 <ul class="dropdown-menu">
-                    <li><button class="dropdown-item" disabled>Excel</button></li>
-                    <li><button class="dropdown-item" disabled>CSV</button></li>
+                    <li><button class="dropdown-item" wire:click="exportExcel">Excel</button></li>
+                    <li><button class="dropdown-item" wire:click="exportCsv">CSV</button></li>
                     <li><button class="dropdown-item" disabled>PDF</button></li>
                 </ul>
             </div>
@@ -292,7 +292,7 @@
                         <td>{{ $mapped['Nama Panggilan'] }}</td>
                         <td>
                             <span class="badge bg-secondary">
-                                {{ $documentStatusLabels[$mapped['Status Dokumen']] ?? $mapped['Status Dokumen'] }}
+                                {{ $mapped['Status Dokumen'] }}
                             </span>
                         </td>
                         <td><span class="badge {{ $payStatusClass }}">{{ $mapped['Status Pembayaran'] }}</span></td>

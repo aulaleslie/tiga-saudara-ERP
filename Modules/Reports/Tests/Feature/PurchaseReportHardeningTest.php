@@ -908,19 +908,17 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
-    public function it_prevents_export_in_v1_scope()
+    public function it_exports_normalized_status_label()
     {
-        \Maatwebsite\Excel\Facades\Excel::fake();
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED,
+        ]);
+        $detail = $this->makePurchaseDetail($purchase);
 
-        \Livewire\Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Reports\PurchaseReport::class)
-            ->set('settingId', $this->setting->id)
-            ->call('applyFilters')
-            ->call('exportExcel')
-            ->assertDispatched('alert', function ($eventName, $eventData) {
-                return $eventName === 'alert' &&
-                       isset($eventData[0]['message']) &&
-                       str_contains($eventData[0]['message'], 'belum tersedia');
-            });
+        $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($detail);
+
+        $this->assertEquals('Disetujui', $mapped['Status Dokumen']);
     }
 }

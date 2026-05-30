@@ -109,6 +109,33 @@ END
 SQL;
     }
 
+    public function applySort(Builder $query, string $sortField, string $sortDirection): void
+    {
+        $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
+
+        match ($sortField) {
+            'date'                     => $query->orderBy('purchases.date', $direction),
+            'reference'                => $query->orderBy('purchases.reference', $direction),
+            'supplier_purchase_number' => $query->orderBy('purchases.supplier_purchase_number', $direction),
+            'supplier_name'            => $query->orderBy('suppliers.supplier_name', $direction),
+            'status'                   => $query->orderBy('purchases.status', $direction),
+            'payment_status'           => $query->orderByRaw('
+                (CASE 
+                    WHEN derived_active_paid <= 0 THEN 1 
+                    WHEN purchases.total_amount > 0 AND derived_active_paid >= purchases.total_amount THEN 3 
+                    ELSE 2 
+                END) ' . $direction
+            ),
+            'total_amount'             => $query->orderBy('purchases.total_amount', $direction),
+            'due_date'                 => $query->orderBy('purchases.due_date', $direction),
+            'product_name'             => $query->orderBy('purchase_details.product_name', $direction),
+            'product_code'             => $query->orderBy('purchase_details.product_code', $direction),
+            default                    => null,
+        };
+
+        $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
+    }
+
     /**
      * Map a PurchaseDetail row (with its loaded purchase/supplier/tax and injected gudang/derived_active_paid)
      * into the display/export column set.
@@ -133,12 +160,25 @@ SQL;
         $tagNames = $purchase?->tags->pluck('name')->filter()->implode(', ');
         $tagNames = !empty($tagNames) ? $tagNames : '-';
 
+        $documentStatusLabels = [
+            Purchase::STATUS_DRAFTED            => 'Draf',
+            Purchase::STATUS_WAITING_APPROVAL   => 'Menunggu Persetujuan',
+            Purchase::STATUS_APPROVED           => 'Disetujui',
+            Purchase::STATUS_REJECTED           => 'Ditolak',
+            Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
+            Purchase::STATUS_RECEIVED           => 'Diterima',
+            Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
+            Purchase::STATUS_RETURNED           => 'Diretur',
+        ];
+
+        $statusLabel = $purchase?->status ? ($documentStatusLabels[$purchase->status] ?? $purchase->status) : '-';
+
         return [
             'Tanggal'                     => $purchase?->date ? date('d/m/Y', strtotime($purchase->date)) : '-',
             'Nomor Transaksi'             => $purchase?->reference ?? '-',
             'Nomor Pembelian Supplier'    => $purchase?->supplier_purchase_number ?? '-',
             'Nama Panggilan'              => $supplier?->supplier_name ?? '-',
-            'Status Dokumen'              => $purchase?->status ?? '-',
+            'Status Dokumen'              => $statusLabel,
             'Status Pembayaran'           => $derivedPaymentStatus,
             'Memo'                        => $purchase?->note ?? '-',
             'Total'                       => $totalAmount,
@@ -159,7 +199,7 @@ SQL;
             'Kuantitas'                   => $detail->quantity ?? 0,
             'Satuan'                      => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
             'Harga per Unit'              => $detail->unit_price ?? 0,
-            'Diskon Per Baris %'          => $detail->product_discount_type === 'percentage'
+            'Diskon Per Baris %'          => strtolower($detail->product_discount_type ?? '') === 'percentage'
                                                 ? ($detail->product_discount_amount ?? 0)
                                                 : 0,
             'Tarif Pajak'                 => $tax?->tax_percentage ?? '-',
