@@ -51,10 +51,10 @@ class PurchaseBySupplierReportQueryService
         if (!empty($filter->categoryIds)) {
             if ($filter->categoryLogic === 'Mencakup semua') {
                 foreach ($filter->categoryIds as $categoryId) {
-                    $query->where('products.category_id', $categoryId);
+                    $query->whereHas('product', fn($q) => $q->where('category_id', $categoryId));
                 }
             } else {
-                $query->whereIn('products.category_id', $filter->categoryIds);
+                $query->whereHas('product', fn($q) => $q->whereIn('category_id', $filter->categoryIds));
             }
         }
 
@@ -66,11 +66,13 @@ class PurchaseBySupplierReportQueryService
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         if ($sortField === 'supplier_total') {
-            // Join a subquery that computes the supplier total
-            $supplierTotals = DB::table('purchases')
-                ->join('purchase_details', 'purchases.id', '=', 'purchase_details.purchase_id')
-                ->where('purchases.setting_id', session('setting_id'))
-                ->where('purchases.status', Purchase::STATUS_APPROVED)
+            // Join a subquery that computes the supplier total for the currently filtered dataset
+            $baseQuery = clone $query;
+            $baseQuery->setEagerLoads([]);
+            $baseQuery->getQuery()->columns = [];
+            $baseQuery->getQuery()->orders = [];
+            
+            $supplierTotals = $baseQuery
                 ->select('purchases.supplier_id', DB::raw('SUM(purchase_details.sub_total) as total_nominal'))
                 ->groupBy('purchases.supplier_id');
 

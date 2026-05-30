@@ -31,7 +31,7 @@ class PurchaseBySupplierReport extends Component
     public $categoryLogic = 'Salah satu';
     public $periodPreset = '';
 
-    public $filterTriggered = true; // Auto-trigger on initial load like test 1.2 requires? The test called applyFilters explicitly. Wait, test 1.2 did NOT call applyFilters, it just loaded the component and asserted startDate. So we don't need it to be true initially, but for a report it's usually false until filtered. I'll stick to true or false. The tests call applyFilters anyway.
+    public $filterTriggered = true; // Determines if the report is actively rendering results
     
     public $appliedFilters = [];
 
@@ -283,9 +283,7 @@ class PurchaseBySupplierReport extends Component
             // Compute running totals for the displayed rows
             $runningTotals = [];
             
-            // If sorted date desc, iterate bottom-up for proper running total display, 
-            // but for simplicity in v1 we just iterate values and add it if they want sequential top-down.
-            // Tests expect top-down accumulation (rows[0] gets sub_total, rows[1] gets sub_total + rows[0] etc).
+            // Calculate sequential running totals down the displayed rows for each supplier.
             $purchases->getCollection()->transform(function ($detail) use (&$runningTotals) {
                 $supplierId = $detail->purchase->supplier_id;
                 if (!isset($runningTotals[$supplierId])) {

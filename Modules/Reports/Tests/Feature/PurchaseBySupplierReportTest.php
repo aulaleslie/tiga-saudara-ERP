@@ -12,6 +12,9 @@ use Modules\Setting\Entities\Setting;
 use Modules\Currency\Entities\Currency;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\Category;
+use Spatie\Tags\Tag;
 
 class PurchaseBySupplierReportTest extends TestCase
 {
@@ -225,6 +228,177 @@ class PurchaseBySupplierReportTest extends TestCase
                 \PHPUnit\Framework\Assert::assertEquals(1000, $rows[1]->sub_total);
                 \PHPUnit\Framework\Assert::assertEquals(3000, $rows[1]->running_total);
                 
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_categories_correctly()
+    {
+        $category1 = Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C1', 'category_name' => 'Cat 1', 'created_by' => $this->user->id]);
+        $category2 = Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C2', 'category_name' => 'Cat 2', 'created_by' => $this->user->id]);
+        
+        $product1 = Product::create(['product_name' => 'P1', 'product_code' => 'P1', 'product_cost' => 0, 'product_price' => 0, 'setting_id' => $this->setting->id, 'category_id' => $category1->id]);
+        $product2 = Product::create(['product_name' => 'P2', 'product_code' => 'P2', 'product_cost' => 0, 'product_price' => 0, 'setting_id' => $this->setting->id, 'category_id' => $category2->id]);
+
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier);
+        
+        $this->makePurchaseDetail($purchase, ['product_id' => $product1->id, 'product_name' => 'P1']);
+        $this->makePurchaseDetail($purchase, ['product_id' => $product2->id, 'product_name' => 'P2']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('categoryIds', [$category1->id])
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $names = $purchases->pluck('product_name');
+                \PHPUnit\Framework\Assert::assertTrue($names->contains('P1'));
+                \PHPUnit\Framework\Assert::assertFalse($names->contains('P2'));
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_filters_by_tags_using_mencakup_semua_and_salah_satu_logic()
+    {
+        $tag1 = Tag::findOrCreate('tag1');
+        $tag2 = Tag::findOrCreate('tag2');
+
+        $supplier = $this->makeSupplier();
+        
+        $purchase1 = $this->makePurchase($supplier, ['date' => '2026-05-01']);
+        $purchase1->attachTag($tag1);
+        $this->makePurchaseDetail($purchase1, ['product_name' => 'Only Tag1']);
+        
+        $purchase2 = $this->makePurchase($supplier, ['date' => '2026-05-02']);
+        $purchase2->attachTags([$tag1, $tag2]);
+        $this->makePurchaseDetail($purchase2, ['product_name' => 'Both Tags']);
+
+        // Salah satu logic
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('tagIds', [$tag1->id, $tag2->id])
+            ->set('tagLogic', 'Salah satu')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(2, $purchases->count());
+                return true;
+            });
+            
+        // Mencakup semua logic
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('tagIds', [$tag1->id, $tag2->id])
+            ->set('tagLogic', 'Mencakup semua')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(1, $purchases->count());
+                \PHPUnit\Framework\Assert::assertEquals('BOTH TAGS', strtoupper($purchases->first()->product_name));
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_sorts_suppliers_by_total_purchase_amount()
+    {
+        $supplier1 = $this->makeSupplier('Supplier Low');
+        $supplier2 = $this->makeSupplier('Supplier High');
+
+        $purchase1 = $this->makePurchase($supplier1, ['date' => '2026-05-01']);
+        $this->makePurchaseDetail($purchase1, ['sub_total' => 1000]);
+
+        $purchase2 = $this->makePurchase($supplier2, ['date' => '2026-05-01']);
+        $this->makePurchaseDetail($purchase2, ['sub_total' => 5000]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('sortField', 'supplier_total')
+            ->set('sortDirection', 'desc')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $rows = $purchases->values();
+                // Row 0 should be Supplier High because total is 5000 > 1000
+                \PHPUnit\Framework\Assert::assertEquals('SUPPLIER HIGH', strtoupper($rows[0]->supplier_name));
+                \PHPUnit\Framework\Assert::assertEquals('SUPPLIER LOW', strtoupper($rows[1]->supplier_name));
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_does_not_have_export_buttons()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.purchase-by-supplier.index'));
+        $response->assertDontSee('Excel');
+        $response->assertDontSee('PDF');
+        $response->assertDontSee('CSV');
+    }
+
+    /** @test */
+    public function it_hides_the_menu_item_from_unauthorized_users()
+    {
+        $unauthorizedUser = User::factory()->create();
+        $this->actingAs($unauthorizedUser);
+        session(['setting_id' => $this->setting->id]);
+
+        $this->get(route('home'))
+            ->assertStatus(200)
+            ->assertDontSee('Pembelian Per Supplier');
+    }
+
+    /** @test */
+    public function it_handles_period_presets_without_refreshing_rows_until_filtered()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('periodPreset', 'today')
+            ->assertSet('startDate', now()->format('Y-m-d'))
+            // Before applying filters, appliedFilters startDate is still the old one
+            ->assertSet('appliedFilters.startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            // After applying filters, appliedFilters matches the new startDate
+            ->assertSet('appliedFilters.startDate', now()->format('Y-m-d'));
+    }
+
+    /** @test */
+    public function it_scopes_purchases_to_the_current_setting()
+    {
+        $supplier = $this->makeSupplier();
+        $purchaseInSetting = $this->makePurchase($supplier, ['setting_id' => $this->setting->id]);
+        $this->makePurchaseDetail($purchaseInSetting, ['product_name' => 'In Setting']);
+
+        $otherSetting = Setting::create([
+            'company_name' => 'Other',
+            'company_email' => 'other@example.com',
+            'company_phone' => '123456789',
+            'notification_email' => 'notify@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address'
+        ]);
+        $purchaseOtherSetting = $this->makePurchase($supplier, ['setting_id' => $otherSetting->id]);
+        $this->makePurchaseDetail($purchaseOtherSetting, ['product_name' => 'Other Setting']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(1, $purchases->count());
+                \PHPUnit\Framework\Assert::assertEquals('IN SETTING', strtoupper($purchases->first()->product_name));
                 return true;
             });
     }
