@@ -78,11 +78,19 @@ class PurchaseBySupplierReport extends Component
             return;
         }
 
-        if ($this->sortField === $field) {
-            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        $currentSortField = $this->appliedFilters['sortField'] ?? $this->sortField;
+        $currentSortDirection = $this->appliedFilters['sortDirection'] ?? $this->sortDirection;
+
+        if ($currentSortField === $field) {
+            $this->sortDirection = $currentSortDirection === 'asc' ? 'desc' : 'asc';
         } else {
-            $this->sortField = $field;
             $this->sortDirection = 'asc';
+        }
+        $this->sortField = $field;
+
+        if ($this->filterTriggered) {
+            $this->appliedFilters['sortField'] = $this->sortField;
+            $this->appliedFilters['sortDirection'] = $this->sortDirection;
         }
 
         $this->resetPage();
@@ -90,8 +98,11 @@ class PurchaseBySupplierReport extends Component
 
     public function sortIcon($field): string
     {
-        if ($field !== $this->sortField) return '';
-        return $this->sortDirection === 'asc'
+        $currentSortField = $this->appliedFilters['sortField'] ?? $this->sortField;
+        $currentSortDirection = $this->appliedFilters['sortDirection'] ?? $this->sortDirection;
+
+        if ($field !== $currentSortField) return '';
+        return $currentSortDirection === 'asc'
             ? '<i class="bi bi-caret-up-fill text-primary ms-1"></i>'
             : '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
     }
@@ -196,6 +207,8 @@ class PurchaseBySupplierReport extends Component
             $this->categoryLabels = $this->appliedFilters['categoryLabels'] ?? [];
             $this->tagLogic = $this->appliedFilters['tagLogic'] ?? 'Salah satu';
             $this->categoryLogic = $this->appliedFilters['categoryLogic'] ?? 'Salah satu';
+            $this->sortField = $this->appliedFilters['sortField'] ?? 'date';
+            $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'desc';
         }
         $this->supplierSearch = '';
         $this->supplierOptions = [];
@@ -215,6 +228,8 @@ class PurchaseBySupplierReport extends Component
         $this->categoryLabels = [];
         $this->tagLogic = 'Salah satu';
         $this->categoryLogic = 'Salah satu';
+        $this->sortField = 'date';
+        $this->sortDirection = 'desc';
         $this->supplierSearch = '';
         $this->supplierOptions = [];
         $this->tagSearch = '';
@@ -278,7 +293,9 @@ class PurchaseBySupplierReport extends Component
             );
 
             $query = $queryService->build($filter);
-            $queryService->applySort($query, $this->sortField, $this->sortDirection);
+            $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+
+            $baseQuery = clone $query;
 
             $purchases = $query->paginate(15);
 
@@ -287,7 +304,7 @@ class PurchaseBySupplierReport extends Component
             
             if ($purchases->currentPage() > 1) {
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
-                $previousQuery = clone $query;
+                $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
                 $previousQuery->addSelect('purchases.supplier_id as _sid');
                 $previousRows = $previousQuery->limit($offset)->get();
