@@ -55,7 +55,7 @@
         @endcan
         @canany(['purchaseReports.access', 'purchaseReports.global.access'])
         <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.purchase-report.*') ? 'c-show' : '' }}">
+            <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.purchase-report.*') || request()->routeIs('reports.purchase-by-supplier.*') ? 'c-show' : '' }}">
                 <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
                     <i class="c-sidebar-nav-icon bi bi-bag" style="line-height: 1;"></i> Pembelian
                 </a>

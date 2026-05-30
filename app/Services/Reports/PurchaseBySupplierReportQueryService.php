@@ -99,7 +99,7 @@ class PurchaseBySupplierReportQueryService
             $query->leftJoinSub($supplierDates, 'sd', 'sd.supplier_id', '=', 'purchases.supplier_id')
                   ->orderBy('sd.group_date', $direction)
                   ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('purchases.date', $direction);
+                  ->orderBy('purchases.date', 'desc');
         }
         
         $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
