@@ -246,91 +246,77 @@
             @if($filterTriggered)
                 @forelse($purchases as $row)
                     @php
+                        $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($row);
                         $purchase = $row->purchase;
-                        $supplier = $purchase?->supplier;
-                        $tax      = $row->tax;
-                        $locale   = app()->getLocale();
 
-                        $activePaid  = (float) ($row->derived_active_paid ?? 0);
-                        $totalAmount = (float) ($purchase?->total_amount ?? 0);
-                        if ($activePaid <= 0) {
-                            $payStatusLabel = 'Belum Dibayar';
+                        if ($mapped['Status Pembayaran'] === 'Belum Dibayar') {
                             $payStatusClass = 'bg-danger';
-                        } elseif ($totalAmount > 0 && $activePaid >= $totalAmount) {
-                            $payStatusLabel = 'Lunas';
+                        } elseif ($mapped['Status Pembayaran'] === 'Lunas') {
                             $payStatusClass = 'bg-success';
                         } else {
-                            $payStatusLabel = 'Terbayar Sebagian';
                             $payStatusClass = 'bg-warning text-dark';
                         }
-
-                        $tagNames = $purchase?->tags->map(function ($tag) use ($locale) {
-                            $nameData = is_array($tag->name) ? $tag->name : (json_decode($tag->name, true) ?? []);
-                            return $nameData[$locale] ?? ($nameData['en'] ?? (is_array($nameData) ? reset($nameData) : $tag->name));
-                        })->implode(', ') ?? '-';
                     @endphp
                     <tr>
-                        <td>{{ $purchase?->date ? date('d/m/Y', strtotime($purchase->date)) : '-' }}</td>
+                        <td>{{ $mapped['Tanggal'] }}</td>
                         <td>
                             @can('purchases.show')
                                 @if($purchase)
                                     <a href="{{ route('purchases.show', $purchase->id) }}" class="text-primary fw-bold">
-                                        {{ $purchase->reference ?? '-' }}
+                                        {{ $mapped['Nomor Transaksi'] }}
                                     </a>
                                 @else
                                     -
                                 @endif
                             @else
-                                <strong>{{ $purchase?->reference ?? '-' }}</strong>
+                                <strong>{{ $mapped['Nomor Transaksi'] }}</strong>
                             @endcan
                         </td>
-                        <td>{{ $purchase?->supplier_purchase_number ?? '-' }}</td>
-                        <td>{{ $supplier?->supplier_name ?? '-' }}</td>
+                        <td>{{ $mapped['Nomor Pembelian Supplier'] }}</td>
+                        <td>{{ $mapped['Nama Panggilan'] }}</td>
                         <td>
                             <span class="badge bg-secondary">
-                                {{ $documentStatusLabels[$purchase?->status] ?? ($purchase?->status ?? '-') }}
+                                {{ $documentStatusLabels[$mapped['Status Dokumen']] ?? $mapped['Status Dokumen'] }}
                             </span>
                         </td>
-                        <td><span class="badge {{ $payStatusClass }}">{{ $payStatusLabel }}</span></td>
-                        <td>{{ $purchase?->note ?? '-' }}</td>
-                        <td class="text-end fw-bold text-primary">{{ number_format($totalAmount, 0, ',', '.') }}</td>
-                        <td class="text-end text-danger">{{ number_format(max(0, $totalAmount - $activePaid), 0, ',', '.') }}</td>
-                        <td>{{ $purchase?->due_date ? date('d/m/Y', strtotime($purchase->due_date)) : '-' }}</td>
-                        <td class="text-end">{{ number_format($purchase?->tax_amount ?? 0, 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format($purchase?->tax_amount ?? 0, 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format($activePaid, 0, ',', '.') }}</td>
-                        <td>{{ $supplier?->supplier_email ?? '-' }}</td>
-                        <td>{{ $supplier?->billing_address ?? $supplier?->address ?? '-' }}</td>
-                        <td>{{ $supplier?->shipping_address ?? $supplier?->address ?? '-' }}</td>
-                        <td>{{ $purchase?->reference ?? '-' }}</td>
-                        <td>{{ $tagNames }}</td>
-                        <td>{{ $row->gudang ?? '-' }}</td>
-                        <td>{{ $row->product_name ?? '-' }}</td>
-                        <td>{{ $row->product_code ?? '-' }}</td>
-                        <td>{{ $row->product?->description ?? '-' }}</td>
-                        <td class="text-end">{{ number_format($row->quantity ?? 0, 2, ',', '.') }}</td>
-                        <td>{{ $row->product?->unit ?? '-' }}</td>
-                        <td class="text-end">{{ number_format($row->unit_price ?? 0, 0, ',', '.') }}</td>
+                        <td><span class="badge {{ $payStatusClass }}">{{ $mapped['Status Pembayaran'] }}</span></td>
+                        <td>{{ $mapped['Memo'] }}</td>
+                        <td class="text-end fw-bold text-primary">{{ number_format((float)$mapped['Total'], 0, ',', '.') }}</td>
+                        <td class="text-end text-danger">{{ number_format((float)$mapped['Sisa Tagihan'], 0, ',', '.') }}</td>
+                        <td>{{ $mapped['Tanggal Jatuh Tempo'] }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Total Pajak'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Pembayaran'], 0, ',', '.') }}</td>
+                        <td>{{ $mapped['Email'] }}</td>
+                        <td>{{ $mapped['Alamat Penagihan'] }}</td>
+                        <td>{{ $mapped['Alamat Pengiriman'] }}</td>
+                        <td>{{ $mapped['No Ref'] }}</td>
+                        <td>{{ $mapped['Tag'] }}</td>
+                        <td>{{ $mapped['Gudang'] }}</td>
+                        <td>{{ $mapped['Nama Produk'] }}</td>
+                        <td>{{ $mapped['Kode Produk'] }}</td>
+                        <td>{{ $mapped['Deskripsi'] }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Kuantitas'], 2, ',', '.') }}</td>
+                        <td>{{ $mapped['Satuan'] }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Harga per Unit'], 0, ',', '.') }}</td>
                         <td class="text-end">
-                            {{ $row->product_discount_type === 'percentage' ? number_format($row->product_discount_amount ?? 0, 2, ',', '.') . '%' : '-' }}
+                            {{ (float)$mapped['Diskon Per Baris %'] > 0 ? number_format((float)$mapped['Diskon Per Baris %'], 2, ',', '.') . '%' : '-' }}
                         </td>
-                        <td>{{ $tax?->tax_percentage ? $tax->tax_percentage . '%' : '-' }}</td>
-                        <td class="text-end">{{ number_format($row->product_tax_amount ?? 0, 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format(($row->sub_total ?? 0) + ($row->product_tax_amount ?? 0), 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format($row->sub_total ?? 0, 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format($row->product_discount_amount ?? 0, 0, ',', '.') }}</td>
-                        <td>{{ $purchase?->note ?? '-' }}</td>
-                        <td class="text-end">{{ number_format($purchase?->shipping_amount ?? 0, 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format($purchase?->discount_amount ?? 0, 0, ',', '.') }}</td>
-                        <td>{{ $supplier?->supplier_name ?? '-' }}</td>
-                        <td>{{ $supplier?->npwp ?? '-' }}</td>
-                        <td>{{ $supplier?->supplier_phone ?? '-' }}</td>
-                        <td>{{ $supplier?->fax ?? '-' }}</td>
-                        <td class="text-end text-danger">{{ number_format(max(0, $totalAmount - $activePaid), 0, ',', '.') }}</td>
+                        <td>{{ $mapped['Tarif Pajak'] !== '-' ? $mapped['Tarif Pajak'] . '%' : '-' }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Pajak'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak per Baris'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Per Baris'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Diskon'], 0, ',', '.') }}</td>
+                        <td>{{ $mapped['Pesan'] }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Biaya Pengiriman'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Pemotongan'], 0, ',', '.') }}</td>
+                        <td>{{ $mapped['Nama Perusahaan'] }}</td>
+                        <td>{{ $mapped['Nomor Pajak'] }}</td>
+                        <td>{{ $mapped['Nomor Ponsel'] }}</td>
+                        <td>{{ $mapped['Nomor Telepon'] }}</td>
+                        <td class="text-end text-danger">{{ number_format((float)$mapped['Sisa Tagihan Hari Ini'], 0, ',', '.') }}</td>
                         <td class="text-end">
-                            {{ $totalAmount > 0 && ($purchase?->discount_amount ?? 0) > 0
-                                ? number_format($purchase->discount_amount / $totalAmount * 100, 2, ',', '.') . '%'
-                                : '-' }}
+                            {{ (float)$mapped['Diskon %'] > 0 ? number_format((float)$mapped['Diskon %'], 2, ',', '.') . '%' : '-' }}
                         </td>
                     </tr>
                 @empty

@@ -37,7 +37,7 @@ class PurchaseReportQueryService
                 'tax',
             ])
             ->join('purchases', 'purchase_details.purchase_id', '=', 'purchases.id')
-            ->join('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
+            ->leftJoin('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
             ->leftJoinSub($activePaymentSub, 'ap', 'ap.purchase_id', '=', 'purchases.id')
             ->leftJoinSub($gudangSub, 'gd', 'gd.po_detail_id', '=', 'purchase_details.id')
             ->select(
@@ -127,7 +127,7 @@ class PurchaseReportQueryService
             'Total'                       => $totalAmount,
             'Sisa Tagihan'                => max(0, $totalAmount - $activePaid),
             'Tanggal Jatuh Tempo'         => $purchase?->due_date ? date('d/m/Y', strtotime($purchase->due_date)) : '-',
-            'Jumlah Kena Pajak'           => $purchase?->tax_amount ?? 0,
+            'Jumlah Kena Pajak'           => max(0, $totalAmount - ($purchase?->tax_amount ?? 0)),
             'Total Pajak'                 => $purchase?->tax_amount ?? 0,
             'Pembayaran'                  => $activePaid,
             'Email'                       => $supplier?->supplier_email ?? '-',
@@ -140,7 +140,7 @@ class PurchaseReportQueryService
             'Kode Produk'                 => $detail->product_code ?? '-',
             'Deskripsi'                   => $detail->product?->description ?? '-',
             'Kuantitas'                   => $detail->quantity ?? 0,
-            'Satuan'                      => $detail->product?->unit ?? '-',
+            'Satuan'                      => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product_unit ?? '-',
             'Harga per Unit'              => $detail->unit_price ?? 0,
             'Diskon Per Baris %'          => $detail->product_discount_type === 'percentage'
                                                 ? ($detail->product_discount_amount ?? 0)
