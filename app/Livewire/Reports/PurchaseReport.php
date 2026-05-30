@@ -192,15 +192,12 @@ class PurchaseReport extends Component
 
     public function resetFilters(): void
     {
-        $this->startDate = now()->startOfMonth()->format('Y-m-d');
-        $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->supplierIds = [];
         $this->supplierLabels = [];
         $this->tagIds = [];
         $this->tagLabels = [];
         $this->documentStatuses = [];
         $this->paymentStatuses = [];
-        $this->periodPreset = '';
         $this->dateBasis = 'transaction_date';
         $this->supplierSearch = '';
         $this->supplierOptions = [];
