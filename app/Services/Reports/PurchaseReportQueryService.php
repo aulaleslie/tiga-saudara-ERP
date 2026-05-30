@@ -35,6 +35,8 @@ class PurchaseReportQueryService
                 'purchase.supplier',
                 'purchase.tags',
                 'tax',
+                'product.unit',
+                'product.baseUnit',
             ])
             ->join('purchases', 'purchase_details.purchase_id', '=', 'purchases.id')
             ->leftJoin('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
@@ -147,7 +149,7 @@ class PurchaseReportQueryService
                                                 : 0,
             'Tarif Pajak'                 => $tax?->tax_percentage ?? '-',
             'Jumlah Pajak'                => $detail->product_tax_amount ?? 0,
-            'Jumlah Kena Pajak per Baris' => ($detail->sub_total ?? 0) + ($detail->product_tax_amount ?? 0),
+            'Jumlah Kena Pajak per Baris' => max(0, ($detail->sub_total ?? 0) - ($detail->product_tax_amount ?? 0)),
             'Jumlah Per Baris'            => $detail->sub_total ?? 0,
             'Diskon'                      => $detail->product_discount_amount ?? 0,
             'Pesan'                       => $purchase?->note ?? '-',
