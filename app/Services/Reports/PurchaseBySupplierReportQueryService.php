@@ -1,0 +1,111 @@
+<?php
+
+namespace App\Services\Reports;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+
+class PurchaseBySupplierReportQueryService
+{
+    public function build(PurchaseBySupplierReportFilterData $filter): Builder
+    {
+        $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
+
+        $query = PurchaseDetail::with([
+                'purchase.supplier',
+                'product.unit',
+                'product.baseUnit',
+                'product.category',
+            ])
+            ->join('purchases', 'purchase_details.purchase_id', '=', 'purchases.id')
+            ->join('suppliers', 'purchases.supplier_id', '=', 'suppliers.id')
+            ->select(
+                'purchase_details.*',
+                'suppliers.supplier_name',
+                'purchases.date as purchase_date'
+            )
+            ->where('purchases.setting_id', $scopeSettingId)
+            ->where('purchases.status', Purchase::STATUS_APPROVED) // Fixed to Faktur pembelian (Approved)
+            ->where('purchases.date', '>=', $filter->startDate)
+            ->where('purchases.date', '<=', $filter->endDate);
+
+        // Supplier filter (OR semantics)
+        if (!empty($filter->supplierIds)) {
+            $query->whereIn('purchases.supplier_id', $filter->supplierIds);
+        }
+
+        // Tag filter
+        if (!empty($filter->tagIds)) {
+            if ($filter->tagLogic === 'Mencakup semua') {
+                foreach ($filter->tagIds as $tagId) {
+                    $query->whereHas('purchase.tags', fn($q) => $q->where('tags.id', $tagId));
+                }
+            } else {
+                $query->whereHas('purchase.tags', fn($q) => $q->whereIn('tags.id', $filter->tagIds));
+            }
+        }
+
+        // Category filter
+        if (!empty($filter->categoryIds)) {
+            if ($filter->categoryLogic === 'Mencakup semua') {
+                foreach ($filter->categoryIds as $categoryId) {
+                    $query->where('products.category_id', $categoryId);
+                }
+            } else {
+                $query->whereIn('products.category_id', $filter->categoryIds);
+            }
+        }
+
+        return $query;
+    }
+
+    public function applySort(Builder $query, string $sortField, string $sortDirection): void
+    {
+        $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
+
+        if ($sortField === 'supplier_total') {
+            // Join a subquery that computes the supplier total
+            $supplierTotals = DB::table('purchases')
+                ->join('purchase_details', 'purchases.id', '=', 'purchase_details.purchase_id')
+                ->where('purchases.setting_id', session('setting_id'))
+                ->where('purchases.status', Purchase::STATUS_APPROVED)
+                ->select('purchases.supplier_id', DB::raw('SUM(purchase_details.sub_total) as total_nominal'))
+                ->groupBy('purchases.supplier_id');
+
+            $query->leftJoinSub($supplierTotals, 'st', 'st.supplier_id', '=', 'purchases.supplier_id')
+                  ->orderBy('st.total_nominal', $direction)
+                  ->orderBy('purchases.date', 'desc');
+        } elseif ($sortField === 'supplier_name') {
+            $query->orderBy('suppliers.supplier_name', $direction)
+                  ->orderBy('purchases.date', 'desc');
+        } else {
+            $query->orderBy('purchases.date', $direction);
+        }
+        
+        $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
+    }
+
+    public static function mapRow(PurchaseDetail $detail, float $runningTotal): array
+    {
+        $purchase = $detail->purchase;
+        
+        $documentStatusLabels = [
+            Purchase::STATUS_APPROVED => 'Faktur Pembelian',
+        ];
+
+        return [
+            'Supplier / Tanggal'    => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+            'Tipe transaksi'        => $purchase?->status ? ($documentStatusLabels[$purchase->status] ?? $purchase->status) : '-',
+            'No. transaksi'         => $purchase?->reference ?? '-',
+            'Nama produk'           => $detail->product_name ?? '-',
+            'Keterangan'            => $purchase?->note ?? '-',
+            'Qty'                   => $detail->quantity ?? 0,
+            'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
+            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Nominal tagihan'       => $detail->sub_total ?? 0,
+            'Total nominal tagihan' => $runningTotal,
+        ];
+    }
+}

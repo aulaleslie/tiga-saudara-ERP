@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Reports\Http\Controllers\MekariConverterController;
 use Modules\Reports\Http\Controllers\InventoryValuationReportController;
 use Modules\Reports\Http\Controllers\PurchaseReportController;
+use Modules\Reports\Http\Controllers\PurchaseBySupplierReportController;
 use Modules\Reports\Http\Controllers\SaleReportController;
 use Modules\Reports\Http\Controllers\StockMutationReportController;
 
@@ -56,6 +57,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/purchase-report/global', [PurchaseReportController::class, 'indexGlobal'])
             ->name('reports.purchase-report.global')
             ->middleware('can:purchaseReports.global.access');
+
+        Route::get('/purchase-by-supplier', [PurchaseBySupplierReportController::class, 'index'])
+            ->name('reports.purchase-by-supplier.index')
+            ->middleware('can:purchaseReports.access');
 
         Route::get('/sale-report', [SaleReportController::class, 'index'])
             ->name('reports.sale-report.index')

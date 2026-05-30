@@ -69,6 +69,14 @@
                             </a>
                         </li>
                     @endif
+                    @if(Route::has('reports.purchase-by-supplier.index'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-by-supplier.*') ? 'c-active' : '' }}"
+                               href="{{ route('reports.purchase-by-supplier.index') }}">
+                                <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Pembelian Per Supplier
+                            </a>
+                        </li>
+                    @endif
                     @endcan
                     @can('purchaseReports.global.access')
                     @if(Route::has('reports.purchase-report.global'))
