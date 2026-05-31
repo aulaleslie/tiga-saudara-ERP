@@ -24,6 +24,7 @@ class PurchasePayment extends BaseModel implements HasMedia
 
     protected $casts = [
         'invalidated_at' => 'datetime',
+        'date' => 'date',
     ];
 
     public function purchase(): BelongsTo
@@ -43,10 +44,6 @@ class PurchasePayment extends BaseModel implements HasMedia
 
     public function getAmountAttribute($value) {
         return $value / 100;
-    }
-
-    public function getDateAttribute($value) {
-        return Carbon::parse($value)->format('d M, Y');
     }
 
     public function scopeActive($query)

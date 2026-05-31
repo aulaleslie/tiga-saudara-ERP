@@ -9,6 +9,13 @@ use Modules\Purchase\Entities\PurchasePayment;
 
 class PurchaseSummaryCards extends Component
 {
+    public $settingId;
+
+    public function mount()
+    {
+        $this->settingId = session('setting_id');
+    }
+
     public function render()
     {
         return view('purchase::livewire.purchase-summary-cards');
@@ -17,6 +24,7 @@ class PurchaseSummaryCards extends Component
     public function getBelumDibayarProperty()
     {
         $query = Purchase::query()
+            ->where('setting_id', $this->settingId)
             ->where('payment_status', 'UNPAID')
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
@@ -30,6 +38,7 @@ class PurchaseSummaryCards extends Component
     public function getTelatBayarProperty()
     {
         $query = Purchase::query()
+            ->where('setting_id', $this->settingId)
             ->where('payment_status', 'UNPAID')
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
@@ -45,27 +54,31 @@ class PurchaseSummaryCards extends Component
     {
         $thirtyDaysAgo = Carbon::today()->subDays(30);
 
-        $hasPayments = PurchasePayment::active()
-            ->where('date', '>=', $thirtyDaysAgo)
-            ->exists();
-
-        if ($hasPayments) {
-            $query = PurchasePayment::active()
-                ->where('date', '>=', $thirtyDaysAgo);
+        $query = PurchasePayment::active()
+            ->whereHas('purchase', function ($q) {
+                $q->where('setting_id', $this->settingId)
+                  ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
+            })
+            ->where('date', '>=', $thirtyDaysAgo);
             
+        $count = $query->count();
+
+        if ($count > 0) {
             return [
-                'count' => $query->count(),
+                'count' => $count,
                 'total' => $query->sum('amount') / 100,
             ];
         }
 
-        $query = Purchase::query()
+        $fallbackQuery = Purchase::query()
+            ->where('setting_id', $this->settingId)
             ->where('date', '>=', $thirtyDaysAgo)
-            ->where('payment_status', 'PAID');
+            ->where('payment_status', 'PAID')
+            ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
 
         return [
-            'count' => $query->count(),
-            'total' => $query->sum('total_amount'),
+            'count' => $fallbackQuery->count(),
+            'total' => $fallbackQuery->sum('paid_amount'),
         ];
     }
 }

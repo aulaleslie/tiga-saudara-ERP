@@ -27,6 +27,9 @@ class PurchaseTable extends Component
 
     public ?string $paymentStatusFilter = null;
     public bool $overdueOnly = false;
+    public bool $dueAmountOnly = false;
+    /** @var array<string>|null */
+    public ?array $cardStatusFilter = null;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
@@ -70,17 +73,28 @@ class PurchaseTable extends Component
     #[On('purchase-filter')]
     public function applyPurchaseFilter($type = null)
     {
-        // Reset both filters initially
         $this->paymentStatusFilter = null;
         $this->overdueOnly = false;
-        
+        $this->dueAmountOnly = false;
+        $this->cardStatusFilter = null;
+
+        $approvedAndAbove = [
+            Purchase::STATUS_APPROVED,
+            Purchase::STATUS_RECEIVED_PARTIALLY,
+            Purchase::STATUS_RECEIVED,
+        ];
+
         if ($type === 'unpaid') {
             $this->paymentStatusFilter = 'UNPAID';
+            $this->dueAmountOnly = true;
+            $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'overdue') {
             $this->paymentStatusFilter = 'UNPAID';
             $this->overdueOnly = true;
+            $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'paid') {
             $this->paymentStatusFilter = 'PAID';
+            $this->cardStatusFilter = $approvedAndAbove;
         }
         
         $this->resetPage();
@@ -88,11 +102,20 @@ class PurchaseTable extends Component
 
     public function render()
     {
+        $statuses = null;
+        if (!empty($this->statusFilter) && !empty($this->cardStatusFilter)) {
+            $statuses = array_intersect((array) $this->statusFilter, $this->cardStatusFilter);
+        } elseif (!empty($this->statusFilter)) {
+            $statuses = (array) $this->statusFilter;
+        } elseif (!empty($this->cardStatusFilter)) {
+            $statuses = $this->cardStatusFilter;
+        }
+
         $query = ($this->showArchived ? Purchase::archived() : Purchase::query())
             ->with(['supplier', 'tags', 'purchaseDetails'])
             ->where('setting_id', $this->settingId)
-            ->when(! empty($this->statusFilter), function ($q) {
-                $q->whereIn('status', (array) $this->statusFilter);
+            ->when($statuses !== null, function ($q) use ($statuses) {
+                $q->whereIn('status', $statuses);
             })
             ->when(! empty($this->purchaseId), function ($q) {
                 $q->where('id', $this->purchaseId);
@@ -102,6 +125,9 @@ class PurchaseTable extends Component
             })
             ->when(! empty($this->paymentStatusFilter), function ($q) {
                 $q->where('payment_status', $this->paymentStatusFilter);
+            })
+            ->when($this->dueAmountOnly, function ($q) {
+                $q->where('due_amount', '>', 0);
             })
             ->when($this->overdueOnly, function ($q) {
                 $q->where('due_date', '<', Carbon::today())
@@ -128,7 +154,7 @@ class PurchaseTable extends Component
 
         $purchases = $query->paginate($this->perPage);
 
-        $view = empty($this->statusFilter)
+        $view = (empty($this->statusFilter) || !empty($this->cardStatusFilter) || !empty($this->paymentStatusFilter))
             ? 'livewire.purchase.purchase-table'
             : 'livewire.purchase.purchase-receiving-table';
 

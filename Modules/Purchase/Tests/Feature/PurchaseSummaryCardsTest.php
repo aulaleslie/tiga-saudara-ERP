@@ -122,7 +122,13 @@ class PurchaseSummaryCardsTest extends TestCase
         Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
             ->dispatch('purchase-filter', type: 'unpaid')
             ->assertSet('paymentStatusFilter', 'UNPAID')
-            ->assertSet('overdueOnly', false);
+            ->assertSet('dueAmountOnly', true)
+            ->assertSet('overdueOnly', false)
+            ->assertSet('cardStatusFilter', [
+                Purchase::STATUS_APPROVED,
+                Purchase::STATUS_RECEIVED_PARTIALLY,
+                Purchase::STATUS_RECEIVED,
+            ]);
     }
 
     public function test_purchase_table_filters_overdue_when_event_dispatched()
@@ -130,6 +136,51 @@ class PurchaseSummaryCardsTest extends TestCase
         Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
             ->dispatch('purchase-filter', type: 'overdue')
             ->assertSet('paymentStatusFilter', 'UNPAID')
-            ->assertSet('overdueOnly', true);
+            ->assertSet('overdueOnly', true)
+            ->assertSet('dueAmountOnly', false)
+            ->assertSet('cardStatusFilter', [
+                Purchase::STATUS_APPROVED,
+                Purchase::STATUS_RECEIVED_PARTIALLY,
+                Purchase::STATUS_RECEIVED,
+            ]);
+    }
+
+    public function test_purchase_table_ghost_invoices_excluded_when_unpaid_filter_applied()
+    {
+        // Ghost: UNPAID but due_amount = 0
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(10),
+            'reference' => 'PUR-GHOST',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 500,
+            'paid_amount' => 500,
+            'due_amount' => 0,
+            'setting_id' => $this->setting->id,
+        ]);
+        // Real unpaid
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(10),
+            'reference' => 'PUR-REAL',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $component = Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
+            ->dispatch('purchase-filter', type: 'unpaid');
+
+        $purchases = $component->viewData('purchases');
+        $this->assertCount(1, $purchases->items());
+        $this->assertEquals(1000, $purchases->items()[0]->due_amount);
     }
 }

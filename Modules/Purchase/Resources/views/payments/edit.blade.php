@@ -36,7 +36,7 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="date">Date <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control" name="date" required value="{{ $purchasePayment->getAttributes()['date'] }}">
+                                        <input type="date" class="form-control" name="date" required value="{{ $purchasePayment->date ? $purchasePayment->date->format('Y-m-d') : '' }}">
                                     </div>
                                 </div>
                             </div>

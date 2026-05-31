@@ -14,6 +14,9 @@ class PurchasePaymentsDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->editColumn('date', function ($data) {
+                return $data->date ? $data->date->format('d M, Y') : '';
+            })
             ->addColumn('amount', function ($data) {
                 return format_currency($data->amount);
             })
