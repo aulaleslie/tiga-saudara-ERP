@@ -175,7 +175,6 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                     if (empty($bVal)) {
                         if ($aVal === 'Grand Total') {
                             // Grand Total Row
-                            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
                             $sheet->getStyle("J{$row}")->getFont()->setBold(true);
                         } elseif (!empty($aVal) && empty($jVal)) {
                             // Group Header Row
