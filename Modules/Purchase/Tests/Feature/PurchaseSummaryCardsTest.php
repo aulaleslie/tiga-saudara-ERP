@@ -108,13 +108,77 @@ class PurchaseSummaryCardsTest extends TestCase
             'payment_method' => 'Cash'
         ]);
 
+        $this->withSession(['setting_id' => $this->setting->id]);
+        
         Livewire::test(PurchaseSummaryCards::class)
-            ->assertSet('belumDibayar.count', 2) // Unpaid includes both
+            ->assertSet('belumDibayar.count', 2) // Unpaid includes both PUR-001 (not yet due) and PUR-002 (overdue)
             ->assertSet('belumDibayar.total', 3000)
             ->assertSet('telatBayar.count', 1) // Only PUR-002
             ->assertSet('telatBayar.total', 2000)
             ->assertSet('pelunasan.count', 1)
             ->assertSet('pelunasan.total', 3000);
+    }
+
+    public function test_purchase_summary_cards_isolates_data_by_tenant_setting_id()
+    {
+        $setting2 = Setting::create([
+             'id' => 2,
+             'company_name' => 'Other Company',
+             'company_email' => 'other@company.com',
+             'company_phone' => '1234567890',
+             'company_address' => 'Other Address',
+             'default_currency_id' => 1,
+             'default_currency_position' => 'prefix',
+             'notification_email' => 'notification@other.com',
+             'footer_text' => 'Other Footer',
+        ]);
+
+        $supplier2 = Supplier::create([
+            'supplier_name' => 'Other Supplier',
+            'supplier_email' => 'other@supplier.com',
+            'supplier_phone' => '1234567890',
+            'city' => 'Test City',
+            'country' => 'Test Country',
+            'address' => 'Test Address',
+            'setting_id' => $setting2->id,
+        ]);
+
+        // Purchase for the active session tenant (setting_id = 1)
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(2),
+            'reference' => 'PUR-MINE',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Purchase belonging to another tenant (setting_id = 2) - MUST be excluded
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(2),
+            'reference' => 'PUR-OTHER',
+            'supplier_id' => $supplier2->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 9999,
+            'paid_amount' => 0,
+            'due_amount' => 9999,
+            'setting_id' => $setting2->id,
+        ]);
+
+        // Explicitly set session for tenant 1
+        $this->withSession(['setting_id' => $this->setting->id]);
+        
+        Livewire::test(PurchaseSummaryCards::class)
+            ->assertSet('belumDibayar.count', 1)
+            ->assertSet('belumDibayar.total', 1000);
     }
 
     public function test_purchase_table_filters_unpaid_when_event_dispatched()

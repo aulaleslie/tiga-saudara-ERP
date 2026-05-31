@@ -56,7 +56,7 @@ class PurchaseSummaryCards extends Component
 
     public function getPelunasanProperty()
     {
-        $thirtyDaysAgo = Carbon::today()->subDays(30);
+        $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
 
         $result = PurchasePayment::active()
             ->whereHas('purchase', function ($q) {
@@ -64,6 +64,8 @@ class PurchaseSummaryCards extends Component
                   ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
             })
             ->where('date', '>=', $thirtyDaysAgo)
+            // Note: COUNT(DISTINCT purchase_id) counts unique invoices, 
+            // while SUM(amount) intentionally sums all partial payment rows.
             ->selectRaw('COUNT(DISTINCT purchase_id) as cnt, SUM(amount) as total')
             ->first();
             

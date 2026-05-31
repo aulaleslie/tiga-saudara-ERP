@@ -28,6 +28,7 @@ class PurchaseTable extends Component
     public ?string $paymentStatusFilter = null;
     public bool $overdueOnly = false;
     public bool $dueAmountOnly = false;
+    public bool $paidLast30DaysOnly = false;
     /** @var array<string>|null */
     public ?array $cardStatusFilter = null;
 
@@ -76,6 +77,7 @@ class PurchaseTable extends Component
         $this->paymentStatusFilter = null;
         $this->overdueOnly = false;
         $this->dueAmountOnly = false;
+        $this->paidLast30DaysOnly = false;
         $this->cardStatusFilter = null;
 
         $approvedAndAbove = [
@@ -93,7 +95,8 @@ class PurchaseTable extends Component
             $this->overdueOnly = true;
             $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'paid') {
-            $this->paymentStatusFilter = 'PAID';
+            $this->paymentStatusFilter = null; // Filtered via paidLast30DaysOnly instead
+            $this->paidLast30DaysOnly = true;
             $this->cardStatusFilter = $approvedAndAbove;
         }
         
@@ -132,6 +135,18 @@ class PurchaseTable extends Component
             ->when($this->overdueOnly, function ($q) {
                 $q->where('due_date', '<', Carbon::today())
                   ->where('due_amount', '>', 0);
+            })
+            ->when($this->paidLast30DaysOnly, function ($q) {
+                $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
+                $q->where(function ($sub) use ($thirtyDaysAgo) {
+                    $sub->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
+                        $pq->where('date', '>=', $thirtyDaysAgo)
+                           ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
+                    })->orWhere(function ($sq) use ($thirtyDaysAgo) {
+                        $sq->where('date', '>=', $thirtyDaysAgo)
+                           ->where('payment_status', 'PAID');
+                    });
+                });
             })
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {
