@@ -1,7 +1,16 @@
-<div class="row mb-4">
+<div class="row mb-4" x-data="{ 
+    activeFilter: null,
+    toggleFilter(type) {
+        this.activeFilter = this.activeFilter === type ? null : type;
+        $dispatch('purchase-filter', { type: this.activeFilter });
+    }
+}">
     <!-- Belum Dibayar -->
     <div class="col-md-4">
-        <div class="card border-0 border-start border-primary border-4 shadow-sm h-100" style="cursor: pointer;" @click="$dispatch('purchase-filter', { type: 'unpaid' })">
+        <div class="card border-0 border-start border-primary border-4 shadow-sm h-100" 
+             style="cursor: pointer;" 
+             :class="activeFilter === 'unpaid' ? 'bg-light' : ''"
+             @click="toggleFilter('unpaid')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Belum Dibayar</div>
                 <div class="h5 mb-0 fw-bold text-gray-800">{{ $this->belumDibayar['count'] }} Transaksi</div>
@@ -12,7 +21,10 @@
     
     <!-- Telat Bayar -->
     <div class="col-md-4">
-        <div class="card border-0 border-start border-danger border-4 shadow-sm h-100" style="cursor: pointer;" @click="$dispatch('purchase-filter', { type: 'overdue' })">
+        <div class="card border-0 border-start border-danger border-4 shadow-sm h-100" 
+             style="cursor: pointer;" 
+             :class="activeFilter === 'overdue' ? 'bg-light' : ''"
+             @click="toggleFilter('overdue')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Telat Bayar</div>
                 <div class="h5 mb-0 fw-bold text-gray-800">{{ $this->telatBayar['count'] }} Transaksi</div>
@@ -23,7 +35,10 @@
 
     <!-- Pelunasan (30 Hari Terakhir) -->
     <div class="col-md-4">
-        <div class="card border-0 border-start border-success border-4 shadow-sm h-100" style="cursor: pointer;" @click="$dispatch('purchase-filter', { type: 'paid' })">
+        <div class="card border-0 border-start border-success border-4 shadow-sm h-100" 
+             style="cursor: pointer;" 
+             :class="activeFilter === 'paid' ? 'bg-light' : ''"
+             @click="toggleFilter('paid')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Pelunasan (30 Hari)</div>
                 <div class="h5 mb-0 fw-bold text-gray-800">{{ $this->pelunasan['count'] }} Transaksi</div>

@@ -23,30 +23,34 @@ class PurchaseSummaryCards extends Component
 
     public function getBelumDibayarProperty()
     {
-        $query = Purchase::query()
+        $result = Purchase::query()
             ->where('setting_id', $this->settingId)
             ->where('payment_status', 'UNPAID')
             ->where('due_amount', '>', 0)
-            ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
+            ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
+            ->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+            ->first();
 
         return [
-            'count' => $query->count(),
-            'total' => $query->sum('due_amount'),
+            'count' => (int) ($result->cnt ?? 0),
+            'total' => (float) ($result->total ?? 0),
         ];
     }
 
     public function getTelatBayarProperty()
     {
-        $query = Purchase::query()
+        $result = Purchase::query()
             ->where('setting_id', $this->settingId)
             ->where('payment_status', 'UNPAID')
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
-            ->where('due_date', '<', Carbon::today());
+            ->where('due_date', '<', Carbon::today())
+            ->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+            ->first();
 
         return [
-            'count' => $query->count(),
-            'total' => $query->sum('due_amount'),
+            'count' => (int) ($result->cnt ?? 0),
+            'total' => (float) ($result->total ?? 0),
         ];
     }
 
@@ -54,31 +58,33 @@ class PurchaseSummaryCards extends Component
     {
         $thirtyDaysAgo = Carbon::today()->subDays(30);
 
-        $query = PurchasePayment::active()
+        $result = PurchasePayment::active()
             ->whereHas('purchase', function ($q) {
                 $q->where('setting_id', $this->settingId)
                   ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
             })
-            ->where('date', '>=', $thirtyDaysAgo);
+            ->where('date', '>=', $thirtyDaysAgo)
+            ->selectRaw('COUNT(DISTINCT purchase_id) as cnt, SUM(amount) as total')
+            ->first();
             
-        $count = $query->count();
-
-        if ($count > 0) {
+        if ($result && $result->cnt > 0) {
             return [
-                'count' => $count,
-                'total' => $query->sum('amount') / 100,
+                'count' => (int) $result->cnt,
+                'total' => $result->total / 100,
             ];
         }
 
-        $fallbackQuery = Purchase::query()
+        $fallbackResult = Purchase::query()
             ->where('setting_id', $this->settingId)
             ->where('date', '>=', $thirtyDaysAgo)
             ->where('payment_status', 'PAID')
-            ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
+            ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
+            ->selectRaw('COUNT(*) as cnt, SUM(paid_amount) as total')
+            ->first();
 
         return [
-            'count' => $fallbackQuery->count(),
-            'total' => $fallbackQuery->sum('paid_amount'),
+            'count' => (int) ($fallbackResult->cnt ?? 0),
+            'total' => (float) ($fallbackResult->total ?? 0),
         ];
     }
 }
