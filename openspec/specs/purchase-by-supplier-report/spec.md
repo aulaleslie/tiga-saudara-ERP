@@ -26,13 +26,15 @@ The system SHALL initialize `Tanggal awal` and `Tanggal akhir` to the current ca
 - **AND** `Tanggal akhir` is set to the last day of that calendar month
 
 ### Requirement: View-only purchase by supplier report
-The system SHALL provide the `Pembelian Per Supplier` report as a view-only report without active export behavior.
+The system SHALL provide the `Pembelian Per Supplier` report with active Excel and CSV export actions.
 
-#### Scenario: Export is not available
-- **WHEN** a user views `Pembelian Per Supplier`
-- **THEN** the system does not provide an active Excel export action
-- **AND** the system does not provide an active CSV export action
-- **AND** the system does not provide an active PDF export action
+#### Scenario: Export Excel is available
+- **WHEN** a user views `Pembelian Per Supplier` and has applied filters
+- **THEN** the system provides an active Excel export action
+
+#### Scenario: Export CSV is available
+- **WHEN** a user views `Pembelian Per Supplier` and has applied filters
+- **THEN** the system provides an active CSV export action
 
 ### Requirement: Purchase by supplier row grain
 The system SHALL render `Faktur pembelian` purchase detail rows grouped by supplier.
