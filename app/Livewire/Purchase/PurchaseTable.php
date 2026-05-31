@@ -138,14 +138,12 @@ class PurchaseTable extends Component
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
-                $q->where(function ($sub) use ($thirtyDaysAgo) {
+                $q->where('payment_status', 'PAID')
+                  ->where(function ($sub) use ($thirtyDaysAgo) {
                     $sub->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
                         $pq->where('date', '>=', $thirtyDaysAgo)
                            ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
-                    })->orWhere(function ($sq) use ($thirtyDaysAgo) {
-                        $sq->where('date', '>=', $thirtyDaysAgo)
-                           ->where('payment_status', 'PAID');
-                    });
+                    })->orWhere('date', '>=', $thirtyDaysAgo);
                 });
             })
             ->when($this->search, function ($q) {
@@ -169,7 +167,7 @@ class PurchaseTable extends Component
 
         $purchases = $query->paginate($this->perPage);
 
-        $view = (empty($this->statusFilter) || !empty($this->cardStatusFilter) || !empty($this->paymentStatusFilter))
+        $view = empty($this->statusFilter)
             ? 'livewire.purchase.purchase-table'
             : 'livewire.purchase.purchase-receiving-table';
 

@@ -61,6 +61,7 @@ class PurchaseSummaryCards extends Component
         $result = PurchasePayment::active()
             ->whereHas('purchase', function ($q) {
                 $q->where('setting_id', $this->settingId)
+                  ->where('payment_status', 'PAID')
                   ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
             })
             ->where('date', '>=', $thirtyDaysAgo)

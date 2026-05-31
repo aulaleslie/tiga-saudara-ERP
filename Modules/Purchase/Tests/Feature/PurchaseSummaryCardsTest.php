@@ -108,8 +108,6 @@ class PurchaseSummaryCardsTest extends TestCase
             'payment_method' => 'Cash'
         ]);
 
-        $this->withSession(['setting_id' => $this->setting->id]);
-        
         Livewire::test(PurchaseSummaryCards::class)
             ->assertSet('belumDibayar.count', 2) // Unpaid includes both PUR-001 (not yet due) and PUR-002 (overdue)
             ->assertSet('belumDibayar.total', 3000)
@@ -173,9 +171,6 @@ class PurchaseSummaryCardsTest extends TestCase
             'setting_id' => $setting2->id,
         ]);
 
-        // Explicitly set session for tenant 1
-        $this->withSession(['setting_id' => $this->setting->id]);
-        
         Livewire::test(PurchaseSummaryCards::class)
             ->assertSet('belumDibayar.count', 1)
             ->assertSet('belumDibayar.total', 1000);
@@ -246,5 +241,46 @@ class PurchaseSummaryCardsTest extends TestCase
         $purchases = $component->viewData('purchases');
         $this->assertCount(1, $purchases->items());
         $this->assertEquals(1000, $purchases->items()[0]->due_amount);
+    }
+
+    public function test_purchase_table_filters_paid_last_30_days_when_event_dispatched()
+    {
+        // Old PAID invoice (should be excluded)
+        Purchase::create([
+            'date' => now()->subDays(40),
+            'due_date' => now()->subDays(40),
+            'reference' => 'PUR-OLD-PAID',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PAID',
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Recent PAID invoice (should be included)
+        $recentPurchase = Purchase::create([
+            'date' => now()->subDays(10),
+            'due_date' => now()->subDays(10),
+            'reference' => 'PUR-RECENT-PAID',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PAID',
+            'total_amount' => 2000,
+            'paid_amount' => 2000,
+            'due_amount' => 0,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $component = Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
+            ->dispatch('purchase-filter', type: 'paid')
+            ->assertSet('paidLast30DaysOnly', true);
+
+        $purchases = $component->viewData('purchases');
+        $this->assertCount(1, $purchases->items());
+        $this->assertEquals($recentPurchase->reference, $purchases->items()[0]->reference);
     }
 }
