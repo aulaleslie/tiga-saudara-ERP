@@ -429,7 +429,7 @@ class PurchaseBySupplierReportTest extends TestCase
             ->call('exportExcel');
 
         \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx', function ($export) {
-            return $export->query()->count() === 3;
+            return count($export->array()) === 6;
         });
     }
 
@@ -456,8 +456,8 @@ class PurchaseBySupplierReportTest extends TestCase
             ->call('exportExcel');
 
         \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx', function ($export) use ($supplier1) {
-            $rows = $export->query()->get();
-            return $rows->count() === 1 && $rows->first()->purchase->supplier_id === $supplier1->id;
+            $rows = $export->array();
+            return count($rows) === 4 && $rows[0][0] === $supplier1->supplier_name;
         });
     }
 

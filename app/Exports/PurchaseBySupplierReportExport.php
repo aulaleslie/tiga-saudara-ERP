@@ -24,10 +24,7 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
         $this->isCsv = $isCsv;
     }
 
-    public function query(): Builder
-    {
-        return $this->query;
-    }
+
 
     public function array(): array
     {
