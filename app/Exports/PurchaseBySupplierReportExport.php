@@ -35,6 +35,7 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
         $queryResults = $this->query->get();
         $currentSupplierId = null;
         $runningTotal = 0.0;
+        $grandTotal = 0.0;
         $prevSupplierName = '';
         
         foreach ($queryResults as $detail) {
@@ -49,9 +50,6 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                         $prevSupplierName . ' | Total Pembelian',
                         $runningTotal,
                     ];
-
-                    // 1 row gap for each supplier
-                    $rows[] = ['', '', '', '', '', '', '', '', '', ''];
                 }
                 
                 // Group Header row for NEW supplier
@@ -67,6 +65,7 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
             
             $subTotal = (float) ($detail->sub_total ?? 0);
             $runningTotal += $subTotal;
+            $grandTotal += $subTotal;
             $date = $detail->purchase?->date ? Carbon::parse($detail->purchase->date)->format('d/m/Y') : '-';
             
             $rows[] = [
@@ -79,7 +78,7 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                 $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
                 (float) ($detail->unit_price ?? 0),
                 $subTotal,
-                null,
+                $runningTotal,
             ];
         }
         
@@ -89,6 +88,11 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                 '', '', '', '', '', '', '', '',
                 $prevSupplierName . ' | Total Pembelian',
                 $runningTotal,
+            ];
+            
+            // Grand Total row
+            $rows[] = [
+                'Grand Total', '', '', '', '', '', '', '', '', $grandTotal
             ];
         }
         
@@ -160,12 +164,26 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                 // Bold headers (now row 6)
                 $sheet->getStyle('A6:J6')->getFont()->setBold(true);
                 
-                // Bold group headers and subtotals
+                // Specific styling for group headers, subtotals, and grand total
                 $highestRow = $sheet->getHighestRow();
                 for ($row = 7; $row <= $highestRow; $row++) {
+                    $aVal = $sheet->getCell("A{$row}")->getValue();
                     $bVal = $sheet->getCell("B{$row}")->getValue();
+                    $iVal = $sheet->getCell("I{$row}")->getValue();
+                    $jVal = $sheet->getCell("J{$row}")->getValue();
+                    
                     if (empty($bVal)) {
-                        $sheet->getStyle("A{$row}:J{$row}")->getFont()->setBold(true);
+                        if ($aVal === 'Grand Total') {
+                            // Grand Total Row
+                            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+                            $sheet->getStyle("J{$row}")->getFont()->setBold(true);
+                        } elseif (!empty($aVal) && empty($jVal)) {
+                            // Group Header Row
+                            $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+                        } elseif (empty($aVal) && !empty($iVal)) {
+                            // Subtotal Row
+                            $sheet->getStyle("J{$row}")->getFont()->setBold(true);
+                        }
                     }
                 }
             },
