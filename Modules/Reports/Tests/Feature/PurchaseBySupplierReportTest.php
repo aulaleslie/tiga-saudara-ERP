@@ -334,15 +334,131 @@ class PurchaseBySupplierReportTest extends TestCase
     }
 
     /** @test */
-    public function it_does_not_have_export_buttons()
+    public function it_has_export_buttons()
     {
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
 
         $response = $this->get(route('reports.purchase-by-supplier.index'));
-        $response->assertDontSee('Excel');
-        $response->assertDontSee('PDF');
-        $response->assertDontSee('CSV');
+        $response->assertSee('Excel');
+        $response->assertSee('CSV');
+    }
+
+    /** @test */
+    public function it_blocks_export_excel_before_filter_is_applied()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->call('exportExcel')
+            ->assertDispatched('alert');
+    }
+
+    /** @test */
+    public function it_blocks_export_csv_before_filter_is_applied()
+    {
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->call('exportCsv')
+            ->assertDispatched('alert');
+    }
+
+    /** @test */
+    public function it_blocks_export_when_snapshot_is_stale()
+    {
+        $component = \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters');
+
+        session()->forget('purchase_by_supplier_report_snapshot');
+
+        $component->call('exportExcel')
+            ->assertDispatched('alert');
+    }
+
+    /** @test */
+    public function it_downloads_xlsx_after_applying_filters()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx');
+    }
+
+    /** @test */
+    public function it_downloads_csv_after_applying_filters()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportCsv');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.csv');
+    }
+
+    /** @test */
+    public function it_exports_same_row_count_as_filtered_display()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        $supplier = $this->makeSupplier('Supplier A');
+        $purchase = $this->makePurchase($supplier, ['date' => '2026-05-15']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Prod 1']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Prod 2']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Prod 3']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx', function ($export) {
+            return $export->query()->count() === 3;
+        });
+    }
+
+    /** @test */
+    public function it_export_respects_supplier_filter()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        $supplier1 = $this->makeSupplier('Supplier 1');
+        $supplier2 = $this->makeSupplier('Supplier 2');
+        
+        $purchase1 = $this->makePurchase($supplier1, ['date' => '2026-05-15']);
+        $this->makePurchaseDetail($purchase1);
+        
+        $purchase2 = $this->makePurchase($supplier2, ['date' => '2026-05-16']);
+        $this->makePurchaseDetail($purchase2);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('supplierIds', [$supplier1->id])
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx', function ($export) use ($supplier1) {
+            $rows = $export->query()->get();
+            return $rows->count() === 1 && $rows->first()->purchase->supplier_id === $supplier1->id;
+        });
     }
 
     /** @test */

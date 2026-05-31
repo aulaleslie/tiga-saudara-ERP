@@ -36,6 +36,15 @@
             <button type="button" @click="showDrawer = true" class="btn btn-outline-secondary">
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
+            <div class="dropdown">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-download"></i> Ekspor
+                </button>
+                <ul class="dropdown-menu">
+                    <li><button class="dropdown-item" wire:click="exportExcel">Excel</button></li>
+                    <li><button class="dropdown-item" wire:click="exportCsv">CSV</button></li>
+                </ul>
+            </div>
         </div>
     </div>
 

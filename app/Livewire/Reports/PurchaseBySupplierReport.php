@@ -13,6 +13,9 @@ use Modules\Product\Entities\Category;
 use Spatie\Tags\Tag;
 
 use App\Services\Reports\PurchaseBySupplierReportValidator;
+use App\Services\Reports\PurchaseBySupplierReportSnapshotService;
+use App\Exports\PurchaseBySupplierReportExport;
+use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Validation\ValidationException;
 
 class PurchaseBySupplierReport extends Component
@@ -224,8 +227,11 @@ class PurchaseBySupplierReport extends Component
         ];
     }
 
-    public function applyFilters(PurchaseBySupplierReportValidator $validator)
-    {
+    public function applyFilters(
+        PurchaseBySupplierReportValidator $validator,
+        PurchaseBySupplierReportQueryService $queryService,
+        PurchaseBySupplierReportSnapshotService $snapshotService
+    ) {
         $filterArray = $this->exportFilters();
         
         try {
@@ -239,11 +245,67 @@ class PurchaseBySupplierReport extends Component
             ]);
             
             $this->filterTriggered = true;
+
+            $filter = PurchaseBySupplierReportFilterData::fromArray($this->appliedFilters);
+            $filter->scopeSettingId = $this->settingId;
+            $count = $queryService->build($filter)->count();
+            $snapshotService->createSnapshot($filter, $count);
+            
             $this->resetPage();
         } catch (ValidationException $e) {
             $this->filterTriggered = false;
             throw $e;
         }
+    }
+
+    public function exportExcel(
+        PurchaseBySupplierReportSnapshotService $snapshotService, 
+        PurchaseBySupplierReportQueryService $queryService
+    ) {
+        if (!$this->filterTriggered) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Terapkan filter terlebih dahulu sebelum mengekspor data.']);
+            return;
+        }
+
+        $filter = PurchaseBySupplierReportFilterData::fromArray($this->appliedFilters);
+        $filter->scopeSettingId = $this->settingId;
+
+        if (!$snapshotService->isValidForExport($filter)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah berubah. Silakan terapkan ulang filter sebelum mengekspor.']);
+            return;
+        }
+
+        $query = $queryService->build($filter);
+        $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+
+        $filename = "purchases_by_vendor_{$filter->startDate}_{$filter->endDate}.xlsx";
+
+        return Excel::download(new PurchaseBySupplierReportExport($query, $filter, false), $filename);
+    }
+
+    public function exportCsv(
+        PurchaseBySupplierReportSnapshotService $snapshotService, 
+        PurchaseBySupplierReportQueryService $queryService
+    ) {
+        if (!$this->filterTriggered) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Terapkan filter terlebih dahulu sebelum mengekspor data.']);
+            return;
+        }
+
+        $filter = PurchaseBySupplierReportFilterData::fromArray($this->appliedFilters);
+        $filter->scopeSettingId = $this->settingId;
+
+        if (!$snapshotService->isValidForExport($filter)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah berubah. Silakan terapkan ulang filter sebelum mengekspor.']);
+            return;
+        }
+
+        $query = $queryService->build($filter);
+        $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+
+        $filename = "purchases_by_vendor_{$filter->startDate}_{$filter->endDate}.csv";
+
+        return Excel::download(new PurchaseBySupplierReportExport($query, $filter, true), $filename, \Maatwebsite\Excel\Excel::CSV);
     }
 
     public function render(PurchaseBySupplierReportQueryService $queryService)

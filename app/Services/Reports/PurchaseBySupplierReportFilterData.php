@@ -18,4 +18,43 @@ class PurchaseBySupplierReportFilterData
         public ?string $periodPreset = null
     ) {
     }
+
+    public function toArray(): array
+    {
+        return [
+            'startDate' => $this->startDate,
+            'endDate' => $this->endDate,
+            'scopeSettingId' => $this->scopeSettingId,
+            'supplierIds' => $this->supplierIds,
+            'tagIds' => $this->tagIds,
+            'tagLogic' => $this->tagLogic,
+            'categoryIds' => $this->categoryIds,
+            'categoryLogic' => $this->categoryLogic,
+            'sortField' => $this->sortField,
+            'sortDirection' => $this->sortDirection,
+            'periodPreset' => $this->periodPreset,
+        ];
+    }
+
+    public static function fromArray(array $data): self
+    {
+        return new self(
+            startDate: $data['startDate'] ?? '',
+            endDate: $data['endDate'] ?? '',
+            scopeSettingId: $data['scopeSettingId'] ?? null,
+            supplierIds: $data['supplierIds'] ?? [],
+            tagIds: $data['tagIds'] ?? [],
+            tagLogic: $data['tagLogic'] ?? 'Salah satu',
+            categoryIds: $data['categoryIds'] ?? [],
+            categoryLogic: $data['categoryLogic'] ?? 'Salah satu',
+            sortField: $data['sortField'] ?? 'date',
+            sortDirection: $data['sortDirection'] ?? 'desc',
+            periodPreset: $data['periodPreset'] ?? null,
+        );
+    }
+
+    public function hash(): string
+    {
+        return md5(serialize($this->toArray()));
+    }
 }

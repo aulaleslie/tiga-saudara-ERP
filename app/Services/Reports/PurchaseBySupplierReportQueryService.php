@@ -122,4 +122,22 @@ class PurchaseBySupplierReportQueryService
             'Total nominal tagihan' => $runningTotal,
         ];
     }
+    public static function mapRowForExport(PurchaseDetail $detail, float $runningTotal): array
+    {
+        $purchase = $detail->purchase;
+
+        return [
+            'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+            'Tanggal'               => $purchase?->date ?? '-',
+            'Tipe transaksi'        => 'Faktur Pembelian',
+            'No. transaksi'         => $purchase?->reference ?? '-',
+            'Nama produk'           => $detail->product_name ?? '-',
+            'Keterangan'            => $purchase?->note ?? '-',
+            'Qty'                   => $detail->quantity ?? 0,
+            'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
+            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Nominal tagihan'       => $detail->sub_total ?? 0,
+            'Total nominal tagihan' => $runningTotal,
+        ];
+    }
 }
