@@ -37,12 +37,22 @@
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
-                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false" wire:loading.attr="disabled" wire:target="exportExcel,exportCsv">
                     <i class="bi bi-download"></i> Ekspor
                 </button>
                 <ul class="dropdown-menu">
-                    <li><button class="dropdown-item" wire:click="exportExcel">Excel</button></li>
-                    <li><button class="dropdown-item" wire:click="exportCsv">CSV</button></li>
+                    <li>
+                        <button class="dropdown-item" wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel">
+                            <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            Excel
+                        </button>
+                    </li>
+                    <li>
+                        <button class="dropdown-item" wire:click="exportCsv" wire:loading.attr="disabled" wire:target="exportCsv">
+                            <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            CSV
+                        </button>
+                    </li>
                 </ul>
             </div>
         </div>

@@ -3,22 +3,19 @@
 namespace App\Exports;
 
 use App\Services\Reports\PurchaseBySupplierReportFilterData;
-use App\Services\Reports\PurchaseBySupplierReportQueryService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Maatwebsite\Excel\Concerns\FromQuery;
+use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
-use Maatwebsite\Excel\Concerns\WithMapping;
+use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Events\AfterSheet;
-use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
-class PurchaseBySupplierReportExport implements FromQuery, WithHeadings, WithMapping, WithEvents
+class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEvents, WithColumnFormatting
 {
     private Builder $query;
     private PurchaseBySupplierReportFilterData $filterData;
     private bool $isCsv;
-    private array $runningTotals = [];
 
     public function __construct(Builder $query, PurchaseBySupplierReportFilterData $filterData, bool $isCsv = false)
     {
@@ -27,39 +24,95 @@ class PurchaseBySupplierReportExport implements FromQuery, WithHeadings, WithMap
         $this->isCsv = $isCsv;
     }
 
-    public function query()
+    public function array(): array
     {
-        return $this->query;
+        $rows = [];
+        $queryResults = $this->query->get();
+        $currentSupplierId = null;
+        $runningTotal = 0.0;
+        $prevSupplierName = '';
+        
+        foreach ($queryResults as $detail) {
+            $supplierId = $detail->purchase?->supplier_id ?? 0;
+            $supplierName = $detail->supplier_name ?: ($detail->purchase?->supplier?->supplier_name ?? '-');
+            
+            if ($supplierId !== $currentSupplierId) {
+                if ($currentSupplierId !== null) {
+                    // Subtotal row for previous supplier
+                    $rows[] = [
+                        '', '', '', '', '', '', '', '',
+                        $prevSupplierName . ' | Total Pembelian',
+                        $runningTotal,
+                    ];
+
+                    // 1 row gap for each supplier
+                    $rows[] = ['', '', '', '', '', '', '', '', '', ''];
+                }
+                
+                // Group Header row for NEW supplier
+                $rows[] = [
+                    $supplierName,
+                    '', '', '', '', '', '', '', '', ''
+                ];
+                
+                $currentSupplierId = $supplierId;
+                $prevSupplierName = $supplierName;
+                $runningTotal = 0.0;
+            }
+            
+            $subTotal = (float) ($detail->sub_total ?? 0);
+            $runningTotal += $subTotal;
+            $date = $detail->purchase?->date ? Carbon::parse($detail->purchase->date)->format('d/m/Y') : '-';
+            
+            $rows[] = [
+                $date,
+                'Faktur Pembelian',
+                $detail->purchase?->reference ?? '-',
+                $detail->product_name ?? '-',
+                $detail->purchase?->note ?? '-',
+                (float) ($detail->quantity ?? 0),
+                $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
+                (float) ($detail->unit_price ?? 0),
+                $subTotal,
+                null,
+            ];
+        }
+        
+        // Push subtotal for the very last supplier
+        if ($currentSupplierId !== null) {
+            $rows[] = [
+                '', '', '', '', '', '', '', '',
+                $prevSupplierName . ' | Total Pembelian',
+                $runningTotal,
+            ];
+        }
+        
+        return $rows;
     }
 
     public function headings(): array
     {
         return [
-            'Supplier',
-            'Tanggal',
-            'Tipe transaksi',
-            'No. transaksi',
-            'Nama produk',
+            'Supplier / Tanggal',
+            'Transaksi',
+            'No',
+            'Produk',
             'Keterangan',
-            'Qty',
-            'Unit',
-            'Harga per unit',
-            'Nominal tagihan',
-            'Total nominal tagihan',
+            'Kuantitas',
+            'Satuan',
+            'Harga Satuan',
+            'Jumlah Tagihan',
+            'Total',
         ];
     }
 
-    public function map($row): array
+    public function columnFormats(): array
     {
-        $supplierId = $row->purchase?->supplier_id ?? 0;
-        
-        if (!isset($this->runningTotals[$supplierId])) {
-            $this->runningTotals[$supplierId] = 0.0;
-        }
-        
-        $this->runningTotals[$supplierId] += (float) ($row->sub_total ?? 0);
-
-        return PurchaseBySupplierReportQueryService::mapRowForExport($row, $this->runningTotals[$supplierId]);
+        return [
+            'H' => '#,##0.00',
+            'I' => '#,##0.00',
+            'J' => '#,##0.00',
+        ];
     }
 
     public function registerEvents(): array
@@ -72,25 +125,44 @@ class PurchaseBySupplierReportExport implements FromQuery, WithHeadings, WithMap
             AfterSheet::class => function (AfterSheet $event) {
                 $sheet = $event->sheet->getDelegate();
                 
-                $sheet->insertNewRowBefore(1, 2);
+                $sheet->insertNewRowBefore(1, 5);
+
+                $setting = \Modules\Setting\Entities\Setting::find($this->filterData->scopeSettingId) 
+                           ?? \Modules\Setting\Entities\Setting::first();
+                $companyName = $setting ? $setting->company_name : 'COMPANY NAME';
 
                 $startDate = Carbon::parse($this->filterData->startDate)->format('d/m/Y');
                 $endDate = Carbon::parse($this->filterData->endDate)->format('d/m/Y');
-                $periodText = "Periode: {$startDate} - {$endDate}";
-
-                // Set title
-                $sheet->setCellValue('A1', 'LAPORAN PEMBELIAN PER SUPPLIER');
-                $sheet->mergeCells('A1:K1');
+                
+                // Row 1
+                $sheet->setCellValue('A1', $companyName);
+                $sheet->mergeCells('A1:J1');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
-                $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-
-                // Set period
-                $sheet->setCellValue('A2', $periodText);
-                $sheet->mergeCells('A2:K2');
-                $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-
-                // Bold headers
-                $sheet->getStyle('A3:K3')->getFont()->setBold(true);
+                
+                // Row 2
+                $sheet->setCellValue('A2', 'Pembelian per Supplier');
+                $sheet->mergeCells('A2:J2');
+                $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(12);
+                
+                // Row 3
+                $sheet->setCellValue('A3', "{$startDate} - {$endDate}");
+                $sheet->mergeCells('A3:J3');
+                
+                // Row 4
+                $sheet->setCellValue('A4', '(dalam IDR)');
+                $sheet->mergeCells('A4:J4');
+                
+                // Bold headers (now row 6)
+                $sheet->getStyle('A6:J6')->getFont()->setBold(true);
+                
+                // Bold group headers and subtotals
+                $highestRow = $sheet->getHighestRow();
+                for ($row = 7; $row <= $highestRow; $row++) {
+                    $bVal = $sheet->getCell("B{$row}")->getValue();
+                    if (empty($bVal)) {
+                        $sheet->getStyle("A{$row}:J{$row}")->getFont()->setBold(true);
+                    }
+                }
             },
         ];
     }

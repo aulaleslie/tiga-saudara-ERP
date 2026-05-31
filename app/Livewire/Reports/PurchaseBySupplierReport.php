@@ -262,16 +262,11 @@ class PurchaseBySupplierReport extends Component
         PurchaseBySupplierReportSnapshotService $snapshotService, 
         PurchaseBySupplierReportQueryService $queryService
     ) {
-        if (!$this->filterTriggered) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Terapkan filter terlebih dahulu sebelum mengekspor data.']);
-            return;
-        }
-
-        $filter = PurchaseBySupplierReportFilterData::fromArray($this->appliedFilters);
+        $filter = PurchaseBySupplierReportFilterData::fromArray($this->exportFilters());
         $filter->scopeSettingId = $this->settingId;
 
         if (!$snapshotService->isValidForExport($filter)) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah berubah. Silakan terapkan ulang filter sebelum mengekspor.']);
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan terapkan filter terlebih dahulu sebelum mengekspor data.']);
             return;
         }
 
@@ -287,16 +282,11 @@ class PurchaseBySupplierReport extends Component
         PurchaseBySupplierReportSnapshotService $snapshotService, 
         PurchaseBySupplierReportQueryService $queryService
     ) {
-        if (!$this->filterTriggered) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Terapkan filter terlebih dahulu sebelum mengekspor data.']);
-            return;
-        }
-
-        $filter = PurchaseBySupplierReportFilterData::fromArray($this->appliedFilters);
+        $filter = PurchaseBySupplierReportFilterData::fromArray($this->exportFilters());
         $filter->scopeSettingId = $this->settingId;
 
         if (!$snapshotService->isValidForExport($filter)) {
-            $this->dispatch('alert', ['type' => 'error', 'message' => 'Filter telah berubah. Silakan terapkan ulang filter sebelum mengekspor.']);
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan terapkan filter terlebih dahulu sebelum mengekspor data.']);
             return;
         }
 
