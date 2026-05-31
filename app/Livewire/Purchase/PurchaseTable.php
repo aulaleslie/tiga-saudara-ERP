@@ -2,9 +2,11 @@
 
 namespace App\Livewire\Purchase;
 
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Purchase\Entities\Purchase;
+use Carbon\Carbon;
 
 class PurchaseTable extends Component
 {
@@ -22,6 +24,9 @@ class PurchaseTable extends Component
     public $purchaseId = null;
     public $supplierId = null;
     public $showArchived = false;
+
+    public ?string $paymentStatusFilter = null;
+    public bool $overdueOnly = false;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
@@ -62,6 +67,25 @@ class PurchaseTable extends Component
         }
     }
 
+    #[On('purchase-filter')]
+    public function applyPurchaseFilter($type = null)
+    {
+        // Reset both filters initially
+        $this->paymentStatusFilter = null;
+        $this->overdueOnly = false;
+        
+        if ($type === 'unpaid') {
+            $this->paymentStatusFilter = 'UNPAID';
+        } elseif ($type === 'overdue') {
+            $this->paymentStatusFilter = 'UNPAID';
+            $this->overdueOnly = true;
+        } elseif ($type === 'paid') {
+            $this->paymentStatusFilter = 'PAID';
+        }
+        
+        $this->resetPage();
+    }
+
     public function render()
     {
         $query = ($this->showArchived ? Purchase::archived() : Purchase::query())
@@ -75,6 +99,13 @@ class PurchaseTable extends Component
             })
             ->when(! empty($this->supplierId), function ($q) {
                 $q->where('supplier_id', $this->supplierId);
+            })
+            ->when(! empty($this->paymentStatusFilter), function ($q) {
+                $q->where('payment_status', $this->paymentStatusFilter);
+            })
+            ->when($this->overdueOnly, function ($q) {
+                $q->where('due_date', '<', Carbon::today())
+                  ->where('due_amount', '>', 0);
             })
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {

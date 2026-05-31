@@ -27,6 +27,8 @@
                         @endcan
 
                         <hr>
+                        
+                        <livewire:purchase.purchase-summary-cards />
 
                         <div class="table-responsive" style="min-height: 300px;">
                             <livewire:purchase.purchase-table />

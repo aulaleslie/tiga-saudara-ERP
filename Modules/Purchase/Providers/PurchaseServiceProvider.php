@@ -89,6 +89,7 @@ class PurchaseServiceProvider extends ServiceProvider
     {
         \Livewire\Livewire::component('modules.purchase.modals.payment-term-quick-add-modal', \Modules\Purchase\Livewire\Modals\PaymentTermQuickAddModal::class);
         \Livewire\Livewire::component('modules.purchase.payment-term-search-dropdown', \Modules\Purchase\Livewire\PaymentTermSearchDropdown::class);
+        \Livewire\Livewire::component('purchase.purchase-summary-cards', \Modules\Purchase\Livewire\PurchaseSummaryCards::class);
     }
 
     /**
