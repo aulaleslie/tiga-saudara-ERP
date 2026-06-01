@@ -249,6 +249,30 @@ class SalesImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function sales_import_late_failures_do_not_leave_sale_or_payment_rows_behind(): void
+    {
+        Location::query()->delete();
+
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-PAY-011',
+                'pembayaran' => '111000',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('sales', ['imported_sales_reference_number' => 'INV-PAY-011']);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertTrue(
+            SalesImportRow::where('batch_id', $batch->id)
+                ->where('status', SalesImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
+    /** @test */
     public function duplicate_sales_imports_do_not_backfill_or_duplicate_payment_rows(): void
     {
         $firstBatch = $this->createImportBatch([

@@ -215,32 +215,31 @@ class SalesImportService
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
      * Uses product-name ownership only — tag and purchase-history fallback are ignored.
-     * Rules:
-     * 0. Daizu products: always use Daizu Kedelai.
-     * 1. Markers (*, TP): CV Tiga Nusa or CV Top IT.
-     * 2. No marker: Perdana.
-     */
-    public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
-    {
-        // Rule 0: Daizu products bypass all other rules
-        if ($this->isDaizuProduct($productName)) {
-            $daizuSetting = $this->getDaizuSetting();
-            if ($daizuSetting) {
-                return $daizuSetting;
+        // Check duplicate sale (same imported_sales_reference_number + setting_id)
+        $invoiceNo = $data['no_faktur'] ?? null;
+        if ($invoiceNo) {
+            $existingSale = Sale::where('imported_sales_reference_number', $invoiceNo)
+                ->where('setting_id', $setting->id)
+                ->first();
+
+            if ($existingSale) {
+                foreach ($rows as $row) {
+                    $row->update([
+                        'status' => SalesImportRow::STATUS_SKIPPED,
+                        'error_message' => "Skipped: Sale with invoice #{$invoiceNo} already exists (ID: {$existingSale->id})",
+                        'sale_id' => $existingSale->id,
+                    ]);
+                }
+                Log::info('[SalesImport] Skipped duplicate sale', [
+                    'batch_id' => $batch->id,
+                    'no_faktur' => $invoiceNo,
+                    'existing_sale_id' => $existingSale->id,
+                    'setting_id' => $setting->id,
+                    'rows_skipped' => count($rows),
+                ]);
+                return;
             }
         }
-
-        $parsed = $this->parseProductName($productName);
-        $marker = $parsed['marker'];
-
-        // Rule 1: Markers are absolute
-        if ($marker === 'asterisk') {
-            $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
-            if ($setting) return $setting;
-        }
-
-        if ($marker === 'tp') {
-            $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
             if ($setting) return $setting;
         }
 
@@ -731,13 +730,16 @@ class SalesImportService
         $totalProcessed = 0;
 
         foreach ($groupChunks as $chunkIndex => $groupChunk) {
-            // Process multiple invoice groups in ONE transaction
-            DB::transaction(function () use ($groupChunk, $batch, &$totalProcessed) {
-                foreach ($groupChunk as $groupKey => $groupRows) {
-                    $this->processInvoiceGroup($groupRows, $batch);
+            foreach ($groupChunk as $groupKey => $groupRows) {
+                try {
+                    DB::transaction(function () use ($groupRows, $batch) {
+                        $this->processInvoiceGroup($groupRows, $batch);
+                    });
                     $totalProcessed++;
+                } catch (\Exception $e) {
+                    $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
                 }
-            });
+            }
 
             // Log progress every 10 transaction batches (500 invoice groups)
             if (($chunkIndex + 1) % 10 === 0) {
@@ -938,9 +940,8 @@ class SalesImportService
             }
         }
 
-        try {
-            // Parse dates
-            $saleDate = $this->parseDate($data['tanggal']);
+        // Parse dates
+        $saleDate = $this->parseDate($data['tanggal']);
             
             $dueDateStr = isset($data['tanggal_jatuh_tempo']) ? trim($data['tanggal_jatuh_tempo']) : '';
             $dueDate = !empty($dueDateStr) 
@@ -1066,17 +1067,6 @@ class SalesImportService
                 $sale->syncTags($allTags);
             }
 
-            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
-                SalePayment::create([
-                    'sale_id' => $sale->id,
-                    'payment_method_id' => $cashPaymentMethod->id,
-                    'amount' => $paidAmount,
-                    'date' => $saleDate,
-                    'reference' => $sale->reference,
-                    'payment_method' => $cashPaymentMethod->name,
-                ]);
-            }
-
             // Get first location for this setting (use cache)
             $location = $this->locationsCache[$setting->id] ?? null;
             if (!$location) {
@@ -1120,6 +1110,17 @@ class SalesImportService
             // Note: Location resolution is now done inside dispatchSale per product
             $this->dispatchSale($sale, $details, $setting, $tag, $saleDate, $isDaizu, $data['gudang'] ?? null);
 
+            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
+                SalePayment::create([
+                    'sale_id' => $sale->id,
+                    'payment_method_id' => $cashPaymentMethod->id,
+                    'amount' => $paidAmount,
+                    'date' => $saleDate,
+                    'reference' => $sale->reference,
+                    'payment_method' => $cashPaymentMethod->name,
+                ]);
+            }
+
             // Update row statuses
             foreach ($details as $detail) {
                 $detail['row']->update([
@@ -1130,36 +1131,39 @@ class SalesImportService
                 $batch->increment('success_count');
             }
 
-            Log::info('[SalesImport] Created sale', [
-                'sale_id' => $sale->id,
-                'reference' => $sale->reference,
-                'setting_id' => $setting->id,
-                'location_id' => $location->id,
-                'details_count' => count($details),
+        Log::info('[SalesImport] Created sale', [
+            'sale_id' => $sale->id,
+            'reference' => $sale->reference,
+            'setting_id' => $setting->id,
+            'location_id' => $location->id,
+            'details_count' => count($details),
+        ]);
+    }
+
+    protected function markInvoiceGroupInvalid(array $rows, SalesImportBatch $batch, \Exception $e): void
+    {
+        $invoice = $rows[0]->raw_json['no_faktur'] ?? 'Unknown';
+
+        foreach ($rows as $row) {
+            $row->update([
+                'status' => SalesImportRow::STATUS_INVALID,
+                'error_message' => $e->getMessage(),
             ]);
-
-        } catch (\Exception $e) {
-            foreach ($rows as $row) {
-                $row->update([
-                    'status' => SalesImportRow::STATUS_INVALID,
-                    'error_message' => $e->getMessage(),
-                ]);
-                Log::warning('[SalesImport] Row error - exception', [
-                    'batch_id' => $batch->id,
-                    'row_id' => $row->id,
-                    'row_number' => $row->row_number,
-                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                    'error' => $e->getMessage(),
-                    'raw_data' => $row->raw_json,
-                ]);
-                $batch->increment('error_count');
-            }
-
-            Log::error('[SalesImport] Failed to process invoice group', [
-                'invoice' => $data['no_faktur'] ?? 'Unknown',
+            Log::warning('[SalesImport] Row error - exception', [
+                'batch_id' => $batch->id,
+                'row_id' => $row->id,
+                'row_number' => $row->row_number,
+                'no_faktur' => $invoice,
                 'error' => $e->getMessage(),
+                'raw_data' => $row->raw_json,
             ]);
+            $batch->increment('error_count');
         }
+
+        Log::error('[SalesImport] Failed to process invoice group', [
+            'invoice' => $invoice,
+            'error' => $e->getMessage(),
+        ]);
     }
 
     /**

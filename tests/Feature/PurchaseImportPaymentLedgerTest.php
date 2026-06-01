@@ -181,6 +181,37 @@ class PurchaseImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function purchase_import_accepts_exported_float_payment_fields_with_single_dot_decimals(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-PAY-004A',
+                'kuantitas' => '30',
+                'harga_satuan' => '4346846.846847',
+                'tarif_pajak' => '11.0',
+                'pembayaran' => '130405405.40541',
+                'sisa_tagihan_hari_ini' => '14344594.594595',
+                'sisa_tagihan' => '0.0',
+                'source_total' => '144750000.000005',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-PAY-004A')->firstOrFail();
+
+        $this->assertSame('PARTIAL', $purchase->payment_status);
+        $this->assertEquals(130405405.41, (float) $purchase->paid_amount);
+        $this->assertEquals(14344594.59, (float) $purchase->due_amount);
+        $this->assertCount(1, $purchase->purchasePayments);
+        $this->assertEquals(130405405.41, (float) $purchase->purchasePayments->first()->amount);
+        $this->assertDatabaseMissing('purchase_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => PurchaseImportRow::STATUS_INVALID,
+        ]);
+    }
+
+    /** @test */
     public function conflicting_purchase_payment_fields_or_non_reconciling_totals_invalidate_the_invoice_group(): void
     {
         $conflictBatch = $this->createImportBatch([
@@ -257,6 +288,30 @@ class PurchaseImportPaymentLedgerTest extends TestCase
 
         $this->assertDatabaseHas('purchases', ['supplier_purchase_number' => 'PO-PAY-009']);
         $this->assertDatabaseCount('purchase_payments', 0);
+    }
+
+    /** @test */
+    public function purchase_import_late_failures_do_not_leave_purchase_or_payment_rows_behind(): void
+    {
+        Location::query()->delete();
+
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-PAY-011',
+                'pembayaran' => '111000',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('purchases', ['supplier_purchase_number' => 'PO-PAY-011']);
+        $this->assertDatabaseCount('purchase_payments', 0);
+        $this->assertTrue(
+            PurchaseImportRow::where('batch_id', $batch->id)
+                ->where('status', PurchaseImportRow::STATUS_INVALID)
+                ->exists()
+        );
     }
 
     /** @test */

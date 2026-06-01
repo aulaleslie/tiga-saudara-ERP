@@ -128,6 +128,8 @@ class ImportPaymentSummaryResolver
 
         $lastComma = strrpos($normalized, ',');
         $lastDot = strrpos($normalized, '.');
+        $commaCount = substr_count($normalized, ',');
+        $dotCount = substr_count($normalized, '.');
 
         if ($lastComma !== false && $lastDot !== false) {
             if ($lastComma > $lastDot) {
@@ -137,14 +139,11 @@ class ImportPaymentSummaryResolver
                 $normalized = str_replace(',', '', $normalized);
             }
         } elseif ($lastComma !== false) {
-            $decimals = strlen($normalized) - $lastComma - 1;
-            $normalized = $decimals > 0 && $decimals <= 2
+            $normalized = $commaCount === 1
                 ? str_replace(',', '.', $normalized)
                 : str_replace(',', '', $normalized);
         } elseif ($lastDot !== false) {
-            $decimals = strlen($normalized) - $lastDot - 1;
-
-            if (! ($decimals > 0 && $decimals <= 2)) {
+            if ($dotCount !== 1) {
                 $normalized = str_replace('.', '', $normalized);
             }
         }

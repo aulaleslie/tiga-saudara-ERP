@@ -360,9 +360,13 @@ class PurchaseImportService
             $groups = $this->groupRowsByInvoiceAndTenant($rows);
 
             foreach ($groups as $groupKey => $groupRows) {
-                DB::transaction(function () use ($groupRows, $batch) {
-                    $this->processInvoiceGroup($groupRows, $batch);
-                });
+                try {
+                    DB::transaction(function () use ($groupRows, $batch) {
+                        $this->processInvoiceGroup($groupRows, $batch);
+                    });
+                } catch (\Exception $e) {
+                    $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                }
             }
 
             // Update batch status
@@ -430,12 +434,11 @@ class PurchaseImportService
         $firstRow = $rows[0];
         $data = $firstRow->raw_json;
 
-        try {
-            // Collect all distinct non-empty tags from every row in the group (rows may carry different tags)
-            $allTags = array_values(array_unique(array_filter(array_map(
-                fn($r) => trim($r->raw_json['tag'] ?? ''),
-                $rows
-            ))));
+        // Collect all distinct non-empty tags from every row in the group (rows may carry different tags)
+        $allTags = array_values(array_unique(array_filter(array_map(
+            fn($r) => trim($r->raw_json['tag'] ?? ''),
+            $rows
+        ))));
 
             // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
             $tag = $data['tag'] ?? null;
@@ -655,19 +658,6 @@ class PurchaseImportService
                 $purchase->syncTags($allTags);
             }
 
-            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
-                PurchasePayment::create([
-                    'purchase_id' => $purchase->id,
-                    'payment_method_id' => $cashPaymentMethod->id,
-                    'amount' => $paidAmount,
-                    'date' => $purchaseDate,
-                    'reference' => $purchase->reference,
-                    'payment_method' => $cashPaymentMethod->name,
-                ]);
-            }
-
-
-
             // Create purchase details and update stock
             foreach ($details as $detail) {
                 $purchaseDetail = PurchaseDetail::create([
@@ -772,8 +762,20 @@ class PurchaseImportService
                     'created_at' => $purchaseDate,
                     'updated_at' => $purchaseDate,
                 ]);
+            }
 
-                // Update row status
+            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
+                PurchasePayment::create([
+                    'purchase_id' => $purchase->id,
+                    'payment_method_id' => $cashPaymentMethod->id,
+                    'amount' => $paidAmount,
+                    'date' => $purchaseDate,
+                    'reference' => $purchase->reference,
+                    'payment_method' => $cashPaymentMethod->name,
+                ]);
+            }
+
+            foreach ($details as $detail) {
                 $detail['row']->update([
                     'status' => PurchaseImportRow::STATUS_PROCESSED,
                     'purchase_id' => $purchase->id,
@@ -789,29 +791,32 @@ class PurchaseImportService
                 'location_id' => $location->id,
                 'details_count' => count($details),
             ]);
+    }
 
-        } catch (\Exception $e) {
-            foreach ($rows as $row) {
-                $row->update([
-                    'status' => PurchaseImportRow::STATUS_INVALID,
-                    'error_message' => $e->getMessage(),
-                ]);
-                Log::warning('[PurchaseImport] Row error - exception', [
-                    'batch_id' => $batch->id,
-                    'row_id' => $row->id,
-                    'row_number' => $row->row_number,
-                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                    'error' => $e->getMessage(),
-                    'raw_data' => $row->raw_json,
-                ]);
-                $batch->increment('error_count');
-            }
+    protected function markInvoiceGroupInvalid(array $rows, PurchaseImportBatch $batch, \Exception $e): void
+    {
+        $invoice = $rows[0]->raw_json['no_faktur'] ?? 'Unknown';
 
-            Log::error('[PurchaseImport] Failed to process invoice group', [
-                'invoice' => $data['no_faktur'] ?? 'Unknown',
-                'error' => $e->getMessage(),
+        foreach ($rows as $row) {
+            $row->update([
+                'status' => PurchaseImportRow::STATUS_INVALID,
+                'error_message' => $e->getMessage(),
             ]);
+            Log::warning('[PurchaseImport] Row error - exception', [
+                'batch_id' => $batch->id,
+                'row_id' => $row->id,
+                'row_number' => $row->row_number,
+                'no_faktur' => $invoice,
+                'error' => $e->getMessage(),
+                'raw_data' => $row->raw_json,
+            ]);
+            $batch->increment('error_count');
         }
+
+        Log::error('[PurchaseImport] Failed to process invoice group', [
+            'invoice' => $invoice,
+            'error' => $e->getMessage(),
+        ]);
     }
 
     /**
