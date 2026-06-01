@@ -16,18 +16,20 @@ class ImportPaymentSummaryResolver
     {
         $calculatedDocumentTotal = round($calculatedDocumentTotal, 2);
 
-        $preferredOutstandingValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
-            $todayOutstanding = $this->parseMoney($row['sisa_tagihan_hari_ini'] ?? null);
+        $todayOutstandingValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['sisa_tagihan_hari_ini'] ?? null);
+        });
 
-            if ($todayOutstanding !== null) {
-                return $todayOutstanding;
-            }
+        if (count($todayOutstandingValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan Hari Ini.');
+        }
 
+        $sisaTagihanValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
             return $this->parseMoney($row['sisa_tagihan'] ?? null);
         });
 
-        if (count($preferredOutstandingValues) > 1) {
-            throw new \RuntimeException('Repeated payment fields do not match for preferred outstanding balance.');
+        if (count($sisaTagihanValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan.');
         }
 
         $paymentValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
@@ -46,9 +48,28 @@ class ImportPaymentSummaryResolver
             throw new \RuntimeException('Repeated payment fields do not match for Total.');
         }
 
-        $outstandingBalance = $preferredOutstandingValues[0] ?? 0.0;
+        $todayOutstanding = $todayOutstandingValues[0] ?? null;
+        $sisaTagihan = $sisaTagihanValues[0] ?? null;
         $explicitPaidAmount = $paymentValues[0] ?? null;
         $sourceTotal = $sourceTotalValues[0] ?? null;
+
+        // Prefer Sisa Tagihan Hari Ini, falling back to Sisa Tagihan. When an
+        // explicit Pembayaran is present, choose whichever candidate makes
+        // paid + outstanding reconcile with the document total (preferring
+        // today's outstanding on a tie). This handles old unpaid invoices that
+        // were later settled, where Sisa Tagihan Hari Ini is 0 but Sisa Tagihan
+        // still carries the original balance.
+        $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+
+        if ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+            $todayReconciles = abs(($explicitPaidAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
+            $sisaReconciles = abs(($explicitPaidAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
+
+            if (! $todayReconciles && $sisaReconciles) {
+                $outstandingBalance = $sisaTagihan;
+            }
+        }
+
         $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $outstandingBalance, 2);
         $paidAmount = round(max($paidAmount, 0), 2);
 
