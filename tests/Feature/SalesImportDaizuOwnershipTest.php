@@ -12,7 +12,9 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalesImportBatch;
 use Modules\Sale\Entities\SalesImportRow;
 use Modules\Sale\Services\SalesImportService;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -73,6 +75,20 @@ class SalesImportDaizuOwnershipTest extends TestCase
         $this->perdanaLocation = Location::create([
             'setting_id' => $this->perdanaSetting->id,
             'name' => 'Perdana Main Warehouse',
+        ]);
+
+        $cashCoa = ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->perdanaSetting->id,
+        ]);
+
+        PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
         ]);
     }
 
@@ -294,7 +310,7 @@ class SalesImportDaizuOwnershipTest extends TestCase
         $this->assertNotNull($sale);
         $this->assertTrue($sale->saleDispatches->count() > 0);
         $dispatch = $sale->saleDispatches->first();
-        $dispatchDetail = $dispatch->saleDetails->first();
+        $dispatchDetail = $dispatch->details->first();
         $this->assertEquals($altLocation->id, $dispatchDetail->location_id);
     }
 
@@ -314,7 +330,7 @@ class SalesImportDaizuOwnershipTest extends TestCase
         $this->assertNotNull($sale);
         $this->assertTrue($sale->saleDispatches->count() > 0);
         $dispatch = $sale->saleDispatches->first();
-        $dispatchDetail = $dispatch->saleDetails->first();
+        $dispatchDetail = $dispatch->details->first();
         $this->assertEquals($this->daizuLocation->id, $dispatchDetail->location_id);
     }
 
