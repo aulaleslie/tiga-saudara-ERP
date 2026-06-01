@@ -10,7 +10,9 @@ use Modules\Product\Entities\ProductPrice;
 use Modules\Purchase\Entities\PurchaseImportBatch;
 use Modules\Purchase\Entities\PurchaseImportRow;
 use Modules\Purchase\Services\PurchaseImportService;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -41,6 +43,20 @@ class PurchaseImportPriceSyncTest extends TestCase
 
         Location::create(['setting_id' => $this->settingA->id, 'name' => 'Gudang A']);
         Location::create(['setting_id' => $this->settingB->id, 'name' => 'Gudang B']);
+
+        $cashCoa = ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->settingA->id,
+        ]);
+
+        PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
 
         $this->service = new PurchaseImportService();
 

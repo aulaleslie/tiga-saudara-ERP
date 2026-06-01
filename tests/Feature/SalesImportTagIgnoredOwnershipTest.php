@@ -12,7 +12,9 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalesImportBatch;
 use Modules\Sale\Entities\SalesImportRow;
 use Modules\Sale\Services\SalesImportService;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -105,6 +107,20 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
         $this->topItLocation = Location::create([
             'setting_id' => $this->topItSetting->id,
             'name' => 'Top IT Warehouse',
+        ]);
+
+        $cashCoa = ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->perdanaSetting->id,
+        ]);
+
+        PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
         ]);
     }
 

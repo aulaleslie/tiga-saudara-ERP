@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Services;
 
+use App\Support\ImportPaymentSummaryResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,7 @@ use Modules\Product\Entities\Transaction;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalesImportBatch;
 use Modules\Sale\Entities\SalesImportRow;
@@ -24,6 +26,8 @@ use Modules\Setting\Entities\Location;
 
 class SalesImportService
 {
+    protected ImportPaymentSummaryResolver $paymentSummaryResolver;
+
     /**
      * Entity caches to avoid N+1 queries
      */
@@ -57,6 +61,11 @@ class SalesImportService
         'tp'       => 'CV TOP IT INTERNUSA',     // TP suffix
         'default'  => 'PERDANA',                 // no marker
     ];
+
+    public function __construct(?ImportPaymentSummaryResolver $paymentSummaryResolver = null)
+    {
+        $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
+    }
 
     /**
      * Parse product name and extract marker type.
@@ -1010,12 +1019,24 @@ class SalesImportService
                 ];
             }
 
-            // Calculate payment status from sisa_tagihan (outstanding balance)
             $totalWithTax = $totalAmount + $totalTaxAmount;
-            $sisaTagihan = (float) ($data['sisa_tagihan'] ?? 0);
-            $paymentStatus = $sisaTagihan > 0 ? 'Unpaid' : 'Paid';
-            $dueAmount = $sisaTagihan;
-            $paidAmount = $totalWithTax - $sisaTagihan;
+            $paymentSummary = $this->paymentSummaryResolver->resolve(
+                array_map(fn (SalesImportRow $row) => $row->raw_json, $rows),
+                $totalWithTax
+            );
+
+            $cashPaymentMethod = null;
+            if ($paymentSummary['needs_payment']) {
+                $cashPaymentMethod = $this->paymentSummaryResolver->resolveCashPaymentMethod();
+
+                if (! $cashPaymentMethod) {
+                    throw new \RuntimeException('Cash payment method is required for paid imports.');
+                }
+            }
+
+            $dueAmount = round($paymentSummary['outstanding_balance'], 2);
+            $paidAmount = round($paymentSummary['paid_amount'], 2);
+            $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($paidAmount > 0.01 ? 'Partial' : 'Unpaid');
 
             // Create sale
             $sale = new Sale();
@@ -1033,7 +1054,7 @@ class SalesImportService
             $sale->due_amount = $dueAmount;
             $sale->status = Sale::STATUS_DISPATCHED;
             $sale->payment_status = $paymentStatus;
-            $sale->payment_method = $paymentStatus === 'Paid' ? 'Cash' : '';
+            $sale->payment_method = $cashPaymentMethod?->name ?? '';
             $sale->setting_id = $setting->id;
             $sale->imported_sales_reference_number = $data['no_faktur'] ?? null;
             $sale->note = $data['memo'] ?? null;
@@ -1043,6 +1064,17 @@ class SalesImportService
             // Sync all distinct tags from every row in the group
             if (!empty($allTags)) {
                 $sale->syncTags($allTags);
+            }
+
+            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
+                SalePayment::create([
+                    'sale_id' => $sale->id,
+                    'payment_method_id' => $cashPaymentMethod->id,
+                    'amount' => $paidAmount,
+                    'date' => $saleDate,
+                    'reference' => $sale->reference,
+                    'payment_method' => $cashPaymentMethod->name,
+                ]);
             }
 
             // Get first location for this setting (use cache)
@@ -1336,11 +1368,13 @@ class SalesImportService
             'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
             'due date' => 'tanggal_jatuh_tempo',
             // Outstanding balance
-            'sisa tagihan hari ini' => 'sisa_tagihan',
+            'sisa tagihan hari ini' => 'sisa_tagihan_hari_ini',
             'sisa tagihan' => 'sisa_tagihan',
             // Payment amount
             'pembayaran' => 'pembayaran',
             'payment' => 'pembayaran',
+            // Source document total
+            'total' => 'source_total',
             // Shipping
             'biaya pengiriman' => 'biaya_pengiriman',
             'shipping' => 'biaya_pengiriman',
@@ -1396,8 +1430,10 @@ class SalesImportService
             'deskripsi' => $get('deskripsi'),
             'memo' => $get('memo'),
             'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
-            'sisa_tagihan' => $get('sisa_tagihan') ?: '0',
-            'pembayaran' => $get('pembayaran') ?: '0',
+            'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
+            'sisa_tagihan' => $get('sisa_tagihan'),
+            'pembayaran' => $get('pembayaran'),
+            'source_total' => $get('source_total'),
             'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
             'nama_perusahaan' => $get('nama_perusahaan'),
             'nomor_telepon' => $get('nomor_telepon'),

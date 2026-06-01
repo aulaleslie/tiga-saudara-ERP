@@ -12,7 +12,9 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalesImportBatch;
 use Modules\Sale\Entities\SalesImportRow;
 use Modules\Sale\Services\SalesImportService;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Tests\TestCase;
@@ -44,6 +46,20 @@ class SalesImportPriceSyncTest extends TestCase
 
         Location::create(['setting_id' => $this->settingA->id, 'name' => 'Gudang A']);
         Location::create(['setting_id' => $this->settingB->id, 'name' => 'Gudang B']);
+
+        $cashCoa = ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->settingA->id,
+        ]);
+
+        PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
 
         $this->service = new SalesImportService();
 

@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Services;
 
+use App\Support\ImportPaymentSummaryResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,7 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\PurchaseImportBatch;
 use Modules\Purchase\Entities\PurchaseImportRow;
+use Modules\Purchase\Entities\PurchasePayment;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
@@ -23,6 +25,8 @@ use Modules\Purchase\Entities\PaymentTerm;
 
 class PurchaseImportService
 {
+    protected ImportPaymentSummaryResolver $paymentSummaryResolver;
+
     /**
      * Tag-based tenant mapping (Priority 1).
      * Maps Tag column values to company names.
@@ -44,6 +48,11 @@ class PurchaseImportService
         'tp'       => 'CV TOP IT INTERNUSA',     // TP suffix
         'default'  => 'PERDANA',                 // no marker
     ];
+
+    public function __construct(?ImportPaymentSummaryResolver $paymentSummaryResolver = null)
+    {
+        $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
+    }
 
     /**
      * Normalize product name for Daizu detection.
@@ -597,12 +606,24 @@ class PurchaseImportService
             // Find payment term with longevity = 0 (immediate payment)
             $paymentTerm = PaymentTerm::where('longevity', 0)->first();
 
-            // Calculate payment status from sisa_tagihan (outstanding balance)
             $totalWithTax = $totalAmount + $totalTaxAmount;
-            $sisaTagihan = (float) ($data['sisa_tagihan'] ?? 0);
-            $paymentStatus = $sisaTagihan > 0 ? 'UNPAID' : 'PAID';
-            $dueAmount = $sisaTagihan;
-            $paidAmount = $totalWithTax - $sisaTagihan;
+            $paymentSummary = $this->paymentSummaryResolver->resolve(
+                array_map(fn (PurchaseImportRow $row) => $row->raw_json, $rows),
+                $totalWithTax
+            );
+
+            $cashPaymentMethod = null;
+            if ($paymentSummary['needs_payment']) {
+                $cashPaymentMethod = $this->paymentSummaryResolver->resolveCashPaymentMethod();
+
+                if (! $cashPaymentMethod) {
+                    throw new \RuntimeException('Cash payment method is required for paid imports.');
+                }
+            }
+
+            $dueAmount = round($paymentSummary['outstanding_balance'], 2);
+            $paidAmount = round($paymentSummary['paid_amount'], 2);
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
 
             // Create purchase
             $purchase = new Purchase();
@@ -621,7 +642,7 @@ class PurchaseImportService
             $purchase->due_amount = $dueAmount;
             $purchase->status = Purchase::STATUS_RECEIVED;
             $purchase->payment_status = $paymentStatus;
-            $purchase->payment_method = $paymentStatus === 'PAID' ? 'Cash' : '';
+            $purchase->payment_method = $cashPaymentMethod?->name ?? '';
             $purchase->setting_id = $setting->id;
             $purchase->supplier_purchase_number = $data['no_faktur'] ?? null;
             $purchase->note = $data['memo'] ?? null;
@@ -632,6 +653,17 @@ class PurchaseImportService
             // Sync all distinct tags from every row in the group
             if (!empty($allTags)) {
                 $purchase->syncTags($allTags);
+            }
+
+            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
+                PurchasePayment::create([
+                    'purchase_id' => $purchase->id,
+                    'payment_method_id' => $cashPaymentMethod->id,
+                    'amount' => $paidAmount,
+                    'date' => $purchaseDate,
+                    'reference' => $purchase->reference,
+                    'payment_method' => $cashPaymentMethod->name,
+                ]);
             }
 
 

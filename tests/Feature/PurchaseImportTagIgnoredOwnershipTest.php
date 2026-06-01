@@ -10,7 +10,9 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseImportBatch;
 use Modules\Purchase\Entities\PurchaseImportRow;
 use Modules\Purchase\Services\PurchaseImportService;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -103,6 +105,20 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $this->topItLocation = Location::create([
             'setting_id' => $this->topItSetting->id,
             'name' => 'Top IT Warehouse',
+        ]);
+
+        $cashCoa = ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->perdanaSetting->id,
+        ]);
+
+        PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
         ]);
     }
 

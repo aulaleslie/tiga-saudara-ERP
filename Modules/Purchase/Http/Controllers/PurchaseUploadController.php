@@ -238,10 +238,13 @@ class PurchaseUploadController extends Controller
             'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
             'due date' => 'tanggal_jatuh_tempo',
             // Outstanding balance
-            'sisa tagihan hari ini' => 'sisa_tagihan',
+            'sisa tagihan hari ini' => 'sisa_tagihan_hari_ini',
+            'sisa tagihan' => 'sisa_tagihan',
             // Payment amount
             'pembayaran' => 'pembayaran',
             'payment' => 'pembayaran',
+            // Source document total
+            'total' => 'source_total',
             // Shipping
             'biaya pengiriman' => 'biaya_pengiriman',
             'shipping' => 'biaya_pengiriman',
@@ -296,8 +299,10 @@ class PurchaseUploadController extends Controller
             'deskripsi' => $get('deskripsi'),
             'memo' => $get('memo'),
             'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
-            'sisa_tagihan' => $get('sisa_tagihan') ?: '0',
-            'pembayaran' => $get('pembayaran') ?: '0',
+            'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
+            'sisa_tagihan' => $get('sisa_tagihan'),
+            'pembayaran' => $get('pembayaran'),
+            'source_total' => $get('source_total'),
             'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
             'nama_perusahaan' => $get('nama_perusahaan'),
             'nomor_pajak' => $get('nomor_pajak'),
