@@ -212,6 +212,167 @@ class PurchaseImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function purchase_import_preserves_existing_line_discount_behavior_separately_from_document_discount(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-LINE-DISC-001',
+                'diskon_persen' => '10',
+                'pembayaran' => '99900',
+                'sisa_tagihan' => '0',
+                'source_total' => '99900',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-LINE-DISC-001')
+            ->with('purchaseDetails')
+            ->firstOrFail();
+
+        $this->assertEquals(0.0, (float) $purchase->discount_amount);
+        $this->assertCount(1, $purchase->purchaseDetails);
+        $this->assertEquals(10000.0, (float) $purchase->purchaseDetails->first()->product_discount_amount);
+        $this->assertSame('PERCENTAGE', $purchase->purchaseDetails->first()->product_discount_type);
+    }
+
+    /** @test */
+    public function purchase_import_applies_repeated_document_discount_once_and_ignores_discount_percent_for_reconciliation(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'ONLINE SBY / INV/2026/002725',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '15000',
+                'diskon_document_persen' => '7.26',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'ONLINE SBY / INV/2026/002725',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '15000',
+                'diskon_document_persen' => '7.26',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'ONLINE SBY / INV/2026/002725')->firstOrFail();
+
+        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertEquals(207000.0, (float) $purchase->total_amount);
+        $this->assertEquals(15000.0, (float) $purchase->discount_amount);
+        $this->assertEquals(0.0, (float) $purchase->discount_percentage);
+        $this->assertEquals(207000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(0.0, (float) $purchase->due_amount);
+        $this->assertCount(1, $purchase->purchasePayments);
+        $this->assertEquals(207000.0, (float) $purchase->purchasePayments->first()->amount);
+        $this->assertDatabaseMissing('purchase_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => PurchaseImportRow::STATUS_INVALID,
+        ]);
+    }
+
+    /** @test */
+    public function purchase_import_applies_repeated_shipping_once_per_invoice_group(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-001',
+                'produk' => 'TEST PRODUCT A',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-001',
+                'produk' => 'TEST PRODUCT B',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-SHIP-001')->firstOrFail();
+
+        $this->assertEquals(116000.0, (float) $purchase->total_amount);
+        $this->assertEquals(5000.0, (float) $purchase->shipping_amount);
+        $this->assertEquals(116000.0, (float) $purchase->paid_amount);
+        $this->assertCount(1, $purchase->purchasePayments);
+    }
+
+    /** @test */
+    public function conflicting_repeated_purchase_discount_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-DISC-CONFLICT-001',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '15000',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'PO-DISC-CONFLICT-001',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '10000',
+                'source_total' => '212000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('purchases', ['supplier_purchase_number' => 'PO-DISC-CONFLICT-001']);
+        $this->assertDatabaseCount('purchase_payments', 0);
+        $this->assertTrue(
+            PurchaseImportRow::where('batch_id', $batch->id)
+                ->where('status', PurchaseImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
+    /** @test */
+    public function conflicting_repeated_purchase_shipping_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-CONFLICT-001',
+                'produk' => 'TEST PRODUCT A',
+                'biaya_pengiriman' => '5000',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-CONFLICT-001',
+                'produk' => 'TEST PRODUCT B',
+                'biaya_pengiriman' => '7000',
+                'source_total' => '118000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('purchases', ['supplier_purchase_number' => 'PO-SHIP-CONFLICT-001']);
+        $this->assertDatabaseCount('purchase_payments', 0);
+        $this->assertTrue(
+            PurchaseImportRow::where('batch_id', $batch->id)
+                ->where('status', PurchaseImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
+    /** @test */
     public function conflicting_purchase_payment_fields_or_non_reconciling_totals_invalidate_the_invoice_group(): void
     {
         $conflictBatch = $this->createImportBatch([

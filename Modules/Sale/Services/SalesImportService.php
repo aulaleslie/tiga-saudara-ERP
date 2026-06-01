@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Services;
 
+use App\Support\ImportDocumentAdjustmentResolver;
 use App\Support\ImportPaymentSummaryResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -26,6 +27,8 @@ use Modules\Setting\Entities\Location;
 
 class SalesImportService
 {
+    protected ImportDocumentAdjustmentResolver $documentAdjustmentResolver;
+
     protected ImportPaymentSummaryResolver $paymentSummaryResolver;
 
     /**
@@ -62,9 +65,13 @@ class SalesImportService
         'default'  => 'PERDANA',                 // no marker
     ];
 
-    public function __construct(?ImportPaymentSummaryResolver $paymentSummaryResolver = null)
+    public function __construct(
+        ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
+        ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null
+    )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
+        $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
     }
 
     /**
@@ -962,6 +969,10 @@ class SalesImportService
                 $data['nomor_telepon'] ?? null
             );
 
+            $documentRows = array_map(fn (SalesImportRow $row) => $row->raw_json, $rows);
+            $documentDiscount = $this->documentAdjustmentResolver->resolve($documentRows, 'diskon', 'Diskon');
+            $documentShipping = $this->documentAdjustmentResolver->resolve($documentRows, 'biaya_pengiriman', 'Biaya Pengiriman');
+
             // Calculate totals
             $totalAmount = 0;
             $totalTaxAmount = 0;
@@ -1028,9 +1039,10 @@ class SalesImportService
             }
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
+            $adjustedTotalWithTax = round($totalWithTax - $documentDiscount + $documentShipping, 2);
             $paymentSummary = $this->paymentSummaryResolver->resolve(
-                array_map(fn (SalesImportRow $row) => $row->raw_json, $rows),
-                $totalWithTax
+                $documentRows,
+                $adjustedTotalWithTax
             );
 
             $cashPaymentMethod = null;
@@ -1052,12 +1064,12 @@ class SalesImportService
             $sale->due_date = $dueDate;
             $sale->customer_id = $customer->id;
             $sale->customer_name = $customer->customer_name;
-            $sale->total_amount = $totalWithTax;
+            $sale->total_amount = $adjustedTotalWithTax;
             $sale->tax_amount = $totalTaxAmount;
             $sale->tax_percentage = $totalAmount > 0 ? round(($totalTaxAmount / $totalAmount) * 100) : 0;
             $sale->discount_percentage = 0;
-            $sale->discount_amount = 0;
-            $sale->shipping_amount = (float) ($data['biaya_pengiriman'] ?? 0);
+            $sale->discount_amount = $documentDiscount;
+            $sale->shipping_amount = $documentShipping;
             $sale->paid_amount = $paidAmount;
             $sale->due_amount = $dueAmount;
             $sale->status = Sale::STATUS_DISPATCHED;
@@ -1396,6 +1408,8 @@ class SalesImportService
             'nomor telepon' => 'nomor_telepon',
             'phone' => 'nomor_telepon',
             // Discount
+            'diskon' => 'diskon',
+            'diskon %' => 'diskon_document_persen',
             'diskon per baris %' => 'diskon_persen',
             // Location/warehouse
             'gudang' => 'gudang',
@@ -1448,6 +1462,8 @@ class SalesImportService
             'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
             'nama_perusahaan' => $get('nama_perusahaan'),
             'nomor_telepon' => $get('nomor_telepon'),
+            'diskon' => $get('diskon') ?: '0',
+            'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
             'diskon_persen' => $get('diskon_persen') ?: '0',
             'gudang' => $get('gudang'),
         ];

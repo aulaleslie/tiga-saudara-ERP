@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Services;
 
+use App\Support\ImportDocumentAdjustmentResolver;
 use App\Support\ImportPaymentSummaryResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -25,6 +26,8 @@ use Modules\Purchase\Entities\PaymentTerm;
 
 class PurchaseImportService
 {
+    protected ImportDocumentAdjustmentResolver $documentAdjustmentResolver;
+
     protected ImportPaymentSummaryResolver $paymentSummaryResolver;
 
     /**
@@ -49,9 +52,13 @@ class PurchaseImportService
         'default'  => 'PERDANA',                 // no marker
     ];
 
-    public function __construct(?ImportPaymentSummaryResolver $paymentSummaryResolver = null)
+    public function __construct(
+        ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
+        ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null
+    )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
+        $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
     }
 
     /**
@@ -526,6 +533,10 @@ class PurchaseImportService
                 $data['nomor_telepon'] ?? null
             );
 
+            $documentRows = array_map(fn (PurchaseImportRow $row) => $row->raw_json, $rows);
+            $documentDiscount = $this->documentAdjustmentResolver->resolve($documentRows, 'diskon', 'Diskon');
+            $documentShipping = $this->documentAdjustmentResolver->resolve($documentRows, 'biaya_pengiriman', 'Biaya Pengiriman');
+
             // Calculate totals
             $totalAmount = 0;
             $totalTaxAmount = 0;
@@ -610,9 +621,10 @@ class PurchaseImportService
             $paymentTerm = PaymentTerm::where('longevity', 0)->first();
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
+            $adjustedTotalWithTax = round($totalWithTax - $documentDiscount + $documentShipping, 2);
             $paymentSummary = $this->paymentSummaryResolver->resolve(
-                array_map(fn (PurchaseImportRow $row) => $row->raw_json, $rows),
-                $totalWithTax
+                $documentRows,
+                $adjustedTotalWithTax
             );
 
             $cashPaymentMethod = null;
@@ -635,12 +647,12 @@ class PurchaseImportService
             $purchase->reference = $reference;
             $purchase->supplier_id = $supplier->id;
             $purchase->payment_term_id = $paymentTerm?->id;
-            $purchase->total_amount = $totalWithTax;
+            $purchase->total_amount = $adjustedTotalWithTax;
             $purchase->tax_amount = $totalTaxAmount;
             $purchase->tax_percentage = $totalAmount > 0 ? round(($totalTaxAmount / $totalAmount) * 100) : 0;
             $purchase->discount_percentage = 0;
-            $purchase->discount_amount = 0;
-            $purchase->shipping_amount = (float) ($data['biaya_pengiriman'] ?? 0);
+            $purchase->discount_amount = $documentDiscount;
+            $purchase->shipping_amount = $documentShipping;
             $purchase->paid_amount = $paidAmount;
             $purchase->due_amount = $dueAmount;
             $purchase->status = Purchase::STATUS_RECEIVED;

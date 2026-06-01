@@ -170,6 +170,144 @@ class SalesImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function sales_import_applies_repeated_document_discount_once_and_ignores_discount_percent_for_reconciliation(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'JL.2021.17756',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '15000',
+                'diskon_document_persen' => '7.26',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'JL.2021.17756',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '15000',
+                'diskon_document_persen' => '7.26',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'JL.2021.17756')->firstOrFail();
+
+        $this->assertSame('PAID', $sale->payment_status);
+        $this->assertEquals(207000.0, (float) $sale->total_amount);
+        $this->assertEquals(15000.0, (float) $sale->discount_amount);
+        $this->assertEquals(0.0, (float) $sale->discount_percentage);
+        $this->assertEquals(207000.0, (float) $sale->paid_amount);
+        $this->assertEquals(0.0, (float) $sale->due_amount);
+        $this->assertCount(1, $sale->salePayments);
+        $this->assertEquals(207000.0, (float) $sale->salePayments->first()->amount);
+        $this->assertCount(2, $sale->saleDetails);
+        $this->assertEquals(0.0, (float) $sale->saleDetails->first()->product_discount_amount);
+        $this->assertDatabaseMissing('sales_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => SalesImportRow::STATUS_INVALID,
+        ]);
+    }
+
+    /** @test */
+    public function sales_import_applies_repeated_shipping_once_per_invoice_group(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-001',
+                'produk' => 'TEST PRODUCT A',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-001',
+                'produk' => 'TEST PRODUCT B',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'INV-SHIP-001')->firstOrFail();
+
+        $this->assertEquals(116000.0, (float) $sale->total_amount);
+        $this->assertEquals(5000.0, (float) $sale->shipping_amount);
+        $this->assertEquals(116000.0, (float) $sale->paid_amount);
+        $this->assertCount(1, $sale->salePayments);
+    }
+
+    /** @test */
+    public function conflicting_repeated_sales_discount_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-DISC-CONFLICT-001',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '15000',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-DISC-CONFLICT-001',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '10000',
+                'source_total' => '212000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('sales', ['imported_sales_reference_number' => 'INV-DISC-CONFLICT-001']);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertTrue(
+            SalesImportRow::where('batch_id', $batch->id)
+                ->where('status', SalesImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
+    /** @test */
+    public function conflicting_repeated_sales_shipping_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-CONFLICT-001',
+                'produk' => 'TEST PRODUCT A',
+                'biaya_pengiriman' => '5000',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-CONFLICT-001',
+                'produk' => 'TEST PRODUCT B',
+                'biaya_pengiriman' => '7000',
+                'source_total' => '118000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('sales', ['imported_sales_reference_number' => 'INV-SHIP-CONFLICT-001']);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertTrue(
+            SalesImportRow::where('batch_id', $batch->id)
+                ->where('status', SalesImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
+    /** @test */
     public function conflicting_sales_payment_fields_or_non_reconciling_totals_invalidate_the_invoice_group(): void
     {
         $conflictBatch = $this->createImportBatch([

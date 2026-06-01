@@ -257,6 +257,8 @@ class PurchaseUploadController extends Controller
             'nomor telepon' => 'nomor_telepon',
             'phone' => 'nomor_telepon',
             // Discount
+            'diskon' => 'diskon',
+            'diskon %' => 'diskon_document_persen',
             'diskon per baris %' => 'diskon_persen',
         ];
 
@@ -307,6 +309,8 @@ class PurchaseUploadController extends Controller
             'nama_perusahaan' => $get('nama_perusahaan'),
             'nomor_pajak' => $get('nomor_pajak'),
             'nomor_telepon' => $get('nomor_telepon'),
+            'diskon' => $get('diskon') ?: '0',
+            'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
             'diskon_persen' => $get('diskon_persen') ?: '0',
         ];
     }
