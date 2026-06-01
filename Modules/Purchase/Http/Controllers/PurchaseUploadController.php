@@ -305,11 +305,11 @@ class PurchaseUploadController extends Controller
             'sisa_tagihan' => $get('sisa_tagihan'),
             'pembayaran' => $get('pembayaran'),
             'source_total' => $get('source_total'),
-            'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
+            'biaya_pengiriman' => $get('biaya_pengiriman'),
             'nama_perusahaan' => $get('nama_perusahaan'),
             'nomor_pajak' => $get('nomor_pajak'),
             'nomor_telepon' => $get('nomor_telepon'),
-            'diskon' => $get('diskon') ?: '0',
+            'diskon' => $get('diskon'),
             'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
             'diskon_persen' => $get('diskon_persen') ?: '0',
         ];

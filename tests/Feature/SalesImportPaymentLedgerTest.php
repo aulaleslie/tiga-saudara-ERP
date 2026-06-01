@@ -279,6 +279,41 @@ class SalesImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function blank_sales_document_discount_rows_do_not_conflict_with_repeated_non_blank_values(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-DISC-BLANK-001',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-DISC-BLANK-001',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '15000',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'INV-DISC-BLANK-001')->firstOrFail();
+
+        $this->assertSame('PAID', $sale->payment_status);
+        $this->assertEquals(15000.0, (float) $sale->discount_amount);
+        $this->assertEquals(207000.0, (float) $sale->total_amount);
+        $this->assertDatabaseMissing('sales_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => SalesImportRow::STATUS_INVALID,
+        ]);
+    }
+
+    /** @test */
     public function conflicting_repeated_sales_shipping_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
     {
         $batch = $this->createImportBatch([
@@ -305,6 +340,45 @@ class SalesImportPaymentLedgerTest extends TestCase
                 ->where('status', SalesImportRow::STATUS_INVALID)
                 ->exists()
         );
+    }
+
+    /** @test */
+    public function blank_sales_shipping_rows_do_not_conflict_with_repeated_non_blank_values(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-BLANK-001',
+                'produk' => 'TEST PRODUCT A',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-SHIP-BLANK-001',
+                'produk' => 'TEST PRODUCT B',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'INV-SHIP-BLANK-001')->firstOrFail();
+
+        $this->assertSame('PAID', $sale->payment_status);
+        $this->assertEquals(5000.0, (float) $sale->shipping_amount);
+        $this->assertEquals(116000.0, (float) $sale->total_amount);
+        $this->assertDatabaseMissing('sales_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => SalesImportRow::STATUS_INVALID,
+        ]);
     }
 
     /** @test */

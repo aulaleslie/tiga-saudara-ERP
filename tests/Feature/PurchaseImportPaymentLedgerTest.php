@@ -344,6 +344,41 @@ class PurchaseImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function blank_purchase_document_discount_rows_do_not_conflict_with_repeated_non_blank_values(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-DISC-BLANK-001',
+                'produk' => 'TEST PRODUCT A',
+                'diskon' => '',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'PO-DISC-BLANK-001',
+                'produk' => 'TEST PRODUCT B',
+                'diskon' => '15000',
+                'pembayaran' => '207000',
+                'sisa_tagihan' => '0',
+                'source_total' => '207000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-DISC-BLANK-001')->firstOrFail();
+
+        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertEquals(15000.0, (float) $purchase->discount_amount);
+        $this->assertEquals(207000.0, (float) $purchase->total_amount);
+        $this->assertDatabaseMissing('purchase_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => PurchaseImportRow::STATUS_INVALID,
+        ]);
+    }
+
+    /** @test */
     public function conflicting_repeated_purchase_shipping_values_invalidate_the_invoice_group_without_creating_documents_or_payments(): void
     {
         $batch = $this->createImportBatch([
@@ -370,6 +405,45 @@ class PurchaseImportPaymentLedgerTest extends TestCase
                 ->where('status', PurchaseImportRow::STATUS_INVALID)
                 ->exists()
         );
+    }
+
+    /** @test */
+    public function blank_purchase_shipping_rows_do_not_conflict_with_repeated_non_blank_values(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-BLANK-001',
+                'produk' => 'TEST PRODUCT A',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'PO-SHIP-BLANK-001',
+                'produk' => 'TEST PRODUCT B',
+                'harga_satuan' => '50000',
+                'pajak' => '5500',
+                'biaya_pengiriman' => '5000',
+                'pembayaran' => '116000',
+                'sisa_tagihan' => '0',
+                'source_total' => '116000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-SHIP-BLANK-001')->firstOrFail();
+
+        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertEquals(5000.0, (float) $purchase->shipping_amount);
+        $this->assertEquals(116000.0, (float) $purchase->total_amount);
+        $this->assertDatabaseMissing('purchase_import_rows', [
+            'batch_id' => $batch->id,
+            'status' => PurchaseImportRow::STATUS_INVALID,
+        ]);
     }
 
     /** @test */

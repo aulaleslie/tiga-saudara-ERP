@@ -104,6 +104,54 @@ class ImportDocumentAdjustmentMappingTest extends TestCase
         $this->assertSame('5000', $mapped['biaya_pengiriman']);
     }
 
+    /** @test */
+    public function upload_and_stage_mappings_preserve_blank_document_adjustments_instead_of_coercing_them_to_zero(): void
+    {
+        $purchaseController = new PurchaseUploadController(new PurchaseImportService());
+        $salesController = new SalesUploadController(new SalesImportService());
+
+        $headers = ['Diskon', 'Biaya Pengiriman'];
+
+        $purchaseNormalized = $this->invokeMethod($purchaseController, 'normalizeHeaders', [$headers]);
+        $salesNormalized = $this->invokeMethod($salesController, 'normalizeHeaders', [$headers]);
+
+        $purchaseMapped = $this->invokeMethod($purchaseController, 'mapCsvRow', [[
+            'Diskon' => '',
+            'Biaya Pengiriman' => '',
+        ], $purchaseNormalized, $headers]);
+        $salesMapped = $this->invokeMethod($salesController, 'mapCsvRow', [[
+            'Diskon' => '',
+            'Biaya Pengiriman' => '',
+        ], $salesNormalized, $headers]);
+
+        $purchaseStageJob = new StagePurchaseImportRows(1, [
+            'diskon' => 'Diskon',
+            'biaya_pengiriman' => 'Biaya Pengiriman',
+        ], [], ',');
+        $salesStageJob = new StageSalesImportRows(1, [
+            'diskon' => 'Diskon',
+            'biaya_pengiriman' => 'Biaya Pengiriman',
+        ], [], ',');
+
+        $purchaseStaged = $this->invokeMethod($purchaseStageJob, 'mapCsvRow', [[
+            'Diskon' => '',
+            'Biaya Pengiriman' => '',
+        ]]);
+        $salesStaged = $this->invokeMethod($salesStageJob, 'mapCsvRow', [[
+            'Diskon' => '',
+            'Biaya Pengiriman' => '',
+        ]]);
+
+        $this->assertSame('', $purchaseMapped['diskon']);
+        $this->assertSame('', $purchaseMapped['biaya_pengiriman']);
+        $this->assertSame('', $salesMapped['diskon']);
+        $this->assertSame('', $salesMapped['biaya_pengiriman']);
+        $this->assertSame('', $purchaseStaged['diskon']);
+        $this->assertSame('', $purchaseStaged['biaya_pengiriman']);
+        $this->assertSame('', $salesStaged['diskon']);
+        $this->assertSame('', $salesStaged['biaya_pengiriman']);
+    }
+
     private function invokeMethod(object $target, string $method, array $arguments = []): mixed
     {
         $reflection = new \ReflectionMethod($target, $method);
