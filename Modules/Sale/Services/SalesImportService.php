@@ -215,32 +215,39 @@ class SalesImportService
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
      * Uses product-name ownership only — tag and purchase-history fallback are ignored.
-        // Check duplicate sale (same imported_sales_reference_number + setting_id)
-        $invoiceNo = $data['no_faktur'] ?? null;
-        if ($invoiceNo) {
-            $existingSale = Sale::where('imported_sales_reference_number', $invoiceNo)
-                ->where('setting_id', $setting->id)
-                ->first();
+     * Rules:
+     * 0. Daizu products: always use Daizu Kedelai.
+     * 1. Markers (*, TP): CV Tiga Nusa or CV Top IT.
+     * 2. No marker: Perdana.
+     */
+    public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
+    {
+        // Rule 0: Daizu products always route to Daizu, fail explicitly if missing
+        if ($this->isDaizuProduct($productName)) {
+            $daizuSetting = $this->getDaizuSetting();
+            if (!$daizuSetting) {
+                throw new \Exception("Daizu Kedelai setting not found for product: {$productName}");
+            }
 
-            if ($existingSale) {
-                foreach ($rows as $row) {
-                    $row->update([
-                        'status' => SalesImportRow::STATUS_SKIPPED,
-                        'error_message' => "Skipped: Sale with invoice #{$invoiceNo} already exists (ID: {$existingSale->id})",
-                        'sale_id' => $existingSale->id,
-                    ]);
-                }
-                Log::info('[SalesImport] Skipped duplicate sale', [
-                    'batch_id' => $batch->id,
-                    'no_faktur' => $invoiceNo,
-                    'existing_sale_id' => $existingSale->id,
-                    'setting_id' => $setting->id,
-                    'rows_skipped' => count($rows),
-                ]);
-                return;
+            return $daizuSetting;
+        }
+
+        $parsed = $this->parseProductName($productName);
+        $marker = $parsed['marker'];
+
+        // Rule 1: Markers are absolute
+        if ($marker === 'asterisk') {
+            $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
+            if ($setting) {
+                return $setting;
             }
         }
-            if ($setting) return $setting;
+
+        if ($marker === 'tp') {
+            $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
+            if ($setting) {
+                return $setting;
+            }
         }
 
         // Rule 2: No marker — always Perdana (no history fallback)
