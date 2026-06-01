@@ -335,12 +335,15 @@
                         <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak'], 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$mapped['Total Pajak'], 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$mapped['Pembayaran'], 0, ',', '.') }}</td>
-                        <td>{{ $mapped['No Ref'] }}</td>
-                        <td>{{ $mapped['Tag'] }}</td>
-                        @unless($isHeaderMode)
+                        @if($isHeaderMode)
+                            <td>{{ $mapped['No Ref'] }}</td>
+                            <td>{{ $mapped['Tag'] }}</td>
+                        @else
                             <td>{{ $mapped['Email'] }}</td>
                             <td>{{ $mapped['Alamat Penagihan'] }}</td>
                             <td>{{ $mapped['Alamat Pengiriman'] }}</td>
+                            <td>{{ $mapped['No Ref'] }}</td>
+                            <td>{{ $mapped['Tag'] }}</td>
                             <td>{{ $mapped['Gudang'] }}</td>
                             <td>{{ $mapped['Nama Produk'] }}</td>
                             <td>{{ $mapped['Kode Produk'] }}</td>
@@ -367,7 +370,7 @@
                             <td class="text-end">
                                 {{ (float)$mapped['Diskon %'] > 0 ? number_format((float)$mapped['Diskon %'], 2, ',', '.') . '%' : '-' }}
                             </td>
-                        @endunless
+                        @endif
                     </tr>
                 @empty
                     <tr>

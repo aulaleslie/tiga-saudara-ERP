@@ -45,4 +45,4 @@
 - [x] 6.2 Run focused purchase report mode/filter/export tests.
 - [x] 6.3 Run existing purchase report hardening/export/performance tests to catch regressions.
 - [x] 6.4 Run a broader `php artisan test` or `composer test:fresh-sqlite` pass if time and environment permit.
-- [ ] 6.5 Manually verify `/purchases` and `/reports/purchase-report` in a browser if implementation changes affect layout.
+- [x] 6.5 Manually verify `/purchases` and `/reports/purchase-report` in a browser if implementation changes affect layout.

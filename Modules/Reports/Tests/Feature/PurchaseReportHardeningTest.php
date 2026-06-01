@@ -908,6 +908,42 @@ class PurchaseReportHardeningTest extends TestCase
     }
 
     /** @test */
+    public function it_renders_detail_mode_metadata_cells_in_detail_header_order()
+    {
+        $supplier = $this->makeSupplier('Supplier Detail Order');
+        $supplier->update([
+            'supplier_email' => 'detail-order@test.com',
+            'billing_address' => 'Billing Detail Order',
+            'shipping_address' => 'Shipping Detail Order',
+        ]);
+
+        $tag = Tag::create(['name' => ['en' => 'DetailOrderTag']]);
+
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'supplier_reference_no' => 'REF-DETAIL-ORDER',
+        ]);
+        $purchase->attachTag($tag);
+        $this->makePurchaseDetail($purchase, [
+            'product_name' => 'Detail Order Product',
+        ]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertSeeHtmlInOrder([
+                'detail-order@test.com',
+                'BILLING DETAIL ORDER',
+                'SHIPPING DETAIL ORDER',
+                'REF-DETAIL-ORDER',
+                'DetailOrderTag',
+            ]);
+    }
+
+    /** @test */
     public function it_uses_active_payment_aggregates_for_header_mode_rows()
     {
         $supplier = $this->makeSupplier();
