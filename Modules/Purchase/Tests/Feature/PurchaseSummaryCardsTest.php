@@ -283,4 +283,144 @@ class PurchaseSummaryCardsTest extends TestCase
         $this->assertCount(1, $purchases->items());
         $this->assertEquals($recentPurchase->reference, $purchases->items()[0]->reference);
     }
+
+    public function test_purchase_table_renders_due_date_column_and_safe_placeholder()
+    {
+        Purchase::create([
+            'date' => '2026-05-10',
+            'due_date' => '2026-05-20',
+            'supplier_id' => $this->supplier->id,
+            'supplier_purchase_number' => 'SUP-001',
+            'tax_ref_no' => 'TAX-001',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        Purchase::create([
+            'date' => '2026-05-11',
+            'due_date' => '2026-05-22',
+            'supplier_id' => $this->supplier->id,
+            'supplier_purchase_number' => 'SUP-002',
+            'tax_ref_no' => 'TAX-002',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 2000,
+            'paid_amount' => 0,
+            'due_amount' => 2000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $component = Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
+            ->assertSee('Tanggal Jatuh Tempo')
+            ->assertSee('20 May 2026')
+            ->assertSee('22 May 2026')
+            ->assertSee('SUP-002');
+
+        $this->assertSame('-', $component->instance()->formatDate(null));
+    }
+
+    public function test_purchase_table_sorts_by_due_date_without_losing_active_filters()
+    {
+        $otherSupplier = Supplier::create([
+            'supplier_name' => 'Other Supplier',
+            'supplier_email' => 'other@supplier.com',
+            'supplier_phone' => '1234567891',
+            'city' => 'Other City',
+            'country' => 'Other Country',
+            'address' => 'Other Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $activePurchase = Purchase::create([
+            'date' => '2026-05-01',
+            'due_date' => '2026-05-21',
+            'supplier_id' => $this->supplier->id,
+            'supplier_purchase_number' => 'FILTER-MATCH-ACTIVE',
+            'tax_ref_no' => 'TAX-ACTIVE',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+            'setting_id' => $this->setting->id,
+            'archived_at' => now(),
+            'archived_by' => 1,
+        ]);
+
+        $olderArchivedPurchase = Purchase::create([
+            'date' => '2026-05-02',
+            'due_date' => '2026-05-11',
+            'supplier_id' => $this->supplier->id,
+            'supplier_purchase_number' => 'FILTER-MATCH-OLDER',
+            'tax_ref_no' => 'TAX-OLDER',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 1200,
+            'paid_amount' => 0,
+            'due_amount' => 1200,
+            'setting_id' => $this->setting->id,
+            'archived_at' => now(),
+            'archived_by' => 1,
+        ]);
+
+        Purchase::create([
+            'date' => '2026-05-03',
+            'due_date' => '2026-05-05',
+            'supplier_id' => $otherSupplier->id,
+            'supplier_purchase_number' => 'FILTER-OTHER-SUPPLIER',
+            'tax_ref_no' => 'TAX-OTHER',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 900,
+            'paid_amount' => 0,
+            'due_amount' => 900,
+            'setting_id' => $this->setting->id,
+            'archived_at' => now(),
+            'archived_by' => 1,
+        ]);
+
+        Purchase::create([
+            'date' => '2026-05-04',
+            'due_date' => '2026-05-01',
+            'supplier_id' => $this->supplier->id,
+            'supplier_purchase_number' => 'FILTER-WRONG-STATUS',
+            'tax_ref_no' => 'TAX-WRONG',
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_DRAFTED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 800,
+            'paid_amount' => 0,
+            'due_amount' => 800,
+            'setting_id' => $this->setting->id,
+            'archived_at' => now(),
+            'archived_by' => 1,
+        ]);
+
+        $component = Livewire::test(PurchaseTable::class, [
+            'settingId' => $this->setting->id,
+            'statusFilter' => [Purchase::STATUS_APPROVED],
+            'supplierId' => $this->supplier->id,
+        ])
+            ->set('showArchived', true)
+            ->set('search', 'FILTER-MATCH')
+            ->call('sortBy', 'due_date');
+
+        $purchases = $component->viewData('purchases');
+
+        $this->assertSame('due_date', $component->get('sortField'));
+        $this->assertSame('asc', $component->get('sortDirection'));
+        $this->assertSame(['FILTER-MATCH-OLDER', 'FILTER-MATCH-ACTIVE'], array_map(
+            static fn (Purchase $purchase) => $purchase->supplier_purchase_number,
+            $purchases->items(),
+        ));
+    }
 }

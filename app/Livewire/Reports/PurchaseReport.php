@@ -18,6 +18,9 @@ class PurchaseReport extends Component
 {
     use WithPagination;
 
+    private const REPORT_MODE_SESSION_KEY = 'purchase_report.report_mode';
+    private const REPORT_MODES = ['detail', 'header'];
+
     public $startDate, $endDate;
     public $sortField = 'date';
     public $sortDirection = 'desc';
@@ -27,6 +30,7 @@ class PurchaseReport extends Component
     public $paymentStatuses = [];
     public $periodPreset = '';
     public $dateBasis = 'transaction_date';
+    public $reportMode = 'detail';
     public $filterTriggered = false;
     public $isGlobal = false;
     public $settingId;
@@ -44,21 +48,11 @@ class PurchaseReport extends Component
     public $tagLabels = [];
 
     protected $paginationTheme = 'bootstrap';
+    protected $queryString = ['reportMode'];
 
     public function sortBy($field): void
     {
-        $allowedFields = [
-            'date',
-            'reference',
-            'supplier_purchase_number',
-            'supplier_name',
-            'status',
-            'payment_status',
-            'total_amount',
-            'due_date',
-            'product_name',
-            'product_code'
-        ];
+        $allowedFields = $this->supportedSortFields($this->activeSortMode());
 
         if (!in_array($field, $allowedFields)) {
             return;
@@ -80,6 +74,11 @@ class PurchaseReport extends Component
         return $this->sortDirection === 'asc'
             ? '<i class="bi bi-caret-up-fill text-primary ms-1"></i>'
             : '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
+    }
+
+    public function hydrate(): void
+    {
+        $this->reportMode = $this->normalizeReportMode($this->reportMode);
     }
 
     public function selectSupplier(int $id, string $name): void
@@ -138,7 +137,18 @@ class PurchaseReport extends Component
         $this->settingId = session('setting_id');
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->reportMode = $this->normalizeReportMode(
+            request()->query('reportMode', session(self::REPORT_MODE_SESSION_KEY, $this->reportMode))
+        );
+        $this->persistReportMode();
+        $this->normalizeSortForMode($this->reportMode);
         $this->appliedFilters = array_merge($this->exportFilters(), ['scopeSettingId' => $this->settingId]);
+    }
+
+    public function updatedReportMode($value): void
+    {
+        $this->reportMode = $this->normalizeReportMode($value);
+        $this->persistReportMode();
     }
 
     public function updatedPeriodPreset($value): void
@@ -196,6 +206,8 @@ class PurchaseReport extends Component
             $this->documentStatuses = $this->appliedFilters['documentStatuses'] ?? [];
             $this->paymentStatuses = $this->appliedFilters['paymentStatuses'] ?? [];
             $this->dateBasis = $this->appliedFilters['dateBasis'] ?? 'transaction_date';
+            $this->reportMode = $this->normalizeReportMode($this->appliedFilters['reportMode'] ?? 'detail');
+            $this->persistReportMode();
         }
         $this->supplierSearch = '';
         $this->supplierOptions = [];
@@ -212,6 +224,9 @@ class PurchaseReport extends Component
         $this->documentStatuses = [];
         $this->paymentStatuses = [];
         $this->dateBasis = 'transaction_date';
+        $this->reportMode = 'detail';
+        $this->persistReportMode();
+        $this->normalizeSortForMode($this->reportMode);
         $this->supplierSearch = '';
         $this->supplierOptions = [];
         $this->tagSearch = '';
@@ -229,6 +244,7 @@ class PurchaseReport extends Component
         try {
             $validated = $validator->validate($filterArray);
             $filterData = PurchaseReportFilterData::fromArray($validated);
+            $this->normalizeSortForMode($filterData->reportMode);
 
             $query = $queryService->build($filterData);
             $count = $query->count();
@@ -261,7 +277,7 @@ class PurchaseReport extends Component
         }
 
         $query = $queryService->build($filterData);
-        $queryService->applySort($query, $this->sortField, $this->sortDirection);
+        $queryService->applySort($query, $this->sortField, $this->sortDirection, $filterData->reportMode);
 
         $fileName = sprintf(
             'purchases_list_%s_%s.xlsx',
@@ -289,7 +305,7 @@ class PurchaseReport extends Component
         }
 
         $query = $queryService->build($filterData);
-        $queryService->applySort($query, $this->sortField, $this->sortDirection);
+        $queryService->applySort($query, $this->sortField, $this->sortDirection, $filterData->reportMode);
 
         $fileName = sprintf(
             'purchases_list_%s_%s.csv',
@@ -321,17 +337,22 @@ class PurchaseReport extends Component
             'paymentStatuses' => $this->paymentStatuses,
             'isGlobal' => $this->isGlobal,
             'dateBasis' => $this->dateBasis,
+            'reportMode' => $this->normalizeReportMode($this->reportMode),
         ];
     }
 
     public function render(PurchaseReportQueryService $queryService)
     {
         $purchaseDetails = collect();
+        $tableReportMode = $this->filterTriggered
+            ? $this->normalizeReportMode($this->appliedFilters['reportMode'] ?? 'detail')
+            : $this->reportMode;
+
         if ($this->filterTriggered) {
             $filterData = PurchaseReportFilterData::fromArray($this->appliedFilters);
             $query = $queryService->build($filterData);
 
-            $queryService->applySort($query, $this->sortField, $this->sortDirection);
+            $queryService->applySort($query, $this->sortField, $this->sortDirection, $filterData->reportMode);
 
             $purchaseDetails = $query->paginate(15);
         }
@@ -358,6 +379,59 @@ class PurchaseReport extends Component
             'documentStatusLabels' => $documentStatusLabels,
             'paymentStatusLabels'  => $paymentStatusLabels,
             'isGlobal'             => $this->isGlobal,
+            'tableReportMode'      => $tableReportMode,
+        ]);
+    }
+
+    private function activeSortMode(): string
+    {
+        if (!$this->filterTriggered) {
+            return $this->reportMode;
+        }
+
+        return $this->normalizeReportMode($this->appliedFilters['reportMode'] ?? $this->reportMode);
+    }
+
+    private function normalizeReportMode(mixed $reportMode): string
+    {
+        return in_array($reportMode, self::REPORT_MODES, true) ? $reportMode : 'detail';
+    }
+
+    private function normalizeSortForMode(string $reportMode): void
+    {
+        if (in_array($this->sortField, $this->supportedSortFields($reportMode), true)) {
+            return;
+        }
+
+        $this->sortField = 'date';
+        $this->sortDirection = 'desc';
+    }
+
+    private function persistReportMode(): void
+    {
+        session([self::REPORT_MODE_SESSION_KEY => $this->reportMode]);
+    }
+
+    private function supportedSortFields(string $reportMode): array
+    {
+        $baseFields = [
+            'date',
+            'reference',
+            'supplier_purchase_number',
+            'supplier_name',
+            'status',
+            'payment_status',
+            'total_amount',
+            'due_date',
+        ];
+
+        if ($reportMode === 'header') {
+            return $baseFields;
+        }
+
+        return array_merge($baseFields, [
+            'product_name',
+            'product_code',
         ]);
     }
 }

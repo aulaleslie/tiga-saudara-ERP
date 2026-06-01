@@ -11,6 +11,13 @@
 
     <div class="d-flex flex-wrap gap-2 mb-3 align-items-end">
         <div>
+            <label class="form-label small">Mode Laporan</label>
+            <select wire:model="reportMode" class="form-control">
+                <option value="detail">Detail</option>
+                <option value="header">Header</option>
+            </select>
+        </div>
+        <div>
             <label class="form-label small">Periode</label>
             <select wire:model.live="periodPreset" class="form-control">
                 <option value="">-- Pilih Periode --</option>
@@ -212,58 +219,83 @@
 
     <div class="offcanvas-backdrop fade show" style="z-index: 1040;" x-show="showDrawer" @click="showDrawer = false"></div>
 
-    <div class="table-responsive shadow-sm rounded">
-        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 2800px;">
+    @php
+        $isHeaderMode = $tableReportMode === 'header';
+        $emptyColspan = $isHeaderMode ? 15 : 40;
+    @endphp
+
+    <div class="table-responsive shadow-sm rounded" wire:loading.class="opacity-50">
+        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: {{ $isHeaderMode ? '1600px' : '2800px' }};">
             <thead class="table-light">
-            <tr>
-                <th wire:click="sortBy('date')" style="cursor:pointer; white-space:nowrap">Tanggal {!! $this->sortIcon('date') !!}</th>
-                <th wire:click="sortBy('reference')" style="cursor:pointer; white-space:nowrap">Nomor Transaksi {!! $this->sortIcon('reference') !!}</th>
-                <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer; white-space:nowrap">Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}</th>
-                <th wire:click="sortBy('supplier_name')" style="cursor:pointer; white-space:nowrap">Nama Panggilan {!! $this->sortIcon('supplier_name') !!}</th>
-                <th wire:click="sortBy('status')" style="cursor:pointer; white-space:nowrap">Status Dokumen {!! $this->sortIcon('status') !!}</th>
-                <th wire:click="sortBy('payment_status')" style="cursor:pointer; white-space:nowrap">Status Pembayaran {!! $this->sortIcon('payment_status') !!}</th>
-                <th style="white-space:nowrap">Memo</th>
-                <th wire:click="sortBy('total_amount')" class="text-end" style="cursor:pointer; white-space:nowrap">Total {!! $this->sortIcon('total_amount') !!}</th>
-                <th class="text-end" style="white-space:nowrap">Sisa Tagihan</th>
-                <th wire:click="sortBy('due_date')" style="cursor:pointer; white-space:nowrap">Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}</th>
-                <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak</th>
-                <th class="text-end" style="white-space:nowrap">Total Pajak</th>
-                <th class="text-end" style="white-space:nowrap">Pembayaran</th>
-                <th style="white-space:nowrap">Email</th>
-                <th style="white-space:nowrap">Alamat Penagihan</th>
-                <th style="white-space:nowrap">Alamat Pengiriman</th>
-                <th style="white-space:nowrap">No Ref</th>
-                <th style="white-space:nowrap">Tag</th>
-                <th style="white-space:nowrap">Gudang</th>
-                <th wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
-                <th wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
-                <th style="white-space:nowrap">Deskripsi</th>
-                <th class="text-end" style="white-space:nowrap">Kuantitas</th>
-                <th style="white-space:nowrap">Satuan</th>
-                <th class="text-end" style="white-space:nowrap">Harga per Unit</th>
-                <th class="text-end" style="white-space:nowrap">Diskon Per Baris %</th>
-                <th style="white-space:nowrap">Tarif Pajak</th>
-                <th class="text-end" style="white-space:nowrap">Jumlah Pajak</th>
-                <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak per Baris</th>
-                <th class="text-end" style="white-space:nowrap">Jumlah Per Baris</th>
-                <th class="text-end" style="white-space:nowrap">Diskon</th>
-                <th style="white-space:nowrap">Pesan</th>
-                <th class="text-end" style="white-space:nowrap">Biaya Pengiriman</th>
-                <th class="text-end" style="white-space:nowrap">Jumlah Pemotongan</th>
-                <th style="white-space:nowrap">Nama Perusahaan</th>
-                <th style="white-space:nowrap">Nomor Pajak</th>
-                <th style="white-space:nowrap">Nomor Ponsel</th>
-                <th style="white-space:nowrap">Nomor Telepon</th>
-                <th class="text-end" style="white-space:nowrap">Sisa Tagihan Hari Ini</th>
-                <th class="text-end" style="white-space:nowrap">Diskon %</th>
-            </tr>
+            @if($isHeaderMode)
+                <tr>
+                    <th wire:click="sortBy('date')" style="cursor:pointer; white-space:nowrap">Tanggal {!! $this->sortIcon('date') !!}</th>
+                    <th wire:click="sortBy('reference')" style="cursor:pointer; white-space:nowrap">Nomor Transaksi {!! $this->sortIcon('reference') !!}</th>
+                    <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer; white-space:nowrap">Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}</th>
+                    <th wire:click="sortBy('supplier_name')" style="cursor:pointer; white-space:nowrap">Nama Panggilan {!! $this->sortIcon('supplier_name') !!}</th>
+                    <th wire:click="sortBy('status')" style="cursor:pointer; white-space:nowrap">Status Dokumen {!! $this->sortIcon('status') !!}</th>
+                    <th wire:click="sortBy('payment_status')" style="cursor:pointer; white-space:nowrap">Status Pembayaran {!! $this->sortIcon('payment_status') !!}</th>
+                    <th style="white-space:nowrap">Memo</th>
+                    <th wire:click="sortBy('total_amount')" class="text-end" style="cursor:pointer; white-space:nowrap">Total {!! $this->sortIcon('total_amount') !!}</th>
+                    <th class="text-end" style="white-space:nowrap">Sisa Tagihan</th>
+                    <th wire:click="sortBy('due_date')" style="cursor:pointer; white-space:nowrap">Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Total Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Pembayaran</th>
+                    <th style="white-space:nowrap">No Ref</th>
+                    <th style="white-space:nowrap">Tag</th>
+                </tr>
+            @else
+                <tr>
+                    <th wire:click="sortBy('date')" style="cursor:pointer; white-space:nowrap">Tanggal {!! $this->sortIcon('date') !!}</th>
+                    <th wire:click="sortBy('reference')" style="cursor:pointer; white-space:nowrap">Nomor Transaksi {!! $this->sortIcon('reference') !!}</th>
+                    <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer; white-space:nowrap">Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}</th>
+                    <th wire:click="sortBy('supplier_name')" style="cursor:pointer; white-space:nowrap">Nama Panggilan {!! $this->sortIcon('supplier_name') !!}</th>
+                    <th wire:click="sortBy('status')" style="cursor:pointer; white-space:nowrap">Status Dokumen {!! $this->sortIcon('status') !!}</th>
+                    <th wire:click="sortBy('payment_status')" style="cursor:pointer; white-space:nowrap">Status Pembayaran {!! $this->sortIcon('payment_status') !!}</th>
+                    <th style="white-space:nowrap">Memo</th>
+                    <th wire:click="sortBy('total_amount')" class="text-end" style="cursor:pointer; white-space:nowrap">Total {!! $this->sortIcon('total_amount') !!}</th>
+                    <th class="text-end" style="white-space:nowrap">Sisa Tagihan</th>
+                    <th wire:click="sortBy('due_date')" style="cursor:pointer; white-space:nowrap">Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Total Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Pembayaran</th>
+                    <th style="white-space:nowrap">Email</th>
+                    <th style="white-space:nowrap">Alamat Penagihan</th>
+                    <th style="white-space:nowrap">Alamat Pengiriman</th>
+                    <th style="white-space:nowrap">No Ref</th>
+                    <th style="white-space:nowrap">Tag</th>
+                    <th style="white-space:nowrap">Gudang</th>
+                    <th wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
+                    <th wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
+                    <th style="white-space:nowrap">Deskripsi</th>
+                    <th class="text-end" style="white-space:nowrap">Kuantitas</th>
+                    <th style="white-space:nowrap">Satuan</th>
+                    <th class="text-end" style="white-space:nowrap">Harga per Unit</th>
+                    <th class="text-end" style="white-space:nowrap">Diskon Per Baris %</th>
+                    <th style="white-space:nowrap">Tarif Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Pajak</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak per Baris</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Per Baris</th>
+                    <th class="text-end" style="white-space:nowrap">Diskon</th>
+                    <th style="white-space:nowrap">Pesan</th>
+                    <th class="text-end" style="white-space:nowrap">Biaya Pengiriman</th>
+                    <th class="text-end" style="white-space:nowrap">Jumlah Pemotongan</th>
+                    <th style="white-space:nowrap">Nama Perusahaan</th>
+                    <th style="white-space:nowrap">Nomor Pajak</th>
+                    <th style="white-space:nowrap">Nomor Ponsel</th>
+                    <th style="white-space:nowrap">Nomor Telepon</th>
+                    <th class="text-end" style="white-space:nowrap">Sisa Tagihan Hari Ini</th>
+                    <th class="text-end" style="white-space:nowrap">Diskon %</th>
+                </tr>
+            @endif
             </thead>
             <tbody class="bg-white text-dark">
             @if($filterTriggered)
                 @forelse($purchases as $row)
                     @php
-                        $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($row);
-                        $purchase = $row->purchase;
+                        $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($row, $tableReportMode);
+                        $purchase = $tableReportMode === 'header' ? $row : $row->purchase;
 
                         if ($mapped['Status Pembayaran'] === 'Belum Dibayar') {
                             $payStatusClass = 'bg-danger';
@@ -303,41 +335,43 @@
                         <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak'], 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$mapped['Total Pajak'], 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$mapped['Pembayaran'], 0, ',', '.') }}</td>
-                        <td>{{ $mapped['Email'] }}</td>
-                        <td>{{ $mapped['Alamat Penagihan'] }}</td>
-                        <td>{{ $mapped['Alamat Pengiriman'] }}</td>
                         <td>{{ $mapped['No Ref'] }}</td>
                         <td>{{ $mapped['Tag'] }}</td>
-                        <td>{{ $mapped['Gudang'] }}</td>
-                        <td>{{ $mapped['Nama Produk'] }}</td>
-                        <td>{{ $mapped['Kode Produk'] }}</td>
-                        <td>{{ $mapped['Deskripsi'] }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Kuantitas'], 2, ',', '.') }}</td>
-                        <td>{{ $mapped['Satuan'] }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Harga per Unit'], 0, ',', '.') }}</td>
-                        <td class="text-end">
-                            {{ (float)$mapped['Diskon Per Baris %'] > 0 ? number_format((float)$mapped['Diskon Per Baris %'], 2, ',', '.') . '%' : '-' }}
-                        </td>
-                        <td>{{ $mapped['Tarif Pajak'] !== '-' ? $mapped['Tarif Pajak'] . '%' : '-' }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Pajak'], 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak per Baris'], 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Per Baris'], 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Diskon'], 0, ',', '.') }}</td>
-                        <td>{{ $mapped['Pesan'] }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Biaya Pengiriman'], 0, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Jumlah Pemotongan'], 0, ',', '.') }}</td>
-                        <td>{{ $mapped['Nama Perusahaan'] }}</td>
-                        <td>{{ $mapped['Nomor Pajak'] }}</td>
-                        <td>{{ $mapped['Nomor Ponsel'] }}</td>
-                        <td>{{ $mapped['Nomor Telepon'] }}</td>
-                        <td class="text-end text-danger">{{ number_format((float)$mapped['Sisa Tagihan Hari Ini'], 0, ',', '.') }}</td>
-                        <td class="text-end">
-                            {{ (float)$mapped['Diskon %'] > 0 ? number_format((float)$mapped['Diskon %'], 2, ',', '.') . '%' : '-' }}
-                        </td>
+                        @unless($isHeaderMode)
+                            <td>{{ $mapped['Email'] }}</td>
+                            <td>{{ $mapped['Alamat Penagihan'] }}</td>
+                            <td>{{ $mapped['Alamat Pengiriman'] }}</td>
+                            <td>{{ $mapped['Gudang'] }}</td>
+                            <td>{{ $mapped['Nama Produk'] }}</td>
+                            <td>{{ $mapped['Kode Produk'] }}</td>
+                            <td>{{ $mapped['Deskripsi'] }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Kuantitas'], 2, ',', '.') }}</td>
+                            <td>{{ $mapped['Satuan'] }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Harga per Unit'], 0, ',', '.') }}</td>
+                            <td class="text-end">
+                                {{ (float)$mapped['Diskon Per Baris %'] > 0 ? number_format((float)$mapped['Diskon Per Baris %'], 2, ',', '.') . '%' : '-' }}
+                            </td>
+                            <td>{{ $mapped['Tarif Pajak'] !== '-' ? $mapped['Tarif Pajak'] . '%' : '-' }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Jumlah Pajak'], 0, ',', '.') }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak per Baris'], 0, ',', '.') }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Jumlah Per Baris'], 0, ',', '.') }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Diskon'], 0, ',', '.') }}</td>
+                            <td>{{ $mapped['Pesan'] }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Biaya Pengiriman'], 0, ',', '.') }}</td>
+                            <td class="text-end">{{ number_format((float)$mapped['Jumlah Pemotongan'], 0, ',', '.') }}</td>
+                            <td>{{ $mapped['Nama Perusahaan'] }}</td>
+                            <td>{{ $mapped['Nomor Pajak'] }}</td>
+                            <td>{{ $mapped['Nomor Ponsel'] }}</td>
+                            <td>{{ $mapped['Nomor Telepon'] }}</td>
+                            <td class="text-end text-danger">{{ number_format((float)$mapped['Sisa Tagihan Hari Ini'], 0, ',', '.') }}</td>
+                            <td class="text-end">
+                                {{ (float)$mapped['Diskon %'] > 0 ? number_format((float)$mapped['Diskon %'], 2, ',', '.') . '%' : '-' }}
+                            </td>
+                        @endunless
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="40" class="text-center py-4 text-muted">
+                        <td colspan="{{ $emptyColspan }}" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2"></i>
                             Tidak ada data pembelian yang sesuai dengan filter ini.
                         </td>
@@ -345,7 +379,7 @@
                 @endforelse
             @else
                 <tr>
-                    <td colspan="40" class="text-center py-5 text-muted">
+                    <td colspan="{{ $emptyColspan }}" class="text-center py-5 text-muted">
                         <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
                         Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
                     </td>

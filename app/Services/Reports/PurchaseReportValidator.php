@@ -35,6 +35,7 @@ class PurchaseReportValidator
             'isGlobal' => 'boolean',
             'scopeSettingId' => 'nullable|integer',
             'dateBasis' => 'nullable|in:transaction_date,due_date',
+            'reportMode' => 'nullable|in:detail,header',
         ], [
             'endDate.after_or_equal' => 'Tanggal akhir harus sama atau setelah tanggal awal.',
         ]);

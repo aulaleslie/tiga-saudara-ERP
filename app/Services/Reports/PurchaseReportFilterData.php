@@ -14,6 +14,7 @@ class PurchaseReportFilterData
         public readonly bool $isGlobal = false,
         public readonly ?int $scopeSettingId = null,
         public readonly string $dateBasis = 'transaction_date',
+        public readonly string $reportMode = 'detail',
     ) {}
 
     public static function fromArray(array $data): self
@@ -28,6 +29,7 @@ class PurchaseReportFilterData
             isGlobal: (bool) ($data['isGlobal'] ?? false),
             scopeSettingId: $data['scopeSettingId'] ? (int) $data['scopeSettingId'] : null,
             dateBasis: $data['dateBasis'] ?? 'transaction_date',
+            reportMode: self::normalizeReportMode($data['reportMode'] ?? 'detail'),
         );
     }
 
@@ -43,11 +45,17 @@ class PurchaseReportFilterData
             'isGlobal' => $this->isGlobal,
             'scopeSettingId' => $this->scopeSettingId,
             'dateBasis' => $this->dateBasis,
+            'reportMode' => $this->reportMode,
         ];
     }
 
     public function hash(): string
     {
         return md5(serialize($this->toArray()));
+    }
+
+    private static function normalizeReportMode(mixed $reportMode): string
+    {
+        return in_array($reportMode, ['detail', 'header'], true) ? $reportMode : 'detail';
     }
 }

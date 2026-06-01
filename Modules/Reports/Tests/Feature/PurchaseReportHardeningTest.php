@@ -177,8 +177,20 @@ class PurchaseReportHardeningTest extends TestCase
     {
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('reportMode', 'detail')
             ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
+    }
+
+    /** @test */
+    public function it_falls_back_to_detail_mode_when_query_string_mode_is_invalid()
+    {
+        session(['setting_id' => $this->setting->id]);
+
+        \Livewire\Livewire::withQueryParams(['reportMode' => 'invalid'])
+            ->actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->assertSet('reportMode', 'detail');
     }
 
     // ─── Task 1.3: One purchase with multiple details → multiple report rows ───
@@ -202,6 +214,20 @@ class PurchaseReportHardeningTest extends TestCase
             ->call('applyFilters')
             ->assertViewHas('purchases', function ($purchases) {
                 return $purchases->count() === 3;
+            });
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('reportMode', 'header')
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertSet('appliedFilters.reportMode', 'header')
+            ->assertDontSee('Nama Produk')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->count() === 1
+                    && $purchases->pluck('id')->contains($purchase->id);
             });
     }
 
@@ -848,6 +874,73 @@ class PurchaseReportHardeningTest extends TestCase
             ->assertViewHas('purchases', function ($purchases) use ($purchase) {
                 return $purchases->pluck('purchase_id')->contains($purchase->id);
             });
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('reportMode', 'header')
+            ->set('startDate', now()->addDays(4)->format('Y-m-d'))
+            ->set('endDate', now()->addDays(6)->format('Y-m-d'))
+            ->set('dateBasis', 'due_date')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                return $purchases->pluck('id')->contains($purchase->id);
+            });
+    }
+
+    /** @test */
+    public function it_normalizes_unsupported_detail_sort_when_switching_to_header_mode()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, ['date' => now()->startOfMonth()->format('Y-m-d')]);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Sorted Product']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->call('sortBy', 'product_name')
+            ->assertSet('sortField', 'product_name')
+            ->set('reportMode', 'header')
+            ->call('applyFilters')
+            ->assertSet('sortField', 'date')
+            ->assertSet('sortDirection', 'desc')
+            ->assertSet('appliedFilters.reportMode', 'header');
+    }
+
+    /** @test */
+    public function it_uses_active_payment_aggregates_for_header_mode_rows()
+    {
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+        $this->makePayment($purchase, 300);
+        $this->makePayment($purchase, 700, PurchasePayment::STATUS_INVALIDATED);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Header Product A']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Header Product B']);
+
+        $component = \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('reportMode', 'header')
+            ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertSee('No Ref')
+            ->assertDontSee('Nama Produk');
+
+        $purchases = $component->viewData('purchases');
+        $this->assertCount(1, $purchases->items());
+
+        $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($purchases->items()[0], 'header');
+
+        $this->assertSame($purchase->id, $purchases->items()[0]->id);
+        $this->assertSame('Terbayar Sebagian', $mapped['Status Pembayaran']);
+        $this->assertEquals(300, $mapped['Pembayaran']);
+        $this->assertEquals(700, $mapped['Sisa Tagihan']);
     }
 
     /** @test */

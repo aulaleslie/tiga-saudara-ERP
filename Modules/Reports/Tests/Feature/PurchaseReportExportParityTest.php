@@ -150,6 +150,112 @@ class PurchaseReportExportParityTest extends TestCase
     }
 
     /** @test */
+    public function unapplied_pending_mode_changes_do_not_affect_exported_shape()
+    {
+        Excel::fake();
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->set('reportMode', 'header')
+            ->call('exportExcel');
+
+        Excel::assertDownloaded('purchases_list_01-05-2026_31-05-2026.xlsx', function (PurchaseReportExport $export) {
+            return in_array('Nama Produk', $export->headings(), true)
+                && !in_array('Mode Laporan', $export->headings(), true);
+        });
+    }
+
+    /** @test */
+    public function header_mode_exports_only_concise_header_columns()
+    {
+        Excel::fake();
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Header Supplier',
+            'supplier_email' => 'header@example.com',
+            'supplier_phone' => '08123',
+            'address' => 'Header Address',
+            'city' => 'City',
+            'country' => 'Country',
+        ]);
+
+        $purchase = Purchase::create([
+            'date' => '2026-05-10',
+            'due_date' => '2026-05-15',
+            'total_amount' => 100000,
+            'tax_amount' => 11000,
+            'discount_amount' => 5000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+        ]);
+
+        PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => null,
+            'product_name' => 'Header Product',
+            'product_code' => 'HDR-01',
+            'quantity' => 2,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 100000,
+            'product_discount_type' => 'fixed',
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('reportMode', 'header')
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        Excel::assertDownloaded('purchases_list_01-05-2026_31-05-2026.xlsx', function (PurchaseReportExport $export) use ($purchase) {
+            $expectedHeadings = [
+                'Tanggal',
+                'Nomor Transaksi',
+                'Nomor Pembelian Supplier',
+                'Nama Panggilan',
+                'Status Dokumen',
+                'Status Pembayaran',
+                'Memo',
+                'Total',
+                'Sisa Tagihan',
+                'Tanggal Jatuh Tempo',
+                'Jumlah Kena Pajak',
+                'Total Pajak',
+                'Pembayaran',
+                'No Ref',
+                'Tag',
+            ];
+
+            $row = $export->query()->first();
+            $mapped = array_combine($export->headings(), $export->map($row));
+
+            return $export->headings() === $expectedHeadings
+                && $export->query()->count() === 1
+                && !array_key_exists('Nama Produk', $mapped)
+                && $mapped['Nomor Transaksi'] === $purchase->reference;
+        });
+    }
+
+    /** @test */
     public function it_exports_raw_numeric_values_and_dashes_for_empty()
     {
         // Add a mock purchase to verify mapRow logic

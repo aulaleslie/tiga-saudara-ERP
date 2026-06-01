@@ -182,4 +182,13 @@ class PurchaseTable extends Component
         }
         return '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
     }
+
+    public function formatDate(?string $value): string
+    {
+        if (blank($value)) {
+            return '-';
+        }
+
+        return Carbon::parse($value)->format('d M Y');
+    }
 }

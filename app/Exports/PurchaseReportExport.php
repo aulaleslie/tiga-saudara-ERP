@@ -26,12 +26,12 @@ class PurchaseReportExport implements FromQuery, WithHeadings, WithMapping, With
 
     public function headings(): array
     {
-        return array_keys(PurchaseReportQueryService::mapRow(new \Modules\Purchase\Entities\PurchaseDetail()));
+        return PurchaseReportQueryService::headingsFor($this->filterData->reportMode);
     }
 
     public function map($row): array
     {
-        return array_values(PurchaseReportQueryService::mapRow($row));
+        return array_values(PurchaseReportQueryService::mapRow($row, $this->filterData->reportMode));
     }
 
     public function registerEvents(): array
