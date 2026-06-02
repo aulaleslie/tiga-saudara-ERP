@@ -67,6 +67,8 @@ Fractional quantities: line totals use the CSV quantity, which can be fractional
 
 The persistence layer must also accept fractions. The quantity columns the importer writes — `purchase_details.quantity`, `sale_details.quantity`, `products.product_quantity`, `product_stocks` quantity/broken-quantity columns, and the `transactions` quantity snapshot columns — were `integer`, which MySQL/MariaDB silently truncate/round (SQLite tolerated the float in tests, masking the issue). A migration converts them to `decimal(15,3)` (three fractional digits for common weight units, ample integer headroom), and the corresponding model casts are `decimal:3` (replacing `Transaction`'s `integer` quantity casts) so reads return the stored fraction. This revises the "do not add a new database column or migration" non-goal: no new column is added, but an alter-column migration is now required for correctness on production databases.
 
+The migration re-reads each column's current nullability and default and restates them on the changed definition, because a bare `->change()` resets attributes that are not restated (on MySQL/MariaDB this would drop an existing default). In particular `products.product_quantity` carries a `default(0)` from an earlier migration, which is preserved.
+
 ### Decision 4: Allocate payment pro-rata by owner document total
 
 When a source invoice splits into multiple positive-total owner documents, allocate paid and outstanding amounts by each owner group's adjusted total divided by the full source invoice adjusted total. Round to cents and assign any final rounding remainder to the largest positive-total group.

@@ -39,19 +39,22 @@ return new class extends Migration
 
     public function up(): void
     {
-        $this->convert(fn (Blueprint $table, string $column, bool $nullable) => $nullable
-            ? $table->decimal($column, 15, 3)->nullable()->change()
-            : $table->decimal($column, 15, 3)->change());
+        $this->convert(fn (Blueprint $table, string $column): \Illuminate\Database\Schema\ColumnDefinition
+            => $table->decimal($column, 15, 3));
     }
 
     public function down(): void
     {
-        $this->convert(fn (Blueprint $table, string $column, bool $nullable) => $nullable
-            ? $table->integer($column)->nullable()->change()
-            : $table->integer($column)->change());
+        $this->convert(fn (Blueprint $table, string $column): \Illuminate\Database\Schema\ColumnDefinition
+            => $table->integer($column));
     }
 
-    private function convert(callable $apply): void
+    /**
+     * Re-declare each column with the new type while preserving its existing nullability and
+     * default. `->change()` resets attributes that are not restated, so any current default
+     * (e.g. products.product_quantity default 0) would otherwise be dropped on MySQL/MariaDB.
+     */
+    private function convert(callable $define): void
     {
         foreach ($this->columns as $tableName => $columns) {
             if (! Schema::hasTable($tableName)) {
@@ -67,20 +70,24 @@ return new class extends Migration
                 continue;
             }
 
-            Schema::table($tableName, function (Blueprint $table) use ($present, $tableName, $apply) {
+            Schema::table($tableName, function (Blueprint $table) use ($present, $tableName, $define) {
                 foreach ($present as $column) {
-                    $nullable = $this->isNullable($tableName, $column);
-                    $apply($table, $column, $nullable);
+                    $definition = Schema::getConnection()->getDoctrineColumn($tableName, $column);
+
+                    $columnDefinition = $define($table, $column);
+
+                    if (! $definition->getNotnull()) {
+                        $columnDefinition->nullable();
+                    }
+
+                    $default = $definition->getDefault();
+                    if ($default !== null) {
+                        $columnDefinition->default($default);
+                    }
+
+                    $columnDefinition->change();
                 }
             });
         }
-    }
-
-    private function isNullable(string $tableName, string $column): bool
-    {
-        $definition = Schema::getConnection()
-            ->getDoctrineColumn($tableName, $column);
-
-        return ! $definition->getNotnull();
     }
 };
