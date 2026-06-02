@@ -93,10 +93,21 @@ class ImportPaymentSummaryResolver
         $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
         
         // If there is a small precision drift (e.g. from header tax vs line tax) that is within the
-        // acceptable source tolerance, absorb the drift into the cash payment so internal allocation
-        // strictly balances to the calculated document total.
-        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $calculatedDocumentTotal) <= self::SOURCE_TOTAL_TOLERANCE) {
-            $paidAmount = round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+        // acceptable source tolerance, absorb the drift so internal allocation strictly balances.
+        $drift = round($calculatedDocumentTotal - ($paidAmount + $deductionAmount + $outstandingBalance), 2);
+        if (abs($drift) > 0.0 && abs($drift) <= self::SOURCE_TOTAL_TOLERANCE) {
+            // Safest target is outstanding balance, UNLESS the invoice is fully paid (outstanding == 0).
+            // A fully paid invoice must remain fully paid (due = 0) so it doesn't appear in aging reports.
+            if ($outstandingBalance <= 0.0) {
+                $paidAmount = round($paidAmount + $drift, 2);
+            } else {
+                $outstandingBalance = round($outstandingBalance + $drift, 2);
+                // If absorbing it pushes the balance below zero (unlikely but possible), shift to paidAmount.
+                if ($outstandingBalance < 0.0) {
+                    $paidAmount = round($paidAmount + $outstandingBalance, 2);
+                    $outstandingBalance = 0.0;
+                }
+            }
         }
         
         $paidAmount = round(max($paidAmount, 0), 2);

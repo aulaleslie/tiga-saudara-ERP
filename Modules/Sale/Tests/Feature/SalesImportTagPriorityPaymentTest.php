@@ -367,4 +367,24 @@ class SalesImportTagPriorityPaymentTest extends TestCase
         // And discount_amount is recorded as the discount allocated
         $this->assertEqualsWithDelta(17114.41, (float) $sale->discount_amount, 0.01);
     }
+
+    // Regression — A partial-payment invoice with precision drift must absorb the drift into the
+    // outstanding balance, preserving the explicit cash payment verbatim.
+    public function test_invoice_with_precision_drift_absorbs_into_outstanding_balance(): void
+    {
+        $this->process([
+            [
+                'no_faktur' => 'PARTIAL-DRIFT', 'produk' => 'MONITOR', 'tag' => 'rahmat',
+                'harga_satuan' => '2000.00', 'kuantitas' => '1', 'pajak' => '0', 'diskon' => '0',
+                'source_total' => '2000.50', 'pembayaran' => '1000.00', 'sisa_tagihan' => '1000.50',
+            ],
+        ]);
+
+        $sale = $this->sale('PARTIAL-DRIFT');
+        $this->assertNotNull($sale, 'Partial invoice should reconcile despite 0.50 precision drift');
+
+        $this->assertEqualsWithDelta(2000.00, (float) $sale->total_amount, 0.01);
+        $this->assertEqualsWithDelta(1000.00, (float) $sale->paid_amount, 0.01, 'Explicit cash payment must not be mutated');
+        $this->assertEqualsWithDelta(1000.00, (float) $sale->due_amount, 0.01, 'Drift should be absorbed into outstanding balance');
+    }
 }
