@@ -953,7 +953,7 @@ class SalesImportService
             $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
             $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
             $csvPajakStr = $rowData['pajak'] ?? null;
-            $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
+            $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '' && (float) $csvPajakStr != 0;
 
             if ($hasCsvPajak) {
                 $taxAmount = (float) $csvPajakStr;
@@ -1165,7 +1165,7 @@ class SalesImportService
                 $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
                 $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
                 $csvPajakStr = $rowData['pajak'] ?? null;
-                $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
+                $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '' && (float) $csvPajakStr != 0;
                 $subtotalDpp = $quantity * $unitPriceDpp;
 
                 if ($hasCsvPajak) {
