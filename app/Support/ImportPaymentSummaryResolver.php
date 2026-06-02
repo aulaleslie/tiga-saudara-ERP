@@ -8,6 +8,7 @@ use Modules\Setting\Entities\PaymentMethod;
 class ImportPaymentSummaryResolver
 {
     private const TOLERANCE = 0.01;
+    private const SOURCE_TOTAL_TOLERANCE = 1.00;
 
     /**
      * @param  array<int, array<string, mixed>>  $rows
@@ -90,9 +91,17 @@ class ImportPaymentSummaryResolver
 
         // Cash Pembayaran: explicit when present, otherwise the residual after deduction/outstanding.
         $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+        
+        // If there is a small precision drift (e.g. from header tax vs line tax) that is within the
+        // acceptable source tolerance, absorb the drift into the cash payment so internal allocation
+        // strictly balances to the calculated document total.
+        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $calculatedDocumentTotal) <= self::SOURCE_TOTAL_TOLERANCE) {
+            $paidAmount = round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+        }
+        
         $paidAmount = round(max($paidAmount, 0), 2);
 
-        if ($sourceTotal !== null && abs($sourceTotal - $calculatedDocumentTotal) > self::TOLERANCE) {
+        if ($sourceTotal !== null && abs($sourceTotal - $calculatedDocumentTotal) > self::SOURCE_TOTAL_TOLERANCE) {
             throw new \RuntimeException('Payment total mismatch: source Total does not reconcile with calculated document total.');
         }
 

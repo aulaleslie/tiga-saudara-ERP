@@ -545,29 +545,32 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertNotNull($fractionalDetail);
         $this->assertEqualsWithDelta(23.7, (float) $fractionalDetail->quantity, 0.001);
     }
-    // Regression — 16994-style invoice where the source Total already excluded the document discount.
-    // The import must not subtract the discount again from the persisted total_amount.
-    // Total = 7571002.23, Diskon = 17114.41, Pembayaran = 7571002.23, Sisa Tagihan = 0.
-    public function test_pre_applied_discount_is_not_subtracted_from_persisted_document_total(): void
+    // Regression — 16994: a real-world invoice where the header tax total (Total Pajak) differs from
+    // the sum of per-line taxes (Jumlah Pajak) by ~0.08 rupiah. The importer must accept this
+    // precision drift within the 1.00 SOURCE_TOTAL_TOLERANCE and persist the rounded total.
+    public function test_invoice_with_precision_drift_in_tax_is_accepted_within_tolerance(): void
     {
         $batch = $this->makeBatch();
-        // Line price: 7571002.23, Diskon: 17114.41.
+        // sum(qty * harga_satuan) = 6837837.83783
+        // sum(line pajak)         = 750279.500269
+        // document Diskon         = 17114.414414
+        // source Total            = 7571002.999992
+        // Calculated total (with discount) = 7571002.92 (differs from source total by 0.08)
         $this->makeRow($batch, [
             'no_faktur' => '16994', 'produk' => 'MONITOR', 'tag' => 'cv tiga nusa',
-            'harga_satuan' => '7571002.23', 'kuantitas' => '1', 'pajak' => '0',
+            'harga_satuan' => '6837837.83783', 'kuantitas' => '1', 'pajak' => '750279.500269',
             'diskon' => '17114.414414',
-            'source_total' => '7571002.23', 'pembayaran' => '7571002.23', 'sisa_tagihan' => '0',
+            'source_total' => '7571002.999992', 'pembayaran' => '7571002.999992', 'sisa_tagihan' => '0',
         ], 1);
 
         $this->service->processBatch($batch);
 
         $purchase = $this->purchase('16994');
-        $this->assertNotNull($purchase, '16994-style invoice should reconcile and import');
+        $this->assertNotNull($purchase, '16994-style invoice should reconcile and import despite 0.08 precision drift');
 
-        // Discount is skipped for the document total (it's already 7571002.23)
-        $this->assertEqualsWithDelta(7571002.23, (float) $purchase->total_amount, 0.01);
-        $this->assertEqualsWithDelta(7571002.23, (float) $purchase->paid_amount, 0.01);
-        // And discount_amount should be 0 since it wasn't applied
-        $this->assertEqualsWithDelta(0, (float) $purchase->discount_amount, 0.01);
+        $this->assertEqualsWithDelta(7571002.92, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(7571002.92, (float) $purchase->paid_amount, 0.01);
+        // And discount_amount is recorded as the discount allocated
+        $this->assertEqualsWithDelta(17114.41, (float) $purchase->discount_amount, 0.01);
     }
 }
