@@ -107,3 +107,4 @@
 - [x] 15.2 Add/update `decimal:3` model casts on `PurchaseDetail`, `SaleDetails`, `ProductStock`, `Transaction` (replacing its `integer` quantity casts), and `Product.product_quantity` so reads return the fractional value.
 - [x] 15.3 Confirm the migration applies decimal column types under `migrate:fresh` and that focused import/quantity tests pass; verify no new regressions versus the pre-existing failing-test baseline.
 - [x] 15.4 Preserve each column's existing nullability and default across the `->change()` (a bare `->change()` resets unrestated attributes), so `products.product_quantity` keeps its `default(0)`; verify the default survives `migrate:fresh`.
+- [x] 15.5 Avoid Doctrine column introspection in the quantity migration; use raw MySQL/MariaDB `ALTER TABLE ... MODIFY` statements so production/test installs without dev dependencies can run `php artisan migrate`.

@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -18,71 +19,118 @@ return new class extends Migration
     /**
      * Map of table => quantity columns to convert.
      *
-     * @var array<string, array<int, string>>
+     * The metadata avoids Doctrine column introspection. This migration must run in production
+     * installs where doctrine/dbal may be absent because it is a dev dependency.
+     *
+     * @var array<string, array<string, array{nullable: bool, default?: int}>>
      */
     private array $columns = [
-        'purchase_details' => ['quantity'],
-        'sale_details' => ['quantity'],
-        'products' => ['product_quantity'],
+        'purchase_details' => [
+            'quantity' => ['nullable' => false],
+        ],
+        'sale_details' => [
+            'quantity' => ['nullable' => false],
+        ],
+        'products' => [
+            'product_quantity' => ['nullable' => false, 'default' => 0],
+        ],
         'product_stocks' => [
-            'quantity', 'quantity_tax', 'quantity_non_tax',
-            'broken_quantity', 'broken_quantity_tax', 'broken_quantity_non_tax',
+            'quantity' => ['nullable' => false],
+            'quantity_tax' => ['nullable' => false],
+            'quantity_non_tax' => ['nullable' => false],
+            'broken_quantity' => ['nullable' => false],
+            'broken_quantity_tax' => ['nullable' => false],
+            'broken_quantity_non_tax' => ['nullable' => false],
         ],
         'transactions' => [
-            'quantity', 'current_quantity', 'broken_quantity',
-            'previous_quantity', 'after_quantity',
-            'previous_quantity_at_location', 'after_quantity_at_location',
-            'quantity_non_tax', 'quantity_tax',
-            'broken_quantity_non_tax', 'broken_quantity_tax',
+            'quantity' => ['nullable' => false],
+            'current_quantity' => ['nullable' => false],
+            'broken_quantity' => ['nullable' => true],
+            'previous_quantity' => ['nullable' => false],
+            'after_quantity' => ['nullable' => false],
+            'previous_quantity_at_location' => ['nullable' => false],
+            'after_quantity_at_location' => ['nullable' => false],
+            'quantity_non_tax' => ['nullable' => false],
+            'quantity_tax' => ['nullable' => false],
+            'broken_quantity_non_tax' => ['nullable' => false],
+            'broken_quantity_tax' => ['nullable' => false],
         ],
     ];
 
     public function up(): void
     {
-        $this->convert(fn (Blueprint $table, string $column): \Illuminate\Database\Schema\ColumnDefinition
-            => $table->decimal($column, 15, 3));
+        $this->convert('decimal');
     }
 
     public function down(): void
     {
-        $this->convert(fn (Blueprint $table, string $column): \Illuminate\Database\Schema\ColumnDefinition
-            => $table->integer($column));
+        $this->convert('integer');
     }
 
     /**
-     * Re-declare each column with the new type while preserving its existing nullability and
-     * default. `->change()` resets attributes that are not restated, so any current default
-     * (e.g. products.product_quantity default 0) would otherwise be dropped on MySQL/MariaDB.
+     * Re-declare each column with the new type while preserving known nullability and defaults.
+     * MySQL/MariaDB use raw ALTER statements so production migrations do not depend on DBAL.
      */
-    private function convert(callable $define): void
+    private function convert(string $targetType): void
     {
-        foreach ($this->columns as $tableName => $columns) {
+        if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->convertMysql($targetType);
+
+            return;
+        }
+
+        $this->convertWithSchemaBuilder($targetType);
+    }
+
+    private function convertMysql(string $targetType): void
+    {
+        $typeSql = $targetType === 'decimal' ? 'DECIMAL(15, 3)' : 'INT';
+
+        foreach ($this->columns as $tableName => $columnDefinitions) {
             if (! Schema::hasTable($tableName)) {
                 continue;
             }
 
-            $present = array_values(array_filter(
-                $columns,
-                fn (string $column): bool => Schema::hasColumn($tableName, $column)
-            ));
+            foreach ($columnDefinitions as $column => $metadata) {
+                if (! Schema::hasColumn($tableName, $column)) {
+                    continue;
+                }
 
-            if ($present === []) {
+                DB::statement(sprintf(
+                    'ALTER TABLE `%s` MODIFY `%s` %s %s%s',
+                    str_replace('`', '``', $tableName),
+                    str_replace('`', '``', $column),
+                    $typeSql,
+                    $metadata['nullable'] ? 'NULL' : 'NOT NULL',
+                    array_key_exists('default', $metadata) ? ' DEFAULT '.$metadata['default'] : ''
+                ));
+            }
+        }
+    }
+
+    private function convertWithSchemaBuilder(string $targetType): void
+    {
+        foreach ($this->columns as $tableName => $columnDefinitions) {
+            if (! Schema::hasTable($tableName)) {
                 continue;
             }
 
-            Schema::table($tableName, function (Blueprint $table) use ($present, $tableName, $define) {
-                foreach ($present as $column) {
-                    $definition = Schema::getConnection()->getDoctrineColumn($tableName, $column);
+            Schema::table($tableName, function (Blueprint $table) use ($columnDefinitions, $targetType, $tableName) {
+                foreach ($columnDefinitions as $column => $metadata) {
+                    if (! Schema::hasColumn($tableName, $column)) {
+                        continue;
+                    }
 
-                    $columnDefinition = $define($table, $column);
+                    $columnDefinition = $targetType === 'decimal'
+                        ? $table->decimal($column, 15, 3)
+                        : $table->integer($column);
 
-                    if (! $definition->getNotnull()) {
+                    if ($metadata['nullable']) {
                         $columnDefinition->nullable();
                     }
 
-                    $default = $definition->getDefault();
-                    if ($default !== null) {
-                        $columnDefinition->default($default);
+                    if (array_key_exists('default', $metadata)) {
+                        $columnDefinition->default($metadata['default']);
                     }
 
                     $columnDefinition->change();
