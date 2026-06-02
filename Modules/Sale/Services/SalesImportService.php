@@ -952,7 +952,15 @@ class SalesImportService
 
             $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
             $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
-            $taxAmount = (float) ($rowData['pajak'] ?? 0);
+            $csvPajakStr = $rowData['pajak'] ?? null;
+            $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
+
+            if ($hasCsvPajak) {
+                $taxAmount = (float) $csvPajakStr;
+            } else {
+                $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                $taxAmount = $taxRateFromCsv > 0 ? ($quantity * $unitPriceDpp) * ($taxRateFromCsv / 100) : 0;
+            }
 
             $totalAmount += $quantity * $unitPriceDpp;
             $totalTaxAmount += $taxAmount;
@@ -1156,10 +1164,18 @@ class SalesImportService
 
                 $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
                 $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
-                $taxAmount = (float) ($rowData['pajak'] ?? 0);
-                $subtotal = $quantity * $unitPriceDpp;
+                $csvPajakStr = $rowData['pajak'] ?? null;
+                $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
+                $subtotalDpp = $quantity * $unitPriceDpp;
 
-                $totalAmount += $subtotal;
+                if ($hasCsvPajak) {
+                    $taxAmount = (float) $csvPajakStr;
+                } else {
+                    $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                    $taxAmount = $taxRateFromCsv > 0 ? $subtotalDpp * ($taxRateFromCsv / 100) : 0;
+                }
+
+                $totalAmount += $subtotalDpp;
                 $totalTaxAmount += $taxAmount;
 
                 // Get tax: prefer tarif_pajak from CSV, fallback to calculated percentage
@@ -1167,23 +1183,17 @@ class SalesImportService
                 if ($taxRateFromCsv > 0) {
                     $tax = $this->findOrCreateTax($taxRateFromCsv);
                 } else {
-                    $taxPercentage = $this->calculateTaxPercentage($subtotal, $taxAmount);
-                    $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                    if ($taxAmount > 0 && $subtotalDpp > 0) {
+                        $taxPercentage = $this->calculateTaxPercentage($subtotalDpp, $taxAmount);
+                        $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                    } else {
+                        $tax = null;
+                    }
                 }
 
-                // Calculate effective tax rate
-                $effectiveTaxRate = $taxRateFromCsv > 0 ? $taxRateFromCsv : ($tax?->value ?? 0);
-
-                // Calculate final unit price (including tax)
-                $unitPriceFinal = $effectiveTaxRate > 0
-                    ? $unitPriceDpp * (1 + ($effectiveTaxRate / 100))
-                    : $unitPriceDpp;
-
-                // If tax rate was 0 but we have tax amount fallback, recalculate unitPriceFinal from total tax
-                if ($effectiveTaxRate == 0 && $taxAmount > 0 && $quantity > 0) {
-                     $unitTaxAmount = $taxAmount / $quantity;
-                     $unitPriceFinal = $unitPriceDpp + $unitTaxAmount;
-                }
+                // Calculate final unit price (including tax) using exact tax amount
+                $unitTaxAmount = $quantity > 0 ? ($taxAmount / $quantity) : 0;
+                $unitPriceFinal = $unitPriceDpp + $unitTaxAmount;
 
                 // Recalculate Subtotal based on final price
                 $subtotal = $unitPriceFinal * $quantity;

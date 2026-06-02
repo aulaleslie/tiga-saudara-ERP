@@ -537,11 +537,14 @@ class PurchaseImportService
             $discountPercent = $this->parseDiscountPercent($rowData['diskon_persen'] ?? '0');
             $dppAfterDiscount = $unitPriceDpp - ($unitPriceDpp * ($discountPercent / 100));
 
-            $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
-            if ($taxRateFromCsv > 0) {
-                $lineTaxAmount = $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100);
+            $csvPajakStr = $rowData['pajak'] ?? null;
+            $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
+
+            if ($hasCsvPajak) {
+                $lineTaxAmount = (float) $csvPajakStr;
             } else {
-                $lineTaxAmount = (float) ($rowData['pajak'] ?? 0);
+                $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                $lineTaxAmount = $taxRateFromCsv > 0 ? $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100) : 0;
             }
 
             $totalAmount += $dppAfterDiscount * $quantity;
@@ -751,15 +754,14 @@ class PurchaseImportService
                 $discountAmount = $unitPriceDpp * ($discountPercent / 100);
                 $dppAfterDiscount = $unitPriceDpp - $discountAmount;
 
-                // Get tax rate from CSV
-                $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                $csvPajakStr = $rowData['pajak'] ?? null;
+                $hasCsvPajak = $csvPajakStr !== null && trim($csvPajakStr) !== '';
 
-                // Calculate tax amount for this line
-                $lineTaxAmount = 0;
-                if ($taxRateFromCsv > 0) {
-                    $lineTaxAmount = $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100);
+                if ($hasCsvPajak) {
+                    $lineTaxAmount = (float) $csvPajakStr;
                 } else {
-                    $lineTaxAmount = (float) ($rowData['pajak'] ?? 0);
+                    $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                    $lineTaxAmount = $taxRateFromCsv > 0 ? $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100) : 0;
                 }
 
                 // Calculate subtotals
@@ -774,15 +776,13 @@ class PurchaseImportService
                 $totalAmount += $subtotalDpp; // Base amount (DPP) for totals
                 $totalTaxAmount += $lineTaxAmount;
 
-                // Find or create tax record
-                $tax = null;
+                $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
                 if ($taxRateFromCsv > 0) {
                     $tax = $this->findOrCreateTax($taxRateFromCsv);
                 } else {
-                    // Fallback: calculate from pajak column if present
-                    $csvTaxAmount = (float) ($rowData['pajak'] ?? 0);
-                    if ($csvTaxAmount > 0 && $subtotalDpp > 0) {
-                        $taxPercentage = $this->calculateTaxPercentage($subtotalDpp, $csvTaxAmount);
+                    // Fallback: calculate from actual tax amount
+                    if ($lineTaxAmount > 0 && $subtotalDpp > 0) {
+                        $taxPercentage = $this->calculateTaxPercentage($subtotalDpp, $lineTaxAmount);
                         $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
                     }
                 }

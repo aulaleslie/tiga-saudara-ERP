@@ -119,3 +119,4 @@
 - [x] 17.1 Update `ImportDocumentAdjustmentResolver::parseMoney` to respect the `$round` parameter so unrounded source discounts are preserved.
 - [x] 17.2 Update `ImportDocumentAdjustmentAllocator::allocate` to perform allocations with unrounded document amounts, preserving source precision through adjusted-total calculation.
 - [x] 17.3 Update purchase and sales import services to use the raw allocated discount and shipping amounts for calculating the final `adjustedTotalWithTax`, deferring rounding of the discount/shipping until they are assigned to the persisted model.
+- [x] 17.4 Update purchase and sales import services to use the explicit `pajak` value from the CSV (if present and non-empty) as the authoritative line tax amount rather than recalculating it, to properly handle tax on documents where the source applied the document discount before calculating tax.
