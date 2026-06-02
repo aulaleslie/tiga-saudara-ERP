@@ -63,6 +63,8 @@ Rationale: `Total`, `Pembayaran`, and outstanding fields represent the original 
 
 Alternative considered: validate each owner group against the repeated source fields. This is the current failure mode for legitimate split-owner imports.
 
+Fractional quantities: line totals use the CSV quantity, which can be fractional for weight-based units (e.g. `23.7` KG). The importers parse quantity via a shared `parseQuantity()` helper (float, accepting dot or comma decimal separators) at both the source-total reconciliation and document/detail creation sites, rather than casting with `(int)`. Casting to integer truncated `23.7` to `23`, dropping `0.7 × unit price` from the calculated total and falsely rejecting otherwise-valid invoices (e.g. invoice `11023`: truncation gave `2927500` vs. the source `Total` of `2936250`). Using the same parse in both places keeps reconciliation and persisted detail/stock quantities consistent.
+
 ### Decision 4: Allocate payment pro-rata by owner document total
 
 When a source invoice splits into multiple positive-total owner documents, allocate paid and outstanding amounts by each owner group's adjusted total divided by the full source invoice adjusted total. Round to cents and assign any final rounding remainder to the largest positive-total group.

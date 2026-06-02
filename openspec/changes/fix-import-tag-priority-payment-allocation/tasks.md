@@ -94,3 +94,9 @@
 - [x] 13.1 Add a zero-gross fallback to `ImportDocumentAdjustmentAllocator`: when the document amount is non-zero, all group gross totals are zero, and there is exactly one owner group, assign the full amount to that group (leave multiple zero-gross groups at zero to avoid an ambiguous split).
 - [x] 13.2 Add allocator unit tests for the single zero-gross group (receives the amount) and multiple zero-gross groups (receive nothing).
 - [x] 13.3 Add a purchase import regression test for the `JL00158527` shape (zero lines, only `Biaya Pengiriman`) reconciling and importing as fully paid.
+
+## 14. Feedback: Don't truncate fractional quantities
+
+- [x] 14.1 Add a `parseQuantity()` helper (float, handling dot/comma decimals) to the purchase and sales import services.
+- [x] 14.2 Replace the `(int) $rowData['kuantitas']` casts at both the source-total reconciliation and document/detail creation sites in purchase and sales imports with `parseQuantity()`.
+- [x] 14.3 Add unit tests for `parseQuantity()` (integer, dot/comma decimals, thousands separators, blank/null default) and a purchase import regression test for invoice `11023` with a `23.7` KG line reconciling to total `2936250` and importing paid.

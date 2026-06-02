@@ -509,4 +509,40 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(4000, (float) $purchase->paid_amount, 0.01);
         $this->assertEqualsWithDelta(0, (float) $purchase->due_amount, 0.01);
     }
+
+    // Regression — invoice 11023: a fractional quantity (23.7 KG) must not be truncated to 23,
+    // or the calculated total drifts from the source. Total = 870000 + 875000 + 435000 + 230000
+    // + 230000 + 23.7*12500 (296250) = 2936250.
+    public function test_fractional_quantity_is_not_truncated_and_invoice_reconciles(): void
+    {
+        $batch = $this->makeBatch();
+        $lines = [
+            ['MONITOR A', '60', '14500'],
+            ['MONITOR B', '100', '8750'],
+            ['MONITOR C', '30', '14500'],
+            ['MONITOR D', '40', '5750'],
+            ['MONITOR E', '40', '5750'],
+            ['CABLE ROLL F', '23.7', '12500'],
+        ];
+        foreach ($lines as $i => [$produk, $qty, $harga]) {
+            $this->makeRow($batch, [
+                'no_faktur' => '11023', 'produk' => $produk, 'tag' => 'rahmat',
+                'harga_satuan' => $harga, 'kuantitas' => $qty, 'pajak' => '0',
+                'source_total' => '2936250', 'pembayaran' => '2936250', 'sisa_tagihan' => '0',
+            ], $i + 1);
+        }
+
+        $this->service->processBatch($batch);
+
+        $purchase = $this->purchase('11023');
+        $this->assertNotNull($purchase, 'Invoice 11023 should import (fractional qty must reconcile)');
+        $this->assertEqualsWithDelta(2936250, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(2936250, (float) $purchase->paid_amount, 0.01);
+        $this->assertEqualsWithDelta(0, (float) $purchase->due_amount, 0.01);
+
+        // The fractional line preserves 23.7 rather than truncating to 23.
+        $fractionalDetail = $purchase->purchaseDetails()->where('product_name', 'like', '%CABLE ROLL F%')->first();
+        $this->assertNotNull($fractionalDetail);
+        $this->assertEqualsWithDelta(23.7, (float) $fractionalDetail->quantity, 0.001);
+    }
 }

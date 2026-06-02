@@ -281,6 +281,32 @@ class PurchaseImportService
     }
 
     /**
+     * Parse a CSV quantity that may be fractional (e.g. "23.7" or "23,7" KG) into a float.
+     * Quantities must not be truncated to an integer or line totals will mismatch the source.
+     */
+    public function parseQuantity(mixed $value): float
+    {
+        if ($value === null) {
+            return 1.0;
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '') {
+            return 1.0;
+        }
+
+        // Treat a lone comma as a decimal separator (e.g. "23,7" -> "23.7").
+        if (str_contains($normalized, ',') && !str_contains($normalized, '.')) {
+            $normalized = str_replace(',', '.', $normalized);
+        } else {
+            // Otherwise drop thousands commas (e.g. "1,234.5" -> "1234.5").
+            $normalized = str_replace(',', '', $normalized);
+        }
+
+        return is_numeric($normalized) ? (float) $normalized : 1.0;
+    }
+
+    /**
      * Calculate tax percentage from amounts.
      */
     public function calculateTaxPercentage(float $subtotal, float $taxAmount): int
@@ -505,7 +531,7 @@ class PurchaseImportService
         foreach ($rows as $row) {
             $rowData = $row->raw_json;
 
-            $quantity = (int) ($rowData['kuantitas'] ?? 1);
+            $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
             $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
 
             $discountPercent = $this->parseDiscountPercent($rowData['diskon_persen'] ?? '0');
@@ -717,7 +743,7 @@ class PurchaseImportService
                     $rowData['deskripsi'] ?? null
                 );
 
-                $quantity = (int) ($rowData['kuantitas'] ?? 1);
+                $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);
                 $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0); // DPP from CSV
 
                 // Parse discount percentage (e.g., "0.00 %" or "7.26")

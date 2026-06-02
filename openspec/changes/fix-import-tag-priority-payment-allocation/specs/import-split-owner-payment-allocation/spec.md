@@ -23,6 +23,12 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **AND** the generated document MUST have `paid_amount` equal to its total and `due_amount` equal to `0.00`
 - **AND** the importer MUST create the active payment row needed for the generated paid document
 
+#### Scenario: Fractional line quantity is preserved during reconciliation
+- **WHEN** a source CSV invoice line has a fractional quantity (e.g. `23.7`)
+- **THEN** the importer MUST compute that line's total using the fractional quantity, not a truncated integer
+- **AND** the calculated source invoice total MUST reconcile with the repeated source `Total`
+- **AND** the persisted document detail MUST store the fractional quantity
+
 ### Requirement: Jumlah Pemotongan is reconciled as a non-cash settlement credit
 The purchase and sales importers SHALL map a source `Jumlah Pemotongan` column and treat it as a non-cash settlement credit that, together with cash `Pembayaran` and outstanding balance, reconciles the source `Total`.
 
