@@ -4,8 +4,8 @@ namespace Modules\Purchase\Services;
 
 use App\Support\ImportDocumentAdjustmentAllocator;
 use App\Support\ImportDocumentAdjustmentResolver;
-use App\Support\ImportPaymentAllocator;
 use App\Support\ImportPaymentSummaryResolver;
+use App\Support\ImportSettlementAllocator;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -32,9 +32,9 @@ class PurchaseImportService
 
     protected ImportPaymentSummaryResolver $paymentSummaryResolver;
 
-    protected ImportPaymentAllocator $paymentAllocator;
-
     protected ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator;
+
+    protected ImportSettlementAllocator $settlementAllocator;
 
     /**
      * Tag-based tenant mapping (Priority 1).
@@ -61,14 +61,14 @@ class PurchaseImportService
     public function __construct(
         ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
         ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null,
-        ?ImportPaymentAllocator $paymentAllocator = null,
-        ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null
+        ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null,
+        ?ImportSettlementAllocator $settlementAllocator = null
     )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
         $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
-        $this->paymentAllocator = $paymentAllocator ?? app(ImportPaymentAllocator::class);
         $this->documentAdjustmentAllocator = $documentAdjustmentAllocator ?? app(ImportDocumentAdjustmentAllocator::class);
+        $this->settlementAllocator = $settlementAllocator ?? app(ImportSettlementAllocator::class);
     }
 
     /**
@@ -564,21 +564,27 @@ class PurchaseImportService
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
         $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
 
-        $allocations = $this->paymentAllocator->allocate(
+        // Split the settlement (cash Pembayaran, non-cash Jumlah Pemotongan credit, outstanding
+        // due) across owner groups so each owner satisfies cash + deduction + due == group total
+        // with all three non-negative. The settlement allocator derives the components from a
+        // shared pro-rata base so a tiny group can never be over-settled into a negative due.
+        $settlements = $this->settlementAllocator->allocate(
             $groupTotals,
             $paymentSummary['paid_amount'],
-            $paymentSummary['outstanding_balance']
+            $paymentSummary['deduction_amount'] ?? 0.0
         );
 
         foreach ($ownerGroups as $groupKey => $groupRows) {
-            $allocation = $allocations[$groupKey] ?? ['paid' => 0.0, 'due' => 0.0];
+            $settlement = $settlements[$groupKey] ?? ['cash' => 0.0, 'deduction' => 0.0, 'due' => 0.0];
+
             $this->processInvoiceGroup(
                 $groupRows,
                 $batch,
-                $allocation['paid'],
-                $allocation['due'],
+                $settlement['cash'],
+                $settlement['due'],
                 $discountAllocations[$groupKey] ?? 0.0,
-                $shippingAllocations[$groupKey] ?? 0.0
+                $shippingAllocations[$groupKey] ?? 0.0,
+                $settlement['deduction']
             );
         }
     }
@@ -587,7 +593,7 @@ class PurchaseImportService
      * Process a group of rows belonging to the same invoice and effective owner.
      * Paid/due amounts are pre-allocated at source-invoice scope.
      */
-    protected function processInvoiceGroup(array $rows, PurchaseImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0): void
+    protected function processInvoiceGroup(array $rows, PurchaseImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0): void
     {
         if (empty($rows)) {
             return;
@@ -780,9 +786,14 @@ class PurchaseImportService
             $adjustedTotalWithTax = round($totalWithTax - $documentDiscount + $documentShipping, 2);
 
             // Payment is reconciled once at source-invoice scope and allocated to this owner group.
-            $paidAmount = round($allocatedPaid, 2);
+            // Cash payment (Pembayaran) and the non-cash deduction (Jumlah Pemotongan) both settle
+            // the invoice: header paid_amount = cash + deduction so paid + due = total, while only
+            // the cash portion becomes an actual payment row.
+            $cashPaidAmount = round($allocatedPaid, 2);
+            $deductionAmount = round($allocatedDeduction, 2);
             $dueAmount = round($allocatedDue, 2);
-            $needsPayment = $paidAmount > 0.01;
+            $paidAmount = round($cashPaidAmount + $deductionAmount, 2);
+            $needsPayment = $cashPaidAmount > 0.01;
 
             $cashPaymentMethod = null;
             if ($needsPayment) {
@@ -935,10 +946,24 @@ class PurchaseImportService
                 PurchasePayment::create([
                     'purchase_id' => $purchase->id,
                     'payment_method_id' => $cashPaymentMethod->id,
-                    'amount' => $paidAmount,
+                    'amount' => $cashPaidAmount,
                     'date' => $purchaseDate,
                     'reference' => $purchase->reference,
                     'payment_method' => $cashPaymentMethod->name,
+                ]);
+            }
+
+            // Record the Jumlah Pemotongan as a separate non-cash settlement credit so reports,
+            // which derive paid from active payment rows, see the invoice as fully settled.
+            if ($deductionAmount > 0.01) {
+                $deductionPaymentMethod = $this->paymentSummaryResolver->resolveDeductionPaymentMethod();
+                PurchasePayment::create([
+                    'purchase_id' => $purchase->id,
+                    'payment_method_id' => $deductionPaymentMethod->id,
+                    'amount' => $deductionAmount,
+                    'date' => $purchaseDate,
+                    'reference' => $purchase->reference,
+                    'payment_method' => $deductionPaymentMethod->name,
                 ]);
             }
 

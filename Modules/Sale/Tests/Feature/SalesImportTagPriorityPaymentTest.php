@@ -308,4 +308,41 @@ class SalesImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(185000, round($sales->sum('total_amount'), 2), 0.01);
         $this->assertEqualsWithDelta(185000, round($sales->sum('paid_amount'), 2), 0.01);
     }
+
+    // Regression — Jumlah Pemotongan (non-cash settlement credit) reconciles the invoice:
+    // cash Pembayaran + deduction + outstanding = Total. The cash payment row records the
+    // Pembayaran amount only, while the header paid_amount includes the deduction so paid + due = total.
+    public function test_jumlah_pemotongan_reconciles_and_records_cash_payment_only(): void
+    {
+        // Total 1,000,000 = cash 700,000 + deduction 300,000 + outstanding 0.
+        $this->process([
+            [
+                'no_faktur' => 'PEM-1', 'produk' => 'MONITOR SAMPLE', 'tag' => 'rahmat',
+                'harga_satuan' => '1000000', 'kuantitas' => '1',
+                'source_total' => '1000000', 'pembayaran' => '700000',
+                'jumlah_pemotongan' => '300000', 'sisa_tagihan' => '0',
+            ],
+        ]);
+
+        $sale = $this->sale('PEM-1');
+        $this->assertNotNull($sale, 'Sale should be created despite the deduction');
+
+        $this->assertEqualsWithDelta(1000000, (float) $sale->paid_amount, 0.01);
+        $this->assertEqualsWithDelta(0, (float) $sale->due_amount, 0.01);
+
+        // Two active payment rows: a cash row for Pembayaran and a non-cash deduction credit.
+        $payments = SalePayment::where('sale_id', $sale->id)
+            ->where('status', SalePayment::STATUS_ACTIVE)
+            ->get();
+        $this->assertCount(2, $payments);
+        $this->assertEqualsWithDelta(1000000, (float) $payments->sum('amount'), 0.01);
+
+        $cashRow = $payments->firstWhere('payment_method', 'CASH');
+        $this->assertNotNull($cashRow, 'A cash payment row for Pembayaran must exist');
+        $this->assertEqualsWithDelta(700000, (float) $cashRow->amount, 0.01);
+
+        $deductionRow = $payments->firstWhere('payment_method', 'POTONGAN');
+        $this->assertNotNull($deductionRow, 'A non-cash deduction credit row must exist');
+        $this->assertEqualsWithDelta(300000, (float) $deductionRow->amount, 0.01);
+    }
 }

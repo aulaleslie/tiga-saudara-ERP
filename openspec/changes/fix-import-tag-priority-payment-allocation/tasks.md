@@ -45,3 +45,40 @@
 - [x] 5.3 Persist each owner document's `discount_amount`/`shipping_amount` from its allocated share instead of the full repeated document value.
 - [x] 5.4 Add purchase and sales regression tests proving a two-owner invoice with a repeated document discount reconciles to the valid source total and persisted header discounts sum back to the source discount.
 - [x] 5.5 Add unit tests for the document adjustment allocator (zero amount, single positive group, even/uneven split, rounding remainder).
+
+## 6. Feedback: Model Jumlah Pemotongan as a non-cash settlement credit
+
+- [x] 6.1 Map `Jumlah Pemotongan` (`jumlah pemotongan` → `jumlah_pemotongan`) in purchase and sales upload controllers and staging jobs.
+- [x] 6.2 Resolve `jumlah_pemotongan` in `ImportPaymentSummaryResolver`, returning `deduction_amount` and reconciling against `paid + deduction + outstanding == total`.
+- [x] 6.3 In purchase and sales import, set header `paid_amount = cash Pembayaran + deduction` (due = outstanding) and record the cash Pembayaran as a payment row; allocate the deduction across split owners. (Superseded by section 7: the deduction is also persisted as its own non-cash payment row for report consistency.)
+- [x] 6.4 Add resolver unit tests for the reviewer scenario, default-zero deduction, and a non-reconciling deduction rejection.
+- [x] 6.5 Add purchase and sales feature regression tests proving a deducted invoice imports and the header paid+due reconciles. (Updated by task 7.3 to also assert the separate non-cash deduction payment row.)
+
+## 7. Feedback: Bridge Jumlah Pemotongan to active-payment-based reports
+
+- [x] 7.1 Add `ImportPaymentSummaryResolver::resolveDeductionPaymentMethod` that resolves or creates a dedicated non-cash payment method (`POTONGAN`, `is_cash = false`) reusing an existing chart of account for the required `coa_id`.
+- [x] 7.2 In purchase and sales import, persist the allocated deduction as a second active payment row using the non-cash method so reports (which derive paid from active payment rows) see the invoice as fully settled.
+- [x] 7.3 Update the purchase and sales deduction regression tests to assert two active payment rows (cash + non-cash credit) summing to the document total.
+- [x] 7.4 Add a purchase report test proving a deducted invoice reports as Lunas with zero outstanding without disturbing the locked active-payment-override behavior.
+
+## 8. Feedback: Eliminate per-owner rounding drift in split-owner deduction allocation
+
+- [x] 8.1 In purchase and sales import, allocate only cash and deduction pro-rata and derive each owner's due as `group_total − allocated_cash − allocated_deduction` so `cash + deduction + due == group_total` exactly per owner.
+- [x] 8.2 Remove the now-unused `ImportPaymentAllocator` wiring from the purchase and sales import services.
+- [x] 8.3 Add a split-owner regression test asserting per-owner `paid + due == total` under a deduction with uneven owner ratios, while invoice-level sums still reconcile.
+
+## 9. Feedback: Ensure the report bridge test runs in the default PHPUnit suite
+
+- [x] 9.1 Move the deducted-invoice report-bridge test out of `Modules/Reports/Tests` (not included in phpunit.xml) into `Modules/Purchase/Tests/Feature` as a self-contained `PurchaseImportDeductionReportBridgeTest` so it runs under `composer test:fresh-sqlite`.
+
+## 10. Feedback: Prevent negative due from over-settled tiny owner groups
+
+- [x] 10.1 Add `App\Support\ImportSettlementAllocator` that allocates due (pro-rata by total), takes settled = total − due, allocates cash (pro-rata by settled), and derives deduction = settled − cash, guaranteeing non-negative `cash`/`deduction`/`due` summing to each group total and invoice-level reconciliation.
+- [x] 10.2 Replace the two-component allocate-and-derive logic in purchase and sales `processSourceInvoice` with the settlement allocator.
+- [x] 10.3 Add settlement allocator unit tests including the reviewer's tiny-group reproduction and awkward-ratio fuzz cases.
+- [x] 10.4 Add a purchase feature regression test proving a tiny owner group with a deduction never persists a negative `due_amount` and that active payment rows do not exceed the owner document total.
+
+## 11. Feedback: Fix one-cent group handling in the settlement allocator
+
+- [x] 11.1 Replace the one-cent tolerance in `ImportSettlementAllocator::proRata` with a sub-cent epsilon (`0.005`) so a `0.01` weight/amount is treated as positive money rather than skipped.
+- [x] 11.2 Add unit tests proving a fully cash-paid `0.01` group settles as cash (not deduction) and that `[0.01, 1.00]` with cash `1.01` and no source deduction produces no spurious deduction; extend the fuzz cases with one-cent groups.

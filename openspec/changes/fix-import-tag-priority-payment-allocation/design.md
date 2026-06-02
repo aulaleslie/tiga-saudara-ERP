@@ -71,6 +71,20 @@ Rationale: pro-rata allocation preserves the source paid/due ratio and avoids ar
 
 Alternative considered: pay groups sequentially until the source paid amount is exhausted. This is simple but creates owner-specific balances based on row order rather than source accounting data.
 
+**Per-owner consistency (single settlement allocator):** An owner document's total has three settlement components — cash `Pembayaran`, the non-cash `Jumlah Pemotongan` credit, and the outstanding due. These must satisfy `cash + deduction + due == group_total` per owner with every component non-negative, while the invoice sums equal the source `paid`, `deduction`, and `outstanding`.
+
+Allocating two components independently and deriving the third by subtraction is unsafe: two independently-rounded components can over-settle a tiny group so the derived third goes negative (e.g. group totals `[0.14, 14.14]` with cash `10.71` and deduction `3.57` gave the small group cash `0.11`, deduction `0.04`, due `-0.01`). It also drifts when all three are rounded independently (e.g. a `22.33` group receiving components summing to `22.35`).
+
+`ImportSettlementAllocator` resolves both by deriving the components from a shared pro-rata base:
+1. allocate `due` pro-rata by group total (`due_g ≤ group_total` because `outstanding ≤ sum(group_total)`);
+2. `settled_g = group_total − due_g` (≥ 0);
+3. allocate `cash` pro-rata by `settled_g` (`cash_g ≤ settled_g` because `paid ≤ sum(settled) = paid + deduction`);
+4. `deduction_g = settled_g − cash_g` (≥ 0).
+
+Each step's rounding remainder goes to the largest-weight group, which has the most headroom, so no group is pushed negative. This guarantees the per-owner invariant and non-negativity, and the chained sums give `sum(due) == outstanding`, `sum(cash) == paid`, `sum(deduction) == deduction`. It replaced both the per-component `ImportDocumentAdjustmentAllocator` usage for settlement and the earlier `ImportPaymentAllocator`; `ImportDocumentAdjustmentAllocator` remains only for document discount/shipping allocation.
+
+The internal pro-rata helper distinguishes a true zero from a legitimate one-cent value using a sub-cent epsilon (`0.005`), not a one-cent tolerance. A one-cent tolerance wrongly skipped `0.01` weights and amounts: a fully cash-paid `0.01` group with no deduction was settled as `deduction = 0.01` instead of `cash = 0.01`, and groups `[0.01, 1.00]` with cash `1.01` produced a spurious `0.01` deduction (a `POTONGAN` row for an invoice with no source deduction, with active payments exceeding the document total). Because money is two-decimal, a rounded value is positive exactly when it exceeds half a cent.
+
 ### Decision 4b: Allocate document-level discount and shipping pro-rata, not per group
 
 `Diskon` and `Biaya Pengiriman` are repeated on every source row but represent a single invoice-level amount. They must be resolved once at source-invoice scope and then allocated across owner groups pro-rata by each group's gross line total (line totals plus tax, before adjustment), with the two-decimal rounding remainder assigned to the largest positive-total group. Each owner group's adjusted total is `grossTotal - allocatedDiscount + allocatedShipping`, and the source invoice adjusted total is the sum of those.
@@ -78,6 +92,18 @@ Alternative considered: pay groups sequentially until the source paid amount is 
 Rationale: subtracting the full document discount/shipping inside each owner group (as the first implementation did) double-counts the adjustment on a split-owner invoice. For two equal groups with line totals 100000 + 100000 and a repeated Diskon of 15000, the per-group approach yielded (100000 - 15000) + (100000 - 15000) = 170000 and falsely rejected a valid source Total of 185000. Pro-rata allocation gives 92500 + 92500 = 185000 and persists each owner header's `discount_amount`/`shipping_amount` as its allocated share, so the summed headers reconcile back to the source values. A single-positive-group invoice receives the whole amount, preserving prior single-owner behavior. This is implemented in `App\Support\ImportDocumentAdjustmentAllocator`, mirroring `ImportPaymentAllocator`.
 
 Alternative considered: apply the full document discount/shipping to each owner group. Rejected — it is the double-counting failure mode this decision fixes.
+
+### Decision 4c: Model Jumlah Pemotongan as a non-cash settlement credit
+
+Some source invoices record a `Jumlah Pemotongan` (settlement reduction/credit) separately from the cash `Pembayaran`. For these the source reconciles as `Pembayaran + Jumlah Pemotongan + outstanding == Total`, not `Pembayaran + outstanding == Total`. The first reconciliation model rejected such valid invoices (e.g. purchase `2009DPS227/T0248`: Total 17,876,755.50, Pembayaran 15,176,755.50, Pemotongan 2,700,000, outstanding 0).
+
+`Jumlah Pemotongan` is mapped through the upload controllers and staging jobs (alias `jumlah pemotongan` → `jumlah_pemotongan`) and modeled in `ImportPaymentSummaryResolver`, which now returns a `deduction_amount` and reconciles against `paid + deduction + outstanding == total`. On the generated document the deduction is treated as a non-cash credit: the header `paid_amount = cash Pembayaran + deduction` so `paid + due = total`. The cash payment row records the `Pembayaran` amount only; the deduction is persisted as a **separate non-cash payment row** (see the import/report bridge below) so it is never recorded as cash received. On split-owner invoices the cash, deduction, and due components are split together by `ImportSettlementAllocator`, so summed owner documents still reconcile (see Decision 4 for the per-owner allocation guarantee).
+
+Rationale: the deduction is a real settlement of the invoice but not cash received, so it must close the reconciliation gap without inflating recorded cash. No new column/migration is added.
+
+Alternative considered: fold the deduction into the cash payment row amount. Rejected — it overstates cash actually received. Alternative considered: subtract the deduction from the document total. Rejected — it loses the original invoice total and conflates a settlement credit with a price discount.
+
+**Import/report bridge:** Purchase reports derive "paid" from active payment rows whenever any exist (`PurchaseReportQueryService::effectivePaidExpression`), ignoring the header `paid_amount`. A deducted invoice with only a cash payment row would therefore report as partially paid with the deduction shown as outstanding. To keep reports consistent without overstating cash, the deduction is persisted as a **second active payment row** using a dedicated non-cash payment method (`POTONGAN`, `is_cash = false`, resolved or created via `ImportPaymentSummaryResolver::resolveDeductionPaymentMethod`, reusing the cash method's chart of account to satisfy the required `coa_id`). Reports then sum cash + credit to the full total (Lunas, zero outstanding) while payment-method breakdowns keep the credit distinguishable from cash. This intentionally revises the earlier "do not infer multiple payment methods" non-goal for the single deduction-credit method only; no schema change is required.
 
 ### Decision 5: Allow zero-total owner groups with no payment
 

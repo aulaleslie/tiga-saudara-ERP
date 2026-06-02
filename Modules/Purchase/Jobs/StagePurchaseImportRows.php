@@ -144,6 +144,7 @@ class StagePurchaseImportRows implements ShouldQueue
             'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
             'sisa_tagihan' => $get('sisa_tagihan'),
             'pembayaran' => $get('pembayaran'),
+            'jumlah_pemotongan' => $get('jumlah_pemotongan'),
             'source_total' => $get('source_total'),
             'biaya_pengiriman' => $get('biaya_pengiriman'),
             'nama_perusahaan' => $get('nama_perusahaan'),

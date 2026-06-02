@@ -366,4 +366,124 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(185000, round($purchases->sum('total_amount'), 2), 0.01);
         $this->assertEqualsWithDelta(185000, round($purchases->sum('paid_amount'), 2), 0.01);
     }
+
+    // Regression — Jumlah Pemotongan (non-cash settlement credit) reconciles the invoice:
+    // cash Pembayaran + deduction + outstanding = Total. The cash payment row records the
+    // Pembayaran amount only, while the header paid_amount includes the deduction so paid + due = total.
+    public function test_jumlah_pemotongan_reconciles_and_records_cash_payment_only(): void
+    {
+        $batch = $this->makeBatch();
+        // Total 1,000,000 = cash 700,000 + deduction 300,000 + outstanding 0.
+        $this->makeRow($batch, [
+            'no_faktur' => 'PEM-1', 'produk' => 'MONITOR SAMPLE', 'tag' => 'rahmat',
+            'harga_satuan' => '1000000', 'kuantitas' => '1',
+            'source_total' => '1000000', 'pembayaran' => '700000',
+            'jumlah_pemotongan' => '300000', 'sisa_tagihan' => '0',
+        ], 1);
+
+        $this->service->processBatch($batch);
+
+        $purchase = $this->purchase('PEM-1');
+        $this->assertNotNull($purchase, 'Purchase should be created despite the deduction');
+
+        // Header reflects cash + credit; paid + due reconciles to total.
+        $this->assertEqualsWithDelta(1000000, (float) $purchase->paid_amount, 0.01);
+        $this->assertEqualsWithDelta(0, (float) $purchase->due_amount, 0.01);
+        $this->assertEquals('PAID', $purchase->payment_status);
+
+        // Two active payment rows: a cash row for Pembayaran and a non-cash deduction credit.
+        // Reports derive paid from active payment rows, so both must exist and sum to the total.
+        $payments = PurchasePayment::where('purchase_id', $purchase->id)
+            ->where('status', PurchasePayment::STATUS_ACTIVE)
+            ->get();
+        $this->assertCount(2, $payments);
+        $this->assertEqualsWithDelta(1000000, (float) $payments->sum('amount'), 0.01);
+
+        $cashRow = $payments->firstWhere('payment_method', 'CASH');
+        $this->assertNotNull($cashRow, 'A cash payment row for Pembayaran must exist');
+        $this->assertEqualsWithDelta(700000, (float) $cashRow->amount, 0.01);
+
+        $deductionRow = $payments->firstWhere('payment_method', 'POTONGAN');
+        $this->assertNotNull($deductionRow, 'A non-cash deduction credit row must exist');
+        $this->assertEqualsWithDelta(300000, (float) $deductionRow->amount, 0.01);
+    }
+
+    // Regression — split-owner invoice with cash + deduction must not drift per owner. Cash and
+    // deduction are allocated and due is derived as the residual, so each owner document satisfies
+    // paid + due == total exactly, while invoice-level sums still reconcile.
+    public function test_split_owner_with_deduction_keeps_paid_plus_due_equal_to_total_per_owner(): void
+    {
+        $batch = $this->makeBatch();
+        // Uneven line totals 3333 + 6667 = 10000; cash 6000 + deduction 1300 + outstanding 2700.
+        $this->makeRow($batch, [
+            'no_faktur' => 'DRIFT-1', 'produk' => 'PROD A', 'harga_satuan' => '3333', 'kuantitas' => '1',
+            'tag' => 'cv tiga nusa',
+            'source_total' => '10000', 'pembayaran' => '6000', 'jumlah_pemotongan' => '1300', 'sisa_tagihan' => '2700',
+        ], 1);
+        $this->makeRow($batch, [
+            'no_faktur' => 'DRIFT-1', 'produk' => 'PROD B', 'harga_satuan' => '6667', 'kuantitas' => '1',
+            'tag' => 'cv top it',
+            'source_total' => '10000', 'pembayaran' => '6000', 'jumlah_pemotongan' => '1300', 'sisa_tagihan' => '2700',
+        ], 2);
+
+        $this->service->processBatch($batch);
+
+        $purchases = Purchase::where('supplier_purchase_number', 'DRIFT-1')->get();
+        $this->assertCount(2, $purchases);
+
+        // Per-owner invariant: paid + due reconciles to that owner's total exactly (no cent drift).
+        foreach ($purchases as $purchase) {
+            $this->assertEqualsWithDelta(
+                (float) $purchase->total_amount,
+                (float) $purchase->paid_amount + (float) $purchase->due_amount,
+                0.001,
+                "Owner document {$purchase->id} paid + due must equal its total"
+            );
+        }
+
+        // Invoice-level sums still reconcile to the source values.
+        $this->assertEqualsWithDelta(10000, round($purchases->sum('total_amount'), 2), 0.01);
+        $this->assertEqualsWithDelta(7300, round($purchases->sum('paid_amount'), 2), 0.01); // cash 6000 + deduction 1300
+        $this->assertEqualsWithDelta(2700, round($purchases->sum('due_amount'), 2), 0.01);
+    }
+
+    // Regression — a tiny owner group must never be over-settled into a negative due_amount.
+    // Reviewer case: totals [0.14, 14.14], cash 10.71, deduction 3.57 (fully paid, outstanding 0).
+    public function test_tiny_owner_group_with_deduction_never_persists_negative_due(): void
+    {
+        $batch = $this->makeBatch();
+        $this->makeRow($batch, [
+            'no_faktur' => 'TINY-1', 'produk' => 'PROD A', 'harga_satuan' => '0.14', 'kuantitas' => '1',
+            'tag' => 'cv tiga nusa',
+            'source_total' => '14.28', 'pembayaran' => '10.71', 'jumlah_pemotongan' => '3.57', 'sisa_tagihan' => '0',
+        ], 1);
+        $this->makeRow($batch, [
+            'no_faktur' => 'TINY-1', 'produk' => 'PROD B', 'harga_satuan' => '14.14', 'kuantitas' => '1',
+            'tag' => 'cv top it',
+            'source_total' => '14.28', 'pembayaran' => '10.71', 'jumlah_pemotongan' => '3.57', 'sisa_tagihan' => '0',
+        ], 2);
+
+        $this->service->processBatch($batch);
+
+        $purchases = Purchase::where('supplier_purchase_number', 'TINY-1')->get();
+        $this->assertCount(2, $purchases);
+
+        foreach ($purchases as $purchase) {
+            $this->assertGreaterThanOrEqual(0, (float) $purchase->due_amount, "due_amount must not be negative for document {$purchase->id}");
+            // Active payment rows for an owner must not exceed its document total.
+            $activePaid = PurchasePayment::where('purchase_id', $purchase->id)
+                ->where('status', PurchasePayment::STATUS_ACTIVE)
+                ->sum('amount') / 100; // amounts persisted as cents
+            $this->assertLessThanOrEqual((float) $purchase->total_amount + 0.001, (float) $activePaid);
+            $this->assertEqualsWithDelta(
+                (float) $purchase->total_amount,
+                (float) $purchase->paid_amount + (float) $purchase->due_amount,
+                0.001
+            );
+        }
+
+        $this->assertEqualsWithDelta(14.28, round($purchases->sum('total_amount'), 2), 0.01);
+        $this->assertEqualsWithDelta(14.28, round($purchases->sum('paid_amount'), 2), 0.01); // fully settled
+        $this->assertEqualsWithDelta(0, round($purchases->sum('due_amount'), 2), 0.01);
+    }
 }

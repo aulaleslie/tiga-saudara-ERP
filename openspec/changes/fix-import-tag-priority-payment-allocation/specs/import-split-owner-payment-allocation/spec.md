@@ -15,6 +15,33 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **THEN** the importer MUST mark every row in that source invoice invalid
 - **AND** the importer MUST NOT create purchase, sale, purchase payment, sale payment, stock, dispatch, receipt, or price records for any group in that source invoice
 
+### Requirement: Jumlah Pemotongan is reconciled as a non-cash settlement credit
+The purchase and sales importers SHALL map a source `Jumlah Pemotongan` column and treat it as a non-cash settlement credit that, together with cash `Pembayaran` and outstanding balance, reconciles the source `Total`.
+
+#### Scenario: Invoice with a deduction reconciles and imports
+- **WHEN** a source CSV invoice has `Pembayaran` plus `Jumlah Pemotongan` plus outstanding balance equal to the source `Total`
+- **AND** `Pembayaran` alone plus outstanding balance does not equal the source `Total`
+- **THEN** the importer MUST treat the invoice as reconciling and MUST create the document
+- **AND** the importer MUST NOT reject the invoice for a payment total mismatch
+
+#### Scenario: Deduction is recorded as credit, not as cash
+- **WHEN** a reconciling invoice carries a non-zero `Jumlah Pemotongan`
+- **THEN** the generated document `paid_amount` MUST equal the cash `Pembayaran` plus the deduction so that `paid_amount` plus `due_amount` equals the document total
+- **AND** the importer MUST create exactly one cash payment row whose amount equals the cash `Pembayaran`
+- **AND** the importer MUST create exactly one non-cash payment row, using a payment method with `is_cash = false`, whose amount equals the deduction
+- **AND** the cash and non-cash payment row amounts MUST sum to the document `paid_amount`
+
+#### Scenario: Reports show a deducted invoice as fully paid
+- **WHEN** a reconciling fully-settled invoice carries a non-zero `Jumlah Pemotongan`
+- **AND** the purchase report derives paid amounts from active payment rows
+- **THEN** the report MUST show the invoice paid amount equal to the cash payment plus the deduction credit
+- **AND** the report MUST show zero outstanding and a fully-paid status
+
+#### Scenario: Deduction is allocated across split owners
+- **WHEN** a reconciling invoice with a non-zero `Jumlah Pemotongan` splits into multiple positive-total owner documents
+- **THEN** the importer MUST allocate the deduction across owner groups pro-rata by owner-group total
+- **AND** the summed owner documents MUST still reconcile to the source invoice total
+
 ### Requirement: Pro-rata document discount and shipping allocation for split-owner imports
 The purchase and sales importers SHALL treat repeated document-level `Diskon` and `Biaya Pengiriman` as a single source-invoice amount and SHALL allocate each across positive-total owner groups pro-rata by each group's gross line total (line totals plus tax, before document adjustment), assigning any two-decimal rounding remainder to the largest positive-total group.
 
@@ -55,6 +82,18 @@ The purchase and sales importers SHALL allocate source invoice paid and outstand
 - **WHEN** pro-rata allocation produces rounding differences after two-decimal rounding
 - **THEN** the importer MUST assign the final rounding remainder to one positive-total owner group deterministically
 - **AND** the persisted owner document totals MUST still sum to the source invoice paid and outstanding amounts within monetary tolerance
+
+#### Scenario: Each owner document's settlement components reconcile to its own total
+- **WHEN** a split-owner invoice allocates cash payment and a non-cash deduction across owner documents
+- **THEN** the importer MUST allocate the cash, deduction, and due components so they sum to each owner's total
+- **AND** every generated owner document MUST satisfy `paid_amount` plus `due_amount` equal to its own `total_amount` (no per-owner cent drift), where `paid_amount` is the cash plus deduction credit
+- **AND** the invoice-level sums of cash, deduction, and due MUST still reconcile to the source values
+
+#### Scenario: A tiny owner group is never over-settled into a negative due
+- **WHEN** a split-owner invoice with a non-zero deduction includes an owner group whose total is very small relative to the others
+- **THEN** that owner document's `due_amount` MUST NOT be negative
+- **AND** the owner document's cash and deduction components MUST each be non-negative and MUST NOT sum to more than its `total_amount`
+- **AND** the sum of that owner's active payment rows MUST NOT exceed its `total_amount`
 
 ### Requirement: Zero-total owner groups import without payment rows
 The purchase and sales importers SHALL allow valid owner groups whose adjusted document total is `0.00` and SHALL create no payment row for those groups.

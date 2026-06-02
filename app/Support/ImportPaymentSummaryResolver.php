@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\PaymentMethod;
 
 class ImportPaymentSummaryResolver
@@ -10,7 +11,7 @@ class ImportPaymentSummaryResolver
 
     /**
      * @param  array<int, array<string, mixed>>  $rows
-     * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,needs_payment:bool}
+     * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
      */
     public function resolve(array $rows, float $calculatedDocumentTotal): array
     {
@@ -48,10 +49,21 @@ class ImportPaymentSummaryResolver
             throw new \RuntimeException('Repeated payment fields do not match for Total.');
         }
 
+        $deductionValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['jumlah_pemotongan'] ?? null);
+        });
+
+        if (count($deductionValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Jumlah Pemotongan.');
+        }
+
         $todayOutstanding = $todayOutstandingValues[0] ?? null;
         $sisaTagihan = $sisaTagihanValues[0] ?? null;
         $explicitPaidAmount = $paymentValues[0] ?? null;
         $sourceTotal = $sourceTotalValues[0] ?? null;
+        // Jumlah Pemotongan is a non-cash settlement reduction/credit recorded separately from
+        // the cash Pembayaran. It settles part of the invoice without cash changing hands.
+        $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
 
         // Prefer Sisa Tagihan Hari Ini, falling back to Sisa Tagihan. When an
         // explicit Pembayaran is present, choose whichever candidate makes
@@ -61,33 +73,42 @@ class ImportPaymentSummaryResolver
         // still carries the original balance.
         $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
 
+        // The deduction settles part of the invoice alongside cash, so reconciliation is
+        // cash Pembayaran + Jumlah Pemotongan + outstanding == document total.
         if ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
-            $todayReconciles = abs(($explicitPaidAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
-            $sisaReconciles = abs(($explicitPaidAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
+            $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
+            $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
 
             if (! $todayReconciles && $sisaReconciles) {
                 $outstandingBalance = $sisaTagihan;
             }
         }
 
-        $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $outstandingBalance, 2);
+        // Cash Pembayaran: explicit when present, otherwise the residual after deduction/outstanding.
+        $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
         $paidAmount = round(max($paidAmount, 0), 2);
 
         if ($sourceTotal !== null && abs($sourceTotal - $calculatedDocumentTotal) > self::TOLERANCE) {
             throw new \RuntimeException('Payment total mismatch: source Total does not reconcile with calculated document total.');
         }
 
-        if (abs(($paidAmount + $outstandingBalance) - $calculatedDocumentTotal) > self::TOLERANCE) {
-            throw new \RuntimeException('Payment total mismatch: paid amount plus outstanding balance does not reconcile with calculated document total.');
+        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $calculatedDocumentTotal) > self::TOLERANCE) {
+            throw new \RuntimeException('Payment total mismatch: paid amount plus deduction and outstanding balance does not reconcile with calculated document total.');
         }
 
         return [
             'source_total' => $sourceTotal,
             'outstanding_balance' => $outstandingBalance,
             'paid_amount' => $paidAmount,
+            'deduction_amount' => $deductionAmount,
             'needs_payment' => $paidAmount > self::TOLERANCE,
         ];
     }
+
+    /**
+     * Payment method name for the non-cash settlement credit (Jumlah Pemotongan).
+     */
+    public const DEDUCTION_METHOD_NAME = 'POTONGAN';
 
     public function resolveCashPaymentMethod(): ?PaymentMethod
     {
@@ -102,6 +123,39 @@ class ImportPaymentSummaryResolver
         return PaymentMethod::query()
             ->whereRaw('LOWER(name) = ?', ['cash'])
             ->first();
+    }
+
+    /**
+     * Resolve the non-cash payment method used to record a Jumlah Pemotongan settlement credit.
+     *
+     * Purchase and sales reports derive "paid" from active payment rows, so the deduction must be
+     * persisted as its own active payment row to avoid being reported as outstanding. A dedicated
+     * non-cash method keeps the credit distinguishable from cash in payment-method breakdowns.
+     */
+    public function resolveDeductionPaymentMethod(): PaymentMethod
+    {
+        $existing = PaymentMethod::query()
+            ->whereRaw('LOWER(name) = ?', [strtolower(self::DEDUCTION_METHOD_NAME)])
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        // payment_methods.coa_id is required; reuse an existing account rather than inventing one.
+        // Prefer the cash method's account, falling back to any chart of account.
+        $coaId = $this->resolveCashPaymentMethod()?->coa_id
+            ?? ChartOfAccount::query()->value('id');
+
+        if ($coaId === null) {
+            throw new \RuntimeException('A chart of account is required to record a Jumlah Pemotongan credit.');
+        }
+
+        return PaymentMethod::create([
+            'name' => self::DEDUCTION_METHOD_NAME,
+            'coa_id' => $coaId,
+            'is_cash' => false,
+        ]);
     }
 
     /**

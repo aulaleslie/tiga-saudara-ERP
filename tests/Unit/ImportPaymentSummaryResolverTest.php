@@ -86,4 +86,55 @@ class ImportPaymentSummaryResolverTest extends TestCase
         $this->assertSame(91000.0, $summary['outstanding_balance']);
         $this->assertTrue($summary['needs_payment']);
     }
+
+    /** @test */
+    public function it_reconciles_when_jumlah_pemotongan_settles_part_of_the_invoice(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Reviewer scenario: 2009DPS227/T0248 — cash 15,176,755.50 + deduction 2,700,000
+        // + outstanding 0 == total 17,876,755.50.
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '17876755.499999',
+                'pembayaran' => '15176755.499999',
+                'sisa_tagihan_hari_ini' => '0',
+                'jumlah_pemotongan' => '2700000',
+            ],
+        ], 17876755.5);
+
+        $this->assertSame(15176755.5, $summary['paid_amount']);
+        $this->assertSame(2700000.0, $summary['deduction_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_defaults_deduction_to_zero_when_absent(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            ['source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0'],
+        ], 100000.0);
+
+        $this->assertSame(0.0, $summary['deduction_amount']);
+    }
+
+    /** @test */
+    public function it_rejects_when_deduction_does_not_close_the_reconciliation_gap(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $this->expectException(\RuntimeException::class);
+
+        $resolver->resolve([
+            [
+                'source_total' => '100000',
+                'pembayaran' => '50000',
+                'sisa_tagihan_hari_ini' => '0',
+                'jumlah_pemotongan' => '10000', // 50000 + 10000 + 0 != 100000
+            ],
+        ], 100000.0);
+    }
 }
