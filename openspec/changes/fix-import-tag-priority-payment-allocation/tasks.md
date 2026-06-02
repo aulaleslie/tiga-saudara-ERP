@@ -88,3 +88,9 @@
 - [x] 12.1 Map `Status Hari Ini` (`status hari ini` -> `status_hari_ini`) in purchase and sales upload controllers/staging jobs and sales service CSV mapping.
 - [x] 12.2 Update `ImportPaymentSummaryResolver` so `Lunas`/`Paid` with `Sisa Tagihan Hari Ini = 0` infers the current paid amount from the document total even when `Pembayaran = 0` and old `Sisa Tagihan = Total`.
 - [x] 12.3 Add resolver and purchase import regression tests using the Q2 export shape where the document should import as paid.
+
+## 13. Feedback: Don't drop document shipping for all-zero-gross single-owner invoices
+
+- [x] 13.1 Add a zero-gross fallback to `ImportDocumentAdjustmentAllocator`: when the document amount is non-zero, all group gross totals are zero, and there is exactly one owner group, assign the full amount to that group (leave multiple zero-gross groups at zero to avoid an ambiguous split).
+- [x] 13.2 Add allocator unit tests for the single zero-gross group (receives the amount) and multiple zero-gross groups (receive nothing).
+- [x] 13.3 Add a purchase import regression test for the `JL00158527` shape (zero lines, only `Biaya Pengiriman`) reconciling and importing as fully paid.

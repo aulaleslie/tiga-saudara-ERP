@@ -69,6 +69,14 @@ The purchase and sales importers SHALL treat repeated document-level `Diskon` an
 - **WHEN** a source CSV invoice resolves to a single positive-total owner document
 - **THEN** that owner document MUST receive the full document-level discount and shipping amounts
 
+#### Scenario: Zero-line invoice with only document shipping reconciles
+- **WHEN** a source CSV invoice has zero gross line totals for all rows
+- **AND** carries a non-zero document-level amount (e.g. `Biaya Pengiriman`) equal to the source `Total`
+- **AND** resolves to a single owner group
+- **THEN** the importer MUST assign the full document amount to that owner group
+- **AND** the owner document's adjusted total MUST equal that amount so the source `Total` reconciles
+- **AND** a fully-paid such invoice MUST import with `paid_amount` equal to its total and `due_amount` equal to `0.00`
+
 ### Requirement: Pro-rata payment allocation for split-owner imports
 The purchase and sales importers SHALL allocate source invoice paid and outstanding amounts across positive-total owner documents pro-rata by each owner document's adjusted total.
 

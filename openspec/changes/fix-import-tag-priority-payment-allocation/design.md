@@ -93,6 +93,8 @@ Rationale: subtracting the full document discount/shipping inside each owner gro
 
 Alternative considered: apply the full document discount/shipping to each owner group. Rejected — it is the double-counting failure mode this decision fixes.
 
+Zero-gross fallback: when every owner group's gross line total is zero there is no positive weight to allocate by, but a single owner group can still legitimately carry a document-level amount — e.g. invoice `JL00158527` has zero-priced lines and only `Biaya Pengiriman = 4000` (source `Total = 4000`). Allocating zero would leave the calculated total at `0` and falsely reject the invoice. So when the document amount is non-zero, all gross totals are zero, and there is exactly one owner group, the allocator assigns the full amount to that group; with multiple zero-gross groups the split is ambiguous, so it leaves all groups at zero rather than guess. The downstream settlement then weights by the now-positive group total (`gross 0 + shipping 4000 = 4000`), so a fully-paid such invoice imports as paid with zero due.
+
 ### Decision 4c: Model Jumlah Pemotongan as a non-cash settlement credit
 
 Some source invoices record a `Jumlah Pemotongan` (settlement reduction/credit) separately from the cash `Pembayaran`. For these the source reconciles as `Pembayaran + Jumlah Pemotongan + outstanding == Total`, not `Pembayaran + outstanding == Total`. The first reconciliation model rejected such valid invoices (e.g. purchase `2009DPS227/T0248`: Total 17,876,755.50, Pembayaran 15,176,755.50, Pemotongan 2,700,000, outstanding 0).

@@ -37,6 +37,14 @@ class ImportDocumentAdjustmentAllocator
         $sumPositive = array_sum($positiveTotals);
 
         if ($sumPositive <= self::TOLERANCE) {
+            // No positive gross to weight by. A single owner group can still carry a document-level
+            // amount (e.g. an all-zero-line invoice with only Biaya Pengiriman), so assign the full
+            // amount to it. With multiple zero-gross groups the split would be ambiguous, so leave
+            // all zero rather than guess.
+            if (count($groupGrossTotals) === 1) {
+                $allocations[array_key_first($groupGrossTotals)] = $documentAmount;
+            }
+
             return $allocations;
         }
 

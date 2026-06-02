@@ -486,4 +486,27 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(14.28, round($purchases->sum('paid_amount'), 2), 0.01); // fully settled
         $this->assertEqualsWithDelta(0, round($purchases->sum('due_amount'), 2), 0.01);
     }
+
+    // Regression — JL00158527: an all-zero-line invoice whose only value is document shipping must
+    // carry the shipping on its single owner group so the source total reconciles (gross 0 +
+    // shipping 4000 == Total 4000), and import as fully paid.
+    public function test_zero_line_invoice_with_only_shipping_reconciles_and_imports(): void
+    {
+        $batch = $this->makeBatch();
+        $this->makeRow($batch, [
+            'no_faktur' => 'SHIP-ONLY-1', 'produk' => 'MONITOR SAMPLE', 'tag' => 'rahmat',
+            'harga_satuan' => '0', 'kuantitas' => '1', 'pajak' => '0',
+            'diskon' => '0', 'biaya_pengiriman' => '4000',
+            'source_total' => '4000', 'pembayaran' => '4000', 'sisa_tagihan' => '0',
+        ], 1);
+
+        $this->service->processBatch($batch);
+
+        $purchase = $this->purchase('SHIP-ONLY-1');
+        $this->assertNotNull($purchase, 'Purchase should be created (shipping must reconcile the zero-line invoice)');
+        $this->assertEqualsWithDelta(4000, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(4000, (float) $purchase->shipping_amount, 0.01);
+        $this->assertEqualsWithDelta(4000, (float) $purchase->paid_amount, 0.01);
+        $this->assertEqualsWithDelta(0, (float) $purchase->due_amount, 0.01);
+    }
 }

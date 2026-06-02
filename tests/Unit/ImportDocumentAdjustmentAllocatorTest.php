@@ -62,4 +62,21 @@ class ImportDocumentAdjustmentAllocatorTest extends TestCase
 
         $this->assertEqualsWithDelta(0.0, $result['zero'], 0.01);
     }
+
+    public function test_single_zero_gross_group_still_receives_the_document_amount(): void
+    {
+        // An all-zero-line invoice with only Biaya Pengiriman (e.g. JL00158527) must still carry
+        // the shipping on its single owner group, or the source total fails to reconcile.
+        $result = $this->allocator->allocate(['only' => 0.0], 4000.0);
+
+        $this->assertEqualsWithDelta(4000.0, $result['only'], 0.01);
+    }
+
+    public function test_multiple_zero_gross_groups_receive_nothing_to_avoid_ambiguous_split(): void
+    {
+        $result = $this->allocator->allocate(['a' => 0.0, 'b' => 0.0], 4000.0);
+
+        $this->assertEqualsWithDelta(0.0, $result['a'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $result['b'], 0.01);
+    }
 }
