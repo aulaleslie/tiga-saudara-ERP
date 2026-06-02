@@ -29,6 +29,11 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **AND** the calculated source invoice total MUST reconcile with the repeated source `Total`
 - **AND** the persisted document detail MUST store the fractional quantity
 
+#### Scenario: Fractional quantities persist without truncation
+- **WHEN** the importer writes a fractional quantity to a document detail, product stock, product global quantity, or inventory transaction
+- **THEN** the underlying column MUST store the value as a decimal rather than truncating it to an integer
+- **AND** reading the persisted quantity back MUST return the same fractional value
+
 ### Requirement: Jumlah Pemotongan is reconciled as a non-cash settlement credit
 The purchase and sales importers SHALL map a source `Jumlah Pemotongan` column and treat it as a non-cash settlement credit that, together with cash `Pembayaran` and outstanding balance, reconciles the source `Total`.
 

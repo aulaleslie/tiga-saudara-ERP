@@ -25,6 +25,11 @@ class PurchaseDetail extends BaseModel
         'product_tax_amount',
     ];
 
+    protected $casts = [
+        // Quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
+    ];
+
     protected $with = ['product', 'tax'];
 
     public function product(): BelongsTo

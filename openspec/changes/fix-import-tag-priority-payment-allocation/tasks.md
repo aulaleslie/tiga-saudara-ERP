@@ -100,3 +100,9 @@
 - [x] 14.1 Add a `parseQuantity()` helper (float, handling dot/comma decimals) to the purchase and sales import services.
 - [x] 14.2 Replace the `(int) $rowData['kuantitas']` casts at both the source-total reconciliation and document/detail creation sites in purchase and sales imports with `parseQuantity()`.
 - [x] 14.3 Add unit tests for `parseQuantity()` (integer, dot/comma decimals, thousands separators, blank/null default) and a purchase import regression test for invoice `11023` with a `23.7` KG line reconciling to total `2936250` and importing paid.
+
+## 15. Feedback: Persist fractional quantities (decimal columns + model casts)
+
+- [x] 15.1 Add a migration converting quantity columns from integer to `decimal(15,3)`: `purchase_details.quantity`, `sale_details.quantity`, `products.product_quantity`, `product_stocks` quantity/broken-quantity columns, and `transactions` quantity snapshot columns. Integer columns truncated fractional quantities on MySQL/MariaDB even though SQLite tolerated them.
+- [x] 15.2 Add/update `decimal:3` model casts on `PurchaseDetail`, `SaleDetails`, `ProductStock`, `Transaction` (replacing its `integer` quantity casts), and `Product.product_quantity` so reads return the fractional value.
+- [x] 15.3 Confirm the migration applies decimal column types under `migrate:fresh` and that focused import/quantity tests pass; verify no new regressions versus the pre-existing failing-test baseline.

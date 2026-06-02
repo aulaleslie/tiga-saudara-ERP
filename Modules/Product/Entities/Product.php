@@ -20,6 +20,11 @@ class Product extends BaseModel implements HasMedia
 
     protected $guarded = [];
 
+    protected $casts = [
+        // Global quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'product_quantity' => 'decimal:3',
+    ];
+
     protected $with = ['media', 'brand:id,name', 'category:id,category_name'];
 
     // (Scout requires an index name; we’ll override per-setting at query time)

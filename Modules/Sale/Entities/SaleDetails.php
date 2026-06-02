@@ -16,6 +16,8 @@ class SaleDetails extends BaseModel
     protected $guarded = [];
 
     protected $casts = [
+        // Quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
         'price' => 'decimal:2',
         'unit_price' => 'decimal:2',
         'sub_total' => 'decimal:2',

@@ -22,6 +22,16 @@ class ProductStock extends BaseModel
         'sale_price',
     ];
 
+    protected $casts = [
+        // Quantities are decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
+        'quantity_non_tax' => 'decimal:3',
+        'quantity_tax' => 'decimal:3',
+        'broken_quantity_non_tax' => 'decimal:3',
+        'broken_quantity_tax' => 'decimal:3',
+        'broken_quantity' => 'decimal:3',
+    ];
+
     // Define the table if it's different from the default plural form
     protected $table = 'product_stocks';
 
