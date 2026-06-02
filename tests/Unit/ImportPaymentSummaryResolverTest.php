@@ -88,6 +88,26 @@ class ImportPaymentSummaryResolverTest extends TestCase
     }
 
     /** @test */
+    public function it_treats_current_lunas_status_with_zero_today_outstanding_as_paid_even_when_export_payment_is_zero(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            [
+                'status_hari_ini' => 'Lunas',
+                'source_total' => '14979992.640012',
+                'pembayaran' => '0.0',
+                'sisa_tagihan' => '14979992.640012',
+                'sisa_tagihan_hari_ini' => '0.0',
+            ],
+        ], 14979992.64);
+
+        $this->assertSame(14979992.64, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
     public function it_reconciles_when_jumlah_pemotongan_settles_part_of_the_invoice(): void
     {
         $resolver = new ImportPaymentSummaryResolver();

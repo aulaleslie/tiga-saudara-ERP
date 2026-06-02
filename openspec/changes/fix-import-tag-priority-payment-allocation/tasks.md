@@ -82,3 +82,9 @@
 
 - [x] 11.1 Replace the one-cent tolerance in `ImportSettlementAllocator::proRata` with a sub-cent epsilon (`0.005`) so a `0.01` weight/amount is treated as positive money rather than skipped.
 - [x] 11.2 Add unit tests proving a fully cash-paid `0.01` group settles as cash (not deduction) and that `[0.01, 1.00]` with cash `1.01` and no source deduction produces no spurious deduction; extend the fuzz cases with one-cent groups.
+
+## 12. Feedback: Treat Lunas current status as paid despite stale Sisa Tagihan
+
+- [x] 12.1 Map `Status Hari Ini` (`status hari ini` -> `status_hari_ini`) in purchase and sales upload controllers/staging jobs and sales service CSV mapping.
+- [x] 12.2 Update `ImportPaymentSummaryResolver` so `Lunas`/`Paid` with `Sisa Tagihan Hari Ini = 0` infers the current paid amount from the document total even when `Pembayaran = 0` and old `Sisa Tagihan = Total`.
+- [x] 12.3 Add resolver and purchase import regression tests using the Q2 export shape where the document should import as paid.

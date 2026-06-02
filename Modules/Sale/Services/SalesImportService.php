@@ -1543,6 +1543,8 @@ class SalesImportService
             'tag' => 'tag',
             // Memo/notes
             'memo' => 'memo',
+            // Current payment/document status
+            'status hari ini' => 'status_hari_ini',
             // Due date
             'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
             'due date' => 'tanggal_jatuh_tempo',
@@ -1552,6 +1554,8 @@ class SalesImportService
             // Payment amount
             'pembayaran' => 'pembayaran',
             'payment' => 'pembayaran',
+            // Non-cash settlement reduction / credit
+            'jumlah pemotongan' => 'jumlah_pemotongan',
             // Source document total
             'total' => 'source_total',
             // Shipping
@@ -1610,10 +1614,12 @@ class SalesImportService
             'tarif_pajak' => $get('tarif_pajak'),
             'deskripsi' => $get('deskripsi'),
             'memo' => $get('memo'),
+            'status_hari_ini' => $get('status_hari_ini'),
             'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
             'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
             'sisa_tagihan' => $get('sisa_tagihan'),
             'pembayaran' => $get('pembayaran'),
+            'jumlah_pemotongan' => $get('jumlah_pemotongan'),
             'source_total' => $get('source_total'),
             'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
             'nama_perusahaan' => $get('nama_perusahaan'),

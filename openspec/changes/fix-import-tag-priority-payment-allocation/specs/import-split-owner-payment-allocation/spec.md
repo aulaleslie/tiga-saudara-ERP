@@ -15,6 +15,14 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **THEN** the importer MUST mark every row in that source invoice invalid
 - **AND** the importer MUST NOT create purchase, sale, purchase payment, sale payment, stock, dispatch, receipt, or price records for any group in that source invoice
 
+#### Scenario: Current paid status overrides stale original balance
+- **WHEN** a source CSV invoice has `Status Hari Ini` equal to `Lunas`
+- **AND** `Sisa Tagihan Hari Ini` equals `0.00`
+- **AND** `Pembayaran` is `0.00` while `Sisa Tagihan` still equals the original source `Total`
+- **THEN** the importer MUST treat the invoice as currently fully paid
+- **AND** the generated document MUST have `paid_amount` equal to its total and `due_amount` equal to `0.00`
+- **AND** the importer MUST create the active payment row needed for the generated paid document
+
 ### Requirement: Jumlah Pemotongan is reconciled as a non-cash settlement credit
 The purchase and sales importers SHALL map a source `Jumlah Pemotongan` column and treat it as a non-cash settlement credit that, together with cash `Pembayaran` and outstanding balance, reconciles the source `Total`.
 

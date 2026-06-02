@@ -181,6 +181,35 @@ class PurchaseImportPaymentLedgerTest extends TestCase
     }
 
     /** @test */
+    public function purchase_import_uses_lunas_current_status_as_paid_when_export_payment_is_zero_and_old_balance_remains(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'ACJ01/01/FP/2006/B100012',
+                'status_hari_ini' => 'Lunas',
+                'kuantitas' => '10',
+                'harga_satuan' => '3240909.090909',
+                'tarif_pajak' => '10.0',
+                'pajak' => '3240909.090909',
+                'source_total' => '35649999.999999',
+                'pembayaran' => '0.0',
+                'sisa_tagihan' => '35649999.999999',
+                'sisa_tagihan_hari_ini' => '0.0',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'ACJ01/01/FP/2006/B100012')->firstOrFail();
+
+        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertEquals(35650000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(0.0, (float) $purchase->due_amount);
+        $this->assertCount(1, $purchase->purchasePayments);
+        $this->assertEquals(35650000.0, (float) $purchase->purchasePayments->first()->amount);
+    }
+
+    /** @test */
     public function purchase_import_accepts_exported_float_payment_fields_with_single_dot_decimals(): void
     {
         $batch = $this->createImportBatch([

@@ -61,6 +61,7 @@ class ImportPaymentSummaryResolver
         $sisaTagihan = $sisaTagihanValues[0] ?? null;
         $explicitPaidAmount = $paymentValues[0] ?? null;
         $sourceTotal = $sourceTotalValues[0] ?? null;
+        $isCurrentlyPaid = $this->hasPaidCurrentStatus($rows);
         // Jumlah Pemotongan is a non-cash settlement reduction/credit recorded separately from
         // the cash Pembayaran. It settles part of the invoice without cash changing hands.
         $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
@@ -75,7 +76,10 @@ class ImportPaymentSummaryResolver
 
         // The deduction settles part of the invoice alongside cash, so reconciliation is
         // cash Pembayaran + Jumlah Pemotongan + outstanding == document total.
-        if ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+        if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+            $outstandingBalance = 0.0;
+            $explicitPaidAmount = null;
+        } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
             $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
             $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
 
@@ -179,6 +183,26 @@ class ImportPaymentSummaryResolver
         }
 
         return array_values($values);
+    }
+
+    /**
+     * Status Hari Ini reflects the source system's current document state. Some historical exports
+     * keep Pembayaran at 0 and Sisa Tagihan at the original balance even when the current status is
+     * Lunas; in that shape Sisa Tagihan Hari Ini=0 is the authoritative current balance.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function hasPaidCurrentStatus(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            $status = trim(mb_strtolower((string) ($row['status_hari_ini'] ?? '')));
+
+            if ($status === 'lunas' || $status === 'paid') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function parseMoney(mixed $value): ?float
