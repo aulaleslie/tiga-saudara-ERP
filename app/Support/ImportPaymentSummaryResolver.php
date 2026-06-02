@@ -220,6 +220,13 @@ class ImportPaymentSummaryResolver
             return null;
         }
 
+        // Some exports emit very small values in scientific notation (e.g. "1.0e-06"), which are
+        // effectively zero. Parse these directly before stripping characters, otherwise the "e"
+        // would be removed and the value misread (e.g. "1.0-06" -> non-numeric -> null).
+        if (preg_match('/^[+-]?\d*\.?\d+[eE][+-]?\d+$/', $normalized) === 1) {
+            return round((float) $normalized, 2);
+        }
+
         $normalized = preg_replace('/[^0-9,.-]/', '', $normalized) ?? '';
         if ($normalized === '' || $normalized === '-' || $normalized === ',' || $normalized === '.') {
             return null;

@@ -5,6 +5,11 @@ namespace App\Support;
 class ImportDocumentAdjustmentResolver
 {
     /**
+     * Resolve a repeated document-level amount (e.g. Diskon, Biaya Pengiriman) at full source
+     * precision. The value is intentionally NOT rounded to two decimals: a source discount like
+     * 747298.755 must flow unrounded into reconciliation/allocation so the final document total
+     * rounds to the same value as the rounded source Total. Persisted columns may still round.
+     *
      * @param  array<int, array<string, mixed>>  $rows
      */
     public function resolve(array $rows, string $field, string $label): float
@@ -12,12 +17,14 @@ class ImportDocumentAdjustmentResolver
         $values = [];
 
         foreach ($rows as $row) {
-            $value = $this->parseMoney($row[$field] ?? null);
+            $value = $this->parseMoney($row[$field] ?? null, false);
 
             if ($value === null) {
                 continue;
             }
 
+            // Dedup at two decimals so trivially-rounded repeats of the same source value match,
+            // but keep the full-precision value for reconciliation.
             $key = number_format($value, 2, '.', '');
             $values[$key] = $value;
         }
@@ -26,22 +33,29 @@ class ImportDocumentAdjustmentResolver
             throw new \RuntimeException("Repeated {$label} values do not match within the invoice group.");
         }
 
-        return round(array_values($values)[0] ?? 0.0, 2);
+        return array_values($values)[0] ?? 0.0;
     }
 
-    private function parseMoney(mixed $value): ?float
+    private function parseMoney(mixed $value, bool $round = true): ?float
     {
         if ($value === null) {
             return null;
         }
 
         if (is_int($value) || is_float($value)) {
-            return round((float) $value, 2);
+            return $round ? round((float) $value, 2) : (float) $value;
         }
 
         $normalized = trim((string) $value);
         if ($normalized === '') {
             return null;
+        }
+
+        // Some exports emit very small values in scientific notation (e.g. "1.0e-06"), which are
+        // effectively zero. Parse these directly before stripping characters, otherwise the "e"
+        // would be removed and the value misread (e.g. "1.0-06" -> non-numeric -> null).
+        if (preg_match('/^[+-]?\d*\.?\d+[eE][+-]?\d+$/', $normalized) === 1) {
+            return $round ? round((float) $normalized, 2) : (float) $normalized;
         }
 
         $normalized = preg_replace('/[^0-9,.-]/', '', $normalized) ?? '';
@@ -73,6 +87,6 @@ class ImportDocumentAdjustmentResolver
             return null;
         }
 
-        return round((float) $normalized, 2);
+        return $round ? round((float) $normalized, 2) : (float) $normalized;
     }
 }

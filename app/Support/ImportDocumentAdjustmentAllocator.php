@@ -22,7 +22,6 @@ class ImportDocumentAdjustmentAllocator
      */
     public function allocate(array $groupGrossTotals, float $documentAmount): array
     {
-        $documentAmount = round($documentAmount, 2);
 
         $allocations = [];
         foreach ($groupGrossTotals as $key => $total) {
@@ -63,11 +62,11 @@ class ImportDocumentAdjustmentAllocator
                 $largestKey = $key;
             }
 
-            $allocations[$key] = round($documentAmount * ($total / $sumPositive), 2);
+            $allocations[$key] = $documentAmount * ($total / $sumPositive);
         }
 
         $allocated = array_sum($allocations);
-        $allocations[$largestKey] = round($allocations[$largestKey] + ($documentAmount - $allocated), 2);
+        $allocations[$largestKey] = $allocations[$largestKey] + ($documentAmount - $allocated);
 
         return $allocations;
     }

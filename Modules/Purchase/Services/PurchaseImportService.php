@@ -809,7 +809,7 @@ class PurchaseImportService
             $paymentTerm = PaymentTerm::where('longevity', 0)->first();
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
-            $adjustedTotalWithTax = round($totalWithTax - $documentDiscount + $documentShipping, 2);
+            $adjustedTotalWithTax = round($totalWithTax - $allocatedDiscount + $allocatedShipping, 2);
 
             // Payment is reconciled once at source-invoice scope and allocated to this owner group.
             // Cash payment (Pembayaran) and the non-cash deduction (Jumlah Pemotongan) both settle

@@ -23,6 +23,13 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **AND** the generated document MUST have `paid_amount` equal to its total and `due_amount` equal to `0.00`
 - **AND** the importer MUST create the active payment row needed for the generated paid document
 
+#### Scenario: Near-zero outstanding in scientific notation is treated as zero
+- **WHEN** a source CSV invoice has `Status Hari Ini` equal to `Lunas`
+- **AND** `Sisa Tagihan Hari Ini` is expressed in scientific notation that is effectively zero (e.g. `1.0e-06`)
+- **AND** `Sisa Tagihan` still equals the original source `Total`
+- **THEN** the importer MUST parse the scientific-notation value as a number rounding to `0.00` rather than discarding it
+- **AND** the importer MUST treat the invoice as currently fully paid, not fall back to the stale full-balance `Sisa Tagihan`
+
 #### Scenario: Fractional line quantity is preserved during reconciliation
 - **WHEN** a source CSV invoice line has a fractional quantity (e.g. `23.7`)
 - **THEN** the importer MUST compute that line's total using the fractional quantity, not a truncated integer

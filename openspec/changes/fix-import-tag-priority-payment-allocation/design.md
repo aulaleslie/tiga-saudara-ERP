@@ -115,6 +115,8 @@ Alternative considered: fold the deduction into the cash payment row amount. Rej
 
 **Current-status paid fallback:** Some historical source rows show `Status Hari Ini = Lunas` and `Sisa Tagihan Hari Ini = 0`, but still repeat the original `Sisa Tagihan = Total` and `Pembayaran = 0`. In that shape, `Status Hari Ini` and today's outstanding balance represent the current state; the old `Sisa Tagihan` value must not force the import to create an unpaid document. The importers map `Status Hari Ini` as `status_hari_ini`, and `ImportPaymentSummaryResolver` treats `Lunas`/`Paid` with zero current outstanding as fully paid by inferring cash paid from the calculated document total minus any deduction credit.
 
+This fallback depends on `Sisa Tagihan Hari Ini` parsing to a near-zero number. Some exports emit such values in scientific notation (e.g. `1.0e-06`). The money parser must detect scientific notation before stripping non-numeric characters — otherwise the `e` is removed (`1.0e-06` → `1.0-06`), the value becomes non-numeric/null, the zero-outstanding branch never fires, and the resolver falls back to the stale full-balance `Sisa Tagihan`, importing the invoice as unpaid. `parseMoney` (in both `ImportPaymentSummaryResolver` and `ImportDocumentAdjustmentResolver`) now matches scientific-notation floats first and parses them directly, rounding to `0.00`.
+
 ### Decision 5: Allow zero-total owner groups with no payment
 
 Owner groups with adjusted total `0.00` are valid when their source rows are otherwise valid. Their document header paid amount and due amount should be `0.00`, and no purchase or sale payment row should be created for them.

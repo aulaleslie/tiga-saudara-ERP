@@ -108,3 +108,14 @@
 - [x] 15.3 Confirm the migration applies decimal column types under `migrate:fresh` and that focused import/quantity tests pass; verify no new regressions versus the pre-existing failing-test baseline.
 - [x] 15.4 Preserve each column's existing nullability and default across the `->change()` (a bare `->change()` resets unrestated attributes), so `products.product_quantity` keeps its `default(0)`; verify the default survives `migrate:fresh`.
 - [x] 15.5 Avoid Doctrine column introspection in the quantity migration; use raw MySQL/MariaDB `ALTER TABLE ... MODIFY` statements so production/test installs without dev dependencies can run `php artisan migrate`.
+
+## 16. Feedback: Parse scientific-notation money values
+
+- [x] 16.1 In `ImportPaymentSummaryResolver::parseMoney` (and the matching `ImportDocumentAdjustmentResolver` parser), detect scientific notation (e.g. `1.0e-06`) before stripping characters and parse it directly with `(float)`, so near-zero exported values round to `0.00` instead of becoming non-numeric/null.
+- [x] 16.2 Add a resolver test proving a `Lunas` invoice with `Sisa Tagihan Hari Ini = 1.0e-06` (and stale full-balance `Sisa Tagihan`) imports as fully paid.
+
+## 17. Feedback: Document discount precision mismatch
+
+- [x] 17.1 Update `ImportDocumentAdjustmentResolver::parseMoney` to respect the `$round` parameter so unrounded source discounts are preserved.
+- [x] 17.2 Update `ImportDocumentAdjustmentAllocator::allocate` to perform allocations with unrounded document amounts, preserving source precision through adjusted-total calculation.
+- [x] 17.3 Update purchase and sales import services to use the raw allocated discount and shipping amounts for calculating the final `adjustedTotalWithTax`, deferring rounding of the discount/shipping until they are assigned to the persisted model.

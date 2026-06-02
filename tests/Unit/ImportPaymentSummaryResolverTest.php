@@ -108,6 +108,29 @@ class ImportPaymentSummaryResolverTest extends TestCase
     }
 
     /** @test */
+    public function it_treats_scientific_notation_today_outstanding_as_zero_for_lunas_invoices(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Some exports emit a near-zero Sisa Tagihan Hari Ini in scientific notation (e.g. "1.0e-06").
+        // It must parse to ~0 so a Lunas invoice imports as paid rather than falling back to the
+        // stale full-balance Sisa Tagihan.
+        $summary = $resolver->resolve([
+            [
+                'status_hari_ini' => 'Lunas',
+                'source_total' => '18780000.000001',
+                'pembayaran' => '0.0',
+                'sisa_tagihan' => '18780000.000001',
+                'sisa_tagihan_hari_ini' => '1.0e-06',
+            ],
+        ], 18780000.0);
+
+        $this->assertSame(18780000.0, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
     public function it_reconciles_when_jumlah_pemotongan_settles_part_of_the_invoice(): void
     {
         $resolver = new ImportPaymentSummaryResolver();
