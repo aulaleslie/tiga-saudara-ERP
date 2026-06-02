@@ -2,7 +2,9 @@
 
 namespace Modules\Sale\Services;
 
+use App\Support\ImportDocumentAdjustmentAllocator;
 use App\Support\ImportDocumentAdjustmentResolver;
+use App\Support\ImportPaymentAllocator;
 use App\Support\ImportPaymentSummaryResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -30,6 +32,10 @@ class SalesImportService
     protected ImportDocumentAdjustmentResolver $documentAdjustmentResolver;
 
     protected ImportPaymentSummaryResolver $paymentSummaryResolver;
+
+    protected ImportPaymentAllocator $paymentAllocator;
+
+    protected ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator;
 
     /**
      * Entity caches to avoid N+1 queries
@@ -67,11 +73,15 @@ class SalesImportService
 
     public function __construct(
         ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
-        ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null
+        ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null,
+        ?ImportPaymentAllocator $paymentAllocator = null,
+        ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null
     )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
         $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
+        $this->paymentAllocator = $paymentAllocator ?? app(ImportPaymentAllocator::class);
+        $this->documentAdjustmentAllocator = $documentAdjustmentAllocator ?? app(ImportDocumentAdjustmentAllocator::class);
     }
 
     /**
@@ -204,8 +214,8 @@ class SalesImportService
     }
 
     /**
-     * Resolve tenant using product-name ownership only: Daizu (Priority 0), then marker (Priority 1).
-     * CSV Tag is ignored for ownership resolution.
+     * Resolve tenant using effective owner priority:
+     * Daizu product (Priority 0), then mapped CSV Tag (Priority 1), then product marker fallback (Priority 2).
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
@@ -214,18 +224,40 @@ class SalesImportService
             return $this->getDaizuSetting();
         }
 
-        // Priority 1: Product marker (tag is ignored for ownership)
+        // Priority 1: Mapped CSV Tag
+        $tagSetting = $this->getSettingForTag($tag);
+        if ($tagSetting) {
+            return $tagSetting;
+        }
+
+        // Priority 2: Product marker fallback
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
 
     /**
+     * Resolve a stable effective-owner grouping key for a row.
+     * Daizu (Priority 0), then mapped CSV Tag (Priority 1), then product marker (Priority 2).
+     */
+    public function resolveEffectiveOwnerKey(?string $tag, string $productName): string
+    {
+        if ($this->isDaizuProduct($productName)) {
+            return 'daizu';
+        }
+
+        $normalizedTag = strtolower(trim((string) $tag));
+        if ($normalizedTag !== '' && isset($this->tagMapping[$normalizedTag])) {
+            return 'tag:' . $this->tagMapping[$normalizedTag];
+        }
+
+        $parsed = $this->parseProductName($productName);
+        return 'marker:' . $parsed['marker'];
+    }
+
+    /**
      * Resolve the Setting (Tenant) where stock should be affected.
-     * Uses product-name ownership only — tag and purchase-history fallback are ignored.
-     * Rules:
-     * 0. Daizu products: always use Daizu Kedelai.
-     * 1. Markers (*, TP): CV Tiga Nusa or CV Top IT.
-     * 2. No marker: Perdana.
+     * Uses the effective owner rule: Daizu (Priority 0), mapped CSV Tag (Priority 1),
+     * then product-name marker fallback (Priority 2).
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
@@ -239,10 +271,16 @@ class SalesImportService
             return $daizuSetting;
         }
 
+        // Rule 1: Mapped CSV Tag
+        $tagSetting = $this->getSettingForTag($tag);
+        if ($tagSetting) {
+            return $tagSetting;
+        }
+
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
-        // Rule 1: Markers are absolute
+        // Rule 2: Product marker fallback
         if ($marker === 'asterisk') {
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) {
@@ -631,28 +669,18 @@ class SalesImportService
                 if (!empty($lastInvoiceNo)) {
                     // Load additional rows that belong to the same invoice group
                     $lastRowNumber = $lastRow->row_number;
-                    $lastOwnerKey = $this->isDaizuProduct($lastProductName)
-                        ? 'daizu'
-                        : 'marker:' . $this->parseProductName($lastProductName)['marker'];
 
+                    // Keep all rows of the same source invoice together so invoice-level
+                    // payment reconciliation sees every owner group in one pass.
                     $additionalRows = $batch->pendingRows()
                         ->where('row_number', '>', $lastRowNumber)
                         ->orderBy('row_number')
                         ->get()
-                        ->takeWhile(function ($row) use ($lastInvoiceNo, $lastOwnerKey) {
+                        ->takeWhile(function ($row) use ($lastInvoiceNo) {
                             $rowData = $row->raw_json;
                             $rowInvoiceNo = $rowData['no_faktur'] ?? '';
 
-                            if ($rowInvoiceNo !== $lastInvoiceNo) {
-                                return false;
-                            }
-
-                            $rowProductName = $rowData['produk'] ?? '';
-                            $rowOwnerKey = $this->isDaizuProduct($rowProductName)
-                                ? 'daizu'
-                                : 'marker:' . $this->parseProductName($rowProductName)['marker'];
-
-                            return $rowOwnerKey === $lastOwnerKey;
+                            return $rowInvoiceNo === $lastInvoiceNo;
                         });
                 }
 
@@ -734,32 +762,37 @@ class SalesImportService
     }
 
     /**
-     * Process invoice groups in transaction batches to reduce overhead.
-     * Processing multiple groups per transaction is much more efficient.
+     * Process source invoices in transaction batches to reduce overhead.
+     * Each source invoice is reconciled and its owner groups created within one transaction
+     * so a payment mismatch rolls back every owner group for that invoice.
      */
     protected function processGroupsInBatches(array $groups, SalesImportBatch $batch, int $batchSize): int
     {
-        // Split groups into batches
-        $groupChunks = array_chunk($groups, $batchSize, true);
+        $invoices = $this->groupOwnerGroupsBySourceInvoice($groups);
+
+        // Split invoices into batches
+        $invoiceChunks = array_chunk($invoices, $batchSize, true);
         $totalProcessed = 0;
 
-        foreach ($groupChunks as $chunkIndex => $groupChunk) {
-            foreach ($groupChunk as $groupKey => $groupRows) {
+        foreach ($invoiceChunks as $chunkIndex => $invoiceChunk) {
+            foreach ($invoiceChunk as $invoiceNo => $ownerGroups) {
                 try {
-                    DB::transaction(function () use ($groupRows, $batch) {
-                        $this->processInvoiceGroup($groupRows, $batch);
+                    DB::transaction(function () use ($ownerGroups, $batch) {
+                        $this->processSourceInvoice($ownerGroups, $batch);
                     });
                     $totalProcessed++;
                 } catch (\Exception $e) {
-                    $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                    foreach ($ownerGroups as $groupRows) {
+                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                    }
                 }
             }
 
-            // Log progress every 10 transaction batches (500 invoice groups)
+            // Log progress every 10 transaction batches
             if (($chunkIndex + 1) % 10 === 0) {
                 Log::info('[SalesImport] Transaction batch progress', [
                     'batch_id' => $batch->id,
-                    'groups_processed' => $totalProcessed,
+                    'invoices_processed' => $totalProcessed,
                 ]);
             }
         }
@@ -767,10 +800,67 @@ class SalesImportService
         return $totalProcessed;
     }
 
+    /**
+     * Process all owner groups for a single source invoice: reconcile invoice-level payment
+     * fields once, allocate paid/due pro-rata across positive-total owner groups, and create
+     * each owner document. A reconciliation failure throws and rolls back the whole invoice.
+     *
+     * @param  array<string, array<int, SalesImportRow>>  $ownerGroups
+     */
+    protected function processSourceInvoice(array $ownerGroups, SalesImportBatch $batch): void
+    {
+        $groupGrossTotals = [];
+        $allRows = [];
+        foreach ($ownerGroups as $groupKey => $groupRows) {
+            $groupGrossTotals[$groupKey] = $this->calculateGroupGrossTotal($groupRows);
+            foreach ($groupRows as $row) {
+                $allRows[] = $row->raw_json;
+            }
+        }
+
+        // Document-level Diskon/Biaya Pengiriman are invoice-scoped: resolve once across all rows,
+        // then allocate pro-rata across owner groups so the summed owner documents reconcile back
+        // to the source invoice total.
+        $documentDiscount = $this->documentAdjustmentResolver->resolve($allRows, 'diskon', 'Diskon');
+        $documentShipping = $this->documentAdjustmentResolver->resolve($allRows, 'biaya_pengiriman', 'Biaya Pengiriman');
+
+        $discountAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, $documentDiscount);
+        $shippingAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, $documentShipping);
+
+        $groupTotals = [];
+        foreach ($groupGrossTotals as $groupKey => $grossTotal) {
+            $groupTotals[$groupKey] = round(
+                $grossTotal - ($discountAllocations[$groupKey] ?? 0.0) + ($shippingAllocations[$groupKey] ?? 0.0),
+                2
+            );
+        }
+
+        $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
+        $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
+
+        $allocations = $this->paymentAllocator->allocate(
+            $groupTotals,
+            $paymentSummary['paid_amount'],
+            $paymentSummary['outstanding_balance']
+        );
+
+        foreach ($ownerGroups as $groupKey => $groupRows) {
+            $allocation = $allocations[$groupKey] ?? ['paid' => 0.0, 'due' => 0.0];
+            $this->processInvoiceGroup(
+                $groupRows,
+                $batch,
+                $allocation['paid'],
+                $allocation['due'],
+                $discountAllocations[$groupKey] ?? 0.0,
+                $shippingAllocations[$groupKey] ?? 0.0
+            );
+        }
+    }
+
 
     /**
-     * Group rows by invoice number and product-name-resolved tenant key.
-     * Tag is never used as a grouping key.
+     * Group rows by invoice number and effective owner key.
+     * Effective owner: Daizu (Priority 0), mapped CSV Tag (Priority 1), product marker (Priority 2).
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -780,13 +870,9 @@ class SalesImportService
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
             $productName = $data['produk'] ?? '';
+            $tag = $data['tag'] ?? null;
 
-            if ($this->isDaizuProduct($productName)) {
-                $tenantKey = 'daizu';
-            } else {
-                $parsed = $this->parseProductName($productName);
-                $tenantKey = 'marker:' . $parsed['marker'];
-            }
+            $tenantKey = $this->resolveEffectiveOwnerKey($tag, $productName);
 
             $key = "{$invoiceNo}|{$tenantKey}";
 
@@ -800,9 +886,54 @@ class SalesImportService
     }
 
     /**
-     * Process a group of rows belonging to the same invoice and tenant.
+     * Reorganize "invoice|owner" groups into a nested map keyed by source invoice number.
+     *
+     * @param  array<string, array<int, SalesImportRow>>  $groups
+     * @return array<string, array<string, array<int, SalesImportRow>>>
      */
-    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch): void
+    protected function groupOwnerGroupsBySourceInvoice(array $groups): array
+    {
+        $invoices = [];
+
+        foreach ($groups as $groupKey => $groupRows) {
+            $invoiceNo = $groupRows[0]->raw_json['no_faktur'] ?? '';
+            $invoices[$invoiceNo][$groupKey] = $groupRows;
+        }
+
+        return $invoices;
+    }
+
+    /**
+     * Calculate an owner group's gross document total (line totals plus tax) BEFORE any
+     * document-level discount or shipping adjustment. Document-level Diskon/Biaya Pengiriman are
+     * invoice-scoped and allocated across owner groups at source-invoice scope.
+     *
+     * @param  array<int, SalesImportRow>  $rows
+     */
+    protected function calculateGroupGrossTotal(array $rows): float
+    {
+        $totalAmount = 0.0;
+        $totalTaxAmount = 0.0;
+
+        foreach ($rows as $row) {
+            $rowData = $row->raw_json;
+
+            $quantity = (int) ($rowData['kuantitas'] ?? 1);
+            $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
+            $taxAmount = (float) ($rowData['pajak'] ?? 0);
+
+            $totalAmount += $quantity * $unitPriceDpp;
+            $totalTaxAmount += $taxAmount;
+        }
+
+        return round($totalAmount + $totalTaxAmount, 2);
+    }
+
+    /**
+     * Process a group of rows belonging to the same invoice and effective owner.
+     * Paid/due amounts are pre-allocated at source-invoice scope.
+     */
+    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0): void
     {
         if (empty($rows)) {
             return;
@@ -969,9 +1100,10 @@ class SalesImportService
                 $data['nomor_telepon'] ?? null
             );
 
-            $documentRows = array_map(fn (SalesImportRow $row) => $row->raw_json, $rows);
-            $documentDiscount = $this->documentAdjustmentResolver->resolve($documentRows, 'diskon', 'Diskon');
-            $documentShipping = $this->documentAdjustmentResolver->resolve($documentRows, 'biaya_pengiriman', 'Biaya Pengiriman');
+            // Document-level Diskon/Biaya Pengiriman are reconciled and allocated pro-rata at
+            // source-invoice scope; this group receives its allocated share.
+            $documentDiscount = round($allocatedDiscount, 2);
+            $documentShipping = round($allocatedShipping, 2);
 
             // Calculate totals
             $totalAmount = 0;
@@ -1040,13 +1172,14 @@ class SalesImportService
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
             $adjustedTotalWithTax = round($totalWithTax - $documentDiscount + $documentShipping, 2);
-            $paymentSummary = $this->paymentSummaryResolver->resolve(
-                $documentRows,
-                $adjustedTotalWithTax
-            );
+
+            // Payment is reconciled once at source-invoice scope and allocated to this owner group.
+            $paidAmount = round($allocatedPaid, 2);
+            $dueAmount = round($allocatedDue, 2);
+            $needsPayment = $paidAmount > 0.01;
 
             $cashPaymentMethod = null;
-            if ($paymentSummary['needs_payment']) {
+            if ($needsPayment) {
                 $cashPaymentMethod = $this->paymentSummaryResolver->resolveCashPaymentMethod();
 
                 if (! $cashPaymentMethod) {
@@ -1054,8 +1187,6 @@ class SalesImportService
                 }
             }
 
-            $dueAmount = round($paymentSummary['outstanding_balance'], 2);
-            $paidAmount = round($paymentSummary['paid_amount'], 2);
             $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($paidAmount > 0.01 ? 'Partial' : 'Unpaid');
 
             // Create sale
@@ -1129,7 +1260,7 @@ class SalesImportService
             // Note: Location resolution is now done inside dispatchSale per product
             $this->dispatchSale($sale, $details, $setting, $tag, $saleDate, $isDaizu, $data['gudang'] ?? null);
 
-            if ($paymentSummary['needs_payment'] && $cashPaymentMethod) {
+            if ($needsPayment && $cashPaymentMethod) {
                 SalePayment::create([
                     'sale_id' => $sale->id,
                     'payment_method_id' => $cashPaymentMethod->id,

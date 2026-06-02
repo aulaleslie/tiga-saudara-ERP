@@ -175,8 +175,9 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function asterisk_purchase_row_routes_to_tiga_nusa_despite_tag()
+    public function asterisk_purchase_row_routes_to_mapped_tag_owner()
     {
+        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
         ]);
@@ -185,12 +186,13 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->tigaNusaSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
     }
 
     /** @test */
-    public function tp_suffix_purchase_row_routes_to_top_it_despite_tag()
+    public function tp_suffix_purchase_row_routes_to_mapped_tag_owner()
     {
+        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE TP', 'tag' => 'cv tiga nusa']),
         ]);
@@ -199,7 +201,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->topItSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->tigaNusaSetting->id, $purchase->setting_id);
     }
 
     /** @test */
@@ -217,22 +219,38 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function tag_differences_do_not_split_same_invoice_same_product_owner()
+    public function mapped_tag_differences_split_same_invoice_into_distinct_owners()
     {
+        // Mapped tags resolving to different owners now split the invoice.
         $batch = $this->createImportBatch([
             $this->baseRow(['no_faktur' => 'PO-GROUP-001', 'produk' => 'MONITOR A', 'tag' => 'perdana']),
-            $this->baseRow(['no_faktur' => 'PO-GROUP-001', 'produk' => 'MONITOR B', 'tag' => 'rahmat']),
+            $this->baseRow(['no_faktur' => 'PO-GROUP-001', 'produk' => 'MONITOR B', 'tag' => 'cv tiga nusa']),
         ]);
 
         app(PurchaseImportService::class)->processBatch($batch);
 
         $purchases = Purchase::where('supplier_purchase_number', 'PO-GROUP-001')->get();
+        $this->assertCount(2, $purchases);
+        $this->assertEqualsCanonicalizing(
+            [$this->perdanaSetting->id, $this->tigaNusaSetting->id],
+            $purchases->pluck('setting_id')->all()
+        );
+    }
+
+    /** @test */
+    public function blank_tag_rows_with_same_marker_owner_stay_in_one_document()
+    {
+        // Blank tags falling back to the same marker owner must not split.
+        $batch = $this->createImportBatch([
+            $this->baseRow(['no_faktur' => 'PO-GROUP-002', 'produk' => 'MONITOR A', 'tag' => '']),
+            $this->baseRow(['no_faktur' => 'PO-GROUP-002', 'produk' => 'MONITOR B', 'tag' => '']),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchases = Purchase::where('supplier_purchase_number', 'PO-GROUP-002')->get();
         $this->assertCount(1, $purchases);
         $this->assertEquals($this->perdanaSetting->id, $purchases->first()->setting_id);
-        // All distinct tags from every row must be preserved on the document
-        $tagNames = $purchases->first()->tags->pluck('name')->toArray();
-        $this->assertContains('perdana', $tagNames);
-        $this->assertContains('rahmat', $tagNames);
     }
 
     /** @test */

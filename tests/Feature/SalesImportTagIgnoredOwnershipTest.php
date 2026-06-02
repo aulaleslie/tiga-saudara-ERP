@@ -198,8 +198,9 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function asterisk_row_routes_to_tiga_nusa_despite_tag()
+    public function asterisk_row_routes_to_mapped_tag_owner()
     {
+        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
         ]);
@@ -208,12 +209,13 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
+        $this->assertEquals($this->perdanaSetting->id, $sale->setting_id);
     }
 
     /** @test */
-    public function tp_suffix_row_routes_to_top_it_despite_tag()
+    public function tp_suffix_row_routes_to_mapped_tag_owner()
     {
+        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE TP', 'tag' => 'cv tiga nusa']),
         ]);
@@ -222,7 +224,7 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        $this->assertEquals($this->topItSetting->id, $sale->setting_id);
+        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
     }
 
     /** @test */
@@ -240,7 +242,7 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function asterisk_row_preserves_csv_tag_as_metadata()
+    public function mapped_tag_row_preserves_csv_tag_as_metadata()
     {
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
@@ -250,30 +252,46 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
+        // Mapped tag wins for ownership.
+        $this->assertEquals($this->perdanaSetting->id, $sale->setting_id);
         // Tag is synced as metadata — sale should have the tag attached
         $tagNames = $sale->tags->pluck('name')->toArray();
         $this->assertContains('perdana', $tagNames);
     }
 
     /** @test */
-    public function tag_differences_do_not_split_same_invoice_same_product_owner()
+    public function mapped_tag_differences_split_same_invoice_into_distinct_owners()
     {
+        // Mapped tags resolving to different owners now split the invoice.
         $batch = $this->createImportBatch([
             $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE', 'tag' => 'perdana']),
-            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE B', 'tag' => 'rahmat']),
+            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE B', 'tag' => 'cv tiga nusa']),
         ]);
 
         app(SalesImportService::class)->processBatch($batch);
 
         $sales = Sale::where('imported_sales_reference_number', 'INV-GROUP-001')->get();
-        // Both rows resolve to PERDANA — should be grouped into a single sale
+        $this->assertCount(2, $sales);
+        $this->assertEqualsCanonicalizing(
+            [$this->perdanaSetting->id, $this->tigaNusaSetting->id],
+            $sales->pluck('setting_id')->all()
+        );
+    }
+
+    /** @test */
+    public function blank_tag_rows_with_same_marker_owner_stay_in_one_document()
+    {
+        // Blank tags falling back to the same marker owner must not split.
+        $batch = $this->createImportBatch([
+            $this->baseRow(['no_faktur' => 'INV-GROUP-002', 'produk' => 'MONITOR SAMPLE', 'tag' => '']),
+            $this->baseRow(['no_faktur' => 'INV-GROUP-002', 'produk' => 'MONITOR SAMPLE B', 'tag' => '']),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'INV-GROUP-002')->get();
         $this->assertCount(1, $sales);
         $this->assertEquals($this->perdanaSetting->id, $sales->first()->setting_id);
-        // All distinct tags from every row must be preserved on the document
-        $tagNames = $sales->first()->tags->pluck('name')->toArray();
-        $this->assertContains('perdana', $tagNames);
-        $this->assertContains('rahmat', $tagNames);
     }
 
     /** @test */
