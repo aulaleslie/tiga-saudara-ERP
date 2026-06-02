@@ -545,4 +545,29 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertNotNull($fractionalDetail);
         $this->assertEqualsWithDelta(23.7, (float) $fractionalDetail->quantity, 0.001);
     }
+    // Regression — 16994-style invoice where the source Total already excluded the document discount.
+    // The import must not subtract the discount again from the persisted total_amount.
+    // Total = 7571002.23, Diskon = 17114.41, Pembayaran = 7571002.23, Sisa Tagihan = 0.
+    public function test_pre_applied_discount_is_not_subtracted_from_persisted_document_total(): void
+    {
+        $batch = $this->makeBatch();
+        // Line price: 7571002.23, Diskon: 17114.41.
+        $this->makeRow($batch, [
+            'no_faktur' => '16994', 'produk' => 'MONITOR', 'tag' => 'cv tiga nusa',
+            'harga_satuan' => '7571002.23', 'kuantitas' => '1', 'pajak' => '0',
+            'diskon' => '17114.414414',
+            'source_total' => '7571002.23', 'pembayaran' => '7571002.23', 'sisa_tagihan' => '0',
+        ], 1);
+
+        $this->service->processBatch($batch);
+
+        $purchase = $this->purchase('16994');
+        $this->assertNotNull($purchase, '16994-style invoice should reconcile and import');
+
+        // Discount is skipped for the document total (it's already 7571002.23)
+        $this->assertEqualsWithDelta(7571002.23, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(7571002.23, (float) $purchase->paid_amount, 0.01);
+        // And discount_amount should be 0 since it wasn't applied
+        $this->assertEqualsWithDelta(0, (float) $purchase->discount_amount, 0.01);
+    }
 }

@@ -888,8 +888,10 @@ class SalesImportService
         }
 
         $groupTotals = [];
+        $appliedDiscounts = [];
         foreach ($groupGrossTotals as $groupKey => $grossTotal) {
             $appliedDiscount = $applyDiscountToTotal ? ($discountAllocations[$groupKey] ?? 0.0) : 0.0;
+            $appliedDiscounts[$groupKey] = $appliedDiscount;
             $groupTotals[$groupKey] = round(
                 $grossTotal - $appliedDiscount + ($shippingAllocations[$groupKey] ?? 0.0),
                 2
@@ -917,7 +919,7 @@ class SalesImportService
                 $batch,
                 $settlement['cash'],
                 $settlement['due'],
-                $discountAllocations[$groupKey] ?? 0.0,
+                $appliedDiscounts[$groupKey] ?? 0.0,
                 $shippingAllocations[$groupKey] ?? 0.0,
                 $settlement['deduction']
             );

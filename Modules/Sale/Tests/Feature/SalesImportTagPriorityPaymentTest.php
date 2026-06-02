@@ -345,4 +345,27 @@ class SalesImportTagPriorityPaymentTest extends TestCase
         $this->assertNotNull($deductionRow, 'A non-cash deduction credit row must exist');
         $this->assertEqualsWithDelta(300000, (float) $deductionRow->amount, 0.01);
     }
+    // Regression — 16994-style invoice where the source Total already excluded the document discount.
+    // The import must not subtract the discount again from the persisted total_amount.
+    // Total = 7571002.23, Diskon = 17114.41, Pembayaran = 7571002.23, Sisa Tagihan = 0.
+    public function test_pre_applied_discount_is_not_subtracted_from_persisted_document_total(): void
+    {
+        $this->process([
+            [
+                'no_faktur' => '16994', 'produk' => 'MONITOR', 'tag' => 'rahmat',
+                'harga_satuan' => '7571002.23', 'kuantitas' => '1', 'pajak' => '0',
+                'diskon' => '17114.414414',
+                'source_total' => '7571002.23', 'pembayaran' => '7571002.23', 'sisa_tagihan' => '0',
+            ],
+        ]);
+
+        $sale = $this->sale('16994');
+        $this->assertNotNull($sale, '16994-style invoice should reconcile and import');
+
+        // Discount is skipped for the document total (it's already 7571002.23)
+        $this->assertEqualsWithDelta(7571002.23, (float) $sale->total_amount, 0.01);
+        $this->assertEqualsWithDelta(7571002.23, (float) $sale->paid_amount, 0.01);
+        // And discount_amount should be 0 since it wasn't applied
+        $this->assertEqualsWithDelta(0, (float) $sale->discount_amount, 0.01);
+    }
 }
