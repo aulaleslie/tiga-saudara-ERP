@@ -582,10 +582,45 @@ class PurchaseImportService
         $discountAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, $documentDiscount);
         $shippingAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, $documentShipping);
 
+        $grossSum = array_sum($groupGrossTotals);
+        $totalA = round($grossSum + $documentShipping, 2);
+        $totalB = round($grossSum - $documentDiscount + $documentShipping, 2);
+
+        $errorA = null;
+        $errorB = null;
+        $summaryB = null;
+
+        try {
+            $summaryB = $this->paymentSummaryResolver->resolve($allRows, $totalB);
+        } catch (\RuntimeException $e) {
+            $errorB = $e;
+        }
+
+        try {
+            $this->paymentSummaryResolver->resolve($allRows, $totalA);
+        } catch (\RuntimeException $e) {
+            $errorA = $e;
+        }
+
+        $applyDiscountToTotal = true;
+        if ($errorB && !$errorA) {
+            $applyDiscountToTotal = false;
+        } elseif (!$errorB && !$errorA) {
+            $sourceTotal = $summaryB['source_total'] ?? null;
+            if ($sourceTotal !== null) {
+                if (abs($sourceTotal - $totalA) < abs($sourceTotal - $totalB)) {
+                    $applyDiscountToTotal = false;
+                }
+            }
+        } elseif ($errorB && $errorA) {
+            throw $errorB;
+        }
+
         $groupTotals = [];
         foreach ($groupGrossTotals as $groupKey => $grossTotal) {
+            $appliedDiscount = $applyDiscountToTotal ? ($discountAllocations[$groupKey] ?? 0.0) : 0.0;
             $groupTotals[$groupKey] = round(
-                $grossTotal - ($discountAllocations[$groupKey] ?? 0.0) + ($shippingAllocations[$groupKey] ?? 0.0),
+                $grossTotal - $appliedDiscount + ($shippingAllocations[$groupKey] ?? 0.0),
                 2
             );
         }
