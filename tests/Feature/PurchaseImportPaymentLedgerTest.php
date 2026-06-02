@@ -222,6 +222,7 @@ class PurchaseImportPaymentLedgerTest extends TestCase
                 'sisa_tagihan_hari_ini' => '14344594.594595',
                 'sisa_tagihan' => '0.0',
                 'source_total' => '144750000.000005',
+                'pajak' => '14344594.594595',
             ]),
         ]);
 
@@ -250,6 +251,7 @@ class PurchaseImportPaymentLedgerTest extends TestCase
                 'pembayaran' => '99900',
                 'sisa_tagihan' => '0',
                 'source_total' => '99900',
+                'pajak' => '9900',
             ]),
         ]);
 

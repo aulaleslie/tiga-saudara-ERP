@@ -51,8 +51,19 @@ class PurchaseImportReproductionTest extends TestCase
             'name' => 'Test Location',
         ]);
 
+        $cashCoa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'account_number' => '1101',
+            'name' => 'Cash on Hand',
+            'category' => 'Kas & Bank',
+            'setting_id' => $this->setting->id,
+        ]);
 
-
+        \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $cashCoa->id,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
         
         // Setup User and permissions if needed (bypassed since we test Service directly)
     }
