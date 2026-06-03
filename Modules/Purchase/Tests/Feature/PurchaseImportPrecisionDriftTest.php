@@ -12,23 +12,42 @@ class PurchaseImportPrecisionDriftTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected $user;
+
     protected function setUp(): void
     {
         parent::setUp();
+        
+        $this->user = \App\Models\User::factory()->create();
+        
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name'      => 'Rupiah',
+            'code'               => 'IDR',
+            'symbol'             => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator'  => ',',
+        ]);
+
         \Modules\Setting\Entities\Setting::create([
             'company_name' => 'PERDANA',
             'company_email' => 'perdana@test.com',
             'company_phone' => '123',
             'company_address' => 'Test',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
         ]);
     }
 
     public function test_it_rejects_purchase_import_when_source_drift_exceeds_default_tolerance()
     {
         $batch = PurchaseImportBatch::create([
-            'filename' => 'test_purchase.csv',
+            'source_csv_path' => 'test_purchase.csv',
             'status' => 'pending',
             'total_rows' => 1,
+            'user_id' => $this->user->id,
+            'file_sha256' => 'dummy_hash',
         ]);
 
         PurchaseImportRow::create([

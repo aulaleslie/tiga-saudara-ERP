@@ -199,7 +199,6 @@ class ImportPaymentSummaryResolver
 
         if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
             $outstandingBalance = 0.0;
-            $explicitPaidAmount = null;
         } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
             $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $sourceTotal) <= self::TOLERANCE;
             $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $sourceTotal) <= self::TOLERANCE;

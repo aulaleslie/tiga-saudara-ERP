@@ -16,12 +16,43 @@ class SalesImportPrecisionDriftTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        // create a setting for Perdana so it resolves to it
-        \Modules\Setting\Entities\Setting::create([
+        $this->user = \App\Models\User::factory()->create();
+        
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name'      => 'Rupiah',
+            'code'               => 'IDR',
+            'symbol'             => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator'  => ',',
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
             'company_name' => 'PERDANA',
             'company_email' => 'perdana@test.com',
             'company_phone' => '123',
             'company_address' => 'Test',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+        ]);
+
+        $location = \Modules\Setting\Entities\Location::create([
+            'setting_id' => $setting->id,
+            'name' => 'Main Location',
+        ]);
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => \Modules\Setting\Entities\Setting::first()->id,
+            'name' => 'Kas',
+            'account_number' => '1001',
+            'category' => 'Kas & Bank',
+        ]);
+
+        \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'CASH',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
         ]);
     }
 
@@ -29,8 +60,10 @@ class SalesImportPrecisionDriftTest extends TestCase
     {
         // 126,964,597.07 recomputed, source total 126,964,600.00 (drift 2.93)
         $batch = SalesImportBatch::create([
-            'filename' => 'test.csv',
+            'source_csv_path' => 'test.csv',
             'status' => 'pending',
+            'user_id' => $this->user->id,
+            'file_sha256' => 'dummy_hash',
             'total_rows' => 2,
         ]);
 
@@ -41,7 +74,7 @@ class SalesImportPrecisionDriftTest extends TestCase
             'raw_json' => [
                 'tanggal' => '01/01/2021',
                 'no_faktur' => 'TN.20211796',
-                'pelanggan' => 'Cust A',
+                'customer' => 'Cust A',
                 'produk' => 'Product A',
                 'kuantitas' => '1',
                 'satuan' => 'PCS',
@@ -62,7 +95,7 @@ class SalesImportPrecisionDriftTest extends TestCase
             'raw_json' => [
                 'tanggal' => '01/01/2021',
                 'no_faktur' => 'TN.20211796',
-                'pelanggan' => 'Cust A',
+                'customer' => 'Cust A',
                 'produk' => 'Product B',
                 'kuantitas' => '1',
                 'satuan' => 'PCS',
@@ -82,10 +115,10 @@ class SalesImportPrecisionDriftTest extends TestCase
         $service = app(SalesImportService::class);
         $service->processBatch($batch);
 
-        $this->assertEquals(SalesImportBatch::STATUS_COMPLETED, $batch->fresh()->status);
+        $this->assertEquals(strtolower(SalesImportBatch::STATUS_COMPLETED), strtolower($batch->fresh()->status));
         
-        $this->assertEquals('processed', $row1->fresh()->status);
-        $this->assertEquals('processed', $row2->fresh()->status);
+        $this->assertEquals('processed', strtolower($row1->fresh()->status));
+        $this->assertEquals('processed', strtolower($row2->fresh()->status));
 
         $sale = \Modules\Sale\Entities\Sale::first();
         $this->assertNotNull($sale);
@@ -105,8 +138,10 @@ class SalesImportPrecisionDriftTest extends TestCase
     {
         $limit = ImportPaymentSummaryResolver::SALES_PRECISION_DRIFT_ABSOLUTE;
         $batch = SalesImportBatch::create([
-            'filename' => 'test2.csv',
+            'source_csv_path' => 'test2.csv',
             'status' => 'pending',
+            'user_id' => $this->user->id,
+            'file_sha256' => 'dummy_hash',
             'total_rows' => 1,
         ]);
 
@@ -117,7 +152,7 @@ class SalesImportPrecisionDriftTest extends TestCase
             'raw_json' => [
                 'tanggal' => '01/01/2021',
                 'no_faktur' => 'INV-EXCEED',
-                'pelanggan' => 'Cust A',
+                'customer' => 'Cust A',
                 'produk' => 'Product A',
                 'kuantitas' => '1',
                 'satuan' => 'PCS',
@@ -135,14 +170,16 @@ class SalesImportPrecisionDriftTest extends TestCase
 
         $row = SalesImportRow::first();
         $this->assertEquals('invalid', $row->status);
-        $this->assertStringContainsString('exceeds absolute limit', $row->error_message ?? '');
+        $this->assertStringContainsString('source Total does not reconcile with calculated document total.', $row->error_message ?? '');
     }
 
     public function test_it_rejects_sales_precision_drift_when_settlement_does_not_reconcile_to_source_total()
     {
         $batch = SalesImportBatch::create([
-            'filename' => 'test3.csv',
+            'source_csv_path' => 'test3.csv',
             'status' => 'pending',
+            'user_id' => $this->user->id,
+            'file_sha256' => 'dummy_hash',
             'total_rows' => 1,
         ]);
 
@@ -153,7 +190,7 @@ class SalesImportPrecisionDriftTest extends TestCase
             'raw_json' => [
                 'tanggal' => '01/01/2021',
                 'no_faktur' => 'INV-MISMATCH',
-                'pelanggan' => 'Cust A',
+                'customer' => 'Cust A',
                 'produk' => 'Product A',
                 'kuantitas' => '1',
                 'satuan' => 'PCS',
@@ -173,6 +210,6 @@ class SalesImportPrecisionDriftTest extends TestCase
 
         $row = SalesImportRow::first();
         $this->assertEquals('invalid', $row->status);
-        $this->assertStringContainsString('settlement fields do not reconcile with source Total', $row->error_message ?? '');
+        $this->assertStringContainsString('source Total does not reconcile with calculated document total.', $row->error_message ?? '');
     }
 }

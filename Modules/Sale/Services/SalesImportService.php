@@ -880,13 +880,21 @@ class SalesImportService
         try {
             $summaryB = $this->paymentSummaryResolver->resolve($allRows, $totalB);
         } catch (\RuntimeException $e) {
-            $errorB = $e;
+            try {
+                $summaryB = $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $totalB);
+            } catch (\RuntimeException $driftError) {
+                $errorB = $e;
+            }
         }
 
         try {
             $this->paymentSummaryResolver->resolve($allRows, $totalA);
         } catch (\RuntimeException $e) {
-            $errorA = $e;
+            try {
+                $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $totalA);
+            } catch (\RuntimeException $driftError) {
+                $errorA = $e;
+            }
         }
 
         $applyDiscountToTotal = true;
@@ -929,11 +937,13 @@ class SalesImportService
                 
                 $sourceInvoiceTotal = $paymentSummary['source_total'];
                 
+                $appliedDriftAllocations = [];
                 $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, abs($driftAmount));
                 $driftSign = $driftAmount <=> 0;
                 
                 foreach ($groupTotals as $groupKey => $groupTotal) {
-                    $groupTotals[$groupKey] = round($groupTotal + ($driftAllocations[$groupKey] * $driftSign), 2);
+                    $appliedDriftAllocations[$groupKey] = $driftAllocations[$groupKey] * $driftSign;
+                    $groupTotals[$groupKey] = round($groupTotal + $appliedDriftAllocations[$groupKey], 2);
                 }
                 
                 Log::info('[SalesImport] Accepted precision drift for source invoice', [
@@ -972,7 +982,8 @@ class SalesImportService
                 $shippingAllocations[$groupKey] ?? 0.0,
                 $settlement['deduction'],
                 $invoicePriceUpdates,
-                $invoiceSuccessCount
+                $invoiceSuccessCount,
+                $appliedDriftAllocations[$groupKey] ?? 0.0
             );
         }
 
@@ -1065,7 +1076,7 @@ class SalesImportService
      * Process a group of rows belonging to the same invoice and effective owner.
      * Paid/due amounts are pre-allocated at source-invoice scope.
      */
-    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0): void
+    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0, float $allocatedDrift = 0.0): void
     {
         if (empty($rows)) {
             return;
@@ -1246,7 +1257,7 @@ class SalesImportService
             }
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
-            $adjustedTotalWithTax = round($totalWithTax - $allocatedDiscount + $allocatedShipping, 2);
+            $adjustedTotalWithTax = round($totalWithTax - $allocatedDiscount + $allocatedShipping + $allocatedDrift, 2);
 
             // Payment is reconciled once at source-invoice scope and allocated to this owner group.
             // Cash payment (Pembayaran) and the non-cash deduction (Jumlah Pemotongan) both settle
@@ -1255,8 +1266,12 @@ class SalesImportService
             $cashPaidAmount = round($allocatedPaid, 2);
             $deductionAmount = round($allocatedDeduction, 2);
             $dueAmount = round($allocatedDue, 2);
-            $paidAmount = round($cashPaidAmount + $deductionAmount, 2);
+            $groupPaidAmount = round($cashPaidAmount + $deductionAmount, 2);
             $needsPayment = $cashPaidAmount > 0.01;
+
+            if (abs(($groupPaidAmount + $dueAmount) - $adjustedTotalWithTax) > 0.01) {
+                throw new \RuntimeException('Payment total mismatch: settlement fields do not reconcile with adjusted document total.');
+            }
 
             $cashPaymentMethod = null;
             if ($needsPayment) {
@@ -1267,7 +1282,7 @@ class SalesImportService
                 }
             }
 
-            $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($paidAmount > 0.01 ? 'Partial' : 'Unpaid');
+            $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($groupPaidAmount > 0.01 ? 'Partial' : 'Unpaid');
 
             // Create sale
             $sale = new Sale();
@@ -1281,7 +1296,7 @@ class SalesImportService
             $sale->discount_percentage = 0;
             $sale->discount_amount = $documentDiscount;
             $sale->shipping_amount = $documentShipping;
-            $sale->paid_amount = $paidAmount;
+            $sale->paid_amount = $groupPaidAmount;
             $sale->due_amount = $dueAmount;
             $sale->status = Sale::STATUS_DISPATCHED;
             $sale->payment_status = $paymentStatus;
