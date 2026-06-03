@@ -83,8 +83,16 @@ class SalesUploadController extends Controller
         $tempPath = 'imports/sales/temp/' . $fileId . '_' . $fileName;
         $finalPath = 'imports/sales/' . $fileName;
 
-        // Append chunk to temp file
-        Storage::append($tempPath, $file->get());
+        // Binary-safe append chunk to temp file
+        $fullTempPath = Storage::path($tempPath);
+        $directory = dirname($fullTempPath);
+        if (!file_exists($directory)) {
+            mkdir($directory, 0755, true);
+        }
+        
+        $handle = fopen($fullTempPath, 'ab');
+        fwrite($handle, $file->get());
+        fclose($handle);
 
         // logging
         // Log::info("Processed chunk {$chunkIndex}/{$totalChunks} for {$fileName}");
@@ -285,185 +293,11 @@ class SalesUploadController extends Controller
      */
     protected function normalizeHeaders(array $rawHeaders): array
     {
-        $aliases = [
-            // Date
-            'tanggal' => 'tanggal',
-            'date' => 'tanggal',
-            // Customer
-            'customer' => 'customer',
-            'customer name' => 'customer',
-            'nama panggilan' => 'customer',
-            // Invoice number
-            'no faktur' => 'no_faktur',
-            'no. faktur' => 'no_faktur',
-            'invoice' => 'no_faktur',
-            'invoice no' => 'no_faktur',
-            'nomor transaksi' => 'no_faktur',
-            // Product
-            'produk' => 'produk',
-            'product' => 'produk',
-            'product name' => 'produk',
-            'nama produk' => 'produk',
-            // Quantity
-            'kuantitas' => 'kuantitas',
-            'quantity' => 'kuantitas',
-            'qty' => 'kuantitas',
-            // Unit
-            'satuan' => 'satuan',
-            'unit' => 'satuan',
-            // Unit price
-            'harga satuan' => 'harga_satuan',
-            'harga per unit' => 'harga_satuan',
-            'unit price' => 'harga_satuan',
-            'price' => 'harga_satuan',
-            // Line total (fallback for unit price)
-            'jumlah per baris' => 'line_total',
-            'jumlah kena pajak per baris' => 'line_total',
-            // Tax amount per line
-            'pajak' => 'pajak',
-            'tax' => 'pajak',
-            'tax amount' => 'pajak',
-            'jumlah pajak' => 'pajak',
-            // Tax rate
-            'tarif pajak' => 'tarif_pajak',
-            'tax rate' => 'tarif_pajak',
-            // Product description
-            'deskripsi' => 'deskripsi',
-            'description' => 'deskripsi',
-            // Tag (for tenant selection)
-            'tag' => 'tag',
-            // Memo/notes
-            'memo' => 'memo',
-            // Current payment/document status
-            'status hari ini' => 'status_hari_ini',
-            // Due date
-            'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
-            'due date' => 'tanggal_jatuh_tempo',
-            // Outstanding balance
-            'sisa tagihan hari ini' => 'sisa_tagihan_hari_ini',
-            'sisa tagihan' => 'sisa_tagihan',
-            // Payment amount
-            'pembayaran' => 'pembayaran',
-            'payment' => 'pembayaran',
-            // Non-cash settlement reduction / credit
-            'jumlah pemotongan' => 'jumlah_pemotongan',
-            // Source document total
-            'total' => 'source_total',
-            // Shipping
-            'biaya pengiriman' => 'biaya_pengiriman',
-            'shipping' => 'biaya_pengiriman',
-            // Customer company name
-            'nama perusahaan' => 'nama_perusahaan',
-            'company name' => 'nama_perusahaan',
-            // Phone
-            'nomor telepon' => 'nomor_telepon',
-            'phone' => 'nomor_telepon',
-            // Discount
-            'diskon' => 'diskon',
-            'diskon %' => 'diskon_document_persen',
-            'diskon per baris %' => 'diskon_persen',
-            // Location/warehouse
-            'gudang' => 'gudang',
-            'warehouse' => 'gudang',
-        ];
-
-        $map = [];
-        foreach ($rawHeaders as $header) {
-            $norm = strtolower(trim(preg_replace('/\s+/', ' ', $header)));
-            if (isset($aliases[$norm])) {
-                $map[$aliases[$norm]] = $header;
-            }
-        }
-
-        return $map;
+        return $this->importService->normalizeHeaders($rawHeaders);
     }
 
-    protected function parseNumericFallback(mixed $value): float
-    {
-        $normalized = preg_replace('/[^0-9,.-]/', '', (string) $value) ?? '';
-        if ($normalized === '') return 0.0;
-        
-        $lastComma = strrpos($normalized, ',');
-        $lastDot = strrpos($normalized, '.');
-        
-        if ($lastComma !== false && $lastDot !== false) {
-            if ($lastComma > $lastDot) {
-                $normalized = str_replace('.', '', $normalized);
-                $normalized = str_replace(',', '.', $normalized);
-            } else {
-                $normalized = str_replace(',', '', $normalized);
-            }
-        } elseif ($lastComma !== false) {
-            if (preg_match('/,\d{1,2}$/', $normalized)) {
-                $normalized = str_replace(',', '.', $normalized);
-            } else {
-                $normalized = str_replace(',', '', $normalized);
-            }
-        } elseif ($lastDot !== false) {
-            if (preg_match('/\.\d{1,2}$/', $normalized)) {
-                // Keep the dot
-            } else {
-                $normalized = str_replace('.', '', $normalized);
-            }
-        }
-        
-        return (float) $normalized;
-    }
-
-    /**
-     * Map CSV row to normalized structure.
-     */
     protected function mapCsvRow(array $record, array $normalizedHeaders, array $rawHeaders): array
     {
-        $get = function (string $canonical) use ($record, $normalizedHeaders) {
-            if (!isset($normalizedHeaders[$canonical])) {
-                return null;
-            }
-            $actual = $normalizedHeaders[$canonical];
-            return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
-        };
-
-        $hargaSatuan = $get('harga_satuan');
-        $qtyStr = $get('kuantitas');
-
-        if (empty($hargaSatuan) || $this->parseNumericFallback($hargaSatuan) == 0) {
-            $qty = $this->parseNumericFallback($qtyStr);
-            if ($qty > 0) {
-                $lineTotal = $this->parseNumericFallback($get('line_total'));
-                if ($lineTotal > 0) {
-                    $hargaSatuan = (string) round($lineTotal / $qty, 5);
-                }
-            }
-        }
-
-        return [
-            'tanggal' => $get('tanggal'),
-            'customer' => $get('customer'),
-            'no_faktur' => $get('no_faktur'),
-            'produk' => $get('produk'),
-            'kuantitas' => $qtyStr,
-            'satuan' => $get('satuan'),
-            'harga_satuan' => $hargaSatuan,
-            'pajak' => $get('pajak') ?: '0',
-            // Additional fields
-            'tag' => $get('tag'),
-            'tarif_pajak' => $get('tarif_pajak'),
-            'deskripsi' => $get('deskripsi'),
-            'memo' => $get('memo'),
-            'status_hari_ini' => $get('status_hari_ini'),
-            'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
-            'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
-            'sisa_tagihan' => $get('sisa_tagihan'),
-            'pembayaran' => $get('pembayaran'),
-            'jumlah_pemotongan' => $get('jumlah_pemotongan'),
-            'source_total' => $get('source_total'),
-            'biaya_pengiriman' => $get('biaya_pengiriman'),
-            'nama_perusahaan' => $get('nama_perusahaan'),
-            'nomor_telepon' => $get('nomor_telepon'),
-            'diskon' => $get('diskon'),
-            'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
-            'diskon_persen' => $get('diskon_persen') ?: '0',
-            'gudang' => $get('gudang'),
-        ];
+        return $this->importService->mapCsvRow($record, $normalizedHeaders);
     }
 }

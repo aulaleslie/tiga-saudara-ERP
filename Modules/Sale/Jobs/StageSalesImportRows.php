@@ -113,92 +113,9 @@ class StageSalesImportRows implements ShouldQueue
         }
     }
 
-    protected function parseNumericFallback(mixed $value): float
-    {
-        $normalized = preg_replace('/[^0-9,.-]/', '', (string) $value) ?? '';
-        if ($normalized === '') return 0.0;
-        
-        $lastComma = strrpos($normalized, ',');
-        $lastDot = strrpos($normalized, '.');
-        
-        if ($lastComma !== false && $lastDot !== false) {
-            if ($lastComma > $lastDot) {
-                $normalized = str_replace('.', '', $normalized);
-                $normalized = str_replace(',', '.', $normalized);
-            } else {
-                $normalized = str_replace(',', '', $normalized);
-            }
-        } elseif ($lastComma !== false) {
-            if (preg_match('/,\d{1,2}$/', $normalized)) {
-                $normalized = str_replace(',', '.', $normalized);
-            } else {
-                $normalized = str_replace(',', '', $normalized);
-            }
-        } elseif ($lastDot !== false) {
-            if (preg_match('/\.\d{1,2}$/', $normalized)) {
-                // Keep the dot
-            } else {
-                $normalized = str_replace('.', '', $normalized);
-            }
-        }
-        
-        return (float) $normalized;
-    }
-
-    /**
-     * Map CSV row to normalized structure.
-     */
     protected function mapCsvRow(array $record): array
     {
-        $get = function (string $canonical) use ($record) {
-            if (!isset($this->normalizedHeaders[$canonical])) {
-                return null;
-            }
-            $actual = $this->normalizedHeaders[$canonical];
-            return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
-        };
-
-        $hargaSatuan = $get('harga_satuan');
-        $qtyStr = $get('kuantitas');
-
-        if (empty($hargaSatuan) || $this->parseNumericFallback($hargaSatuan) == 0) {
-            $qty = $this->parseNumericFallback($qtyStr);
-            if ($qty > 0) {
-                $lineTotal = $this->parseNumericFallback($get('line_total'));
-                if ($lineTotal > 0) {
-                    $hargaSatuan = (string) round($lineTotal / $qty, 5);
-                }
-            }
-        }
-
-        return [
-            'tanggal' => $get('tanggal'),
-            'customer' => $get('customer'),
-            'no_faktur' => $get('no_faktur'),
-            'produk' => $get('produk'),
-            'kuantitas' => $qtyStr,
-            'satuan' => $get('satuan'),
-            'harga_satuan' => $hargaSatuan,
-            'pajak' => $get('pajak') ?: '0',
-            'tag' => $get('tag'),
-            'tarif_pajak' => $get('tarif_pajak'),
-            'deskripsi' => $get('deskripsi'),
-            'memo' => $get('memo'),
-            'status_hari_ini' => $get('status_hari_ini'),
-            'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
-            'sisa_tagihan_hari_ini' => $get('sisa_tagihan_hari_ini'),
-            'sisa_tagihan' => $get('sisa_tagihan'),
-            'pembayaran' => $get('pembayaran'),
-            'jumlah_pemotongan' => $get('jumlah_pemotongan'),
-            'source_total' => $get('source_total'),
-            'biaya_pengiriman' => $get('biaya_pengiriman'),
-            'nama_perusahaan' => $get('nama_perusahaan'),
-            'nomor_telepon' => $get('nomor_telepon'),
-            'diskon' => $get('diskon'),
-            'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
-            'diskon_persen' => $get('diskon_persen') ?: '0',
-            'gudang' => $get('gudang'),
-        ];
+        return app(\Modules\Sale\Services\SalesImportService::class)->mapCsvRow($record, $this->normalizedHeaders);
     }
 
     public function failed(\Throwable $exception): void

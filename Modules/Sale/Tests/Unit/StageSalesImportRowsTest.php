@@ -46,23 +46,4 @@ class StageSalesImportRowsTest extends TestCase
         $this->assertEquals('2400', $mapped['harga_satuan'], 'Should fallback to 60000 / 25');
     }
 
-    /**
-     * Test numeric parser for line totals with commas and dots.
-     */
-    public function test_parse_numeric_fallback(): void
-    {
-        $job = new class(1, [], []) extends StageSalesImportRows {
-            public function testParseNumericFallback(mixed $value): float
-            {
-                return $this->parseNumericFallback($value);
-            }
-        };
-
-        $this->assertEquals(60000.0, $job->testParseNumericFallback('60000'));
-        $this->assertEquals(60000.0, $job->testParseNumericFallback('60.000'));
-        $this->assertEquals(60000.0, $job->testParseNumericFallback('60,000'));
-        $this->assertEquals(60000.5, $job->testParseNumericFallback('60,000.50'));
-        $this->assertEquals(60000.5, $job->testParseNumericFallback('60.000,50'));
-        $this->assertEquals(1000.5, $job->testParseNumericFallback('1000,50'));
-    }
 }
