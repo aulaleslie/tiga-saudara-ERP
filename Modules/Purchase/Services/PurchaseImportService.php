@@ -37,6 +37,16 @@ class PurchaseImportService
     protected ImportSettlementAllocator $settlementAllocator;
 
     /**
+     * Entity caches to avoid N+1 queries
+     */
+    protected array $settingsCache = [];
+    protected array $suppliersCache = [];
+    protected array $productsCache = [];
+    protected array $taxesCache = [];
+    protected array $unitsCache = [];
+    protected array $locationsCache = [];
+
+    /**
      * Tag-based tenant mapping (Priority 1).
      * Maps Tag column values to company names.
      */
@@ -130,6 +140,12 @@ class PurchaseImportService
     {
         $companyName = $this->tenantMapping[$marker] ?? $this->tenantMapping['default'];
 
+        foreach ($this->settingsCache as $setting) {
+            if (stripos($setting->company_name, $companyName) !== false) {
+                return $setting;
+            }
+        }
+
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
     }
 
@@ -147,6 +163,12 @@ class PurchaseImportService
 
         if (!$companyName) {
             return null;
+        }
+
+        foreach ($this->settingsCache as $setting) {
+            if (stripos($setting->company_name, $companyName) !== false) {
+                return $setting;
+            }
         }
 
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
@@ -323,6 +345,10 @@ class PurchaseImportService
      */
     public function findOrCreateTax(int $percentage): Tax
     {
+        if (isset($this->taxesCache[$percentage])) {
+            return $this->taxesCache[$percentage];
+        }
+
         $tax = Tax::where('value', $percentage)->first();
 
         if (!$tax) {
@@ -337,6 +363,8 @@ class PurchaseImportService
             ]);
         }
 
+        $this->taxesCache[$percentage] = $tax;
+
         return $tax;
     }
 
@@ -345,7 +373,13 @@ class PurchaseImportService
      */
     public function findOrCreateSupplier(string $name, int $settingId, ?string $contactName = null, ?string $phone = null): Supplier
     {
-        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [strtolower(trim($name))])->first();
+        $normalizedName = strtolower(trim($name));
+        
+        if (isset($this->suppliersCache[$normalizedName])) {
+            return $this->suppliersCache[$normalizedName];
+        }
+
+        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [$normalizedName])->first();
 
         if (!$supplier) {
             $supplier = Supplier::create([
@@ -365,6 +399,8 @@ class PurchaseImportService
             ]);
         }
 
+        $this->suppliersCache[$normalizedName] = $supplier;
+
         return $supplier;
     }
 
@@ -373,16 +409,27 @@ class PurchaseImportService
      */
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
-        $product = Product::whereRaw('LOWER(product_name) = ?', [strtolower(trim($cleanName))])->first();
+        $normalizedName = strtolower(trim($cleanName));
+        
+        if (isset($this->productsCache[$normalizedName])) {
+            return $this->productsCache[$normalizedName];
+        }
+
+        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
 
         if (!$product) {
-            // Find or create unit
-            $unit = Unit::whereRaw('LOWER(short_name) = ?', [strtolower(trim($unitName))])->first();
+            $normalizedUnitName = strtolower(trim($unitName));
+            $unit = $this->unitsCache[$normalizedUnitName] ?? null;
+
             if (!$unit) {
-                $unit = Unit::create([
-                    'name' => ucfirst(strtolower($unitName)),
-                    'short_name' => strtoupper($unitName),
-                ]);
+                $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
+                if (!$unit) {
+                    $unit = Unit::create([
+                        'name' => ucfirst(strtolower($unitName)),
+                        'short_name' => strtoupper($unitName),
+                    ]);
+                }
+                $this->unitsCache[$normalizedUnitName] = $unit;
             }
 
             $product = Product::create([
@@ -405,6 +452,8 @@ class PurchaseImportService
             ]);
         }
 
+        $this->productsCache[$normalizedName] = $product;
+
         return $product;
     }
 
@@ -417,33 +466,193 @@ class PurchaseImportService
     }
 
     /**
+     * Pre-load all settings and cache them.
+     */
+    protected function preloadSettings(): void
+    {
+        if (empty($this->settingsCache)) {
+            $settings = Setting::all();
+            foreach ($settings as $setting) {
+                $this->settingsCache[$setting->id] = $setting;
+            }
+            Log::info('[PurchaseImport] Pre-loaded settings', ['count' => count($this->settingsCache)]);
+        }
+    }
+
+    /**
+     * Pre-load all taxes and cache them.
+     */
+    protected function preloadTaxes(): void
+    {
+        if (empty($this->taxesCache)) {
+            $taxes = Tax::all();
+            foreach ($taxes as $tax) {
+                $this->taxesCache[$tax->value] = $tax;
+            }
+            Log::info('[PurchaseImport] Pre-loaded taxes', ['count' => count($this->taxesCache)]);
+        }
+    }
+
+    /**
+     * Pre-load all units and cache them.
+     */
+    protected function preloadUnits(): void
+    {
+        if (empty($this->unitsCache)) {
+            $units = Unit::all();
+            foreach ($units as $unit) {
+                $this->unitsCache[strtolower($unit->short_name)] = $unit;
+            }
+            Log::info('[PurchaseImport] Pre-loaded units', ['count' => count($this->unitsCache)]);
+        }
+    }
+
+    /**
+     * Pre-load existing suppliers from the batch rows.
+     */
+    protected function preloadSuppliersForBatch(Collection $rows): void
+    {
+        $supplierNames = $rows->map(function ($row) {
+            return trim($row->raw_json['supplier'] ?? '');
+        })->filter()->unique()->values()->toArray();
+
+        if (empty($supplierNames)) {
+            return;
+        }
+
+        $suppliers = Supplier::whereIn('supplier_name', $supplierNames)->get();
+        
+        foreach ($suppliers as $supplier) {
+            $this->suppliersCache[strtolower($supplier->supplier_name)] = $supplier;
+        }
+
+        Log::info('[PurchaseImport] Pre-loaded suppliers', ['count' => count($this->suppliersCache)]);
+    }
+
+    /**
+     * Pre-load existing products from the batch rows.
+     */
+    protected function preloadProductsForBatch(Collection $rows): void
+    {
+        $productNames = $rows->map(function ($row) {
+            $parsed = $this->parseProductName($row->raw_json['produk'] ?? '');
+            return trim($parsed['clean_name']);
+        })->filter()->unique()->values()->toArray();
+
+        if (empty($productNames)) {
+            return;
+        }
+
+        $products = Product::whereIn('product_name', $productNames)->get();
+        
+        foreach ($products as $product) {
+            $this->productsCache[strtolower($product->product_name)] = $product;
+        }
+
+        Log::info('[PurchaseImport] Pre-loaded products', ['count' => count($this->productsCache)]);
+    }
+
+    /**
      * Process a batch of import rows.
+     * Optimized with smart chunking and entity pre-loading to avoid N+1 queries
+     * and memory issues with large batches.
      */
     public function processBatch(PurchaseImportBatch $batch): void
     {
+        $startTime = microtime(true);
         $batch->update(['status' => PurchaseImportBatch::STATUS_PROCESSING]);
 
         try {
-            // Load all pending rows
-            $rows = $batch->pendingRows()->orderBy('row_number')->get();
+            // Pre-load all static entities ONCE
+            $this->preloadSettings();
+            $this->preloadTaxes();
+            $this->preloadUnits();
 
-            // Group rows by invoice number and effective owner key
-            $groups = $this->groupRowsByInvoiceAndTenant($rows);
+            Log::info('[PurchaseImport] Starting batch processing', [
+                'batch_id' => $batch->id,
+                'total_rows' => $batch->total_rows,
+                'preload_time' => round(microtime(true) - $startTime, 2) . 's',
+            ]);
 
-            // Reorganize owner groups by source invoice so invoice-level payment fields
-            // are reconciled once and allocated across owner documents.
-            $invoices = $this->groupOwnerGroupsBySourceInvoice($groups);
+            $totalPending = $batch->pendingRows()->count();
+            if ($totalPending === 0) {
+                $batch->update(['status' => PurchaseImportBatch::STATUS_COMPLETED]);
+                return;
+            }
 
-            foreach ($invoices as $invoiceNo => $ownerGroups) {
-                try {
-                    DB::transaction(function () use ($ownerGroups, $batch) {
-                        $this->processSourceInvoice($ownerGroups, $batch);
-                    });
-                } catch (\Exception $e) {
-                    foreach ($ownerGroups as $groupRows) {
-                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
-                    }
+            $targetChunkSize = 500;
+            $processedChunks = 0;
+            $totalGroupsProcessed = 0;
+
+            while (true) {
+                $chunkStartTime = microtime(true);
+                
+                // Load initial chunk
+                $initialRows = $batch->pendingRows()
+                    ->orderBy('row_number')
+                    ->take($targetChunkSize)
+                    ->get();
+
+                if ($initialRows->isEmpty()) {
+                    break;
                 }
+
+                // Get the last row's invoice info to check for split groups
+                $lastRow = $initialRows->last();
+                $lastRowData = $lastRow->raw_json;
+                $lastInvoiceNo = $lastRowData['no_faktur'] ?? '';
+
+                $additionalRows = collect([]);
+                if (!empty($lastInvoiceNo)) {
+                    $lastRowNumber = $lastRow->row_number;
+
+                    $additionalRows = $batch->pendingRows()
+                        ->where('row_number', '>', $lastRowNumber)
+                        ->orderBy('row_number')
+                        ->get()
+                        ->takeWhile(function ($row) use ($lastInvoiceNo) {
+                            $rowData = $row->raw_json;
+                            $rowInvoiceNo = $rowData['no_faktur'] ?? '';
+
+                            return $rowInvoiceNo === $lastInvoiceNo;
+                        });
+                }
+
+                $rows = $initialRows->merge($additionalRows);
+                $actualChunkSize = $rows->count();
+                $processedChunks++;
+
+                Log::info('[PurchaseImport] Processing chunk', [
+                    'batch_id' => $batch->id,
+                    'chunk_number' => $processedChunks,
+                    'target_size' => $targetChunkSize,
+                    'actual_size' => $actualChunkSize,
+                    'additional_rows' => $additionalRows->count(),
+                ]);
+
+                // Pre-load specific to this chunk
+                $this->preloadSuppliersForBatch($rows);
+                $this->preloadProductsForBatch($rows);
+
+                // Group rows
+                $groups = $this->groupRowsByInvoiceAndTenant($rows);
+
+                // Process groups
+                $groupsProcessed = $this->processGroupsInBatches($groups, $batch, 50);
+                $totalGroupsProcessed += $groupsProcessed;
+
+                Log::info('[PurchaseImport] Chunk completed', [
+                    'batch_id' => $batch->id,
+                    'chunk_number' => $processedChunks,
+                    'groups_in_chunk' => count($groups),
+                    'chunk_time' => round(microtime(true) - $chunkStartTime, 2) . 's',
+                    'cumulative_time' => round(microtime(true) - $startTime, 2) . 's',
+                ]);
+
+                // Clear chunk caches
+                $this->suppliersCache = [];
+                $this->productsCache = [];
+                gc_collect_cycles();
             }
 
             // Update batch status
@@ -453,19 +662,59 @@ class PurchaseImportService
                 'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count(),
             ]);
 
+            $totalTime = microtime(true) - $startTime;
+            $totalRows = $batch->total_rows;
+            $rowsPerSecond = $totalRows > 0 ? round($totalRows / $totalTime, 2) : 0;
+
             Log::info('[PurchaseImport] Batch completed', [
                 'batch_id' => $batch->id,
                 'success_count' => $batch->success_count,
                 'error_count' => $batch->error_count,
+                'total_chunks' => $processedChunks,
+                'total_groups' => $totalGroupsProcessed,
+                'total_time' => round($totalTime, 2) . 's',
+                'rows_per_second' => $rowsPerSecond,
             ]);
         } catch (\Exception $e) {
             $batch->update(['status' => PurchaseImportBatch::STATUS_FAILED]);
             Log::error('[PurchaseImport] Batch failed', [
                 'batch_id' => $batch->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Process source invoices in transaction batches to reduce overhead.
+     * Each source invoice is reconciled and its owner groups created within one transaction
+     * so a payment mismatch rolls back every owner group for that invoice.
+     */
+    protected function processGroupsInBatches(array $groups, PurchaseImportBatch $batch, int $batchSize): int
+    {
+        $invoices = $this->groupOwnerGroupsBySourceInvoice($groups);
+
+        $invoiceChunks = array_chunk($invoices, $batchSize, true);
+
+        $processedCount = 0;
+
+        foreach ($invoiceChunks as $invoiceChunk) {
+            foreach ($invoiceChunk as $invoiceNo => $ownerGroups) {
+                try {
+                    DB::transaction(function () use ($ownerGroups, $batch) {
+                        $this->processSourceInvoice($ownerGroups, $batch);
+                    });
+                    $processedCount += count($ownerGroups);
+                } catch (\Exception $e) {
+                    foreach ($ownerGroups as $groupRows) {
+                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                    }
+                }
+            }
+        }
+
+        return $processedCount;
     }
 
     /**
@@ -1109,25 +1358,45 @@ class PurchaseImportService
             : $unitPriceFinal;
     }
 
+    protected array $allSettingIdsCache = [];
+
+    protected function getAllSettingIds(): array
+    {
+        if (empty($this->allSettingIdsCache)) {
+            $this->allSettingIdsCache = Setting::pluck('id')->toArray();
+        }
+        return $this->allSettingIdsCache;
+    }
+
     /**
      * Upsert purchase-price fields (last_purchase_price, average_purchase_price) across every setting.
      * Selling price fields (sale_price, tier_1_price, tier_2_price) are never modified.
      */
-    protected function syncPurchasePricesAcrossSettings(int $productId, float $lastPurchasePrice, float $averagePurchasePrice): void
+    public function syncPurchasePricesAcrossSettings(int $productId, float $unitPriceFinal, float $newAveragePrice): void
     {
-        $allSettingIds = Setting::pluck('id');
-
-        foreach ($allSettingIds as $settingId) {
-            $productPrice = ProductPrice::firstOrCreate(
-                ['product_id' => $productId, 'setting_id' => $settingId],
-                ['sale_price' => 0, 'last_purchase_price' => 0, 'average_purchase_price' => 0]
-            );
-
-            $productPrice->update([
-                'last_purchase_price'    => $lastPurchasePrice,
-                'average_purchase_price' => $averagePurchasePrice,
-            ]);
+        $settingIds = $this->getAllSettingIds();
+        $records = [];
+        $now = now();
+        
+        foreach ($settingIds as $settingId) {
+            $records[] = [
+                'product_id' => $productId,
+                'setting_id' => $settingId,
+                'sale_price' => 0,
+                'tier_1_price' => 0,
+                'tier_2_price' => 0,
+                'last_purchase_price' => $unitPriceFinal,
+                'average_purchase_price' => $newAveragePrice,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
+
+        ProductPrice::upsert(
+            $records,
+            ['product_id', 'setting_id'],
+            ['last_purchase_price', 'average_purchase_price', 'updated_at']
+        );
     }
 
     /**

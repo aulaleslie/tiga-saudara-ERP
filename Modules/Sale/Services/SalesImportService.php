@@ -1541,6 +1541,16 @@ class SalesImportService
         ]);
     }
 
+    protected array $allSettingIdsCache = [];
+
+    protected function getAllSettingIds(): array
+    {
+        if (empty($this->allSettingIdsCache)) {
+            $this->allSettingIdsCache = Setting::pluck('id')->toArray();
+        }
+        return $this->allSettingIdsCache;
+    }
+
     /**
      * Upsert selling-price fields (sale_price, tier_1_price, tier_2_price) across every setting.
      * All three tier prices are set to the same imported value so POS and Sales tier pricing stays aligned.
@@ -1548,20 +1558,29 @@ class SalesImportService
      */
     protected function syncSalePricesAcrossSettings(int $productId, float $salePrice): void
     {
-        $allSettingIds = Setting::pluck('id');
-
-        foreach ($allSettingIds as $settingId) {
-            $productPrice = ProductPrice::firstOrCreate(
-                ['product_id' => $productId, 'setting_id' => $settingId],
-                ['sale_price' => 0, 'last_purchase_price' => 0, 'average_purchase_price' => 0]
-            );
-
-            $productPrice->update([
-                'sale_price'   => $salePrice,
+        $settingIds = $this->getAllSettingIds();
+        $records = [];
+        $now = now();
+        
+        foreach ($settingIds as $settingId) {
+            $records[] = [
+                'product_id' => $productId,
+                'setting_id' => $settingId,
+                'sale_price' => $salePrice,
                 'tier_1_price' => $salePrice,
                 'tier_2_price' => $salePrice,
-            ]);
+                'last_purchase_price' => 0,
+                'average_purchase_price' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
+
+        ProductPrice::upsert(
+            $records,
+            ['product_id', 'setting_id'],
+            ['sale_price', 'tier_1_price', 'tier_2_price', 'updated_at']
+        );
     }
 
     /**
