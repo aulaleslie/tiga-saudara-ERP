@@ -23,9 +23,9 @@
 
 ## 4. Shared Write Reduction
 
-- [ ] 4.4 Deduplicate repeated `Setting::pluck('id')` calls during purchase and sales product price synchronization.
-- [ ] 4.5 Reduce redundant all-settings sales price writes while preserving "latest positive processed sales price wins" semantics.
-- [ ] 4.6 Reduce redundant purchase price sync setup while preserving weighted-average purchase price semantics.
+- [x] 4.4 Deduplicate repeated `Setting::pluck('id')` calls during purchase and sales product price synchronization.
+- [x] 4.5 Reduce redundant all-settings sales price writes while preserving "latest positive processed sales price wins" semantics.
+- [x] 4.6 Reduce redundant purchase price sync setup while preserving weighted-average purchase price semantics.
 
 ## 5. Instrumentation
 

@@ -23,7 +23,6 @@ return new class extends Migration
     {
         Schema::table('purchase_import_rows', function (Blueprint $table) {
             $table->dropIndex(['batch_id', 'status', 'row_number']);
-            $table->index(['batch_id', 'status']);
         });
     }
 };
