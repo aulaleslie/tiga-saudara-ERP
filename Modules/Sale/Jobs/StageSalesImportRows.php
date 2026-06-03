@@ -113,6 +113,38 @@ class StageSalesImportRows implements ShouldQueue
         }
     }
 
+    protected function parseNumericFallback(mixed $value): float
+    {
+        $normalized = preg_replace('/[^0-9,.-]/', '', (string) $value) ?? '';
+        if ($normalized === '') return 0.0;
+        
+        $lastComma = strrpos($normalized, ',');
+        $lastDot = strrpos($normalized, '.');
+        
+        if ($lastComma !== false && $lastDot !== false) {
+            if ($lastComma > $lastDot) {
+                $normalized = str_replace('.', '', $normalized);
+                $normalized = str_replace(',', '.', $normalized);
+            } else {
+                $normalized = str_replace(',', '', $normalized);
+            }
+        } elseif ($lastComma !== false) {
+            if (preg_match('/,\d{1,2}$/', $normalized)) {
+                $normalized = str_replace(',', '.', $normalized);
+            } else {
+                $normalized = str_replace(',', '', $normalized);
+            }
+        } elseif ($lastDot !== false) {
+            if (preg_match('/\.\d{1,2}$/', $normalized)) {
+                // Keep the dot
+            } else {
+                $normalized = str_replace('.', '', $normalized);
+            }
+        }
+        
+        return (float) $normalized;
+    }
+
     /**
      * Map CSV row to normalized structure.
      */
@@ -126,14 +158,27 @@ class StageSalesImportRows implements ShouldQueue
             return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
         };
 
+        $hargaSatuan = $get('harga_satuan');
+        $qtyStr = $get('kuantitas');
+
+        if (empty($hargaSatuan) || $this->parseNumericFallback($hargaSatuan) == 0) {
+            $qty = $this->parseNumericFallback($qtyStr);
+            if ($qty > 0) {
+                $lineTotal = $this->parseNumericFallback($get('line_total'));
+                if ($lineTotal > 0) {
+                    $hargaSatuan = (string) round($lineTotal / $qty, 5);
+                }
+            }
+        }
+
         return [
             'tanggal' => $get('tanggal'),
             'customer' => $get('customer'),
             'no_faktur' => $get('no_faktur'),
             'produk' => $get('produk'),
-            'kuantitas' => $get('kuantitas'),
+            'kuantitas' => $qtyStr,
             'satuan' => $get('satuan'),
-            'harga_satuan' => $get('harga_satuan'),
+            'harga_satuan' => $hargaSatuan,
             'pajak' => $get('pajak') ?: '0',
             'tag' => $get('tag'),
             'tarif_pajak' => $get('tarif_pajak'),
