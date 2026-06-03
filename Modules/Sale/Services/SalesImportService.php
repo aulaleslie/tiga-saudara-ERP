@@ -1339,7 +1339,7 @@ class SalesImportService
                     'status' => SalesImportRow::STATUS_PROCESSED,
                     'sale_id' => $sale->id,
                 ]);
-                
+                $invoiceSuccessCount += count($rowIds);
             }
 
         Log::info('[SalesImport] Created sale', [
