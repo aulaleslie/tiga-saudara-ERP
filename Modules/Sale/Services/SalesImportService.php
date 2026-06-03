@@ -851,10 +851,12 @@ class SalesImportService
     {
         $groupGrossTotals = [];
         $allRows = [];
+        $rowIds = [];
         foreach ($ownerGroups as $groupKey => $groupRows) {
             $groupGrossTotals[$groupKey] = $this->calculateGroupGrossTotal($groupRows);
             foreach ($groupRows as $row) {
                 $allRows[] = $row->raw_json;
+                $rowIds[] = $row->id;
             }
         }
 
@@ -913,7 +915,40 @@ class SalesImportService
         }
 
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
-        $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
+        
+        $driftAmount = 0.0;
+        $driftAccepted = false;
+        
+        try {
+            $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
+        } catch (\RuntimeException $e) {
+            try {
+                $paymentSummary = $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $sourceInvoiceTotal);
+                $driftAccepted = true;
+                $driftAmount = $paymentSummary['drift_amount'];
+                
+                $sourceInvoiceTotal = $paymentSummary['source_total'];
+                
+                $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, abs($driftAmount));
+                $driftSign = $driftAmount <=> 0;
+                
+                foreach ($groupTotals as $groupKey => $groupTotal) {
+                    $groupTotals[$groupKey] = round($groupTotal + ($driftAllocations[$groupKey] * $driftSign), 2);
+                }
+                
+                Log::info('[SalesImport] Accepted precision drift for source invoice', [
+                    'batch_id' => $batch->id,
+                    'invoice_number' => $allRows[0]['no_faktur'] ?? 'unknown',
+                    'source_total' => $sourceInvoiceTotal,
+                    'recomputed_adjusted_total' => round($sourceInvoiceTotal - $driftAmount, 2),
+                    'drift_amount' => $driftAmount,
+                    'row_ids' => $rowIds,
+                ]);
+            } catch (\RuntimeException $driftError) {
+                // If drift is not accepted, throw the original reconciliation error to maintain error messages
+                throw $e;
+            }
+        }
 
         // Split the settlement (cash Pembayaran, non-cash Jumlah Pemotongan credit, outstanding
         // due) across owner groups so each owner satisfies cash + deduction + due == group total

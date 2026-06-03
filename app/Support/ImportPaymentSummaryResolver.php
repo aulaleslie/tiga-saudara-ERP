@@ -10,6 +10,9 @@ class ImportPaymentSummaryResolver
     private const TOLERANCE = 0.01;
     private const SOURCE_TOTAL_TOLERANCE = 1.00;
 
+    public const SALES_PRECISION_DRIFT_ABSOLUTE = 5.00;
+    public const SALES_PRECISION_DRIFT_RELATIVE = 0.00005;
+
     /**
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
@@ -126,6 +129,114 @@ class ImportPaymentSummaryResolver
             'paid_amount' => $paidAmount,
             'deduction_amount' => $deductionAmount,
             'needs_payment' => $paidAmount > self::TOLERANCE,
+        ];
+    }
+
+    /**
+     * Reconciles payment summary but accepts a small precision drift between the
+     * calculated document total and the source Total if the source settlement fields
+     * independently reconcile to the source Total.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool,drift_amount:float,drift_accepted:bool}
+     */
+    public function resolveWithSalesPrecisionDrift(array $rows, float $calculatedDocumentTotal): array
+    {
+        $calculatedDocumentTotal = round($calculatedDocumentTotal, 2);
+
+        $todayOutstandingValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['sisa_tagihan_hari_ini'] ?? null);
+        });
+
+        if (count($todayOutstandingValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan Hari Ini.');
+        }
+
+        $sisaTagihanValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['sisa_tagihan'] ?? null);
+        });
+
+        if (count($sisaTagihanValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan.');
+        }
+
+        $paymentValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['pembayaran'] ?? null);
+        });
+
+        if (count($paymentValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Pembayaran.');
+        }
+
+        $sourceTotalValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['source_total'] ?? null);
+        });
+
+        if (count($sourceTotalValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Total.');
+        }
+
+        $deductionValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['jumlah_pemotongan'] ?? null);
+        });
+
+        if (count($deductionValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Jumlah Pemotongan.');
+        }
+
+        $todayOutstanding = $todayOutstandingValues[0] ?? null;
+        $sisaTagihan = $sisaTagihanValues[0] ?? null;
+        $explicitPaidAmount = $paymentValues[0] ?? null;
+        $sourceTotal = $sourceTotalValues[0] ?? null;
+        $isCurrentlyPaid = $this->hasPaidCurrentStatus($rows);
+        $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
+
+        if ($sourceTotal === null || $sourceTotal <= 0.0) {
+            throw new \RuntimeException('Positive source Total is required for precision drift reconciliation.');
+        }
+
+        $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+
+        if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+            $outstandingBalance = 0.0;
+            $explicitPaidAmount = null;
+        } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+            $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $sourceTotal) <= self::TOLERANCE;
+            $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $sourceTotal) <= self::TOLERANCE;
+
+            if (! $todayReconciles && $sisaReconciles) {
+                $outstandingBalance = $sisaTagihan;
+            }
+        }
+
+        $paidAmount = $explicitPaidAmount ?? round($sourceTotal - $deductionAmount - $outstandingBalance, 2);
+        $paidAmount = round(max($paidAmount, 0), 2);
+
+        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $sourceTotal) > self::TOLERANCE) {
+            throw new \RuntimeException('Payment total mismatch: settlement fields do not reconcile with source Total.');
+        }
+
+        $driftAmount = round($sourceTotal - $calculatedDocumentTotal, 2);
+        $absoluteDrift = abs($driftAmount);
+
+        if ($absoluteDrift > self::SALES_PRECISION_DRIFT_ABSOLUTE) {
+            throw new \RuntimeException("Precision drift exceeds absolute limit of " . self::SALES_PRECISION_DRIFT_ABSOLUTE . ".");
+        }
+
+        // e.g. 126,964,600.00 * 0.00005 = 6.34, so 2.93 drift is within relative limit
+        $relativeLimit = round($sourceTotal * self::SALES_PRECISION_DRIFT_RELATIVE, 2);
+        if ($absoluteDrift > max(self::TOLERANCE, $relativeLimit)) {
+            throw new \RuntimeException("Precision drift exceeds relative limit of {$relativeLimit} based on source Total.");
+        }
+
+        return [
+            'source_total' => $sourceTotal,
+            'outstanding_balance' => $outstandingBalance,
+            'paid_amount' => $paidAmount,
+            'deduction_amount' => $deductionAmount,
+            'needs_payment' => $paidAmount > self::TOLERANCE,
+            'drift_amount' => $driftAmount,
+            'drift_accepted' => true,
         ];
     }
 

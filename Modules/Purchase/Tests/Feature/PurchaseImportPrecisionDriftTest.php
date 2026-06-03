@@ -1,0 +1,61 @@
+<?php
+
+namespace Modules\Purchase\Tests\Feature;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Modules\Purchase\Entities\PurchaseImportBatch;
+use Modules\Purchase\Entities\PurchaseImportRow;
+use Modules\Purchase\Services\PurchaseImportService;
+use Tests\TestCase;
+
+class PurchaseImportPrecisionDriftTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'PERDANA',
+            'company_email' => 'perdana@test.com',
+            'company_phone' => '123',
+            'company_address' => 'Test',
+        ]);
+    }
+
+    public function test_it_rejects_purchase_import_when_source_drift_exceeds_default_tolerance()
+    {
+        $batch = PurchaseImportBatch::create([
+            'filename' => 'test_purchase.csv',
+            'status' => 'pending',
+            'total_rows' => 1,
+        ]);
+
+        PurchaseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'status' => 'pending',
+            'raw_json' => [
+                'tanggal' => '01/01/2021',
+                'no_faktur' => 'PUR-001',
+                'pemasok' => 'Vendor A',
+                'produk' => 'Product A',
+                'kuantitas' => '1',
+                'satuan' => 'PCS',
+                'harga_satuan' => '100000.00', // recomputed 100,000
+                'pajak' => '0',
+                'sisa_tagihan_hari_ini' => '0',
+                'pembayaran' => '100002.00',
+                'source_total' => '100002.00', // drift of 2 is > 1.00 but within 5.00 sales tolerance
+                'status_hari_ini' => 'Lunas',
+            ],
+        ]);
+
+        $service = app(PurchaseImportService::class);
+        $service->processBatch($batch);
+
+        $row = PurchaseImportRow::first();
+        $this->assertEquals('invalid', $row->status);
+        $this->assertStringContainsString('Payment total mismatch: source Total does not reconcile with calculated document total', $row->error_message ?? '');
+    }
+}
