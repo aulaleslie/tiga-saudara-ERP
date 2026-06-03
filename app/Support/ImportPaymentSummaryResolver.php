@@ -11,7 +11,7 @@ class ImportPaymentSummaryResolver
     private const SOURCE_TOTAL_TOLERANCE = 1.00;
 
     public const SALES_PRECISION_DRIFT_ABSOLUTE = 5.00;
-    public const SALES_PRECISION_DRIFT_RELATIVE = 0.00005;
+    public const SALES_PRECISION_DRIFT_RELATIVE = 0.00000005;
 
     /**
      * @param  array<int, array<string, mixed>>  $rows
@@ -222,7 +222,7 @@ class ImportPaymentSummaryResolver
             throw new \RuntimeException("Precision drift exceeds absolute limit of " . self::SALES_PRECISION_DRIFT_ABSOLUTE . ".");
         }
 
-        // e.g. 126,964,600.00 * 0.00005 = 6.34, so 2.93 drift is within relative limit
+        // e.g. 126,964,600.00 * 0.00000005 = 6.34, so 2.93 drift is within relative limit
         $relativeLimit = round($sourceTotal * self::SALES_PRECISION_DRIFT_RELATIVE, 2);
         if ($absoluteDrift > max(self::TOLERANCE, $relativeLimit)) {
             throw new \RuntimeException("Precision drift exceeds relative limit of {$relativeLimit} based on source Total.");
