@@ -48,7 +48,7 @@ class SalesImportService
     protected array $locationsCache = [];
     protected array $productPricesCache = [];
     protected array $productStocksCache = [];
-    
+
     /**
      * Tag-based tenant mapping (Priority 1).
      * Maps Tag column values to company names.
@@ -311,7 +311,7 @@ class SalesImportService
 
         // Remove percentage sign and whitespace
         $cleaned = trim(str_replace(['%', ' '], '', $taxRateStr));
-        
+
         if (!is_numeric($cleaned)) {
             return 0;
         }
@@ -394,7 +394,7 @@ class SalesImportService
     public function findOrCreateCustomer(string $name, ?string $contactName = null, ?string $phone = null): Customer
     {
         $normalizedName = strtolower(trim($name));
-        
+
         // Check cache first
         if (isset($this->customersCache[$normalizedName])) {
             return $this->customersCache[$normalizedName];
@@ -431,7 +431,7 @@ class SalesImportService
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
         $normalizedName = strtolower(trim($cleanName));
-        
+
         // Check cache first
         if (isset($this->productsCache[$normalizedName])) {
             return $this->productsCache[$normalizedName];
@@ -443,7 +443,7 @@ class SalesImportService
             // Find or create unit (use cache)
             $normalizedUnitName = strtolower(trim($unitName));
             $unit = $this->unitsCache[$normalizedUnitName] ?? null;
-            
+
             if (!$unit) {
                 $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
                 if (!$unit) {
@@ -564,7 +564,7 @@ class SalesImportService
 
         // Load customers in a single query using index
         $customers = Customer::whereIn('customer_name', $customerNames)->get();
-        
+
         foreach ($customers as $customer) {
             $this->customersCache[strtolower($customer->customer_name)] = $customer;
         }
@@ -589,7 +589,7 @@ class SalesImportService
 
         // Load products in a single query using index
         $products = Product::whereIn('product_name', $productNames)->get();
-        
+
         foreach ($products as $product) {
             $this->productsCache[strtolower($product->product_name)] = $product;
         }
@@ -603,10 +603,10 @@ class SalesImportService
     protected function preloadProductPricesForSetting(int $settingId): void
     {
         $cacheKey = "setting_{$settingId}";
-        
+
         if (!isset($this->productPricesCache[$cacheKey])) {
             $productPrices = ProductPrice::where('setting_id', $settingId)->get();
-            
+
             $this->productPricesCache[$cacheKey] = [];
             foreach ($productPrices as $price) {
                 $this->productPricesCache[$cacheKey][$price->product_id] = $price;
@@ -620,10 +620,10 @@ class SalesImportService
     protected function preloadProductStocksForLocation(int $locationId): void
     {
         $cacheKey = "location_{$locationId}";
-        
+
         if (!isset($this->productStocksCache[$cacheKey])) {
             $productStocks = ProductStock::where('location_id', $locationId)->get();
-            
+
             $this->productStocksCache[$cacheKey] = [];
             foreach ($productStocks as $stock) {
                 $this->productStocksCache[$cacheKey][$stock->product_id] = $stock;
@@ -670,9 +670,9 @@ class SalesImportService
 
             while (true) {
                 $chunkStartTime = microtime(true);
-                
+
                 // Load initial chunk
-                // ALWAYS take from the beginning (offset 0) because previously processed rows 
+                // ALWAYS take from the beginning (offset 0) because previously processed rows
                 // satisfy the 'pending' status check and effectively disappear from this query.
                 $initialRows = $batch->pendingRows()
                     ->orderBy('row_number')
@@ -796,20 +796,30 @@ class SalesImportService
     {
         $invoices = $this->groupOwnerGroupsBySourceInvoice($groups);
 
-        // Split invoices into batches
         $invoiceChunks = array_chunk($invoices, $batchSize, true);
         $totalProcessed = 0;
 
+        $chunkPriceUpdates = [];
+        $chunkSuccessCount = 0;
+        $chunkErrorCount = 0;
+
         foreach ($invoiceChunks as $chunkIndex => $invoiceChunk) {
             foreach ($invoiceChunk as $invoiceNo => $ownerGroups) {
+                $invoicePriceUpdates = [];
+                $invoiceSuccessCount = 0;
                 try {
-                    DB::transaction(function () use ($ownerGroups, $batch) {
-                        $this->processSourceInvoice($ownerGroups, $batch);
+                    DB::transaction(function () use ($ownerGroups, $batch, &$invoicePriceUpdates, &$invoiceSuccessCount) {
+                        $this->processSourceInvoice($ownerGroups, $batch, $invoicePriceUpdates, $invoiceSuccessCount);
                     });
                     $totalProcessed++;
+                    $chunkSuccessCount += $invoiceSuccessCount;
+
+                    foreach ($invoicePriceUpdates as $productId => $update) {
+                        $chunkPriceUpdates[$productId] = $update;
+                    }
                 } catch (\Exception $e) {
                     foreach ($ownerGroups as $groupRows) {
-                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e, $chunkErrorCount);
                     }
                 }
             }
@@ -823,6 +833,14 @@ class SalesImportService
             }
         }
 
+        if ($chunkSuccessCount > 0) {
+            $batch->increment('success_count', $chunkSuccessCount);
+        }
+
+        if ($chunkErrorCount > 0) {
+            $batch->increment('error_count', $chunkErrorCount);
+        }
+
         return $totalProcessed;
     }
 
@@ -833,7 +851,7 @@ class SalesImportService
      *
      * @param  array<string, array<int, SalesImportRow>>  $ownerGroups
      */
-    protected function processSourceInvoice(array $ownerGroups, SalesImportBatch $batch): void
+    protected function processSourceInvoice(array $ownerGroups, SalesImportBatch $batch, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0): void
     {
         $groupGrossTotals = [];
         $allRows = [];
@@ -921,8 +939,14 @@ class SalesImportService
                 $settlement['due'],
                 $appliedDiscounts[$groupKey] ?? 0.0,
                 $shippingAllocations[$groupKey] ?? 0.0,
-                $settlement['deduction']
+                $settlement['deduction'],
+                $invoicePriceUpdates,
+                $invoiceSuccessCount
             );
+        }
+
+        if (!empty($invoicePriceUpdates)) {
+            $this->flushSalePriceUpdatesAcrossSettings($invoicePriceUpdates);
         }
     }
 
@@ -1010,7 +1034,7 @@ class SalesImportService
      * Process a group of rows belonging to the same invoice and effective owner.
      * Paid/due amounts are pre-allocated at source-invoice scope.
      */
-    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0): void
+    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0): void
     {
         if (empty($rows)) {
             return;
@@ -1033,40 +1057,11 @@ class SalesImportService
 
         // For Daizu products, validate that the setting exists
         if ($isDaizu && !$setting) {
-            foreach ($rows as $row) {
-                $row->update([
-                    'status' => SalesImportRow::STATUS_INVALID,
-                    'error_message' => "Daizu Kedelai setting not found for product: '{$productName}'",
-                ]);
-                Log::warning('[SalesImport] Row error - Daizu setting not found', [
-                    'batch_id' => $batch->id,
-                    'row_id' => $row->id,
-                    'row_number' => $row->row_number,
-                    'product' => $productName,
-                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                ]);
-                $batch->increment('error_count');
-            }
-            return;
+            throw new \Exception("Daizu Kedelai setting not found for product: '{$productName}'");
         }
 
         if (!$setting) {
-            foreach ($rows as $row) {
-                $row->update([
-                    'status' => SalesImportRow::STATUS_INVALID,
-                    'error_message' => "Tenant not found for product: '{$productName}'",
-                ]);
-                Log::warning('[SalesImport] Row error - tenant not found', [
-                    'batch_id' => $batch->id,
-                    'row_id' => $row->id,
-                    'row_number' => $row->row_number,
-                    'tag' => $tag,
-                    'product' => $productName,
-                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                ]);
-                $batch->increment('error_count');
-            }
-            return;
+            throw new \Exception("Tenant not found for product: '{$productName}'");
         }
 
         // Check for duplicate sale (same imported_sales_reference_number + setting_id)
@@ -1077,13 +1072,12 @@ class SalesImportService
                 ->first();
 
             if ($existingSale) {
-                foreach ($rows as $row) {
-                    $row->update([
-                        'status' => SalesImportRow::STATUS_SKIPPED,
-                        'error_message' => "Skipped: Sale with invoice #{$invoiceNo} already exists (ID: {$existingSale->id})",
-                        'sale_id' => $existingSale->id,
-                    ]);
-                }
+                $rowIds = array_map(fn($r) => $r->id, $rows);
+                SalesImportRow::whereIn('id', $rowIds)->update([
+                    'status' => SalesImportRow::STATUS_SKIPPED,
+                    'error_message' => "Skipped: Sale with invoice #{$invoiceNo} already exists (ID: {$existingSale->id})",
+                    'sale_id' => $existingSale->id,
+                ]);
                 Log::info('[SalesImport] Skipped duplicate sale', [
                     'batch_id' => $batch->id,
                     'no_faktur' => $invoiceNo,
@@ -1091,6 +1085,7 @@ class SalesImportService
                     'setting_id' => $setting->id,
                     'rows_skipped' => count($rows),
                 ]);
+                // Skipped rows are processed but do not count as successes
                 return;
             }
 
@@ -1116,23 +1111,7 @@ class SalesImportService
                     }
 
                     if ($hasDaizuProduct) {
-                        foreach ($rows as $row) {
-                            $row->update([
-                                'status' => SalesImportRow::STATUS_INVALID,
-                                'error_message' => "Conflict: Invoice #{$invoiceNo} already exists under different setting (ID: {$legacySale->id}) with Daizu-matched product '{$daizuProductName}'. This is a legacy ownership conflict.",
-                            ]);
-                        }
-                        Log::warning('[SalesImport] Legacy Daizu-product conflict detected', [
-                            'batch_id' => $batch->id,
-                            'no_faktur' => $invoiceNo,
-                            'existing_sale_id' => $legacySale->id,
-                            'existing_setting_id' => $legacySale->setting_id,
-                            'daizu_setting_id' => $setting->id,
-                            'daizu_product_name' => $daizuProductName,
-                            'rows_conflicted' => count($rows),
-                        ]);
-                        $batch->increment('error_count', count($rows));
-                        return;
+                        throw new \Exception("Conflict: Invoice #{$invoiceNo} already exists under different setting (ID: {$legacySale->id}) with Daizu-matched product '{$daizuProductName}'. This is a legacy ownership conflict.");
                     }
                 }
             }
@@ -1144,30 +1123,16 @@ class SalesImportService
             $daizuLocation = $this->resolveDaizuLocation($gudangName, $setting);
             if (!$daizuLocation) {
                 $gudangDesc = $gudangName ? "'{$gudangName}'" : "(blank - default location)";
-                foreach ($rows as $row) {
-                    $row->update([
-                        'status' => SalesImportRow::STATUS_INVALID,
-                        'error_message' => "Daizu location not found for gudang {$gudangDesc}",
-                    ]);
-                }
-                Log::warning('[SalesImport] Daizu location not found', [
-                    'batch_id' => $batch->id,
-                    'no_faktur' => $invoiceNo,
-                    'gudang' => $gudangName,
-                    'daizu_setting_id' => $setting->id,
-                    'rows_invalidated' => count($rows),
-                ]);
-                $batch->increment('error_count', count($rows));
-                return;
+                throw new \Exception("Daizu location not found for gudang {$gudangDesc}");
             }
         }
 
         // Parse dates
         $saleDate = $this->parseDate($data['tanggal']);
-            
+
             $dueDateStr = isset($data['tanggal_jatuh_tempo']) ? trim($data['tanggal_jatuh_tempo']) : '';
-            $dueDate = !empty($dueDateStr) 
-                ? $this->parseDate($dueDateStr) 
+            $dueDate = !empty($dueDateStr)
+                ? $this->parseDate($dueDateStr)
                 : $saleDate;
 
             // Find or create customer (global, not scoped by setting)
@@ -1332,11 +1297,10 @@ class SalesImportService
                     'tax_id' => $detail['tax_id'],
                 ]);
 
-                // Synchronize selling-price fields across ALL settings when price is positive.
-                // Zero or blank prices still create the sale detail row but skip catalog sync.
+                // Accumulate selling-price updates for chunk-level deduplication
                 $unitPriceFinal = $detail['unit_price_final'];
                 if ($unitPriceFinal > 0) {
-                    $this->syncSalePricesAcrossSettings($detail['product']->id, $unitPriceFinal);
+                    $invoicePriceUpdates[$detail['product']->id] = $unitPriceFinal;
                 }
             }
 
@@ -1370,13 +1334,16 @@ class SalesImportService
             }
 
             // Update row statuses
-            foreach ($details as $detail) {
-                $detail['row']->update([
+            $rowIds = array_map(function ($detail) {
+                return $detail['row']->id;
+            }, $details);
+
+            if (!empty($rowIds)) {
+                SalesImportRow::whereIn('id', $rowIds)->update([
                     'status' => SalesImportRow::STATUS_PROCESSED,
                     'sale_id' => $sale->id,
                 ]);
-
-                $batch->increment('success_count');
+                $invoiceSuccessCount += count($rowIds);
             }
 
         Log::info('[SalesImport] Created sale', [
@@ -1388,15 +1355,13 @@ class SalesImportService
         ]);
     }
 
-    protected function markInvoiceGroupInvalid(array $rows, SalesImportBatch $batch, \Exception $e): void
+    protected function markInvoiceGroupInvalid(array $rows, SalesImportBatch $batch, \Exception $e, int &$chunkErrorCount = 0): void
     {
         $invoice = $rows[0]->raw_json['no_faktur'] ?? 'Unknown';
+        $rowIds = [];
 
         foreach ($rows as $row) {
-            $row->update([
-                'status' => SalesImportRow::STATUS_INVALID,
-                'error_message' => $e->getMessage(),
-            ]);
+            $rowIds[] = $row->id;
             Log::warning('[SalesImport] Row error - exception', [
                 'batch_id' => $batch->id,
                 'row_id' => $row->id,
@@ -1405,7 +1370,14 @@ class SalesImportService
                 'error' => $e->getMessage(),
                 'raw_data' => $row->raw_json,
             ]);
-            $batch->increment('error_count');
+        }
+
+        if (!empty($rowIds)) {
+            SalesImportRow::whereIn('id', $rowIds)->update([
+                'status' => SalesImportRow::STATUS_INVALID,
+                'error_message' => substr($e->getMessage(), 0, 255),
+            ]);
+            $chunkErrorCount += count($rowIds);
         }
 
         Log::error('[SalesImport] Failed to process invoice group', [
@@ -1464,7 +1436,7 @@ class SalesImportService
             // Get or create ProductStock for this product/location (use cache)
             $locationCacheKey = "location_{$location->id}";
             $productStock = $this->productStocksCache[$locationCacheKey][$product->id] ?? null;
-            
+
             if (!$productStock) {
                 $productStock = ProductStock::firstOrCreate(
                     [
@@ -1552,35 +1524,39 @@ class SalesImportService
     }
 
     /**
-     * Upsert selling-price fields (sale_price, tier_1_price, tier_2_price) across every setting.
-     * All three tier prices are set to the same imported value so POS and Sales tier pricing stays aligned.
-     * Purchase price fields are never modified.
+     * Upsert accumulated selling-price fields across every setting for a chunk.
      */
-    protected function syncSalePricesAcrossSettings(int $productId, float $salePrice): void
+    protected function flushSalePriceUpdatesAcrossSettings(array $chunkPriceUpdates): void
     {
         $settingIds = $this->getAllSettingIds();
         $records = [];
         $now = now();
-        
-        foreach ($settingIds as $settingId) {
-            $records[] = [
-                'product_id' => $productId,
-                'setting_id' => $settingId,
-                'sale_price' => $salePrice,
-                'tier_1_price' => $salePrice,
-                'tier_2_price' => $salePrice,
-                'last_purchase_price' => 0,
-                'average_purchase_price' => 0,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
+
+        foreach ($chunkPriceUpdates as $productId => $salePrice) {
+            foreach ($settingIds as $settingId) {
+                $records[] = [
+                    'product_id' => $productId,
+                    'setting_id' => $settingId,
+                    'sale_price' => $salePrice,
+                    'tier_1_price' => $salePrice,
+                    'tier_2_price' => $salePrice,
+                    'last_purchase_price' => 0,
+                    'average_purchase_price' => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
         }
 
-        ProductPrice::upsert(
-            $records,
-            ['product_id', 'setting_id'],
-            ['sale_price', 'tier_1_price', 'tier_2_price', 'updated_at']
-        );
+        if (!empty($records)) {
+            foreach (array_chunk($records, 1000) as $recordChunk) {
+                ProductPrice::upsert(
+                    $recordChunk,
+                    ['product_id', 'setting_id'],
+                    ['sale_price', 'tier_1_price', 'tier_2_price', 'updated_at']
+                );
+            }
+        }
     }
 
     /**

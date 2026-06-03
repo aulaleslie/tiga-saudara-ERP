@@ -279,7 +279,7 @@ class PurchaseImportService
 
         // Remove percentage sign and whitespace
         $cleaned = trim(str_replace(['%', ' '], '', $taxRateStr));
-        
+
         if (!is_numeric($cleaned)) {
             return 0;
         }
@@ -374,7 +374,7 @@ class PurchaseImportService
     public function findOrCreateSupplier(string $name, int $settingId, ?string $contactName = null, ?string $phone = null): Supplier
     {
         $normalizedName = strtolower(trim($name));
-        
+
         if (isset($this->suppliersCache[$normalizedName])) {
             return $this->suppliersCache[$normalizedName];
         }
@@ -410,7 +410,7 @@ class PurchaseImportService
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
         $normalizedName = strtolower(trim($cleanName));
-        
+
         if (isset($this->productsCache[$normalizedName])) {
             return $this->productsCache[$normalizedName];
         }
@@ -521,7 +521,7 @@ class PurchaseImportService
         }
 
         $suppliers = Supplier::whereIn('supplier_name', $supplierNames)->get();
-        
+
         foreach ($suppliers as $supplier) {
             $this->suppliersCache[strtolower($supplier->supplier_name)] = $supplier;
         }
@@ -544,7 +544,7 @@ class PurchaseImportService
         }
 
         $products = Product::whereIn('product_name', $productNames)->get();
-        
+
         foreach ($products as $product) {
             $this->productsCache[strtolower($product->product_name)] = $product;
         }
@@ -586,7 +586,7 @@ class PurchaseImportService
 
             while (true) {
                 $chunkStartTime = microtime(true);
-                
+
                 // Load initial chunk
                 $initialRows = $batch->pendingRows()
                     ->orderBy('row_number')
@@ -698,20 +698,38 @@ class PurchaseImportService
         $invoiceChunks = array_chunk($invoices, $batchSize, true);
 
         $processedCount = 0;
+        $chunkPriceUpdates = [];
+        $chunkSuccessCount = 0;
+        $chunkErrorCount = 0;
 
         foreach ($invoiceChunks as $invoiceChunk) {
             foreach ($invoiceChunk as $invoiceNo => $ownerGroups) {
+                $invoicePriceUpdates = [];
+                $invoiceSuccessCount = 0;
                 try {
-                    DB::transaction(function () use ($ownerGroups, $batch) {
-                        $this->processSourceInvoice($ownerGroups, $batch);
+                    DB::transaction(function () use ($ownerGroups, $batch, &$invoicePriceUpdates, &$invoiceSuccessCount) {
+                        $this->processSourceInvoice($ownerGroups, $batch, $invoicePriceUpdates, $invoiceSuccessCount);
                     });
                     $processedCount += count($ownerGroups);
+                    $chunkSuccessCount += $invoiceSuccessCount;
+
+                    foreach ($invoicePriceUpdates as $productId => $update) {
+                        $chunkPriceUpdates[$productId] = $update;
+                    }
                 } catch (\Exception $e) {
                     foreach ($ownerGroups as $groupRows) {
-                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e);
+                        $this->markInvoiceGroupInvalid($groupRows, $batch, $e, $chunkErrorCount);
                     }
                 }
             }
+        }
+
+        if ($chunkSuccessCount > 0) {
+            $batch->increment('success_count', $chunkSuccessCount);
+        }
+
+        if ($chunkErrorCount > 0) {
+            $batch->increment('error_count', $chunkErrorCount);
         }
 
         return $processedCount;
@@ -810,7 +828,7 @@ class PurchaseImportService
      *
      * @param  array<string, array<int, PurchaseImportRow>>  $ownerGroups
      */
-    protected function processSourceInvoice(array $ownerGroups, PurchaseImportBatch $batch): void
+    protected function processSourceInvoice(array $ownerGroups, PurchaseImportBatch $batch, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0): void
     {
         // Compute each owner group's gross total and reconcile payment at source-invoice scope.
         $groupGrossTotals = [];
@@ -899,8 +917,14 @@ class PurchaseImportService
                 $settlement['due'],
                 $appliedDiscounts[$groupKey] ?? 0.0,
                 $shippingAllocations[$groupKey] ?? 0.0,
-                $settlement['deduction']
+                $settlement['deduction'],
+                $invoicePriceUpdates,
+                $invoiceSuccessCount
             );
+        }
+
+        if (!empty($invoicePriceUpdates)) {
+            $this->flushPurchasePriceUpdatesAcrossSettings($invoicePriceUpdates);
         }
     }
 
@@ -908,7 +932,7 @@ class PurchaseImportService
      * Process a group of rows belonging to the same invoice and effective owner.
      * Paid/due amounts are pre-allocated at source-invoice scope.
      */
-    protected function processInvoiceGroup(array $rows, PurchaseImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0): void
+    protected function processInvoiceGroup(array $rows, PurchaseImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0): void
     {
         if (empty($rows)) {
             return;
@@ -923,29 +947,14 @@ class PurchaseImportService
             $rows
         ))));
 
-            // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
-            $tag = $data['tag'] ?? null;
-            $productName = $data['produk'] ?? '';
-            $setting = $this->resolveTenant($tag, $productName);
+        // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
+        $tag = $data['tag'] ?? null;
+        $productName = $data['produk'] ?? '';
+        $setting = $this->resolveTenant($tag, $productName);
 
-            if (!$setting) {
-                foreach ($rows as $row) {
-                    $row->update([
-                        'status' => PurchaseImportRow::STATUS_INVALID,
-                        'error_message' => "Tenant not found for product: '{$productName}'",
-                    ]);
-                    Log::warning('[PurchaseImport] Row error - tenant not found', [
-                        'batch_id' => $batch->id,
-                        'row_id' => $row->id,
-                        'row_number' => $row->row_number,
-                        'tag' => $tag,
-                        'product' => $productName,
-                        'no_faktur' => $data['no_faktur'] ?? 'Unknown',
-                    ]);
-                    $batch->increment('error_count');
-                }
-                return;
-            }
+        if (!$setting) {
+            throw new \Exception("Tenant not found for product: '{$productName}'");
+        }
 
             // Check for duplicate purchase (same supplier_purchase_number + setting_id)
             $invoiceNo = $data['no_faktur'] ?? null;
@@ -955,13 +964,12 @@ class PurchaseImportService
                     ->first();
 
                 if ($existingPurchase) {
-                    foreach ($rows as $row) {
-                        $row->update([
-                            'status' => PurchaseImportRow::STATUS_SKIPPED,
-                            'error_message' => "Skipped: Purchase with invoice #{$invoiceNo} already exists (ID: {$existingPurchase->id})",
-                            'purchase_id' => $existingPurchase->id,
-                        ]);
-                    }
+                    $rowIds = array_map(fn($r) => $r->id, $rows);
+                    PurchaseImportRow::whereIn('id', $rowIds)->update([
+                        'status' => PurchaseImportRow::STATUS_SKIPPED,
+                        'error_message' => "Skipped: Purchase with invoice #{$invoiceNo} already exists (ID: {$existingPurchase->id})",
+                        'purchase_id' => $existingPurchase->id,
+                    ]);
                     Log::info('[PurchaseImport] Skipped duplicate purchase', [
                         'batch_id' => $batch->id,
                         'no_faktur' => $invoiceNo,
@@ -1172,15 +1180,15 @@ class PurchaseImportService
 
                 // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT using detail's raw product name
                 $stockSetting = $this->resolveStockSetting($tag, $detail['raw_product_name'], $setting, $product);
-                
+
                 // Get location for the resolved STOCK setting
                 $location = Location::where('setting_id', $stockSetting->id)->first();
-                
+
                 if (!$location) {
                      // Fallback to source setting location
                      $location = Location::where('setting_id', $setting->id)->first();
                 }
-                
+
                 if (!$location) {
                     throw new \Exception("No location found for setting: {$stockSetting->company_name}");
                 }
@@ -1224,12 +1232,15 @@ class PurchaseImportService
                     $product->setting_id,
                     $previousQuantity,
                     $unitPriceFinal,
-                    $quantity
+                    $quantity,
+                    $invoicePriceUpdates
                 );
 
-                // Synchronize purchase-price fields (last_purchase_price, average_purchase_price)
-                // across ALL settings. Selling price fields are never touched here.
-                $this->syncPurchasePricesAcrossSettings($product->id, $unitPriceFinal, $newAveragePrice);
+                // Accumulate purchase-price updates for chunk-level deduplication
+                $invoicePriceUpdates[$product->id] = [
+                    'last_purchase_price' => $unitPriceFinal,
+                    'average_purchase_price' => $newAveragePrice,
+                ];
 
                 // Create Transaction log with purchase date
                 Transaction::create([
@@ -1280,13 +1291,16 @@ class PurchaseImportService
                 ]);
             }
 
-            foreach ($details as $detail) {
-                $detail['row']->update([
+            $rowIds = array_map(function ($detail) {
+                return $detail['row']->id;
+            }, $details);
+
+            if (!empty($rowIds)) {
+                PurchaseImportRow::whereIn('id', $rowIds)->update([
                     'status' => PurchaseImportRow::STATUS_PROCESSED,
                     'purchase_id' => $purchase->id,
                 ]);
-
-                $batch->increment('success_count');
+                $invoiceSuccessCount += count($rowIds);
             }
 
             Log::info('[PurchaseImport] Created purchase', [
@@ -1298,15 +1312,13 @@ class PurchaseImportService
             ]);
     }
 
-    protected function markInvoiceGroupInvalid(array $rows, PurchaseImportBatch $batch, \Exception $e): void
+    protected function markInvoiceGroupInvalid(array $rows, PurchaseImportBatch $batch, \Exception $e, int &$chunkErrorCount = 0): void
     {
         $invoice = $rows[0]->raw_json['no_faktur'] ?? 'Unknown';
+        $rowIds = [];
 
         foreach ($rows as $row) {
-            $row->update([
-                'status' => PurchaseImportRow::STATUS_INVALID,
-                'error_message' => $e->getMessage(),
-            ]);
+            $rowIds[] = $row->id;
             Log::warning('[PurchaseImport] Row error - exception', [
                 'batch_id' => $batch->id,
                 'row_id' => $row->id,
@@ -1315,7 +1327,14 @@ class PurchaseImportService
                 'error' => $e->getMessage(),
                 'raw_data' => $row->raw_json,
             ]);
-            $batch->increment('error_count');
+        }
+
+        if (!empty($rowIds)) {
+            PurchaseImportRow::whereIn('id', $rowIds)->update([
+                'status' => PurchaseImportRow::STATUS_INVALID,
+                'error_message' => substr($e->getMessage(), 0, 255),
+            ]);
+            $chunkErrorCount += count($rowIds);
         }
 
         Log::error('[PurchaseImport] Failed to process invoice group', [
@@ -1332,21 +1351,27 @@ class PurchaseImportService
         int $ownerSettingId,
         int $previousQuantity,
         float $unitPriceFinal,
-        int $incomingQuantity
+        int $incomingQuantity,
+        array &$invoicePriceUpdates = []
     ): float {
-        // Read the baseline average from the product's owner-setting row for a deterministic result.
-        // product_quantity is a global field on the product, so the canonical prior average must
-        // come from a single consistent row — the owner-setting record is that anchor.
-        // If the owner-setting row is missing or stale (null/zero) but other rows exist with a
-        // positive average — e.g. products imported before this all-settings sync change — fall
-        // back to the MAX existing average so we don't understate the weighted average.
-        $existingPrice = ProductPrice::where('product_id', $productId)
-            ->where('setting_id', $ownerSettingId)
-            ->value('average_purchase_price');
-        $currentAvg = (float) ($existingPrice ?? 0);
-        if ($currentAvg <= 0) {
-            $fallback = ProductPrice::where('product_id', $productId)->max('average_purchase_price');
-            $currentAvg = (float) ($fallback ?? 0);
+        // Use the accumulated chunk price updates if available for repeated products
+        if (isset($invoicePriceUpdates[$productId]['average_purchase_price'])) {
+            $currentAvg = (float) $invoicePriceUpdates[$productId]['average_purchase_price'];
+        } else {
+            // Read the baseline average from the product's owner-setting row for a deterministic result.
+            // product_quantity is a global field on the product, so the canonical prior average must
+            // come from a single consistent row — the owner-setting record is that anchor.
+            // If the owner-setting row is missing or stale (null/zero) but other rows exist with a
+            // positive average — e.g. products imported before this all-settings sync change — fall
+            // back to the MAX existing average so we don't understate the weighted average.
+            $existingPrice = ProductPrice::where('product_id', $productId)
+                ->where('setting_id', $ownerSettingId)
+                ->value('average_purchase_price');
+            $currentAvg = (float) ($existingPrice ?? 0);
+            if ($currentAvg <= 0) {
+                $fallback = ProductPrice::where('product_id', $productId)->max('average_purchase_price');
+                $currentAvg = (float) ($fallback ?? 0);
+            }
         }
 
         $currentTotalValue = $currentAvg * $previousQuantity;
@@ -1369,34 +1394,39 @@ class PurchaseImportService
     }
 
     /**
-     * Upsert purchase-price fields (last_purchase_price, average_purchase_price) across every setting.
-     * Selling price fields (sale_price, tier_1_price, tier_2_price) are never modified.
+     * Upsert accumulated purchase-price fields across every setting for a chunk.
      */
-    public function syncPurchasePricesAcrossSettings(int $productId, float $unitPriceFinal, float $newAveragePrice): void
+    public function flushPurchasePriceUpdatesAcrossSettings(array $chunkPriceUpdates): void
     {
         $settingIds = $this->getAllSettingIds();
         $records = [];
         $now = now();
-        
-        foreach ($settingIds as $settingId) {
-            $records[] = [
-                'product_id' => $productId,
-                'setting_id' => $settingId,
-                'sale_price' => 0,
-                'tier_1_price' => 0,
-                'tier_2_price' => 0,
-                'last_purchase_price' => $unitPriceFinal,
-                'average_purchase_price' => $newAveragePrice,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
+
+        foreach ($chunkPriceUpdates as $productId => $prices) {
+            foreach ($settingIds as $settingId) {
+                $records[] = [
+                    'product_id' => $productId,
+                    'setting_id' => $settingId,
+                    'sale_price' => 0,
+                    'tier_1_price' => 0,
+                    'tier_2_price' => 0,
+                    'last_purchase_price' => $prices['last_purchase_price'],
+                    'average_purchase_price' => $prices['average_purchase_price'],
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
         }
 
-        ProductPrice::upsert(
-            $records,
-            ['product_id', 'setting_id'],
-            ['last_purchase_price', 'average_purchase_price', 'updated_at']
-        );
+        if (!empty($records)) {
+            foreach (array_chunk($records, 1000) as $recordChunk) {
+                ProductPrice::upsert(
+                    $recordChunk,
+                    ['product_id', 'setting_id'],
+                    ['last_purchase_price', 'average_purchase_price', 'updated_at']
+                );
+            }
+        }
     }
 
     /**
