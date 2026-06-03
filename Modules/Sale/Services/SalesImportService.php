@@ -799,7 +799,7 @@ class SalesImportService
         $invoiceChunks = array_chunk($invoices, $batchSize, true);
         $totalProcessed = 0;
 
-        $chunkPriceUpdates = [];
+        
         $chunkSuccessCount = 0;
         $chunkErrorCount = 0;
 
@@ -813,10 +813,6 @@ class SalesImportService
                     });
                     $totalProcessed++;
                     $chunkSuccessCount += $invoiceSuccessCount;
-
-                    foreach ($invoicePriceUpdates as $productId => $update) {
-                        $chunkPriceUpdates[$productId] = $update;
-                    }
                 } catch (\Exception $e) {
                     foreach ($ownerGroups as $groupRows) {
                         $this->markInvoiceGroupInvalid($groupRows, $batch, $e, $chunkErrorCount);
@@ -1297,7 +1293,7 @@ class SalesImportService
                     'tax_id' => $detail['tax_id'],
                 ]);
 
-                // Accumulate selling-price updates for chunk-level deduplication
+                // Accumulate selling-price updates for invoice-level deduplication
                 $unitPriceFinal = $detail['unit_price_final'];
                 if ($unitPriceFinal > 0) {
                     $invoicePriceUpdates[$detail['product']->id] = $unitPriceFinal;
@@ -1343,7 +1339,7 @@ class SalesImportService
                     'status' => SalesImportRow::STATUS_PROCESSED,
                     'sale_id' => $sale->id,
                 ]);
-                $invoiceSuccessCount += count($rowIds);
+                
             }
 
         Log::info('[SalesImport] Created sale', [

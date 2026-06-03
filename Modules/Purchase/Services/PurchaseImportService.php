@@ -698,7 +698,6 @@ class PurchaseImportService
         $invoiceChunks = array_chunk($invoices, $batchSize, true);
 
         $processedCount = 0;
-        $chunkPriceUpdates = [];
         $chunkSuccessCount = 0;
         $chunkErrorCount = 0;
 
@@ -712,10 +711,6 @@ class PurchaseImportService
                     });
                     $processedCount += count($ownerGroups);
                     $chunkSuccessCount += $invoiceSuccessCount;
-
-                    foreach ($invoicePriceUpdates as $productId => $update) {
-                        $chunkPriceUpdates[$productId] = $update;
-                    }
                 } catch (\Exception $e) {
                     foreach ($ownerGroups as $groupRows) {
                         $this->markInvoiceGroupInvalid($groupRows, $batch, $e, $chunkErrorCount);
@@ -1236,7 +1231,7 @@ class PurchaseImportService
                     $invoicePriceUpdates
                 );
 
-                // Accumulate purchase-price updates for chunk-level deduplication
+                // Accumulate purchase-price updates for invoice-level deduplication
                 $invoicePriceUpdates[$product->id] = [
                     'last_purchase_price' => $unitPriceFinal,
                     'average_purchase_price' => $newAveragePrice,
