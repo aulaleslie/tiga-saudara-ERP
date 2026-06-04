@@ -210,29 +210,29 @@ class ImportPaymentSummaryResolver
         $authoritativeTotal = $sourceTotal ?? $calculatedDocumentTotal;
 
         if ($status === 'lunas' || $status === 'paid') {
-            if ($todayOutstanding !== null && $todayOutstanding > self::TOLERANCE) {
-                // Conflict: marked as paid but still has outstanding balance today.
-                $matchedStatus = false;
-            } else {
-                $paidAmount = $authoritativeTotal - $deductionAmount;
-                $outstandingBalance = 0.0;
-                $matchedStatus = true;
-            }
+            $paidAmount = max($authoritativeTotal - $deductionAmount, 0.0);
+            $outstandingBalance = 0.0;
+            $matchedStatus = true;
         } elseif ($status === 'belum dibayar') {
             $paidAmount = 0.0;
-            $outstandingBalance = $authoritativeTotal;
+            $outstandingBalance = max($authoritativeTotal - $deductionAmount, 0.0);
             $matchedStatus = true;
         } elseif ($status === 'terbayar sebagian') {
-            $paidAmount = $explicitPaidAmount ?? 0.0;
-            $outstandingBalance = $authoritativeTotal - $paidAmount - $deductionAmount;
+            $cashCap = max($authoritativeTotal - $deductionAmount, 0.0);
+            $paidAmount = min($explicitPaidAmount ?? 0.0, $cashCap);
+            $paidAmount = max($paidAmount, 0.0);
+            $outstandingBalance = max($authoritativeTotal - $paidAmount - $deductionAmount, 0.0);
             $matchedStatus = true;
         } elseif ($status === 'lewat jatuh tempo') {
             $paidAmount = $explicitPaidAmount ?? 0.0;
             if ($paidAmount > 0.01) {
-                $outstandingBalance = $authoritativeTotal - $paidAmount - $deductionAmount;
+                $cashCap = max($authoritativeTotal - $deductionAmount, 0.0);
+                $paidAmount = min($paidAmount, $cashCap);
+                $paidAmount = max($paidAmount, 0.0);
+                $outstandingBalance = max($authoritativeTotal - $paidAmount - $deductionAmount, 0.0);
             } else {
                 $paidAmount = 0.0;
-                $outstandingBalance = $authoritativeTotal;
+                $outstandingBalance = max($authoritativeTotal - $deductionAmount, 0.0);
             }
             $matchedStatus = true;
         }
@@ -274,7 +274,6 @@ class ImportPaymentSummaryResolver
         $paidAmount = round(max($paidAmount, 0), 2);
 
         if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $authoritativeTotal) > self::TOLERANCE) {
-            \Log::warning('DEBUG PO-PAY-011 THROWING EXCEPTION: ' . json_encode(compact('paidAmount', 'deductionAmount', 'outstandingBalance', 'authoritativeTotal')));
             throw new \RuntimeException('Payment total mismatch: paid amount plus deduction and outstanding balance does not reconcile with source Total.');
         }
 
@@ -489,7 +488,10 @@ class ImportPaymentSummaryResolver
         foreach ($rows as $row) {
             $status = trim(mb_strtolower((string) ($row['status_hari_ini'] ?? '')));
             if ($status !== '') {
-                return $status;
+                return match ($status) {
+                    'belum lunas' => 'belum dibayar',
+                    default => $status,
+                };
             }
         }
 

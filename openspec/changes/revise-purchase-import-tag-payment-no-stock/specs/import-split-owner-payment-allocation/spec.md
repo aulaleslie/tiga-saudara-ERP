@@ -14,6 +14,7 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **AND** the sum of owner-group adjusted totals does not reconcile with the repeated source `Total`
 - **AND** the purchase status mapping can derive paid and due amounts from source `Total` and `Status Hari Ini`
 - **THEN** the purchase importer MUST use source `Total` as the authoritative settlement total
+- **AND** the importer MUST reconcile generated owner document totals to source `Total` before settlement allocation
 - **AND** the importer MUST allocate the resolved paid, deduction, and due amounts across created owner documents using the existing split allocation rules
 
 #### Scenario: Sales source total mismatch invalidates all invoice rows
@@ -40,7 +41,8 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 #### Scenario: Fractional line quantity is preserved during reconciliation
 - **WHEN** a source CSV invoice line has a fractional quantity (e.g. `23.7`)
 - **THEN** the importer MUST compute that line's total using the fractional quantity, not a truncated integer
-- **AND** the calculated source invoice total MUST reconcile with the repeated source `Total` unless purchase status mapping uses CSV `Total` as authoritative settlement total
+- **AND** the calculated sales source invoice total MUST reconcile with the repeated source `Total`
+- **AND** purchase source invoice totals MAY be reconciled to CSV `Total` through document-level adjustment when CSV `Status Hari Ini` and CSV `Total` are used as authoritative settlement input
 - **AND** the persisted document detail MUST store the fractional quantity
 
 #### Scenario: Fractional quantities persist without truncation

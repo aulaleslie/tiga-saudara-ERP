@@ -830,6 +830,60 @@ class PurchaseImportService
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
         $paymentSummary = $this->paymentSummaryResolver->resolveForPurchase($allRows, $sourceInvoiceTotal);
 
+        // Purchase imports treat CSV Total as the document-level source of truth. Line totals still
+        // create the item details, then any document-total drift is carried as an import-level
+        // discount/shipping adjustment before settlement is allocated.
+        $sourceTotal = $paymentSummary['source_total'] ?? null;
+        if ($sourceTotal !== null) {
+            $sourceDelta = round($sourceTotal - $sourceInvoiceTotal, 2);
+
+            if (abs($sourceDelta) > 0.01) {
+                $sourceTotalAdjustments = $this->documentAdjustmentAllocator->allocate($groupTotals, abs($sourceDelta));
+
+                foreach ($groupTotals as $groupKey => $groupTotal) {
+                    $adjustment = round($sourceTotalAdjustments[$groupKey] ?? 0.0, 2);
+
+                    if ($sourceDelta > 0) {
+                        $shippingAllocations[$groupKey] = round(($shippingAllocations[$groupKey] ?? 0.0) + $adjustment, 2);
+                        $groupTotals[$groupKey] = round($groupTotal + $adjustment, 2);
+                    } else {
+                        $appliedDiscounts[$groupKey] = round(($appliedDiscounts[$groupKey] ?? 0.0) + $adjustment, 2);
+                        $groupTotals[$groupKey] = round($groupTotal - $adjustment, 2);
+                    }
+
+                    if ($groupTotals[$groupKey] < -0.01) {
+                        throw new \RuntimeException('Payment total mismatch: source Total adjustment would make an owner document total negative.');
+                    }
+                }
+
+                $postAdjustmentTotal = round(array_sum($groupTotals), 2);
+                $remainder = round($sourceTotal - $postAdjustmentTotal, 2);
+                if (abs($remainder) > 0.0) {
+                    $remainderKey = array_key_first($groupTotals);
+                    foreach ($groupTotals as $groupKey => $groupTotal) {
+                        if ($groupTotal > ($groupTotals[$remainderKey] ?? -INF)) {
+                            $remainderKey = $groupKey;
+                        }
+                    }
+
+                    if ($remainder > 0) {
+                        $shippingAllocations[$remainderKey] = round(($shippingAllocations[$remainderKey] ?? 0.0) + $remainder, 2);
+                        $groupTotals[$remainderKey] = round($groupTotals[$remainderKey] + $remainder, 2);
+                    } else {
+                        $appliedDiscounts[$remainderKey] = round(($appliedDiscounts[$remainderKey] ?? 0.0) + abs($remainder), 2);
+                        $groupTotals[$remainderKey] = round($groupTotals[$remainderKey] + $remainder, 2);
+                    }
+
+                    if ($groupTotals[$remainderKey] < -0.01) {
+                        throw new \RuntimeException('Payment total mismatch: source Total adjustment would make an owner document total negative.');
+                    }
+                }
+
+                $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
+                $paymentSummary = $this->paymentSummaryResolver->resolveForPurchase($allRows, $sourceInvoiceTotal);
+            }
+        }
+
         // Split the settlement (cash Pembayaran, non-cash Jumlah Pemotongan credit, outstanding
         // due) across owner groups so each owner satisfies cash + deduction + due == group total
         // with all three non-negative. The settlement allocator derives the components from a
@@ -1041,8 +1095,8 @@ class PurchaseImportService
 
             // Payment is reconciled once at source-invoice scope and allocated to this owner group.
             // Cash payment (Pembayaran) and the non-cash deduction (Jumlah Pemotongan) both settle
-            // the invoice: header paid_amount = cash + deduction so paid + due = total, while only
-            // the cash portion becomes an actual payment row.
+            // the invoice: header paid_amount = cash + deduction so paid + due = total, with each
+            // positive settlement component recorded as its own active payment row.
             $cashPaidAmount = round($allocatedPaid, 2);
             $deductionAmount = round($allocatedDeduction, 2);
             $dueAmount = round($allocatedDue, 2);
@@ -1090,7 +1144,7 @@ class PurchaseImportService
                 $purchase->syncTags($allTags);
             }
 
-            // Create purchase details and update stock
+            // Create purchase details and collect purchase-price updates.
             foreach ($details as $detail) {
                 $purchaseDetail = PurchaseDetail::create([
                     'purchase_id' => $purchase->id,

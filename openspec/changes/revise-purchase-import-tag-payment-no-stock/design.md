@@ -78,6 +78,6 @@ Alternative considered: import as pending/ordered. Rejected for this change beca
 
 - [Risk] Existing tests and specs expect marker fallback and stock mutation. -> Update tests and delta specs to assert the new tag/PERDANA and inventory-neutral behavior explicitly.
 - [Risk] Shared `ImportPaymentSummaryResolver` is also used by sales imports. -> Add purchase-specific status/CSV-total behavior behind a dedicated method or mode rather than loosening sales import reconciliation.
-- [Risk] Purchase header totals and payment totals may diverge if CSV `Total` is authoritative and calculated line totals drift materially. -> Keep row/header total calculation visible on purchase documents, but use focused tests to define expected paid/due behavior when settlement uses source total.
+- [Risk] Purchase header totals and payment totals may diverge if CSV `Total` is authoritative and calculated line totals drift materially. -> Keep line details from calculated rows, then reconcile generated purchase header totals to CSV `Total` through document-level adjustment before allocating paid/due.
 - [Risk] Reports may have assumed imported purchase `RECEIVED` means stock was incremented. -> No schema migration or historical rewrite; this change only affects future purchase imports and should be documented in upload guidance.
 - [Risk] Blank/unmapped tags falling back to `PERDANA` can hide source data issues. -> Preserve raw tags as metadata so imports remain auditable and searchable.

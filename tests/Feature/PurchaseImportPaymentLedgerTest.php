@@ -759,11 +759,11 @@ class PurchaseImportPaymentLedgerTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-MISMATCH-001')->firstOrFail();
         
-        // The authoritative calculated total is 111,000. 
-        // Settlement must not exceed persisted document totals, and paid + due must equal total.
-        $this->assertEquals(111000.0, (float) $purchase->total_amount);
+        // CSV Total is authoritative for purchase imports. Line totals still create item detail,
+        // then the document header is reconciled to the CSV Total before settlement allocation.
+        $this->assertEquals(100000.0, (float) $purchase->total_amount);
         $this->assertEquals(50000.0, (float) $purchase->paid_amount); // 50,000 is accepted
-        $this->assertEquals(61000.0, (float) $purchase->due_amount); // 111,000 - 50,000 = 61,000
+        $this->assertEquals(50000.0, (float) $purchase->due_amount);
         $this->assertSame('PARTIAL', $purchase->payment_status);
         
         // Ensure the payment record is consistent
