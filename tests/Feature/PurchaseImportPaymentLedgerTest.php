@@ -741,6 +741,37 @@ class PurchaseImportPaymentLedgerTest extends TestCase
         $this->assertEquals(111000.0, (float) $payment->amount);
     }
 
+    /** @test */
+    public function purchase_import_maintains_consistency_when_line_totals_differ_from_source_total(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-MISMATCH-001',
+                'status_hari_ini' => 'Terbayar Sebagian',
+                // CSV total is 100,000, but line total (calculated via baseRow defaults) is 111,000
+                'source_total' => '100000', 
+                'pembayaran' => '50000', // User paid half of the CSV total
+                'sisa_tagihan' => '50000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-MISMATCH-001')->firstOrFail();
+        
+        // The authoritative calculated total is 111,000. 
+        // Settlement must not exceed persisted document totals, and paid + due must equal total.
+        $this->assertEquals(111000.0, (float) $purchase->total_amount);
+        $this->assertEquals(50000.0, (float) $purchase->paid_amount); // 50,000 is accepted
+        $this->assertEquals(61000.0, (float) $purchase->due_amount); // 111,000 - 50,000 = 61,000
+        $this->assertSame('PARTIAL', $purchase->payment_status);
+        
+        // Ensure the payment record is consistent
+        $payment = $purchase->purchasePayments()->first();
+        $this->assertNotNull($payment);
+        $this->assertEquals(50000.0, (float) $payment->amount);
+    }
+
     protected function createImportBatch(array $rows): PurchaseImportBatch
     {
         $user = User::factory()->create(['is_active' => 1]);
