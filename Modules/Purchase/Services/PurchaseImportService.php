@@ -791,13 +791,13 @@ class PurchaseImportService
         $summaryB = null;
 
         try {
-            $summaryB = $this->paymentSummaryResolver->resolve($allRows, $totalB);
+            $summaryB = $this->paymentSummaryResolver->resolveForPurchase($allRows, $totalB);
         } catch (\RuntimeException $e) {
             $errorB = $e;
         }
 
         try {
-            $this->paymentSummaryResolver->resolve($allRows, $totalA);
+            $this->paymentSummaryResolver->resolveForPurchase($allRows, $totalA);
         } catch (\RuntimeException $e) {
             $errorA = $e;
         }
@@ -828,7 +828,7 @@ class PurchaseImportService
         }
 
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
-        $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
+        $paymentSummary = $this->paymentSummaryResolver->resolveForPurchase($allRows, $sourceInvoiceTotal);
 
         // Split the settlement (cash Pembayaran, non-cash Jumlah Pemotongan credit, outstanding
         // due) across owner groups so each owner satisfies cash + deduction + due == group total
@@ -1110,18 +1110,11 @@ class PurchaseImportService
                 $product = $detail['product'];
                 $unitPriceFinal = $detail['unit_price_final'];
 
-                // Keep the current average price, or 0 if it hasn't been set yet.
-                $currentAveragePrice = $product->product_cost ?? 0.0;
-                
-                // If it is in invoicePriceUpdates, use that as current.
-                if (isset($invoicePriceUpdates[$product->id])) {
-                    $currentAveragePrice = $invoicePriceUpdates[$product->id]['average_purchase_price'];
-                }
-
                 // Accumulate purchase-price updates for invoice-level deduplication
+                // existing average_purchase_price is preserved during upsert; new rows default to 0.
                 $invoicePriceUpdates[$product->id] = [
                     'last_purchase_price' => $unitPriceFinal,
-                    'average_purchase_price' => $currentAveragePrice,
+                    'average_purchase_price' => 0.0,
                 ];
             }
 
@@ -1166,7 +1159,6 @@ class PurchaseImportService
                 'purchase_id' => $purchase->id,
                 'reference' => $reference,
                 'setting_id' => $setting->id,
-                'location_id' => $location->id,
                 'details_count' => count($details),
             ]);
     }
@@ -1244,7 +1236,7 @@ class PurchaseImportService
                 ProductPrice::upsert(
                     $recordChunk,
                     ['product_id', 'setting_id'],
-                    ['last_purchase_price', 'average_purchase_price', 'updated_at']
+                    ['last_purchase_price', 'updated_at']
                 );
             }
         }

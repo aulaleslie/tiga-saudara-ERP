@@ -75,25 +75,8 @@ class ImportPaymentSummaryResolver
         $totalToReconcile = $sourceTotal ?? $calculatedDocumentTotal;
 
         if ($status === 'lunas' || $status === 'paid') {
-            $paidAmount = $totalToReconcile;
+            $paidAmount = max($totalToReconcile - $deductionAmount, 0.0);
             $outstandingBalance = 0.0;
-            $matchedStatus = true;
-        } elseif ($status === 'belum dibayar') {
-            $paidAmount = 0.0;
-            $outstandingBalance = $totalToReconcile;
-            $matchedStatus = true;
-        } elseif ($status === 'terbayar sebagian') {
-            $paidAmount = $explicitPaidAmount ?? 0.0;
-            $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
-            $matchedStatus = true;
-        } elseif ($status === 'lewat jatuh tempo') {
-            $paidAmount = $explicitPaidAmount ?? 0.0;
-            if ($paidAmount > 0.01) {
-                $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
-            } else {
-                $paidAmount = 0.0;
-                $outstandingBalance = $totalToReconcile;
-            }
             $matchedStatus = true;
         }
 
@@ -160,6 +143,144 @@ class ImportPaymentSummaryResolver
             'needs_payment' => $paidAmount > self::TOLERANCE,
         ];
     }
+
+    /**
+     * Reconciles payment summary specifically for Purchase Imports where the CSV Total
+     * is considered authoritative and drives settlement even if it differs from the
+     * calculated document total.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
+     */
+    public function resolveForPurchase(array $rows, float $calculatedDocumentTotal): array
+    {
+        $calculatedDocumentTotal = round($calculatedDocumentTotal, 2);
+
+        $todayOutstandingValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['sisa_tagihan_hari_ini'] ?? null);
+        });
+
+        if (count($todayOutstandingValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan Hari Ini.');
+        }
+
+        $sisaTagihanValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['sisa_tagihan'] ?? null);
+        });
+
+        if (count($sisaTagihanValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Sisa Tagihan.');
+        }
+
+        $paymentValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['pembayaran'] ?? null);
+        });
+
+        if (count($paymentValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Pembayaran.');
+        }
+
+        $sourceTotalValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['source_total'] ?? null);
+        });
+
+        if (count($sourceTotalValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Total.');
+        }
+
+        $deductionValues = $this->collectDistinctMoneyValues($rows, function (array $row): ?float {
+            return $this->parseMoney($row['jumlah_pemotongan'] ?? null);
+        });
+
+        if (count($deductionValues) > 1) {
+            throw new \RuntimeException('Repeated payment fields do not match for Jumlah Pemotongan.');
+        }
+
+        $todayOutstanding = $todayOutstandingValues[0] ?? null;
+        $sisaTagihan = $sisaTagihanValues[0] ?? null;
+        $explicitPaidAmount = $paymentValues[0] ?? null;
+        $sourceTotal = $sourceTotalValues[0] ?? null;
+        $status = $this->parseCurrentStatus($rows);
+        $isCurrentlyPaid = ($status === 'lunas' || $status === 'paid');
+        $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
+
+        $matchedStatus = false;
+        
+        // For purchase imports, sourceTotal (if present) is the authoritative total.
+        $authoritativeTotal = $sourceTotal ?? $calculatedDocumentTotal;
+
+        if ($status === 'lunas' || $status === 'paid') {
+            $paidAmount = max($authoritativeTotal - $deductionAmount, 0.0);
+            $outstandingBalance = 0.0;
+            $matchedStatus = true;
+        } elseif ($status === 'belum dibayar') {
+            $paidAmount = 0.0;
+            $outstandingBalance = $authoritativeTotal;
+            $matchedStatus = true;
+        } elseif ($status === 'terbayar sebagian') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            $outstandingBalance = $authoritativeTotal - $paidAmount - $deductionAmount;
+            $matchedStatus = true;
+        } elseif ($status === 'lewat jatuh tempo') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            if ($paidAmount > 0.01) {
+                $outstandingBalance = $authoritativeTotal - $paidAmount - $deductionAmount;
+            } else {
+                $paidAmount = 0.0;
+                $outstandingBalance = $authoritativeTotal;
+            }
+            $matchedStatus = true;
+        }
+
+        if (! $matchedStatus) {
+            $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+
+            if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+                $outstandingBalance = 0.0;
+                $explicitPaidAmount = null;
+            } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+                $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $authoritativeTotal) <= self::TOLERANCE;
+                $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $authoritativeTotal) <= self::TOLERANCE;
+
+                if (! $todayReconciles && $sisaReconciles) {
+                    $outstandingBalance = $sisaTagihan;
+                }
+            }
+
+            $paidAmount = $explicitPaidAmount ?? round($authoritativeTotal - $deductionAmount - $outstandingBalance, 2);
+        }
+        
+        $paidAmount = round(max($paidAmount, 0), 2);
+        
+        // If the resulting components drift from the authoritative total, absorb into outstanding.
+        $drift = round($authoritativeTotal - ($paidAmount + $deductionAmount + $outstandingBalance), 2);
+        if (abs($drift) > 0.0) {
+            if ($outstandingBalance <= 0.0) {
+                $paidAmount = round($paidAmount + $drift, 2);
+            } else {
+                $outstandingBalance = round($outstandingBalance + $drift, 2);
+                if ($outstandingBalance < 0.0) {
+                    $paidAmount = round($paidAmount + $outstandingBalance, 2);
+                    $outstandingBalance = 0.0;
+                }
+            }
+        }
+        
+        $paidAmount = round(max($paidAmount, 0), 2);
+
+        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $authoritativeTotal) > self::TOLERANCE) {
+            throw new \RuntimeException('Payment total mismatch: paid amount plus deduction and outstanding balance does not reconcile with source Total.');
+        }
+
+        return [
+            'source_total' => $sourceTotal,
+            'outstanding_balance' => $outstandingBalance,
+            'paid_amount' => $paidAmount,
+            'deduction_amount' => $deductionAmount,
+            'needs_payment' => $paidAmount > self::TOLERANCE,
+        ];
+    }
+
 
     /**
      * Reconciles payment summary but accepts a small precision drift between the
@@ -229,25 +350,8 @@ class ImportPaymentSummaryResolver
         $totalToReconcile = $sourceTotal; // sourceTotal is already guaranteed to be not null
 
         if ($status === 'lunas' || $status === 'paid') {
-            $paidAmount = $totalToReconcile;
+            $paidAmount = max($totalToReconcile - $deductionAmount, 0.0);
             $outstandingBalance = 0.0;
-            $matchedStatus = true;
-        } elseif ($status === 'belum dibayar') {
-            $paidAmount = 0.0;
-            $outstandingBalance = $totalToReconcile;
-            $matchedStatus = true;
-        } elseif ($status === 'terbayar sebagian') {
-            $paidAmount = $explicitPaidAmount ?? 0.0;
-            $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
-            $matchedStatus = true;
-        } elseif ($status === 'lewat jatuh tempo') {
-            $paidAmount = $explicitPaidAmount ?? 0.0;
-            if ($paidAmount > 0.01) {
-                $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
-            } else {
-                $paidAmount = 0.0;
-                $outstandingBalance = $totalToReconcile;
-            }
             $matchedStatus = true;
         }
 
