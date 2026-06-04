@@ -72,6 +72,33 @@ class PurchaseEffectivePaymentTotalsTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        $user = \App\Models\User::factory()->create();
+
+        \Modules\Product\Entities\Category::create([
+            'id' => 1,
+            'category_name' => 'Cat',
+            'category_code' => 'C',
+            'created_by' => $user->id,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        \Modules\Product\Entities\Product::create([
+            'id' => 1,
+            'product_name' => 'Test Product',
+            'product_code' => 'P001',
+            'product_barcode_symbology' => 'C128',
+            'product_quantity' => 100,
+            'product_cost' => 1000,
+            'product_price' => 1000,
+            'product_unit' => 'PC',
+            'product_stock_alert' => 10,
+            'product_order_tax' => 0,
+            'product_tax_type' => 1,
+            'product_note' => '',
+            'category_id' => 1,
+            'setting_id' => $this->setting->id,
+        ]);
+
         PurchaseDetail::create([
             'purchase_id' => $this->purchase->id,
             'product_id' => 1,

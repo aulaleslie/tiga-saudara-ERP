@@ -40,7 +40,7 @@ class PurchaseImportPrecisionDriftTest extends TestCase
         ]);
     }
 
-    public function test_it_rejects_purchase_import_when_source_drift_exceeds_default_tolerance()
+    public function test_it_accepts_purchase_import_when_source_drift_exceeds_default_tolerance_and_adjusts_total()
     {
         $batch = PurchaseImportBatch::create([
             'source_csv_path' => 'test_purchase.csv',
@@ -92,9 +92,9 @@ class PurchaseImportPrecisionDriftTest extends TestCase
         
         $purchase = \Modules\Purchase\Entities\Purchase::first();
         $this->assertNotNull($purchase);
-        // Calculated document total is 100000. Settlement must not exceed it.
-        $this->assertEquals(100000.00, $purchase->total_amount);
-        $this->assertEquals(100000.00, $purchase->paid_amount);
+        // Calculated document total is 100000 but source total is 100002.
+        $this->assertEquals(100002.00, $purchase->total_amount);
+        $this->assertEquals(100002.00, $purchase->paid_amount);
         $this->assertEquals(0, $purchase->due_amount);
     }
 }

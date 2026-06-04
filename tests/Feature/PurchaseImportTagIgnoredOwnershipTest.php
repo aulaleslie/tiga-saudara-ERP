@@ -24,11 +24,15 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     protected Setting $perdanaSetting;
     protected Setting $tigaNusaSetting;
     protected Setting $topItSetting;
+    protected Setting $tigaSetting;
+    protected Setting $duniaSetting;
     protected Currency $currency;
     protected Location $daizuLocation;
     protected Location $perdanaLocation;
     protected Location $tigaNusaLocation;
     protected Location $topItLocation;
+    protected Location $tigaLocation;
+    protected Location $duniaLocation;
 
     protected function setUp(): void
     {
@@ -87,6 +91,28 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
             'footer_text' => '',
         ]);
 
+        $this->tigaSetting = Setting::create([
+            'company_name' => 'TIGA COMPUTER',
+            'company_email' => 'tigacomputer@example.com',
+            'company_phone' => '555',
+            'company_address' => 'Tiga Computer Address',
+            'default_currency_id' => $this->currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'tigacomputer@example.com',
+            'footer_text' => '',
+        ]);
+
+        $this->duniaSetting = Setting::create([
+            'company_name' => 'DUNIA COMPUTER',
+            'company_email' => 'duniacomputer@example.com',
+            'company_phone' => '666',
+            'company_address' => 'Dunia Computer Address',
+            'default_currency_id' => $this->currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'duniacomputer@example.com',
+            'footer_text' => '',
+        ]);
+
         $this->daizuLocation = Location::create([
             'setting_id' => $this->daizuSetting->id,
             'name' => 'Daizu Warehouse',
@@ -105,6 +131,16 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $this->topItLocation = Location::create([
             'setting_id' => $this->topItSetting->id,
             'name' => 'Top IT Warehouse',
+        ]);
+
+        $this->tigaLocation = Location::create([
+            'setting_id' => $this->tigaSetting->id,
+            'name' => 'Tiga Computer Warehouse',
+        ]);
+
+        $this->duniaLocation = Location::create([
+            'setting_id' => $this->duniaSetting->id,
+            'name' => 'Dunia Computer Warehouse',
         ]);
 
         $cashCoa = ChartOfAccount::create([
@@ -214,6 +250,36 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
         $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
+    }
+
+    /** @test */
+    public function explicit_aries_tag_routes_to_perdana_not_tiga_computer()
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow(['produk' => 'MONITOR SAMPLE', 'tag' => 'aries']),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
+        $this->assertNotNull($purchase);
+        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
+        $this->assertNotEquals($this->tigaSetting->id, $purchase->setting_id);
+    }
+
+    /** @test */
+    public function explicit_agus_tag_routes_to_perdana_not_dunia_computer()
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow(['produk' => 'MONITOR SAMPLE', 'tag' => 'agus']),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
+        $this->assertNotNull($purchase);
+        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
+        $this->assertNotEquals($this->duniaSetting->id, $purchase->setting_id);
     }
 
     /** @test */

@@ -666,7 +666,7 @@ class PurchaseImportService
 
     /**
      * Group rows by invoice number and effective owner key.
-     * Effective owner: Daizu (Priority 0), mapped CSV Tag (Priority 1), product marker (Priority 2).
+     * Effective owner: mapped CSV Tag. Unmapped tags route to default PERDANA.
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -930,7 +930,7 @@ class PurchaseImportService
             $rows
         ))));
 
-        // Resolve tenant using Tag (Priority 1) then product marker (Priority 2), or Daizu product
+        // Resolve tenant using Tag (owner-routing rule)
         $tag = $data['tag'] ?? null;
         $productName = $data['produk'] ?? '';
         $setting = $this->resolveTenant($tag, $productName);

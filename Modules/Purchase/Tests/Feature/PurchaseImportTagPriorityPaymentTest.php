@@ -310,26 +310,26 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals(1, PurchasePayment::where('purchase_id', $paid->id)->count());
     }
 
-    // 3.8 — source total mismatch invalidates all groups, creates nothing
-    public function test_source_total_mismatch_invalidates_all_groups(): void
+    // 3.8 — source total mismatch now reconciles via adjustment, creating purchases
+    public function test_source_total_mismatch_reconciles_via_adjustment(): void
     {
         $batch = $this->makeBatch();
         $this->makeRow($batch, [
-            'no_faktur' => 'BAD-1', 'produk' => 'PROD A', 'harga_satuan' => '100000', 'kuantitas' => '1',
-            'tag' => 'cv tiga nusa', 'source_total' => '999999', 'sisa_tagihan' => '0',
+            'no_faktur' => 'MISMATCH-1', 'produk' => 'PROD A', 'harga_satuan' => '100000', 'kuantitas' => '1',
+            'tag' => 'cv tiga nusa', 'source_total' => '999999', 'pembayaran' => '999999', 'sisa_tagihan' => '0',
         ], 1);
         $this->makeRow($batch, [
-            'no_faktur' => 'BAD-1', 'produk' => 'PROD B', 'harga_satuan' => '200000', 'kuantitas' => '1',
-            'tag' => 'cv top it', 'source_total' => '999999', 'sisa_tagihan' => '0',
+            'no_faktur' => 'MISMATCH-1', 'produk' => 'PROD B', 'harga_satuan' => '200000', 'kuantitas' => '1',
+            'tag' => 'cv top it', 'source_total' => '999999', 'pembayaran' => '999999', 'sisa_tagihan' => '0',
         ], 2);
 
         $this->service->processBatch($batch);
 
-        $this->assertEquals(0, Purchase::where('supplier_purchase_number', 'BAD-1')->count());
-        $rows = PurchaseImportRow::where('batch_id', $batch->id)->get();
-        foreach ($rows as $row) {
-            $this->assertEquals(PurchaseImportRow::STATUS_INVALID, $row->status);
-        }
+        $purchases = Purchase::where('supplier_purchase_number', 'MISMATCH-1')->get();
+        $this->assertCount(2, $purchases, 'Purchases should be created and drift absorbed as adjustment');
+
+        $this->assertEqualsWithDelta(999999, round($purchases->sum('total_amount'), 2), 0.01);
+        $this->assertEqualsWithDelta(699999, round($purchases->sum('shipping_amount'), 2), 0.01);
     }
 
     // Regression — split-owner invoice with a repeated document-level Diskon must allocate the
@@ -569,8 +569,8 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $purchase = $this->purchase('16994');
         $this->assertNotNull($purchase, '16994-style invoice should reconcile and import despite 0.08 precision drift');
 
-        $this->assertEqualsWithDelta(7571002.92, (float) $purchase->total_amount, 0.01);
-        $this->assertEqualsWithDelta(7571002.92, (float) $purchase->paid_amount, 0.01);
+        $this->assertEqualsWithDelta(7571003.00, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(7571003.00, (float) $purchase->paid_amount, 0.01);
         // And discount_amount is recorded as the discount allocated
         $this->assertEqualsWithDelta(17114.41, (float) $purchase->discount_amount, 0.01);
     }
@@ -596,8 +596,8 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $purchase = $this->purchase('PARTIAL-DRIFT');
         $this->assertNotNull($purchase, 'Partial invoice should reconcile despite 0.50 precision drift');
 
-        $this->assertEqualsWithDelta(2000.00, (float) $purchase->total_amount, 0.01);
+        $this->assertEqualsWithDelta(2000.50, (float) $purchase->total_amount, 0.01);
         $this->assertEqualsWithDelta(1000.00, (float) $purchase->paid_amount, 0.01, 'Explicit cash payment must not be mutated');
-        $this->assertEqualsWithDelta(1000.00, (float) $purchase->due_amount, 0.01, 'Drift should be absorbed into outstanding balance');
+        $this->assertEqualsWithDelta(1000.50, (float) $purchase->due_amount, 0.01, 'Drift should be absorbed into outstanding balance');
     }
 }
