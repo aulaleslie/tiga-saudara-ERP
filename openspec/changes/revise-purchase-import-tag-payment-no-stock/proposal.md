@@ -5,7 +5,7 @@ Purchase imports now need to mirror the current Accurate CSV export semantics mo
 ## What Changes
 
 - Keep the existing Daizu/Kedelai product-name override so Kedelai-related purchase rows always belong to the Daizu setting.
-- Resolve all non-Daizu purchase ownership from mapped CSV `Tag`; blank or unmapped tags fall back to `PERDANA`.
+- Resolve non-Daizu purchase ownership only from the purchase owner-routing CSV tags `cv tiga nusa` and `cv top it`; every other non-Daizu tag value falls back to `PERDANA`.
 - Preserve raw CSV tags as purchase metadata even when the tag is blank, unmapped, or not used for owner resolution.
 - Continue parsing `*` prefixes, `TP` suffixes, and unmarked product names to normalize product names, but remove product markers from tenant, stock owner, and duplicate-owner routing decisions.
 - Create purchases, purchase details, suppliers, products, payment rows, and `last_purchase_price` updates from imports, while keeping imported purchase headers in the existing received status convention.
@@ -25,7 +25,7 @@ Purchase imports now need to mirror the current Accurate CSV export semantics mo
 - `purchase-import-inventory-neutrality`: Purchase imports create purchase documents and product/catalog records without mutating inventory quantities or inventory transaction logs.
 
 ### Modified Capabilities
-- `purchase-import-daizu-ownership`: Non-Daizu purchase ownership changes from tag-then-marker fallback to tag-then-PERDANA fallback; Daizu/Kedelai product ownership remains product-name based.
+- `purchase-import-daizu-ownership`: Non-Daizu purchase ownership changes from broad tag-then-marker fallback to Daizu, then two explicit purchase owner-routing tags, then `PERDANA`; Daizu/Kedelai product ownership remains product-name based.
 - `import-document-total-reconciliation`: Purchase imports use CSV `Total` as the authoritative settlement total for status-based payment resolution.
 - `import-payment-ledger-consistency`: Purchase imports resolve paid/due/payment status from imported `Status Hari Ini`, `Total`, `Pembayaran`, `Sisa Tagihan Hari Ini`, and `Jumlah Pemotongan` according to current CSV status labels.
 - `import-product-price-sync`: Purchase imports update `last_purchase_price` only and no longer recalculate `average_purchase_price` from imported quantities.

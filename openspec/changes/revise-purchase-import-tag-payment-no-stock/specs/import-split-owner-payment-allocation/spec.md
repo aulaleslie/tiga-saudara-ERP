@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Source invoice payment reconciliation before owner split creation
-The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembayaran`, `Sisa Tagihan`, and `Sisa Tagihan Hari Ini` at source invoice scope before creating owner-split documents. Purchase import owner groups SHALL be based on Daizu/Kedelai ownership, mapped CSV `Tag`, or `PERDANA` fallback, not product-name markers.
+The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembayaran`, `Sisa Tagihan`, and `Sisa Tagihan Hari Ini` at source invoice scope before creating owner-split documents. Purchase import owner groups SHALL be based on Daizu/Kedelai ownership, the purchase owner-routing CSV `Tag` values `cv tiga nusa` and `cv top it`, or `PERDANA` fallback, not product-name markers or non-owner-routing tag values.
 
 #### Scenario: Full source invoice total reconciles across owner groups
 - **WHEN** a source CSV invoice contains rows that resolve to more than one owner document

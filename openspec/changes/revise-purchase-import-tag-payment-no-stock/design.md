@@ -7,7 +7,7 @@ The Accurate purchase CSV exports include `Status Hari Ini`, `Total`, `Pembayara
 ## Goals / Non-Goals
 
 **Goals:**
-- Make non-Daizu purchase import ownership depend on mapped `Tag`, with blank/unmapped tags falling back to `PERDANA`.
+- Make non-Daizu purchase import ownership depend only on the explicit owner-routing tags `cv tiga nusa` and `cv top it`, with every other tag value falling back to `PERDANA`.
 - Preserve the Daizu/Kedelai product-name exception above tag routing.
 - Keep marker parsing for product-name normalization only.
 - Keep future purchase imports document-oriented: create purchases, details, products, tags, payment rows, and last purchase prices without inventory quantity side effects.
@@ -29,15 +29,19 @@ Purchase owner resolution will become:
 ```text
 Daizu/Kedelai product name
   -> DAIZU setting
-else mapped CSV Tag
-  -> mapped setting
+else Tag is cv tiga nusa
+  -> CV TIGA NUSA COMPUTER setting
+else Tag is cv top it
+  -> CV TOP IT INTERNUSA setting
 else
   -> PERDANA setting
 ```
 
-Product markers remain parsed by `parseProductName()` so `* Product`, `Product TP`, and unmarked names still normalize to the intended product name. `resolveEffectiveOwnerKey()`, `resolveTenant()`, duplicate checks, source-invoice owner grouping, and any remaining stock-owner path must no longer use marker fallback for non-Daizu rows.
+Only `cv tiga nusa` and `cv top it` are purchase owner-routing CSV tags. Other historical or internal labels such as `aries`, `rahmat`, `agus`, `perdana`, blank tags, and unknown tags remain raw purchase metadata but must not route ownership; they fall back to `PERDANA` for non-Daizu rows. Product markers remain parsed by `parseProductName()` so `* Product`, `Product TP`, and unmarked names still normalize to the intended product name. `resolveEffectiveOwnerKey()`, `resolveTenant()`, duplicate checks, source-invoice owner grouping, and any remaining stock-owner path must no longer use marker fallback or non-owner-routing tag fallback for non-Daizu rows.
 
-Alternative considered: reject blank or unmapped tags. Rejected because the agreed import behavior is to keep importing these rows under `PERDANA` while retaining raw tag metadata for audit/search.
+Alternative considered: keep all historical tag labels as owner-routing mappings. Rejected because purchase imports should only honor the two explicit external owner tags; all other tag labels are metadata and should not spread purchases across owners.
+
+Alternative considered: reject blank, unknown, or non-owner-routing tags. Rejected because the agreed import behavior is to keep importing these rows under `PERDANA` while retaining raw tag metadata for audit/search.
 
 ### Inventory-Neutral Purchase Imports
 
@@ -80,4 +84,4 @@ Alternative considered: import as pending/ordered. Rejected for this change beca
 - [Risk] Shared `ImportPaymentSummaryResolver` is also used by sales imports. -> Add purchase-specific status/CSV-total behavior behind a dedicated method or mode rather than loosening sales import reconciliation.
 - [Risk] Purchase header totals and payment totals may diverge if CSV `Total` is authoritative and calculated line totals drift materially. -> Keep line details from calculated rows, then reconcile generated purchase header totals to CSV `Total` through document-level adjustment before allocating paid/due.
 - [Risk] Reports may have assumed imported purchase `RECEIVED` means stock was incremented. -> No schema migration or historical rewrite; this change only affects future purchase imports and should be documented in upload guidance.
-- [Risk] Blank/unmapped tags falling back to `PERDANA` can hide source data issues. -> Preserve raw tags as metadata so imports remain auditable and searchable.
+- [Risk] Non-owner-routing tags falling back to `PERDANA` can hide source data issues. -> Preserve raw tags as metadata so imports remain auditable and searchable.

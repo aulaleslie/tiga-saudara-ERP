@@ -5,7 +5,6 @@ namespace Modules\Purchase\Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
-use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseImportBatch;
 use Modules\Purchase\Entities\PurchaseImportRow;
@@ -140,24 +139,27 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
 
         $this->assertEquals($this->settings['PERDANA']->id, $this->purchase('INV-AST')->setting_id);
         $this->assertEquals($this->settings['CV TIGA NUSA COMPUTER']->id, $this->purchase('INV-TP')->setting_id);
-        $this->assertEquals($this->settings['WHITE KNIGHT COMPUTER']->id, $this->purchase('INV-PLAIN')->setting_id);
+        // rahmat is non-owner-routing: falls back to PERDANA regardless of marker
+        $this->assertEquals($this->settings['PERDANA']->id, $this->purchase('INV-PLAIN')->setting_id);
     }
 
-    // 1.3 — unmapped/blank tag falls back to marker while preserving tag metadata
-    public function test_unmapped_tag_falls_back_to_marker_and_preserves_metadata(): void
+    // 1.3 — unmapped/blank tag falls back to PERDANA while preserving raw tag metadata
+    public function test_unmapped_tag_falls_back_to_perdana_and_preserves_metadata(): void
     {
         $batch = $this->makeBatch();
+        // Non-owner-routing tag (some-random-label) with TP marker → PERDANA, tag metadata preserved
         $this->makeRow($batch, ['no_faktur' => 'INV-UNMAPPED', 'produk' => 'MONITOR SAMPLE TP', 'tag' => 'some-random-label'], 1);
+        // Blank tag with asterisk marker → PERDANA
         $this->makeRow($batch, ['no_faktur' => 'INV-BLANK', 'produk' => '* MONITOR SAMPLE', 'tag' => ''], 2);
 
         $this->service->processBatch($batch);
 
         $unmapped = $this->purchase('INV-UNMAPPED');
-        $this->assertEquals($this->settings['CV TOP IT INTERNUSA']->id, $unmapped->setting_id);
+        $this->assertEquals($this->settings['PERDANA']->id, $unmapped->setting_id);
         $this->assertContainsTag($unmapped, 'some-random-label');
 
         $blank = $this->purchase('INV-BLANK');
-        $this->assertEquals($this->settings['CV TIGA NUSA COMPUTER']->id, $blank->setting_id);
+        $this->assertEquals($this->settings['PERDANA']->id, $blank->setting_id);
     }
 
     private function assertContainsTag(Purchase $purchase, string $tag): void
@@ -177,18 +179,19 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals($this->settings['DAIZU KEDELAI']->id, $this->purchase('INV-DZ')->setting_id);
     }
 
-    // 1.5 — duplicate check uses effective owner: changed raw tag same owner skipped
-    public function test_duplicate_with_changed_raw_tag_same_owner_is_skipped(): void
+    // 1.5 — duplicate check uses effective owner: different non-owner-routing tags same effective PERDANA owner skipped
+    public function test_duplicate_with_changed_raw_tag_same_effective_owner_is_skipped(): void
     {
         $batch1 = $this->makeBatch();
-        $this->makeRow($batch1, ['no_faktur' => 'INV-DUP', 'tag' => 'cv tiga nusa', 'produk' => 'MONITOR SAMPLE']);
+        // perdana is non-owner-routing → effective owner PERDANA
+        $this->makeRow($batch1, ['no_faktur' => 'INV-DUP', 'tag' => 'perdana', 'produk' => 'MONITOR SAMPLE']);
         $this->service->processBatch($batch1);
         $first = $this->purchase('INV-DUP');
         $this->assertNotNull($first);
 
-        // Re-import with a different raw tag that still resolves to CV TIGA NUSA (via * marker)
+        // Re-import with different non-owner-routing tag (rahmat) that also resolves to PERDANA
         $batch2 = $this->makeBatch();
-        $this->makeRow($batch2, ['no_faktur' => 'INV-DUP', 'tag' => '', 'produk' => '* MONITOR SAMPLE']);
+        $this->makeRow($batch2, ['no_faktur' => 'INV-DUP', 'tag' => 'rahmat', 'produk' => 'MONITOR SAMPLE']);
         $this->service->processBatch($batch2);
 
         $row = PurchaseImportRow::where('batch_id', $batch2->id)->first();
@@ -212,7 +215,8 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals(PurchaseImportRow::STATUS_PROCESSED, $row->status);
         $this->assertNotEquals($first->id, $row->purchase_id);
         $new = Purchase::find($row->purchase_id);
-        $this->assertEquals($this->settings['WHITE KNIGHT COMPUTER']->id, $new->setting_id);
+        // rahmat is non-owner-routing: effective owner is PERDANA (different from cv tiga nusa owner)
+        $this->assertEquals($this->settings['PERDANA']->id, $new->setting_id);
     }
 
     // 1.6 — tagged invoice with zero-total unmarked rows stays in tag owner group, no mismatch
@@ -276,24 +280,24 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(80000, (float) $top->paid_amount, 0.01);
     }
 
-    // 1.9 — zero-total owner group: zero paid/due, no payment row, stock preserved
-    public function test_zero_total_owner_group_has_no_payment_but_keeps_stock(): void
+    // 1.9 — split-owner zero-total group: zero paid/due, no payment row
+    public function test_zero_total_owner_group_has_no_payment(): void
     {
         $batch = $this->makeBatch();
-        // Positive group (perdana via plain marker default) + zero-total group (TP marker)
+        // Two owner-routing tags split the invoice: cv tiga nusa (100000) + cv top it (zero-priced row)
         $this->makeRow($batch, [
             'no_faktur' => 'ZT-1', 'produk' => 'PAID PROD', 'harga_satuan' => '100000', 'kuantitas' => '1',
-            'tag' => '', 'source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0',
+            'tag' => 'cv tiga nusa', 'source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0',
         ], 1);
         $this->makeRow($batch, [
-            'no_faktur' => 'ZT-1', 'produk' => 'FREE PROD TP', 'harga_satuan' => '0', 'kuantitas' => '3',
-            'tag' => '', 'source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0',
+            'no_faktur' => 'ZT-1', 'produk' => 'FREE PROD', 'harga_satuan' => '0', 'kuantitas' => '3',
+            'tag' => 'cv top it', 'source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0',
         ], 2);
 
         $this->service->processBatch($batch);
 
         $purchases = Purchase::where('supplier_purchase_number', 'ZT-1')->get()->keyBy('setting_id');
-        $paid = $purchases->get($this->settings['PERDANA']->id);
+        $paid = $purchases->get($this->settings['CV TIGA NUSA COMPUTER']->id);
         $zero = $purchases->get($this->settings['CV TOP IT INTERNUSA']->id);
 
         $this->assertNotNull($zero, 'Zero-total owner document must be created');
@@ -301,12 +305,9 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEqualsWithDelta(0, (float) $zero->due_amount, 0.01);
         $this->assertEquals(0, PurchasePayment::where('purchase_id', $zero->id)->count());
 
+        $this->assertNotNull($paid);
         $this->assertEqualsWithDelta(100000, (float) $paid->paid_amount, 0.01);
         $this->assertEquals(1, PurchasePayment::where('purchase_id', $paid->id)->count());
-
-        // Stock/transaction preserved for the zero-total group
-        $this->assertGreaterThan(0, Transaction::where('setting_id', $this->settings['CV TOP IT INTERNUSA']->id)
-            ->where('type', 'BUY')->count());
     }
 
     // 3.8 — source total mismatch invalidates all groups, creates nothing

@@ -53,3 +53,10 @@
 - [x] 7.2 Run focused shared import payment resolver tests to confirm sales import behavior was not loosened.
 - [x] 7.3 Run `openspec status --change revise-purchase-import-tag-payment-no-stock` and confirm apply-required artifacts remain complete.
 - [x] 7.4 If focused tests pass, run broader purchase import related tests or `php artisan test` with appropriate filters before marking implementation complete.
+
+## 8. Narrow Purchase Owner-Routing Tags
+
+- [x] 8.1 Narrow purchase import owner-routing tag mapping so only `cv tiga nusa` resolves to `CV TIGA NUSA COMPUTER` and `cv top it` resolves to `CV TOP IT INTERNUSA`.
+- [x] 8.2 Ensure `aries`, `rahmat`, `agus`, `perdana`, blank tags, and unknown tags remain synced as metadata but fall back to `PERDANA` for non-Daizu ownership.
+- [x] 8.3 Update purchase import duplicate grouping and payment allocation tests so non-owner-routing tag changes do not split invoices or bypass duplicates.
+- [x] 8.4 Run focused purchase import ownership and split-payment tests after applying the narrowed owner-routing rule.

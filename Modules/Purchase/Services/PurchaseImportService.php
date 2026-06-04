@@ -47,16 +47,12 @@ class PurchaseImportService
     protected array $locationsCache = [];
 
     /**
-     * Tag-based tenant mapping (Priority 1).
-     * Maps Tag column values to company names.
+     * Owner-routing tag mapping (Priority 1).
+     * Only these two tags route to a different setting; all others fall back to PERDANA.
      */
     protected array $tagMapping = [
         'cv tiga nusa' => 'CV TIGA NUSA COMPUTER',
         'cv top it' => 'CV TOP IT INTERNUSA',
-        'aries' => 'TIGA COMPUTER',
-        'rahmat' => 'WHITE KNIGHT COMPUTER',
-        'agus' => 'DUNIA COMPUTER',
-        'perdana' => 'PERDANA',
     ];
 
 
