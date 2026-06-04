@@ -210,9 +210,14 @@ class ImportPaymentSummaryResolver
         $authoritativeTotal = $sourceTotal ?? $calculatedDocumentTotal;
 
         if ($status === 'lunas' || $status === 'paid') {
-            $paidAmount = max($authoritativeTotal - $deductionAmount, 0.0);
-            $outstandingBalance = 0.0;
-            $matchedStatus = true;
+            if ($todayOutstanding !== null && $todayOutstanding > self::TOLERANCE) {
+                // Conflict: marked as paid but still has outstanding balance today.
+                $matchedStatus = false;
+            } else {
+                $paidAmount = $authoritativeTotal - $deductionAmount;
+                $outstandingBalance = 0.0;
+                $matchedStatus = true;
+            }
         } elseif ($status === 'belum dibayar') {
             $paidAmount = 0.0;
             $outstandingBalance = $authoritativeTotal;
@@ -254,7 +259,7 @@ class ImportPaymentSummaryResolver
         
         // If the resulting components drift from the authoritative total, absorb into outstanding.
         $drift = round($authoritativeTotal - ($paidAmount + $deductionAmount + $outstandingBalance), 2);
-        if (abs($drift) > 0.0) {
+        if (abs($drift) > 0.0 && abs($drift) <= self::TOLERANCE) {
             if ($outstandingBalance <= 0.0) {
                 $paidAmount = round($paidAmount + $drift, 2);
             } else {
@@ -269,6 +274,7 @@ class ImportPaymentSummaryResolver
         $paidAmount = round(max($paidAmount, 0), 2);
 
         if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $authoritativeTotal) > self::TOLERANCE) {
+            \Log::warning('DEBUG PO-PAY-011 THROWING EXCEPTION: ' . json_encode(compact('paidAmount', 'deductionAmount', 'outstandingBalance', 'authoritativeTotal')));
             throw new \RuntimeException('Payment total mismatch: paid amount plus deduction and outstanding balance does not reconcile with source Total.');
         }
 

@@ -35,6 +35,20 @@ class ImportSettlementAllocator
         $deduction = round(max($deduction, 0.0), 2);
 
         $sumTotals = round(array_sum($groupTotals), 2);
+
+        // Cap settlement to sumTotals so we don't over-settle groups and violate
+        // the paid + due == total invariant when a CSV total exceeds calculated totals.
+        $totalSettlement = round($paid + $deduction, 2);
+        if ($totalSettlement > $sumTotals) {
+            $excess = round($totalSettlement - $sumTotals, 2);
+            if ($paid >= $excess) {
+                $paid = round($paid - $excess, 2);
+            } else {
+                $deduction = round($deduction - ($excess - $paid), 2);
+                $paid = 0.0;
+            }
+        }
+
         $outstanding = round($sumTotals - $paid - $deduction, 2);
         if ($outstanding < 0) {
             $outstanding = 0.0;

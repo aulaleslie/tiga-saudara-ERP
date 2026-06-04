@@ -559,12 +559,13 @@ class PurchaseImportPaymentLedgerTest extends TestCase
     /** @test */
     public function purchase_import_late_failures_do_not_leave_purchase_or_payment_rows_behind(): void
     {
-        Location::query()->delete();
+        \Modules\Setting\Entities\PaymentMethod::query()->delete();
 
         $batch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'PO-PAY-011',
-                'pembayaran' => '111000',
+                'pembayaran' => '101000',
+                'diskon' => '10000',
                 'sisa_tagihan' => '0',
             ]),
         ]);
@@ -709,6 +710,35 @@ class PurchaseImportPaymentLedgerTest extends TestCase
         $this->assertEquals(0.0, (float) $purchase->paid_amount);
         $this->assertEquals(111000.0, (float) $purchase->due_amount);
         $this->assertCount(0, $purchase->purchasePayments);
+    }
+
+    /** @test */
+    public function purchase_import_clamps_paid_amount_when_over_settled(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PO-OVERSETTLE-001',
+                'status_hari_ini' => 'Terbayar Sebagian',
+                'source_total' => '111000',
+                'pembayaran' => '120000', // Over-settled (sumTotals is 111000 from baseRow)
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PO-OVERSETTLE-001')->firstOrFail();
+        
+        // Ensure paid amount is clamped to total_amount
+        $this->assertEquals(111000.0, (float) $purchase->total_amount);
+        $this->assertEquals(111000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(0.0, (float) $purchase->due_amount);
+        $this->assertSame('PAID', $purchase->payment_status);
+        
+        // Ensure the payment record is also clamped
+        $payment = $purchase->purchasePayments()->first();
+        $this->assertNotNull($payment);
+        $this->assertEquals(111000.0, (float) $payment->amount);
     }
 
     protected function createImportBatch(array $rows): PurchaseImportBatch

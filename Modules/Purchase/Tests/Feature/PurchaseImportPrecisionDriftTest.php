@@ -57,7 +57,7 @@ class PurchaseImportPrecisionDriftTest extends TestCase
             'raw_json' => [
                 'tanggal' => '01/01/2021',
                 'no_faktur' => 'PUR-001',
-                'pemasok' => 'Vendor A',
+                'supplier' => 'Vendor A',
                 'produk' => 'Product A',
                 'kuantitas' => '1',
                 'satuan' => 'PCS',
@@ -70,11 +70,31 @@ class PurchaseImportPrecisionDriftTest extends TestCase
             ],
         ]);
 
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'name' => 'Cash Account',
+            'account_number' => '1000',
+            'category' => 'Kas & Bank',
+            'setting_id' => 1,
+        ]);
+
+        // We need a payment method for the cash payment to be created
+        \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'CASH',
+            'is_cash' => true,
+            'coa_id' => $coa->id,
+        ]);
+
         $service = app(PurchaseImportService::class);
         $service->processBatch($batch);
 
         $row = PurchaseImportRow::first();
-        $this->assertEquals('invalid', $row->status);
-        $this->assertStringContainsString('Payment total mismatch: source Total does not reconcile with calculated document total', $row->error_message ?? '');
+        $this->assertEquals('processed', $row->status);
+        
+        $purchase = \Modules\Purchase\Entities\Purchase::first();
+        $this->assertNotNull($purchase);
+        // Calculated document total is 100000. Settlement must not exceed it.
+        $this->assertEquals(100000.00, $purchase->total_amount);
+        $this->assertEquals(100000.00, $purchase->paid_amount);
+        $this->assertEquals(0, $purchase->due_amount);
     }
 }
