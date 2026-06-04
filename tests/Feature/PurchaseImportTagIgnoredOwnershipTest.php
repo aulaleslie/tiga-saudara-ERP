@@ -175,11 +175,10 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function asterisk_purchase_row_routes_to_mapped_tag_owner()
+    public function asterisk_purchase_row_with_unmapped_tag_routes_to_perdana()
     {
-        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
-            $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
+            $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => '']),
         ]);
 
         app(PurchaseImportService::class)->processBatch($batch);
@@ -190,18 +189,17 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function tp_suffix_purchase_row_routes_to_mapped_tag_owner()
+    public function tp_suffix_purchase_row_with_unmapped_tag_routes_to_perdana()
     {
-        // Mapped tag now takes priority over the product marker.
         $batch = $this->createImportBatch([
-            $this->baseRow(['produk' => 'MONITOR SAMPLE TP', 'tag' => 'cv tiga nusa']),
+            $this->baseRow(['produk' => 'MONITOR SAMPLE TP', 'tag' => 'unknown']),
         ]);
 
         app(PurchaseImportService::class)->processBatch($batch);
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->tigaNusaSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
     }
 
     /** @test */
@@ -240,7 +238,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     /** @test */
     public function blank_tag_rows_with_same_marker_owner_stay_in_one_document()
     {
-        // Blank tags falling back to the same marker owner must not split.
+        // Blank tags falling back to PERDANA must not split.
         $batch = $this->createImportBatch([
             $this->baseRow(['no_faktur' => 'PO-GROUP-002', 'produk' => 'MONITOR A', 'tag' => '']),
             $this->baseRow(['no_faktur' => 'PO-GROUP-002', 'produk' => 'MONITOR B', 'tag' => '']),
@@ -253,41 +251,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $this->assertEquals($this->perdanaSetting->id, $purchases->first()->setting_id);
     }
 
-    /** @test */
-    public function historical_purchase_owner_is_ignored_for_unmarked_purchases()
-    {
-        // First import an asterisk purchase under Tiga Nusa to create BUY history
-        $histBatch = $this->createImportBatch([
-            array_merge($this->baseRow(), [
-                'no_faktur' => 'PO-HIST-SETUP-001',
-                'produk' => '* PLAIN PRODUCT HIST',
-            ]),
-        ]);
-        app(PurchaseImportService::class)->processBatch($histBatch);
 
-        $product = Product::where('product_name', 'PLAIN PRODUCT HIST')->first();
-        $this->assertNotNull($product);
-        $this->assertTrue(
-            Transaction::where('product_id', $product->id)->where('type', 'BUY')
-                ->where('setting_id', $this->tigaNusaSetting->id)->exists()
-        );
-
-        // Now import same product WITHOUT marker — should go to PERDANA ignoring history
-        $batch = $this->createImportBatch([
-            $this->baseRow(['produk' => 'PLAIN PRODUCT HIST', 'tag' => '']),
-        ]);
-        app(PurchaseImportService::class)->processBatch($batch);
-
-        $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
-        $this->assertNotNull($purchase);
-        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
-
-        $perdanaBuyTx = Transaction::where('type', 'BUY')
-            ->where('product_id', $product->id)
-            ->where('setting_id', $this->perdanaSetting->id)
-            ->first();
-        $this->assertNotNull($perdanaBuyTx);
-    }
 
     /** @test */
     public function purchase_duplicate_lookup_uses_product_name_ownership_ignores_changed_tag()

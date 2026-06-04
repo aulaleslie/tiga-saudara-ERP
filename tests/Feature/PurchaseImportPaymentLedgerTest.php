@@ -609,6 +609,108 @@ class PurchaseImportPaymentLedgerTest extends TestCase
         $this->assertSame(PurchaseImportRow::STATUS_SKIPPED, $duplicateRow->status);
     }
 
+    /** @test */
+    public function purchase_import_maps_status_lunas_to_paid_using_total(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PAY-LUNAS',
+                'status_hari_ini' => 'Lunas',
+                'source_total' => '111000',
+                'pembayaran' => '0', // Should be ignored because Lunas means paid = Total
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PAY-LUNAS')->firstOrFail();
+        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertEquals(111000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(0.0, (float) $purchase->due_amount);
+    }
+
+    /** @test */
+    public function purchase_import_maps_status_belum_dibayar_to_unpaid(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PAY-BELUM',
+                'status_hari_ini' => 'Belum Dibayar',
+                'source_total' => '111000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PAY-BELUM')->firstOrFail();
+        $this->assertSame('UNPAID', $purchase->payment_status);
+        $this->assertEquals(0.0, (float) $purchase->paid_amount);
+        $this->assertEquals(111000.0, (float) $purchase->due_amount);
+        $this->assertCount(0, $purchase->purchasePayments);
+    }
+
+    /** @test */
+    public function purchase_import_maps_status_terbayar_sebagian_to_partial(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PAY-SEBAGIAN',
+                'status_hari_ini' => 'Terbayar Sebagian',
+                'source_total' => '111000',
+                'pembayaran' => '40000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PAY-SEBAGIAN')->firstOrFail();
+        $this->assertSame('PARTIAL', $purchase->payment_status);
+        $this->assertEquals(40000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(71000.0, (float) $purchase->due_amount);
+    }
+
+    /** @test */
+    public function purchase_import_maps_status_lewat_jatuh_tempo_with_payment_to_partial(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PAY-LEWAT-PARTIAL',
+                'status_hari_ini' => 'Lewat Jatuh Tempo',
+                'source_total' => '111000',
+                'pembayaran' => '30000',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PAY-LEWAT-PARTIAL')->firstOrFail();
+        $this->assertSame('PARTIAL', $purchase->payment_status);
+        $this->assertEquals(30000.0, (float) $purchase->paid_amount);
+        $this->assertEquals(81000.0, (float) $purchase->due_amount);
+    }
+
+    /** @test */
+    public function purchase_import_maps_status_lewat_jatuh_tempo_without_payment_to_unpaid(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'PAY-LEWAT-UNPAID',
+                'status_hari_ini' => 'Lewat Jatuh Tempo',
+                'source_total' => '111000',
+                'pembayaran' => '0',
+            ]),
+        ]);
+
+        app(PurchaseImportService::class)->processBatch($batch);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'PAY-LEWAT-UNPAID')->firstOrFail();
+        $this->assertSame('UNPAID', $purchase->payment_status);
+        $this->assertEquals(0.0, (float) $purchase->paid_amount);
+        $this->assertEquals(111000.0, (float) $purchase->due_amount);
+        $this->assertCount(0, $purchase->purchasePayments);
+    }
+
     protected function createImportBatch(array $rows): PurchaseImportBatch
     {
         $user = User::factory()->create(['is_active' => 1]);

@@ -59,14 +59,7 @@ class PurchaseImportService
         'perdana' => 'PERDANA',
     ];
 
-    /**
-     * Tenant mapping based on product name markers (Priority 2 - fallback).
-     */
-    protected array $tenantMapping = [
-        'asterisk' => 'CV TIGA NUSA COMPUTER',   // * prefix
-        'tp'       => 'CV TOP IT INTERNUSA',     // TP suffix
-        'default'  => 'PERDANA',                 // no marker
-    ];
+
 
     public function __construct(
         ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
@@ -133,21 +126,7 @@ class PurchaseImportService
         ];
     }
 
-    /**
-     * Get the setting (tenant) for a given marker.
-     */
-    public function getSettingForMarker(string $marker): ?Setting
-    {
-        $companyName = $this->tenantMapping[$marker] ?? $this->tenantMapping['default'];
 
-        foreach ($this->settingsCache as $setting) {
-            if (stripos($setting->company_name, $companyName) !== false) {
-                return $setting;
-            }
-        }
-
-        return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
-    }
 
     /**
      * Get the setting (tenant) for a given tag value (Priority 1).
@@ -184,7 +163,7 @@ class PurchaseImportService
 
     /**
      * Resolve tenant using effective owner priority:
-     * Daizu product (Priority 0), then mapped CSV Tag (Priority 1), then product marker fallback (Priority 2).
+     * Daizu product (Priority 0), then mapped CSV Tag (Priority 1), then Perdana fallback (Priority 2).
      */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
@@ -203,14 +182,13 @@ class PurchaseImportService
             return $tagSetting;
         }
 
-        // Priority 2: Product marker fallback
-        $parsed = $this->parseProductName($productName);
-        return $this->getSettingForMarker($parsed['marker']);
+        // Priority 2: Perdana fallback
+        return Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
     }
 
     /**
      * Resolve a stable effective-owner grouping key for a row.
-     * Daizu (Priority 0), then mapped CSV Tag (Priority 1), then product marker (Priority 2).
+     * Daizu (Priority 0), then mapped CSV Tag (Priority 1), then perdana fallback (Priority 2).
      */
     public function resolveEffectiveOwnerKey(?string $tag, string $productName): string
     {
@@ -223,50 +201,10 @@ class PurchaseImportService
             return 'tag:' . $this->tagMapping[$normalizedTag];
         }
 
-        $parsed = $this->parseProductName($productName);
-        return 'marker:' . $parsed['marker'];
+        return 'perdana';
     }
 
-    /**
-     * Resolve the Setting (Tenant) where stock should be affected.
-     * Uses the effective owner rule: Daizu (Priority 0), mapped CSV Tag (Priority 1),
-     * then product-name marker fallback (Priority 2).
-     */
-    public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
-    {
-        // Rule 0: Daizu products always route to Daizu, fail explicitly if missing
-        if ($this->isDaizuProduct($productName)) {
-            $daizuSetting = $this->getDaizuSetting();
-            if (!$daizuSetting) {
-                throw new \Exception("Daizu Kedelai setting not found for product: {$productName}");
-            }
-            return $daizuSetting;
-        }
 
-        // Rule 1: Mapped CSV Tag
-        $tagSetting = $this->getSettingForTag($tag);
-        if ($tagSetting) {
-            return $tagSetting;
-        }
-
-        $parsed = $this->parseProductName($productName);
-        $marker = $parsed['marker'];
-
-        // Rule 2: Product marker fallback
-        if ($marker === 'asterisk') {
-            $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
-            if ($setting) return $setting;
-        }
-
-        if ($marker === 'tp') {
-            $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
-            if ($setting) return $setting;
-        }
-
-        // No marker — Perdana fallback
-        $perdana = Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
-        return $perdana ?? $sourceSetting;
-    }
 
     /**
      * Parse tax rate from CSV string (e.g., "10.0" or "10.0 %").
@@ -1169,96 +1107,22 @@ class PurchaseImportService
                     'tax_id' => $detail['tax_id'],
                 ]);
 
-                // Update product stock
                 $product = $detail['product'];
-                $quantity = $detail['quantity'];
-
-                // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT using detail's raw product name
-                $stockSetting = $this->resolveStockSetting($tag, $detail['raw_product_name'], $setting, $product);
-
-                // Get location for the resolved STOCK setting
-                $location = Location::where('setting_id', $stockSetting->id)->first();
-
-                if (!$location) {
-                     // Fallback to source setting location
-                     $location = Location::where('setting_id', $setting->id)->first();
-                }
-
-                if (!$location) {
-                    throw new \Exception("No location found for setting: {$stockSetting->company_name}");
-                }
-
-                // Get or create ProductStock for this product/location (Target Location)
-                $productStock = ProductStock::firstOrCreate(
-                    [
-                        'product_id' => $product->id,
-                        'location_id' => $location->id,
-                    ],
-                    [
-                        'quantity' => 0,
-                        'quantity_tax' => 0,
-                        'quantity_non_tax' => 0,
-                        'broken_quantity' => 0,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                    ]
-                );
-
-                // Capture previous quantities (default to 0 for new products)
-                // Note: previousQuantity is global, previousQuantityAtLocation is specific to the TARGET location
-                $previousQuantity = $product->product_quantity ?? 0;
-                $previousQuantityAtLocation = $productStock->quantity ?? 0;
-
-                // Increment stock
-                $productStock->increment('quantity', $quantity);
-                if ($detail['tax_id']) {
-                    $productStock->increment('quantity_tax', $quantity);
-                } else {
-                    $productStock->increment('quantity_non_tax', $quantity);
-                }
-
-                // Increment product global quantity
-                $product->increment('product_quantity', $quantity);
-
-                // Calculate new average purchase price (weighted average) using FINAL price (DPP + tax)
                 $unitPriceFinal = $detail['unit_price_final'];
-                $newAveragePrice = $this->calculateWeightedAveragePurchasePrice(
-                    $product->id,
-                    $product->setting_id,
-                    $previousQuantity,
-                    $unitPriceFinal,
-                    $quantity,
-                    $invoicePriceUpdates
-                );
+
+                // Keep the current average price, or 0 if it hasn't been set yet.
+                $currentAveragePrice = $product->product_cost ?? 0.0;
+                
+                // If it is in invoicePriceUpdates, use that as current.
+                if (isset($invoicePriceUpdates[$product->id])) {
+                    $currentAveragePrice = $invoicePriceUpdates[$product->id]['average_purchase_price'];
+                }
 
                 // Accumulate purchase-price updates for invoice-level deduplication
                 $invoicePriceUpdates[$product->id] = [
                     'last_purchase_price' => $unitPriceFinal,
-                    'average_purchase_price' => $newAveragePrice,
+                    'average_purchase_price' => $currentAveragePrice,
                 ];
-
-                // Create Transaction log with purchase date
-                Transaction::create([
-                    'product_id' => $product->id,
-                    'setting_id' => $stockSetting->id, // Log transaction against the Stock Owner
-                    'quantity' => $quantity,
-                    'current_quantity' => $product->product_quantity,
-                    'broken_quantity' => 0,
-                    'location_id' => $location->id, // Resolved Location
-                    'user_id' => auth()->id() ?? 1,
-                    'reason' => 'Imported from Purchase #' . $purchase->reference . ' (Source: ' . $setting->company_name . ')',
-                    'type' => 'BUY',
-                    'previous_quantity' => $previousQuantity,
-                    'after_quantity' => $product->product_quantity,
-                    'previous_quantity_at_location' => $previousQuantityAtLocation,
-                    'after_quantity_at_location' => $productStock->quantity,
-                    'quantity_non_tax' => $detail['tax_id'] ? 0 : $quantity,
-                    'quantity_tax' => $detail['tax_id'] ? $quantity : 0,
-                    'broken_quantity_non_tax' => 0,
-                    'broken_quantity_tax' => 0,
-                    'created_at' => $purchaseDate,
-                    'updated_at' => $purchaseDate,
-                ]);
             }
 
             if ($needsPayment && $cashPaymentMethod) {
@@ -1338,45 +1202,7 @@ class PurchaseImportService
         ]);
     }
 
-    /**
-     * Calculate weighted average purchase price given current product quantity and the incoming batch.
-     */
-    protected function calculateWeightedAveragePurchasePrice(
-        int $productId,
-        int $ownerSettingId,
-        int $previousQuantity,
-        float $unitPriceFinal,
-        int $incomingQuantity,
-        array &$invoicePriceUpdates = []
-    ): float {
-        // Use the accumulated chunk price updates if available for repeated products
-        if (isset($invoicePriceUpdates[$productId]['average_purchase_price'])) {
-            $currentAvg = (float) $invoicePriceUpdates[$productId]['average_purchase_price'];
-        } else {
-            // Read the baseline average from the product's owner-setting row for a deterministic result.
-            // product_quantity is a global field on the product, so the canonical prior average must
-            // come from a single consistent row — the owner-setting record is that anchor.
-            // If the owner-setting row is missing or stale (null/zero) but other rows exist with a
-            // positive average — e.g. products imported before this all-settings sync change — fall
-            // back to the MAX existing average so we don't understate the weighted average.
-            $existingPrice = ProductPrice::where('product_id', $productId)
-                ->where('setting_id', $ownerSettingId)
-                ->value('average_purchase_price');
-            $currentAvg = (float) ($existingPrice ?? 0);
-            if ($currentAvg <= 0) {
-                $fallback = ProductPrice::where('product_id', $productId)->max('average_purchase_price');
-                $currentAvg = (float) ($fallback ?? 0);
-            }
-        }
 
-        $currentTotalValue = $currentAvg * $previousQuantity;
-        $newTotalValue = $unitPriceFinal * $incomingQuantity;
-        $newTotalQuantity = $previousQuantity + $incomingQuantity;
-
-        return $newTotalQuantity > 0
-            ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
-            : $unitPriceFinal;
-    }
 
     protected array $allSettingIdsCache = [];
 

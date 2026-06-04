@@ -65,35 +65,64 @@ class ImportPaymentSummaryResolver
         $sisaTagihan = $sisaTagihanValues[0] ?? null;
         $explicitPaidAmount = $paymentValues[0] ?? null;
         $sourceTotal = $sourceTotalValues[0] ?? null;
-        $isCurrentlyPaid = $this->hasPaidCurrentStatus($rows);
+        $status = $this->parseCurrentStatus($rows);
+        $isCurrentlyPaid = ($status === 'lunas' || $status === 'paid');
         // Jumlah Pemotongan is a non-cash settlement reduction/credit recorded separately from
         // the cash Pembayaran. It settles part of the invoice without cash changing hands.
         $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
 
-        // Prefer Sisa Tagihan Hari Ini, falling back to Sisa Tagihan. When an
-        // explicit Pembayaran is present, choose whichever candidate makes
-        // paid + outstanding reconcile with the document total (preferring
-        // today's outstanding on a tie). This handles old unpaid invoices that
-        // were later settled, where Sisa Tagihan Hari Ini is 0 but Sisa Tagihan
-        // still carries the original balance.
-        $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+        $matchedStatus = false;
+        $totalToReconcile = $sourceTotal ?? $calculatedDocumentTotal;
 
-        // The deduction settles part of the invoice alongside cash, so reconciliation is
-        // cash Pembayaran + Jumlah Pemotongan + outstanding == document total.
-        if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+        if ($status === 'lunas' || $status === 'paid') {
+            $paidAmount = $totalToReconcile;
             $outstandingBalance = 0.0;
-            $explicitPaidAmount = null;
-        } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
-            $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
-            $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
-
-            if (! $todayReconciles && $sisaReconciles) {
-                $outstandingBalance = $sisaTagihan;
+            $matchedStatus = true;
+        } elseif ($status === 'belum dibayar') {
+            $paidAmount = 0.0;
+            $outstandingBalance = $totalToReconcile;
+            $matchedStatus = true;
+        } elseif ($status === 'terbayar sebagian') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
+            $matchedStatus = true;
+        } elseif ($status === 'lewat jatuh tempo') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            if ($paidAmount > 0.01) {
+                $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
+            } else {
+                $paidAmount = 0.0;
+                $outstandingBalance = $totalToReconcile;
             }
+            $matchedStatus = true;
         }
 
-        // Cash Pembayaran: explicit when present, otherwise the residual after deduction/outstanding.
-        $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+        if (! $matchedStatus) {
+            // Prefer Sisa Tagihan Hari Ini, falling back to Sisa Tagihan. When an
+            // explicit Pembayaran is present, choose whichever candidate makes
+            // paid + outstanding reconcile with the document total (preferring
+            // today's outstanding on a tie). This handles old unpaid invoices that
+            // were later settled, where Sisa Tagihan Hari Ini is 0 but Sisa Tagihan
+            // still carries the original balance.
+            $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+
+            // The deduction settles part of the invoice alongside cash, so reconciliation is
+            // cash Pembayaran + Jumlah Pemotongan + outstanding == document total.
+            if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+                $outstandingBalance = 0.0;
+                $explicitPaidAmount = null;
+            } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+                $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
+                $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
+
+                if (! $todayReconciles && $sisaReconciles) {
+                    $outstandingBalance = $sisaTagihan;
+                }
+            }
+
+            // Cash Pembayaran: explicit when present, otherwise the residual after deduction/outstanding.
+            $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+        }
         
         // If there is a small precision drift (e.g. from header tax vs line tax) that is within the
         // acceptable source tolerance, absorb the drift so internal allocation strictly balances.
@@ -188,27 +217,57 @@ class ImportPaymentSummaryResolver
         $sisaTagihan = $sisaTagihanValues[0] ?? null;
         $explicitPaidAmount = $paymentValues[0] ?? null;
         $sourceTotal = $sourceTotalValues[0] ?? null;
-        $isCurrentlyPaid = $this->hasPaidCurrentStatus($rows);
+        $status = $this->parseCurrentStatus($rows);
+        $isCurrentlyPaid = ($status === 'lunas' || $status === 'paid');
         $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
 
         if ($sourceTotal === null || $sourceTotal <= 0.0) {
             throw new \RuntimeException('Positive source Total is required for precision drift reconciliation.');
         }
 
-        $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+        $matchedStatus = false;
+        $totalToReconcile = $sourceTotal; // sourceTotal is already guaranteed to be not null
 
-        if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+        if ($status === 'lunas' || $status === 'paid') {
+            $paidAmount = $totalToReconcile;
             $outstandingBalance = 0.0;
-        } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
-            $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $sourceTotal) <= self::TOLERANCE;
-            $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $sourceTotal) <= self::TOLERANCE;
-
-            if (! $todayReconciles && $sisaReconciles) {
-                $outstandingBalance = $sisaTagihan;
+            $matchedStatus = true;
+        } elseif ($status === 'belum dibayar') {
+            $paidAmount = 0.0;
+            $outstandingBalance = $totalToReconcile;
+            $matchedStatus = true;
+        } elseif ($status === 'terbayar sebagian') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
+            $matchedStatus = true;
+        } elseif ($status === 'lewat jatuh tempo') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            if ($paidAmount > 0.01) {
+                $outstandingBalance = $totalToReconcile - $paidAmount - $deductionAmount;
+            } else {
+                $paidAmount = 0.0;
+                $outstandingBalance = $totalToReconcile;
             }
+            $matchedStatus = true;
         }
 
-        $paidAmount = $explicitPaidAmount ?? round($sourceTotal - $deductionAmount - $outstandingBalance, 2);
+        if (! $matchedStatus) {
+            $outstandingBalance = $todayOutstanding ?? $sisaTagihan ?? 0.0;
+
+            if ($isCurrentlyPaid && $todayOutstanding !== null && abs($todayOutstanding) <= self::TOLERANCE) {
+                $outstandingBalance = 0.0;
+            } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
+                $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $sourceTotal) <= self::TOLERANCE;
+                $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $sourceTotal) <= self::TOLERANCE;
+
+                if (! $todayReconciles && $sisaReconciles) {
+                    $outstandingBalance = $sisaTagihan;
+                }
+            }
+
+            $paidAmount = $explicitPaidAmount ?? round($sourceTotal - $deductionAmount - $outstandingBalance, 2);
+        }
+        
         $paidAmount = round(max($paidAmount, 0), 2);
 
         if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $sourceTotal) > self::TOLERANCE) {
@@ -315,24 +374,16 @@ class ImportPaymentSummaryResolver
         return array_values($values);
     }
 
-    /**
-     * Status Hari Ini reflects the source system's current document state. Some historical exports
-     * keep Pembayaran at 0 and Sisa Tagihan at the original balance even when the current status is
-     * Lunas; in that shape Sisa Tagihan Hari Ini=0 is the authoritative current balance.
-     *
-     * @param  array<int, array<string, mixed>>  $rows
-     */
-    private function hasPaidCurrentStatus(array $rows): bool
+    private function parseCurrentStatus(array $rows): ?string
     {
         foreach ($rows as $row) {
             $status = trim(mb_strtolower((string) ($row['status_hari_ini'] ?? '')));
-
-            if ($status === 'lunas' || $status === 'paid') {
-                return true;
+            if ($status !== '') {
+                return $status;
             }
         }
 
-        return false;
+        return null;
     }
 
     private function parseMoney(mixed $value): ?float
