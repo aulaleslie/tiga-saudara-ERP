@@ -319,7 +319,7 @@ class PurchaseImportReproductionTest extends TestCase
     }
 
     /** @test */
-    public function it_fails_when_daizu_location_missing(): void
+    public function it_succeeds_even_when_location_is_missing(): void
     {
         $user = \App\Models\User::factory()->create(['is_active' => 1]);
 
@@ -368,8 +368,11 @@ class PurchaseImportReproductionTest extends TestCase
         $service->processBatch($batch);
 
         $row = PurchaseImportRow::first();
-        $this->assertEquals(PurchaseImportRow::STATUS_INVALID, $row->status, 'Row should be marked invalid');
-        $this->assertStringContainsString('location', strtolower($row->error_message), 'Error should mention location');
+        $this->assertEquals(PurchaseImportRow::STATUS_PROCESSED, $row->status, 'Row should be processed successfully without location');
+        $this->assertNotNull($row->purchase_id, 'Purchase should be linked to the row');
+
+        $purchase = Purchase::find($row->purchase_id);
+        $this->assertNotNull($purchase, 'Purchase should be created');
     }
 
     /** @test */

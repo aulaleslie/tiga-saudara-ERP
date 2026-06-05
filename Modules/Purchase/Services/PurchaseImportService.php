@@ -20,10 +20,7 @@ use Modules\Purchase\Entities\PurchasePayment;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
-use Modules\Setting\Entities\Location;
-use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductPrice;
-use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class PurchaseImportService
@@ -44,7 +41,6 @@ class PurchaseImportService
     protected array $productsCache = [];
     protected array $taxesCache = [];
     protected array $unitsCache = [];
-    protected array $locationsCache = [];
 
     /**
      * Owner-routing tag mapping (Priority 1).
@@ -985,10 +981,7 @@ class PurchaseImportService
                 }
             }
 
-            $location = Location::where('setting_id', $setting->id)->first();
-            if (!$location) {
-                throw new \Exception("No usable stock location found for setting: {$setting->company_name}");
-            }
+
 
             // Parse dates
             $purchaseDate = $this->parseDate($data['tanggal']);
