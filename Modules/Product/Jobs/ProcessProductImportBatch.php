@@ -257,23 +257,56 @@ class ProcessProductImportBatch implements ShouldQueue
             return;
         }
 
-        $nameKey = mb_strtolower($normalizedName);
-        if (isset($this->existingNameKeys[$nameKey]) || isset($this->seenNameKeys[$nameKey])) {
-            $this->recordFailure($row, 'Produk dengan nama sama sudah ada.', 'skipped');
-            return;
-        }
-
         $unitName = trim((string) ($payload['unit_name'] ?? ''));
         if ($unitName === '') {
             $this->recordFailure($row, 'Satuan wajib diisi.');
             return;
         }
 
-        $priceFloat = $this->parsePrice($payload['average_price'] ?? null);
-        $price = $this->dec($priceFloat);
-        $isPriced = $priceFloat > 0;
+        $salePrice = $this->dec($this->parsePrice($payload['sale_price'] ?? $payload['average_price'] ?? null));
+        $tier1Price = $this->dec($this->parsePrice($payload['tier_1_price'] ?? $payload['average_price'] ?? null));
+        $tier2Price = $this->dec($this->parsePrice($payload['tier_2_price'] ?? $payload['average_price'] ?? null));
+        $purchasePrice = $this->dec($this->parsePrice($payload['purchase_price'] ?? $payload['average_price'] ?? null));
 
+        $nameKey = mb_strtolower($normalizedName);
         $codeInput = trim((string) ($payload['product_code'] ?? ''));
+
+        $product = null;
+        if ($codeInput !== '') {
+            $product = Product::where('product_code', $codeInput)->first();
+        }
+        if (!$product) {
+            $product = Product::where('product_name', $normalizedName)->first();
+        }
+
+        if ($product) {
+            try {
+                DB::beginTransaction();
+                ProductPrice::upsertFor([
+                    'product_id'             => $product->id,
+                    'setting_id'             => $this->defaultSettingId,
+                    'sale_price'             => $salePrice,
+                    'tier_1_price'           => $tier1Price,
+                    'tier_2_price'           => $tier2Price,
+                    'last_purchase_price'    => $purchasePrice,
+                    'average_purchase_price' => $purchasePrice,
+                    'purchase_tax_id'        => null,
+                    'sale_tax_id'            => null,
+                ]);
+                DB::commit();
+                $this->recordSuccess($row, $product->id);
+            } catch (Throwable $e) {
+                DB::rollBack();
+                $this->recordFailure($row, Str::limit($e->getMessage(), 2000));
+            }
+            return;
+        }
+
+        if (isset($this->seenNameKeys[$nameKey])) {
+            $this->recordFailure($row, 'Produk dengan nama sama sudah ada.', 'skipped');
+            return;
+        }
+
         $resolvedCode = $this->resolveProductCode($codeInput);
         if ($resolvedCode === null) {
             $this->recordFailure($row, 'Kode produk sudah digunakan.', 'skipped');
@@ -320,11 +353,11 @@ class ProcessProductImportBatch implements ShouldQueue
             ProductPrice::seedForSettings(
                 $product->id,
                 [
-                    'sale_price'             => $price,
-                    'tier_1_price'           => $price,
-                    'tier_2_price'           => $price,
-                    'last_purchase_price'    => $price,
-                    'average_purchase_price' => $price,
+                    'sale_price'             => $salePrice,
+                    'tier_1_price'           => $tier1Price,
+                    'tier_2_price'           => $tier2Price,
+                    'last_purchase_price'    => $purchasePrice,
+                    'average_purchase_price' => $purchasePrice,
                     'purchase_tax_id'        => null,
                     'sale_tax_id'            => null,
                 ],
@@ -613,34 +646,48 @@ class ProcessProductImportBatch implements ShouldQueue
                 'broken_quantity' => 0,
             ]);
 
-            if ($stock->quantity != $stockVal) {
-                $difference = $stockVal - $stock->quantity;
-                $stock->quantity = $stockVal;
-                $stock->quantity_non_tax += $difference;
-                $stock->save();
+            $ownerSetting = \Modules\Setting\Entities\Setting::find($ownerId);
+            $isPkp = $ownerSetting ? $ownerSetting->is_pkp : false;
 
+            $prevQty = $stock->quantity;
+            $prevQtyTax = $stock->quantity_tax;
+            $prevQtyNonTax = $stock->quantity_non_tax;
+
+            $newQtyTax = $isPkp ? $stockVal : 0;
+            $newQtyNonTax = $isPkp ? 0 : $stockVal;
+
+            $difference = $stockVal - $prevQty;
+            $diffQtyTax = $newQtyTax - $prevQtyTax;
+            $diffQtyNonTax = $newQtyNonTax - $prevQtyNonTax;
+
+            $stock->quantity = $stockVal;
+            $stock->quantity_tax = $newQtyTax;
+            $stock->quantity_non_tax = $newQtyNonTax;
+            $stock->save();
+
+            if ($difference != 0) {
                 $product->product_quantity += $difference;
                 $product->save();
-
-                \Modules\Product\Entities\Transaction::create([
-                    'product_id' => $product->id,
-                    'setting_id' => $ownerId ?: $this->defaultSettingId,
-                    'location_id' => $locationId,
-                    'type' => 'ADJ',
-                    'quantity' => $difference,
-                    'current_quantity' => $stockVal,
-                    'previous_quantity' => $stock->quantity - $difference,
-                    'after_quantity' => $stockVal,
-                    'previous_quantity_at_location' => $stock->quantity - $difference,
-                    'after_quantity_at_location' => $stockVal,
-                    'quantity_tax' => 0,
-                    'quantity_non_tax' => $difference,
-                    'broken_quantity_tax' => 0,
-                    'broken_quantity_non_tax' => 0,
-                    'user_id' => $this->batch->user_id,
-                    'reason' => 'Stock Snapshot Import overwrite',
-                ]);
             }
+
+            \Modules\Product\Entities\Transaction::create([
+                'product_id' => $product->id,
+                'setting_id' => $ownerId ?: $this->defaultSettingId,
+                'location_id' => $locationId,
+                'type' => 'ADJ',
+                'quantity' => $difference,
+                'current_quantity' => $stockVal,
+                'previous_quantity' => $prevQty,
+                'after_quantity' => $stockVal,
+                'previous_quantity_at_location' => $prevQty,
+                'after_quantity_at_location' => $stockVal,
+                'quantity_tax' => $diffQtyTax,
+                'quantity_non_tax' => $diffQtyNonTax,
+                'broken_quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+                'user_id' => $this->batch->user_id,
+                'reason' => 'Stock Snapshot Import overwrite',
+            ]);
             
             DB::commit();
             $this->recordSuccess($row, $product->id);

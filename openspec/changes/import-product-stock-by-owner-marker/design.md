@@ -59,6 +59,24 @@ The stock snapshot file for this change is not a purchase, sale, or full product
 
    Alternative considered: reject negative stock. Rejected because the user explicitly allowed it for this import.
 
+7. Complete the feature with an explicit stock snapshot UI, not only header auto-detection on the generic product upload page.
+
+   The backend may still auto-detect stock snapshot files for compatibility, but users need a visible entry point or upload mode labelled for stock snapshot import. The UI should make the import type visible before and after upload, provide a stock snapshot template download, explain marker routing rules, and distinguish stock snapshot batches from product master batches in the import list and detail screens.
+
+   Alternative considered: keep stock snapshot as an invisible variant of generic product upload. Rejected because users cannot confidently choose the right template, understand owner marker rules, or inspect stock effects without explicit UI support.
+
+8. Store row-level stock snapshot result metadata for monitoring.
+
+   Successful stock snapshot rows should persist enough result data for the detail page to show the resolved owner, target location, resolved product, previous quantity, after quantity, bucket effect, and stock transaction reference without requiring operators to infer it from raw payload or manually search stock transactions. The existing `product_import_rows.created_txn_id` and `created_stock_id` columns are appropriate references; structured result details can be added through nullable metadata columns or an existing row payload/result convention if one exists.
+
+   Alternative considered: rely only on the `transactions` table as audit. Rejected because the requirement includes row-level visibility in the import monitoring workflow.
+
+9. Treat PKP bucket routing as part of backend completion.
+
+   Stock snapshot overwrite must keep `product_stocks.quantity`, `quantity_tax`, `quantity_non_tax`, `products.product_quantity`, and transaction quantity bucket fields mutually consistent. PKP owners route the snapshot quantity into the tax bucket; non-PKP owners route it into the non-tax bucket. The signed transaction quantity remains the delta from previous total to after total.
+
+   Alternative considered: always write non-tax quantity for snapshot imports. Rejected because owner setting PKP status is already part of stock bucket semantics.
+
 ## Risks / Trade-offs
 
 - Duplicate product matching may be imperfect for historical products with inconsistent punctuation or spacing -> Use the same marker cleanup and whitespace normalization during matching and creation, and surface row errors for ambiguous code/name conflicts.
@@ -66,10 +84,11 @@ The stock snapshot file for this change is not a purchase, sale, or full product
 - First-location routing may be surprising when a setting has multiple warehouses -> Keep it deterministic and visible in row payload/result; future changes can add configurable default stock import locations.
 - Product creation from sparse CSV data may create minimal products with default pricing/category/brand -> Keep creation conservative, stock-managed, and unit-backed; do not invent price, brand, category, or serial metadata.
 - Overwriting stock can erase manual corrections if the wrong file is uploaded -> Preserve batch visibility and transaction audit; row-level undo can be considered only if existing product import undo semantics support all touched records safely.
+- Header auto-detection can make mistakes if unrelated files contain `Unassigned` and `Total Quantity` columns -> Prefer an explicit stock snapshot upload mode while retaining detection as a fallback or validation aid.
 
 ## Migration Plan
 
-No destructive schema migration is expected if existing product import batch/row tables can store the needed row payload and references. If row-level stock reference metadata is insufficient, add nullable columns rather than changing existing import records.
+No destructive schema migration is expected if existing product import batch/row tables can store the needed row payload and references. If row-level stock reference metadata is insufficient, add nullable columns rather than changing existing import records. Existing `product_import_batches.import_type`, `product_import_rows.created_txn_id`, and `product_import_rows.created_stock_id` should be used or completed before adding new schema.
 
 Deploy by adding the stock snapshot import mode/routes or extending the product upload flow, then process imports through the existing queue. Rollback should disable the new route/mode while leaving already-created products, product stock rows, and audit transactions intact.
 
