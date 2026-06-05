@@ -84,6 +84,21 @@ class PurchaseSummaryCardsTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        // Terbayar Sebagian, still counted in Belum Dibayar because due remains open
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(5),
+            'reference' => 'PUR-004',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PARTIAL',
+            'total_amount' => 4000,
+            'paid_amount' => 1000,
+            'due_amount' => 3000,
+            'setting_id' => $this->setting->id,
+        ]);
+
         // Pelunasan (Paid)
         $purchase3 = Purchase::create([
             'date' => now()->subDays(10),
@@ -109,8 +124,8 @@ class PurchaseSummaryCardsTest extends TestCase
         ]);
 
         Livewire::test(PurchaseSummaryCards::class)
-            ->assertSet('belumDibayar.count', 2) // Unpaid includes both PUR-001 (not yet due) and PUR-002 (overdue)
-            ->assertSet('belumDibayar.total', 3000)
+            ->assertSet('belumDibayar.count', 3) // Open debt includes UNPAID and PARTIAL purchases
+            ->assertSet('belumDibayar.total', 6000)
             ->assertSet('telatBayar.count', 1) // Only PUR-002
             ->assertSet('telatBayar.total', 2000)
             ->assertSet('pelunasan.count', 1)
@@ -180,7 +195,8 @@ class PurchaseSummaryCardsTest extends TestCase
     {
         Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
             ->dispatch('purchase-filter', type: 'unpaid')
-            ->assertSet('paymentStatusFilter', 'UNPAID')
+            ->assertSet('paymentStatusFilter', null)
+            ->assertSet('paymentStatusFilters', ['UNPAID', 'PARTIAL'])
             ->assertSet('dueAmountOnly', true)
             ->assertSet('overdueOnly', false)
             ->assertSet('cardStatusFilter', [
@@ -234,13 +250,34 @@ class PurchaseSummaryCardsTest extends TestCase
             'due_amount' => 1000,
             'setting_id' => $this->setting->id,
         ]);
+        // Partial with remaining due should be included by the card filter
+        Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(10),
+            'reference' => 'PUR-PARTIAL',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'PARTIAL',
+            'total_amount' => 2000,
+            'paid_amount' => 500,
+            'due_amount' => 1500,
+            'setting_id' => $this->setting->id,
+        ]);
 
         $component = Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
             ->dispatch('purchase-filter', type: 'unpaid');
 
         $purchases = $component->viewData('purchases');
-        $this->assertCount(1, $purchases->items());
-        $this->assertEquals(1000, $purchases->items()[0]->due_amount);
+        $this->assertCount(2, $purchases->items());
+        $this->assertEqualsCanonicalizing(['UNPAID', 'PARTIAL'], array_map(
+            static fn (Purchase $purchase) => $purchase->payment_status,
+            $purchases->items(),
+        ));
+        $this->assertSame([1000.0, 1500.0], array_values(collect($purchases->items())
+            ->map(static fn (Purchase $purchase) => (float) $purchase->due_amount)
+            ->sort()
+            ->all()));
     }
 
     public function test_purchase_table_filters_paid_last_30_days_when_event_dispatched()

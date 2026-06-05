@@ -26,6 +26,8 @@ class PurchaseTable extends Component
     public $showArchived = false;
 
     public ?string $paymentStatusFilter = null;
+    /** @var array<string>|null */
+    public ?array $paymentStatusFilters = null;
     public bool $overdueOnly = false;
     public bool $dueAmountOnly = false;
     public bool $paidLast30DaysOnly = false;
@@ -75,6 +77,7 @@ class PurchaseTable extends Component
     public function applyPurchaseFilter($type = null)
     {
         $this->paymentStatusFilter = null;
+        $this->paymentStatusFilters = null;
         $this->overdueOnly = false;
         $this->dueAmountOnly = false;
         $this->paidLast30DaysOnly = false;
@@ -87,7 +90,7 @@ class PurchaseTable extends Component
         ];
 
         if ($type === 'unpaid') {
-            $this->paymentStatusFilter = 'UNPAID';
+            $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
             $this->dueAmountOnly = true;
             $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'overdue') {
@@ -128,6 +131,9 @@ class PurchaseTable extends Component
             })
             ->when(! empty($this->paymentStatusFilter), function ($q) {
                 $q->where('payment_status', $this->paymentStatusFilter);
+            })
+            ->when(! empty($this->paymentStatusFilters), function ($q) {
+                $q->whereIn('payment_status', $this->paymentStatusFilters);
             })
             ->when($this->dueAmountOnly, function ($q) {
                 $q->where('due_amount', '>', 0);

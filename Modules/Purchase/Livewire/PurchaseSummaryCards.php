@@ -9,6 +9,8 @@ use Modules\Purchase\Entities\PurchasePayment;
 
 class PurchaseSummaryCards extends Component
 {
+    private const BELUM_DIBAYAR_PAYMENT_STATUSES = ['UNPAID', 'PARTIAL'];
+
     public $settingId;
 
     public function mount()
@@ -25,7 +27,7 @@ class PurchaseSummaryCards extends Component
     {
         $result = Purchase::query()
             ->where('setting_id', $this->settingId)
-            ->where('payment_status', 'UNPAID')
+            ->whereIn('payment_status', self::BELUM_DIBAYAR_PAYMENT_STATUSES)
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
             ->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
