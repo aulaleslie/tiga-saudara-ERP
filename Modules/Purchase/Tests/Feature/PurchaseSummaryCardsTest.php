@@ -84,6 +84,21 @@ class PurchaseSummaryCardsTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        // Telat Bayar with partial payment
+        Purchase::create([
+            'date' => now()->subDays(8),
+            'due_date' => now()->subDays(1),
+            'reference' => 'PUR-005',
+            'supplier_id' => $this->supplier->id,
+            'payment_method' => 'Cash',
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PARTIAL',
+            'total_amount' => 5000,
+            'paid_amount' => 1000,
+            'due_amount' => 4000,
+            'setting_id' => $this->setting->id,
+        ]);
+
         // Terbayar Sebagian, still counted in Belum Dibayar because due remains open
         Purchase::create([
             'date' => now(),
@@ -124,10 +139,10 @@ class PurchaseSummaryCardsTest extends TestCase
         ]);
 
         Livewire::test(PurchaseSummaryCards::class)
-            ->assertSet('belumDibayar.count', 3) // Open debt includes UNPAID and PARTIAL purchases
-            ->assertSet('belumDibayar.total', 6000)
-            ->assertSet('telatBayar.count', 1) // Only PUR-002
-            ->assertSet('telatBayar.total', 2000)
+            ->assertSet('belumDibayar.count', 4) // Open debt includes UNPAID and PARTIAL purchases
+            ->assertSet('belumDibayar.total', 10000)
+            ->assertSet('telatBayar.count', 2)
+            ->assertSet('telatBayar.total', 6000)
             ->assertSet('pelunasan.count', 1)
             ->assertSet('pelunasan.total', 3000);
     }
@@ -210,7 +225,8 @@ class PurchaseSummaryCardsTest extends TestCase
     {
         Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
             ->dispatch('purchase-filter', type: 'overdue')
-            ->assertSet('paymentStatusFilter', 'UNPAID')
+            ->assertSet('paymentStatusFilter', null)
+            ->assertSet('paymentStatusFilters', ['UNPAID', 'PARTIAL'])
             ->assertSet('overdueOnly', true)
             ->assertSet('dueAmountOnly', false)
             ->assertSet('cardStatusFilter', [

@@ -94,7 +94,7 @@ class PurchaseTable extends Component
             $this->dueAmountOnly = true;
             $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'overdue') {
-            $this->paymentStatusFilter = 'UNPAID';
+            $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
             $this->overdueOnly = true;
             $this->cardStatusFilter = $approvedAndAbove;
         } elseif ($type === 'paid') {

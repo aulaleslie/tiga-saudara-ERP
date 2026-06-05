@@ -43,7 +43,7 @@ class PurchaseSummaryCards extends Component
     {
         $result = Purchase::query()
             ->where('setting_id', $this->settingId)
-            ->where('payment_status', 'UNPAID')
+            ->whereIn('payment_status', self::BELUM_DIBAYAR_PAYMENT_STATUSES)
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
             ->where('due_date', '<', Carbon::today())
