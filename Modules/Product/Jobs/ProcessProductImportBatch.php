@@ -630,8 +630,14 @@ class ProcessProductImportBatch implements ShouldQueue
         $tempName = $rawName;
         $this->resolveOwnerFromMarker($tempName, $ownerId, $locationId, $ownerName, $rawMarker);
 
-        if (!$ownerId || !$locationId) {
-            $this->recordFailure($row, 'Pemilik atau lokasi tidak ditemukan untuk marker produk ini.');
+        if (!$ownerId) {
+            $markerLabel = $rawMarker === '' ? 'tanpa marker' : "marker '{$rawMarker}'";
+            $this->recordFailure($row, "Pemilik (Perusahaan) tidak ditemukan untuk {$markerLabel}.");
+            return;
+        }
+
+        if (!$locationId) {
+            $this->recordFailure($row, "Lokasi gudang tidak ditemukan untuk pemilik '{$ownerName}'.");
             return;
         }
 
@@ -727,8 +733,8 @@ class ProcessProductImportBatch implements ShouldQueue
                 'delta_quantity_non_tax' => $diffQtyNonTax,
             ];
 
-            DB::commit();
             $this->recordStockSnapshotSuccess($row, $product->id, $stock->id, $txn->id, $resultMeta);
+            DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
             $this->recordFailure($row, 'Gagal sinkronisasi stok: ' . $e->getMessage());
