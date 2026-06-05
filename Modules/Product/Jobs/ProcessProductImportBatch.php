@@ -172,7 +172,7 @@ class ProcessProductImportBatch implements ShouldQueue
 
         // Required columns validation
         if ($this->batch->import_type === 'stock_snapshot') {
-            $required = ['Kode Produk', 'Nama Produk', 'Satuan', 'Total Quantity'];
+            $required = ['Kode Produk', 'Nama Produk', 'Satuan', 'Unassigned', 'Total Quantity'];
         } else {
             $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
         }
@@ -582,6 +582,11 @@ class ProcessProductImportBatch implements ShouldQueue
         $tempName = $rawName;
         $this->resolveOwnerFromMarker($tempName, $ownerId, $locationId);
         
+        if (!$ownerId || !$locationId) {
+            $this->recordFailure($row, 'Pemilik atau lokasi tidak ditemukan untuk marker produk ini.');
+            return;
+        }
+
         $normalizedName = $this->normalizeProductName($rawName);
         
         if ($normalizedName === '') {
@@ -611,7 +616,11 @@ class ProcessProductImportBatch implements ShouldQueue
             if ($stock->quantity != $stockVal) {
                 $difference = $stockVal - $stock->quantity;
                 $stock->quantity = $stockVal;
+                $stock->quantity_non_tax += $difference;
                 $stock->save();
+
+                $product->product_quantity += $difference;
+                $product->save();
 
                 \Modules\Product\Entities\Transaction::create([
                     'product_id' => $product->id,
@@ -654,7 +663,8 @@ class ProcessProductImportBatch implements ShouldQueue
         if ($product) return $product;
 
         $unitId = $this->firstOrCreateUnit((string) ($payload['unit_name'] ?? 'Pcs'));
-        $productCode = $payload['product_code'] ?? Product::generateProductCode();
+        $codeInput = trim((string) ($payload['product_code'] ?? ''));
+        $productCode = $codeInput !== '' ? $codeInput : null;
 
         $product = Product::create([
             'product_name'            => $cleanName,
@@ -706,7 +716,7 @@ class ProcessProductImportBatch implements ShouldQueue
     private function resolveOwnerFromMarker(string $productName, &$ownerId, &$locationId): void
     {
         $ownerId = null;
-        $locationId = $this->batch->location_id;
+        $locationId = null;
 
         if (str_starts_with(trim($productName), '*')) {
             $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first();

@@ -50,9 +50,7 @@ class ProductStockSnapshotImportTest extends TestCase
                       
         $file = UploadedFile::fake()->createWithContent('stock.csv', $csvContent);
         $response = $this->post(route('products.upload'), ['file' => $file]);
-        if (ProductImportBatch::count() === 0) {
-            dd($response->getStatusCode(), $response->getContent(), session()->all());
-        }
+
         $batch = ProductImportBatch::first();
         $response->assertRedirect(route('products.imports.show', $batch));
         
@@ -62,9 +60,7 @@ class ProductStockSnapshotImportTest extends TestCase
         (new ProcessProductImportBatch($batch->id))->handle();
         
         $batch->refresh();
-        if ($batch->status === 'failed' || $batch->error_rows > 0) {
-            dump(\Modules\Product\Entities\ProductImportRow::where('batch_id', $batch->id)->where('status', 'error')->get()->pluck('error_message'));
-        }
+
         $this->assertEquals('completed', $batch->status);
         $this->assertEquals(3, $batch->success_rows);
         $this->assertEquals(0, $batch->error_rows);
