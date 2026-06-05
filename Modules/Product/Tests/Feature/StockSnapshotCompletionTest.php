@@ -222,7 +222,7 @@ class StockSnapshotCompletionTest extends TestCase
 
         $row = ProductImportRow::first();
         $this->assertEquals('error', $row->status);
-        $this->assertStringContainsString('Pemilik atau lokasi tidak ditemukan', $row->error_message);
+        $this->assertStringContainsString('Pemilik (Perusahaan) tidak ditemukan untuk tanpa marker.', $row->error_message);
 
         // No mutations should have occurred
         $this->assertEquals($productCountBefore, Product::count());
