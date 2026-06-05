@@ -153,10 +153,13 @@ class ProcessProductImportBatch implements ShouldQueue
             'stok minimum'       => 'Batas Minimum',
             'satuan'             => 'Satuan',
             'unit'               => 'Satuan',
+            'product unit'       => 'Satuan',
             'harga rata-rata'    => 'Harga Rata-rata',
             'harga rata rata'    => 'Harga Rata-rata',
             'average price'      => 'Harga Rata-rata',
             'nilai'              => 'Nilai',
+            'unassigned'         => 'Unassigned',
+            'total quantity'     => 'Total Quantity',
         ];
 
         // Build canonical => actual header map
@@ -168,7 +171,11 @@ class ProcessProductImportBatch implements ShouldQueue
         }
 
         // Required columns validation
-        $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
+        if ($this->batch->import_type === 'stock_snapshot') {
+            $required = ['Kode Produk', 'Nama Produk', 'Satuan', 'Total Quantity'];
+        } else {
+            $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
+        }
         $missing = array_values(array_diff($required, array_keys($headerMap)));
         if (!empty($missing)) {
             $msg = 'CSV header mismatch. Missing columns: ' . implode(', ', $missing);
@@ -230,11 +237,18 @@ class ProcessProductImportBatch implements ShouldQueue
             'stock_on_hand'     => $get('Stok di tangan'),
             'minimum_stock'     => $get('Batas Minimum'),
             'nilai'             => $get('Nilai'),
+            'unassigned'        => $get('Unassigned'),
+            'total_quantity'    => $get('Total Quantity'),
         ];
     }
 
     private function processRow(ProductImportRow $row): void
     {
+        if ($this->batch->import_type === 'stock_snapshot') {
+            $this->processStockSnapshotRow($row);
+            return;
+        }
+
         $payload = (array) $row->raw_json;
 
         $normalizedName = $this->normalizeProductName((string) ($payload['product_name'] ?? ''));
@@ -527,7 +541,24 @@ class ProcessProductImportBatch implements ShouldQueue
         }
 
         try {
-            $unit = Unit::firstOrCreate($attrs, $defaults);
+            $unitQuery = Unit::query();
+            if (Schema::hasColumn('units', 'short_name')) {
+                $unitQuery->where(function($q) use ($name) {
+                    $q->whereRaw('LOWER(name) = ?', [strtolower($name)])
+                      ->orWhereRaw('LOWER(short_name) = ?', [strtolower($name)]);
+                });
+            } else {
+                $unitQuery->whereRaw('LOWER(name) = ?', [strtolower($name)]);
+            }
+
+            if (Schema::hasColumn('units', 'setting_id')) {
+                $unitQuery->where('setting_id', $this->defaultSettingId);
+            }
+            $unit = $unitQuery->first();
+
+            if (!$unit) {
+                $unit = Unit::firstOrCreate($attrs, $defaults);
+            }
         } catch (MassAssignmentException $e) {
             $unit = (new Unit())->forceFill(array_merge($attrs, $defaults));
             $unit->save();
@@ -542,5 +573,155 @@ class ProcessProductImportBatch implements ShouldQueue
         }
 
         return (int) $unit->id;
+    }
+
+    private function processStockSnapshotRow(ProductImportRow $row): void
+    {
+        $payload = (array) $row->raw_json;
+        $rawName = (string) ($payload['product_name'] ?? '');
+        $tempName = $rawName;
+        $this->resolveOwnerFromMarker($tempName, $ownerId, $locationId);
+        
+        $normalizedName = $this->normalizeProductName($rawName);
+        
+        if ($normalizedName === '') {
+            $this->recordFailure($row, 'Nama produk wajib.');
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $product = $this->matchOrCreateProduct($payload, $normalizedName);
+
+            $stockVal = (int) ($payload['total_quantity'] ?? 0);
+
+            $stock = \Modules\Product\Entities\ProductStock::firstOrCreate([
+                'product_id' => $product->id,
+                'location_id' => $locationId,
+            ], [
+                'quantity' => 0,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity' => 0,
+            ]);
+
+            if ($stock->quantity != $stockVal) {
+                $difference = $stockVal - $stock->quantity;
+                $stock->quantity = $stockVal;
+                $stock->save();
+
+                \Modules\Product\Entities\Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $ownerId ?: $this->defaultSettingId,
+                    'location_id' => $locationId,
+                    'type' => 'ADJ',
+                    'quantity' => $difference,
+                    'current_quantity' => $stockVal,
+                    'previous_quantity' => $stock->quantity - $difference,
+                    'after_quantity' => $stockVal,
+                    'previous_quantity_at_location' => $stock->quantity - $difference,
+                    'after_quantity_at_location' => $stockVal,
+                    'quantity_tax' => 0,
+                    'quantity_non_tax' => $difference,
+                    'broken_quantity_tax' => 0,
+                    'broken_quantity_non_tax' => 0,
+                    'user_id' => $this->batch->user_id,
+                    'reason' => 'Stock Snapshot Import overwrite',
+                ]);
+            }
+            
+            DB::commit();
+            $this->recordSuccess($row, $product->id);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->recordFailure($row, 'Gagal sinkronisasi stok: ' . $e->getMessage());
+        }
+    }
+
+    private function matchOrCreateProduct(array $payload, string $normalizedName): Product
+    {
+        $cleanName = trim(preg_replace('/^(?:\*\s*)?(.*?)(?:\s+TP)?$/i', '$1', $normalizedName));
+
+        if (!empty($payload['product_code'])) {
+            $product = Product::where('product_code', $payload['product_code'])->first();
+            if ($product) return $product;
+        }
+
+        $product = Product::where('product_name', $cleanName)->first();
+        if ($product) return $product;
+
+        $unitId = $this->firstOrCreateUnit((string) ($payload['unit_name'] ?? 'Pcs'));
+        $productCode = $payload['product_code'] ?? Product::generateProductCode();
+
+        $product = Product::create([
+            'product_name'            => $cleanName,
+            'product_code'            => $productCode,
+            'barcode'                 => null,
+            'category_id'             => null,
+            'brand_id'                => null,
+            'base_unit_id'            => $unitId,
+            'unit_id'                 => $unitId,
+            'stock_managed'           => 1,
+            'product_stock_alert'     => 0,
+            'product_quantity'        => 0,
+            'serial_number_required'  => 0,
+            'setting_id'              => $this->defaultSettingId,
+            'is_purchased'            => 1,
+            'purchase_price'          => 0,
+            'purchase_tax_id'         => null,
+            'is_sold'                 => 1,
+            'sale_price'              => 0,
+            'sale_tax_id'             => null,
+            'tier_1_price'            => 0,
+            'tier_2_price'            => 0,
+            'product_price'           => 0,
+            'product_cost'            => 0,
+            'product_order_tax'       => 0,
+            'product_tax_type'        => 0,
+            'profit_percentage'       => 0,
+            'last_purchase_price'     => 0,
+            'average_purchase_price'  => 0,
+        ]);
+
+        \Modules\Product\Entities\ProductPrice::seedForSettings(
+            $product->id,
+            [
+                'sale_price'             => 0,
+                'tier_1_price'           => 0,
+                'tier_2_price'           => 0,
+                'last_purchase_price'    => 0,
+                'average_purchase_price' => 0,
+                'purchase_tax_id'        => null,
+                'sale_tax_id'            => null,
+            ],
+            $this->settingIds
+        );
+
+        return $product;
+    }
+
+    private function resolveOwnerFromMarker(string $productName, &$ownerId, &$locationId): void
+    {
+        $ownerId = null;
+        $locationId = $this->batch->location_id;
+
+        if (str_starts_with(trim($productName), '*')) {
+            $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first();
+        } elseif (preg_match('/\sTP\s*$/i', $productName)) {
+            $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TOP IT INTERNUSA%')->first();
+        } else {
+            $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%PERDANA%')->first();
+        }
+
+        if (isset($owner)) {
+            $ownerId = $owner->id;
+            $location = \Modules\Setting\Entities\Location::where('setting_id', $ownerId)->first();
+            if ($location) {
+                $locationId = $location->id;
+            }
+        }
     }
 }

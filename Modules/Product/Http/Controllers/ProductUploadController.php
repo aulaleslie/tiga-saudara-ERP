@@ -64,6 +64,29 @@ class ProductUploadController extends Controller
             'location_id' => $locationId
         ]);
 
+        // Auto-detect import type based on headers
+        $importType = 'product';
+        try {
+            $csv = \League\Csv\Reader::createFromPath($fullPath);
+            $sample = @file_get_contents($fullPath, false, null, 0, 4096) ?: '';
+            $delimiter = (substr_count($sample, ';') > substr_count($sample, ',')) ? ';' : ',';
+            $csv->setDelimiter($delimiter);
+            $csv->setHeaderOffset(0);
+            $rawHeaders = $csv->getHeader();
+            
+            $normalize = function (string $h): string {
+                $h = preg_replace('/^\xEF\xBB\xBF/', '', $h);
+                return mb_strtolower(trim(preg_replace('/\s+/', ' ', $h)));
+            };
+            $normHeaders = array_map($normalize, $rawHeaders);
+            
+            if (in_array('total quantity', $normHeaders) && in_array('unassigned', $normHeaders)) {
+                $importType = 'stock_snapshot';
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[ProductImport] Failed to detect import type', ['error' => $e->getMessage()]);
+        }
+
         // 2) Create a batch
         $batch = ProductImportBatch::create([
             'user_id'         => auth()->id(),
@@ -71,10 +94,11 @@ class ProductUploadController extends Controller
             'source_csv_path' => $path,
             'file_sha256'     => hash_file('sha256', $fullPath),
             'status'          => 'queued',
+            'import_type'     => $importType,
             'undo_token'      => Str::random(40),
         ]);
 
-        Log::info('[ProductImport] Batch created', ['batch_id' => $batch->id]);
+        Log::info('[ProductImport] Batch created', ['batch_id' => $batch->id, 'import_type' => $importType]);
 
         // 3) Queue processing - CSV parsing and row staging happens in background
         Log::info('[ProductImport] Dispatching background job for CSV processing', ['batch_id' => $batch->id]);

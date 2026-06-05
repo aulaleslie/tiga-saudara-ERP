@@ -14,10 +14,21 @@ class ProductImportBatch extends Model
     protected $table = 'product_import_batches';
 
     protected $fillable = [
-        'user_id', 'location_id',
-        'source_csv_path', 'result_csv_path', 'file_sha256',
-        'status', 'total_rows', 'processed_rows', 'success_rows', 'error_rows',
-        'completed_at', 'undo_available_until', 'undone_at', 'undo_token',
+        'user_id',
+        'location_id',
+        'source_csv_path',
+        'result_csv_path',
+        'file_sha256',
+        'status',
+        'import_type',
+        'total_rows',
+        'processed_rows',
+        'success_rows',
+        'error_rows',
+        'undo_token',
+        'undo_available_until',
+        'undone_at',
+        'completed_at',
     ];
 
     protected $casts = [

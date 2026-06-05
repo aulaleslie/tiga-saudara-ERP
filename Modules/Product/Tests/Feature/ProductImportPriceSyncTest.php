@@ -49,6 +49,7 @@ class ProductImportPriceSyncTest extends TestCase
         $this->dispatchImportJob([
             'product_name' => 'New Product',
             'product_code' => 'NEW-001',
+            'unit_name' => 'Pcs',
             'sale_price' => '50000',
             'tier_1_price' => '55000',
             'tier_2_price' => '60000',
@@ -129,6 +130,7 @@ class ProductImportPriceSyncTest extends TestCase
         $this->dispatchImportJob([
             'product_name' => 'Existing Product',
             'product_code' => 'EX-001',
+            'unit_name' => 'Pcs',
             'sale_price' => '150000',
             'tier_1_price' => '151000',
             'tier_2_price' => '152000',
