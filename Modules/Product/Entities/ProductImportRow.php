@@ -13,10 +13,12 @@ class ProductImportRow extends Model
         'batch_id', 'row_number', 'raw_json',
         'status', 'error_message',
         'product_id', 'created_txn_id', 'created_stock_id',
+        'result_metadata',
     ];
 
     protected $casts = [
         'raw_json' => 'array',
+        'result_metadata' => 'array',
     ];
 
     public function batch(): BelongsTo

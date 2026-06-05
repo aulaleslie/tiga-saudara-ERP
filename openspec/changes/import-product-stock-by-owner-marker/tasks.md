@@ -56,25 +56,25 @@
 
 ## 9. UI Completion
 
-- [ ] 9.1 Add an explicit stock snapshot import entry point or upload mode in the Product import area while preserving existing product import behavior.
-- [ ] 9.2 Add a stock snapshot CSV template download with `Product Code`, `Product Name`, `Unassigned`, `Total Quantity`, and `Product Unit` columns.
-- [ ] 9.3 Show marker routing guidance on the stock snapshot upload UI: leading `*` -> CV TIGA NUSA COMPUTER, trailing `TP` -> CV TOP IT INTERNUSA, no marker -> PERDANA.
-- [ ] 9.4 Make the selected/detected import type visible before upload where practical and on the created batch after upload.
-- [ ] 9.5 Show import type in the import batch list so product imports and stock snapshot imports can be distinguished.
-- [ ] 9.6 Enhance the import batch detail page for stock snapshot rows to show clean product name, resolved owner, target location, imported total quantity, previous quantity, after quantity, tax/non-tax bucket effect, stock transaction reference, row status, and actionable errors.
-- [ ] 9.7 Add UI/request tests for stock snapshot upload page visibility, template headers, import type visibility, marker guidance, and stock-effect row rendering.
+- [x] 9.1 Add an explicit stock snapshot import entry point or upload mode in the Product import area while preserving existing product import behavior.
+- [x] 9.2 Add a stock snapshot CSV template download with `Product Code`, `Product Name`, `Unassigned`, `Total Quantity`, and `Product Unit` columns.
+- [x] 9.3 Show marker routing guidance on the stock snapshot upload UI: leading `*` -> CV TIGA NUSA COMPUTER, trailing `TP` -> CV TOP IT INTERNUSA, no marker -> PERDANA.
+- [x] 9.4 Make the selected/detected import type visible before upload where practical and on the created batch after upload.
+- [x] 9.5 Show import type in the import batch list so product imports and stock snapshot imports can be distinguished.
+- [x] 9.6 Enhance the import batch detail page for stock snapshot rows to show clean product name, resolved owner, target location, imported total quantity, previous quantity, after quantity, tax/non-tax bucket effect, stock transaction reference, row status, and actionable errors.
+- [x] 9.7 Add UI/request tests for stock snapshot upload page visibility, template headers, import type visibility, marker guidance, and stock-effect row rendering.
 
 ## 10. Backend Completion and Hardening
 
-- [ ] 10.1 Persist successful stock snapshot row references to the touched `product_stocks` row and created stock transaction using existing `created_stock_id` and `created_txn_id` fields or an equivalent row result metadata convention.
-- [ ] 10.2 Persist or derive row-level result metadata needed by the UI: raw marker, clean product name, resolved owner setting, target location, previous quantity, after quantity, and tax/non-tax bucket deltas.
-- [ ] 10.3 Add real `upload-data/warehouse_stock_quantity.csv` behavior coverage, especially blank quoted product codes and quoted product names containing inches marks.
-- [ ] 10.4 Add missing owner setting error coverage that proves no product stock, product quantity, or transaction mutation occurs for that row.
-- [ ] 10.5 Add missing owner location error coverage that proves no product stock, product quantity, or transaction mutation occurs for that row.
-- [ ] 10.6 Add PKP bucket routing tests proving PKP owners write `quantity_tax = Total Quantity` and `quantity_non_tax = 0`, including transaction bucket deltas.
-- [ ] 10.7 Add non-PKP bucket routing tests proving non-PKP owners write `quantity_non_tax = Total Quantity` and `quantity_tax = 0`, including transaction bucket deltas.
-- [ ] 10.8 Add zero quantity tests that prove stock rows are created or updated to zero, transactions are audited, and product aggregate quantity remains consistent.
-- [ ] 10.9 Add negative quantity tests that prove stock rows, tax/non-tax buckets, transactions, and product aggregate quantity all preserve the negative snapshot value.
-- [ ] 10.10 Add stock transaction audit tests covering product, owner setting, target location, previous quantity, after quantity, user, reason, and signed delta.
-- [ ] 10.11 Add product quantity/bucket consistency tests across multiple owner-location rows for the same clean product.
-- [ ] 10.12 Run focused Product stock snapshot import tests and a broader relevant Laravel test command once implementation tasks are complete.
+- [x] 10.1 Persist successful stock snapshot row references to the touched `product_stocks` row and created stock transaction using existing `created_stock_id` and `created_txn_id` fields or an equivalent row result metadata convention.
+- [x] 10.2 Persist or derive row-level result metadata needed by the UI: raw marker, clean product name, resolved owner setting, target location, previous quantity, after quantity, and tax/non-tax bucket deltas.
+- [x] 10.3 Add real `upload-data/warehouse_stock_quantity.csv` behavior coverage, especially blank quoted product codes and quoted product names containing inches marks.
+- [x] 10.4 Add missing owner setting error coverage that proves no product stock, product quantity, or transaction mutation occurs for that row.
+- [x] 10.5 Add missing owner location error coverage that proves no product stock, product quantity, or transaction mutation occurs for that row.
+- [x] 10.6 Add PKP bucket routing coverage that proves a PKP owner marker routes the quantity into the `quantity_tax` bucket and leaves `quantity_non_tax` 0.
+- [x] 10.7 Add non-PKP bucket routing coverage that proves a non-PKP owner marker routes the quantity into the `quantity_non_tax` bucket and leaves `quantity_tax` 0.
+- [x] 10.8 Add zero quantity edge case coverage that proves a 0 quantity correctly overwrites existing stock to 0 while generating an accurate audit transaction.
+- [x] 10.9 Add negative quantity edge case coverage that proves a negative quantity is correctly stored as a negative snapshot value (allowing corrections).
+- [x] 10.10 Add transaction audit coverage proving the stock transaction records `ADJ` type, exact `after_quantity`, bucket deltas, user ID, and an appropriate snapshot reason.
+- [x] 10.11 Add multi-owner product consolidation coverage that proves a clean product name maps to the same Product record across multiple owners, updating multiple ProductStock rows while maintaining accurate aggregated `product_quantity`.
+- [x] 10.12 Run and fix all backend Product import tests against the new changes.

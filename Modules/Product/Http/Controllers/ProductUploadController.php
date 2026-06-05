@@ -16,6 +16,7 @@ use Modules\Product\Entities\ProductImportBatch;
 use Modules\Product\Jobs\ProcessProductImportBatch;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProductUploadController extends Controller
 {
@@ -109,6 +110,85 @@ class ProductUploadController extends Controller
 
         toast("Upload diterima. Batch #{$batch->id} sedang diproses.", 'success');
         return redirect()->route('products.imports.show', $batch);
+    }
+
+    /**
+     * Stock snapshot dedicated upload page.
+     */
+    public function stockSnapshotUploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('products.create'), 403);
+        return view('product::products.stock-snapshot-upload');
+    }
+
+    /**
+     * Handle stock snapshot CSV upload — forces import_type = stock_snapshot.
+     */
+    public function stockSnapshotUpload(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $request->validate([
+            'file' => 'required|mimes:csv,txt',
+        ]);
+
+        $file = $request->file('file');
+        Log::info('[StockSnapshotImport] Upload request received', [
+            'user_id' => auth()->id(),
+            'file_name' => $file->getClientOriginalName(),
+            'file_size_kb' => round($file->getSize() / 1024, 2),
+        ]);
+
+        $path = $file->store('imports/products');
+        $fullPath = Storage::path($path);
+
+        // Resolve any setting/location for schema compatibility
+        $settingId = $this->resolveSettingId();
+        if (!$settingId) {
+            return back()->withErrors(['file' => 'Setting belum dikonfigurasi. Tambahkan setting terlebih dahulu.']);
+        }
+        $locationId = $this->resolveLocationId($settingId);
+        if ($locationId === null) {
+            return back()->withErrors(['file' => 'Lokasi belum dikonfigurasi. Tambahkan lokasi terlebih dahulu.']);
+        }
+
+        $batch = ProductImportBatch::create([
+            'user_id'         => auth()->id(),
+            'location_id'     => $locationId,
+            'source_csv_path' => $path,
+            'file_sha256'     => hash_file('sha256', $fullPath),
+            'status'          => 'queued',
+            'import_type'     => 'stock_snapshot',
+            'undo_token'      => Str::random(40),
+        ]);
+
+        Log::info('[StockSnapshotImport] Batch created', ['batch_id' => $batch->id]);
+        dispatch(new ProcessProductImportBatch($batch->id));
+
+        toast("Upload stok diterima. Batch #{$batch->id} sedang diproses.", 'success');
+        return redirect()->route('products.imports.show', $batch);
+    }
+
+    /**
+     * Download stock snapshot CSV template.
+     */
+    public function downloadStockSnapshotTemplate(): StreamedResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $filename = 'template_stock_snapshot.csv';
+        $headers = ['Product Code', 'Product Name', 'Unassigned', 'Total Quantity', 'Product Unit'];
+        $example = ['SKU-001', 'Produk Contoh', 0, 100, 'PCS'];
+
+        return response()->streamDownload(function () use ($headers, $example) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, $headers);
+            fputcsv($out, $example);
+            fclose($out);
+        }, $filename, [
+            'Content-Type'  => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
     }
 
     private function resolveSettingId(): ?int

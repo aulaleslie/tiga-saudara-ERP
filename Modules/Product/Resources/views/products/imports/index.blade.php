@@ -20,6 +20,9 @@
                             <a href="{{ route('products.upload.page') }}" class="btn btn-primary">
                                 Upload Produk Baru <i class="bi bi-plus"></i>
                             </a>
+                            <a href="{{ route('products.stock-snapshot.upload.page') }}" class="btn btn-info text-white">
+                                <i class="bi bi-box-seam"></i> Upload Stok Snapshot
+                            </a>
                         @endcan
 
                         <hr>
@@ -30,6 +33,7 @@
                                     <tr>
                                         <th>ID</th>
                                         <th>Dibuat Oleh</th>
+                                        <th>Tipe Import</th>
                                         <th>Lokasi</th>
                                         <th>Status</th>
                                         <th>Progress</th>
@@ -44,6 +48,13 @@
                                         <tr>
                                             <td>#{{ $b->id }}</td>
                                             <td>{{ optional($b->user)->name ?? '-' }}</td>
+                                            <td>
+                                                @if($b->import_type === 'stock_snapshot')
+                                                    <span class="badge bg-info text-white">Stok Snapshot</span>
+                                                @else
+                                                    <span class="badge bg-primary text-white">Produk</span>
+                                                @endif
+                                            </td>
                                             <td>{{ optional($b->location)->name ?? '-' }}</td>
                                             <td>
                                                 @php
@@ -75,8 +86,8 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="9" class="text-center text-muted py-4">
-                                                Belum ada batch upload. Klik "Upload Produk Baru" untuk memulai.
+                                            <td colspan="10" class="text-center text-muted py-4">
+                                                Belum ada batch upload. Klik "Upload Produk Baru" atau "Upload Stok Snapshot" untuk memulai.
                                             </td>
                                         </tr>
                                     @endforelse

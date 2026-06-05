@@ -426,6 +426,21 @@ class ProcessProductImportBatch implements ShouldQueue
         $this->batch->increment('success_rows');
     }
 
+    private function recordStockSnapshotSuccess(ProductImportRow $row, int $productId, int $stockId, int $txnId, array $resultMeta): void
+    {
+        $row->forceFill([
+            'status'           => 'imported',
+            'product_id'       => $productId,
+            'created_stock_id' => $stockId,
+            'created_txn_id'   => $txnId,
+            'result_metadata'  => $resultMeta,
+            'error_message'    => null,
+        ])->save();
+
+        $this->batch->increment('processed_rows');
+        $this->batch->increment('success_rows');
+    }
+
     private function normalizeProductName(string $name): string
     {
         $name = str_replace(["\u{00A0}", "\u{2007}", "\u{202F}"], ' ', $name);
@@ -613,15 +628,15 @@ class ProcessProductImportBatch implements ShouldQueue
         $payload = (array) $row->raw_json;
         $rawName = (string) ($payload['product_name'] ?? '');
         $tempName = $rawName;
-        $this->resolveOwnerFromMarker($tempName, $ownerId, $locationId);
-        
+        $this->resolveOwnerFromMarker($tempName, $ownerId, $locationId, $ownerName, $rawMarker);
+
         if (!$ownerId || !$locationId) {
             $this->recordFailure($row, 'Pemilik atau lokasi tidak ditemukan untuk marker produk ini.');
             return;
         }
 
         $normalizedName = $this->normalizeProductName($rawName);
-        
+
         if ($normalizedName === '') {
             $this->recordFailure($row, 'Nama produk wajib.');
             return;
@@ -670,7 +685,9 @@ class ProcessProductImportBatch implements ShouldQueue
                 $product->save();
             }
 
-            \Modules\Product\Entities\Transaction::create([
+            $location = \Modules\Setting\Entities\Location::find($locationId);
+
+            $txn = \Modules\Product\Entities\Transaction::create([
                 'product_id' => $product->id,
                 'setting_id' => $ownerId ?: $this->defaultSettingId,
                 'location_id' => $locationId,
@@ -688,9 +705,30 @@ class ProcessProductImportBatch implements ShouldQueue
                 'user_id' => $this->batch->user_id,
                 'reason' => 'Stock Snapshot Import overwrite',
             ]);
-            
+
+            // Build result metadata for UI row-level stock effect display
+            $resultMeta = [
+                'raw_marker'          => $rawMarker,
+                'clean_product_name'  => $normalizedName,
+                'owner_setting_id'    => $ownerId,
+                'owner_setting_name'  => $ownerName,
+                'is_pkp'              => $isPkp,
+                'target_location_id'  => $locationId,
+                'target_location_name'=> $location ? $location->name : null,
+                'total_quantity'      => $stockVal,
+                'previous_quantity'   => $prevQty,
+                'after_quantity'      => $stockVal,
+                'prev_quantity_tax'   => $prevQtyTax,
+                'prev_quantity_non_tax' => $prevQtyNonTax,
+                'after_quantity_tax'  => $newQtyTax,
+                'after_quantity_non_tax' => $newQtyNonTax,
+                'delta_quantity'      => $difference,
+                'delta_quantity_tax'  => $diffQtyTax,
+                'delta_quantity_non_tax' => $diffQtyNonTax,
+            ];
+
             DB::commit();
-            $this->recordSuccess($row, $product->id);
+            $this->recordStockSnapshotSuccess($row, $product->id, $stock->id, $txn->id, $resultMeta);
         } catch (\Exception $e) {
             DB::rollBack();
             $this->recordFailure($row, 'Gagal sinkronisasi stok: ' . $e->getMessage());
@@ -706,7 +744,7 @@ class ProcessProductImportBatch implements ShouldQueue
             if ($product) return $product;
         }
 
-        $product = Product::where('product_name', $cleanName)->first();
+        $product = Product::whereRaw('LOWER(product_name) = ?', [mb_strtolower($cleanName)])->first();
         if ($product) return $product;
 
         $unitId = $this->firstOrCreateUnit((string) ($payload['unit_name'] ?? 'Pcs'));
@@ -760,21 +798,27 @@ class ProcessProductImportBatch implements ShouldQueue
         return $product;
     }
 
-    private function resolveOwnerFromMarker(string $productName, &$ownerId, &$locationId): void
+    private function resolveOwnerFromMarker(string $productName, &$ownerId, &$locationId, &$ownerName = null, &$rawMarker = null): void
     {
         $ownerId = null;
         $locationId = null;
+        $ownerName = null;
+        $rawMarker = null;
 
         if (str_starts_with(trim($productName), '*')) {
+            $rawMarker = '*';
             $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first();
         } elseif (preg_match('/\sTP\s*$/i', $productName)) {
+            $rawMarker = 'TP';
             $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TOP IT INTERNUSA%')->first();
         } else {
+            $rawMarker = '';
             $owner = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%PERDANA%')->first();
         }
 
         if (isset($owner)) {
             $ownerId = $owner->id;
+            $ownerName = $owner->company_name;
             $location = \Modules\Setting\Entities\Location::where('setting_id', $ownerId)->first();
             if ($location) {
                 $locationId = $location->id;

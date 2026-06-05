@@ -26,6 +26,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/products/upload/template', [ProductController::class, 'downloadCsvTemplate'])
         ->name('products.upload.template');
 
+    // Stock snapshot import
+    Route::get('/products/stock-snapshot/upload', [ProductUploadController::class, 'stockSnapshotUploadPage'])->name('products.stock-snapshot.upload.page');
+    Route::post('/products/stock-snapshot/upload', [ProductUploadController::class, 'stockSnapshotUpload'])->name('products.stock-snapshot.upload');
+    Route::get('/products/stock-snapshot/template', [ProductUploadController::class, 'downloadStockSnapshotTemplate'])->name('products.stock-snapshot.template');
+
     // Monitor pages (new)
     Route::get('/products/imports',                [ProductImportController::class, 'index'])->name('products.imports.index');
     Route::get('/products/imports/{batch}',        [ProductImportController::class, 'show'])->name('products.imports.show');
