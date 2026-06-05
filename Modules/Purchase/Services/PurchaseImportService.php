@@ -53,6 +53,10 @@ class PurchaseImportService
     protected array $tagMapping = [
         'cv tiga nusa' => 'CV TIGA NUSA COMPUTER',
         'cv top it' => 'CV TOP IT INTERNUSA',
+        'aries' => 'TIGA COMPUTER',
+        'rahmat' => 'WHITE KNIGHT COMPUTER',
+        'agus' => 'DUNIA COMPUTER',
+        'perdana' => 'PERDANA',
     ];
 
 

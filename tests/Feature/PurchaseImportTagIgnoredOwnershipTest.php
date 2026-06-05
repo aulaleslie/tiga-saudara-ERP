@@ -26,6 +26,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     protected Setting $topItSetting;
     protected Setting $tigaSetting;
     protected Setting $duniaSetting;
+    protected Setting $whiteKnightSetting;
     protected Currency $currency;
     protected Location $daizuLocation;
     protected Location $perdanaLocation;
@@ -33,6 +34,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     protected Location $topItLocation;
     protected Location $tigaLocation;
     protected Location $duniaLocation;
+    protected Location $whiteKnightLocation;
 
     protected function setUp(): void
     {
@@ -113,6 +115,17 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
             'footer_text' => '',
         ]);
 
+        $this->whiteKnightSetting = Setting::create([
+            'company_name' => 'WHITE KNIGHT COMPUTER',
+            'company_email' => 'whiteknight@example.com',
+            'company_phone' => '777',
+            'company_address' => 'White Knight Address',
+            'default_currency_id' => $this->currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'whiteknight@example.com',
+            'footer_text' => '',
+        ]);
+
         $this->daizuLocation = Location::create([
             'setting_id' => $this->daizuSetting->id,
             'name' => 'Daizu Warehouse',
@@ -141,6 +154,11 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $this->duniaLocation = Location::create([
             'setting_id' => $this->duniaSetting->id,
             'name' => 'Dunia Computer Warehouse',
+        ]);
+
+        $this->whiteKnightLocation = Location::create([
+            'setting_id' => $this->whiteKnightSetting->id,
+            'name' => 'White Knight Warehouse',
         ]);
 
         $cashCoa = ChartOfAccount::create([
@@ -239,7 +257,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function unmarked_purchase_row_routes_to_perdana_despite_tag()
+    public function unmarked_purchase_row_routes_to_mapped_owner()
     {
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE', 'tag' => 'rahmat']),
@@ -249,11 +267,11 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->whiteKnightSetting->id, $purchase->setting_id);
     }
 
     /** @test */
-    public function explicit_aries_tag_routes_to_perdana_not_tiga_computer()
+    public function explicit_aries_tag_routes_to_tiga_computer()
     {
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE', 'tag' => 'aries']),
@@ -263,12 +281,11 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
-        $this->assertNotEquals($this->tigaSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->tigaSetting->id, $purchase->setting_id);
     }
 
     /** @test */
-    public function explicit_agus_tag_routes_to_perdana_not_dunia_computer()
+    public function explicit_agus_tag_routes_to_dunia_computer()
     {
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE', 'tag' => 'agus']),
@@ -278,8 +295,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
         $purchase = Purchase::where('supplier_purchase_number', 'PO-TAG-001')->first();
         $this->assertNotNull($purchase);
-        $this->assertEquals($this->perdanaSetting->id, $purchase->setting_id);
-        $this->assertNotEquals($this->duniaSetting->id, $purchase->setting_id);
+        $this->assertEquals($this->duniaSetting->id, $purchase->setting_id);
     }
 
     /** @test */
@@ -320,7 +336,7 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
 
 
     /** @test */
-    public function purchase_duplicate_lookup_uses_product_name_ownership_ignores_changed_tag()
+    public function purchase_duplicate_lookup_uses_effective_owner_ignores_changed_unmapped_tag()
     {
         // First import under PERDANA (unmarked, no tag)
         $batch1 = $this->createImportBatch([
@@ -332,9 +348,9 @@ class PurchaseImportTagIgnoredOwnershipTest extends TestCase
         $this->assertNotNull($purchase1);
         $this->assertEquals($this->perdanaSetting->id, $purchase1->setting_id);
 
-        // Re-import same invoice with different tag — must still detect as duplicate
+        // Re-import same invoice with different unmapped tag — must still detect as duplicate
         $batch2 = $this->createImportBatch([
-            $this->baseRow(['no_faktur' => 'PO-DUP-001', 'produk' => 'PLAIN PRODUCT', 'tag' => 'rahmat']),
+            $this->baseRow(['no_faktur' => 'PO-DUP-001', 'produk' => 'PLAIN PRODUCT', 'tag' => 'unknown']),
         ]);
         app(PurchaseImportService::class)->processBatch($batch2);
 

@@ -42,7 +42,9 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
             'PERDANA',
             'CV TIGA NUSA COMPUTER',
             'CV TOP IT INTERNUSA',
+            'TIGA COMPUTER',
             'WHITE KNIGHT COMPUTER',
+            'DUNIA COMPUTER',
             'DAIZU KEDELAI',
         ] as $i => $name) {
             $setting = $this->createSetting($name, "s{$i}@example.com");
@@ -131,19 +133,22 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
     public function test_mapped_tag_overrides_markers(): void
     {
         $batch = $this->makeBatch();
-        $this->makeRow($batch, ['no_faktur' => 'INV-AST', 'produk' => '* MONITOR SAMPLE', 'tag' => 'perdana'], 1);
+        $this->makeRow($batch, ['no_faktur' => 'INV-AST', 'produk' => '* MONITOR SAMPLE', 'tag' => 'aries'], 1);
         $this->makeRow($batch, ['no_faktur' => 'INV-TP', 'produk' => 'MONITOR SAMPLE TP', 'tag' => 'cv tiga nusa'], 2);
         $this->makeRow($batch, ['no_faktur' => 'INV-PLAIN', 'produk' => 'MONITOR SAMPLE', 'tag' => 'rahmat'], 3);
+        $this->makeRow($batch, ['no_faktur' => 'INV-AGUS', 'produk' => 'MONITOR SAMPLE', 'tag' => 'agus'], 4);
+        $this->makeRow($batch, ['no_faktur' => 'INV-PERDANA', 'produk' => 'MONITOR SAMPLE', 'tag' => 'perdana'], 5);
 
         $this->service->processBatch($batch);
 
-        $this->assertEquals($this->settings['PERDANA']->id, $this->purchase('INV-AST')->setting_id);
+        $this->assertEquals($this->settings['TIGA COMPUTER']->id, $this->purchase('INV-AST')->setting_id);
         $this->assertEquals($this->settings['CV TIGA NUSA COMPUTER']->id, $this->purchase('INV-TP')->setting_id);
-        // rahmat is non-owner-routing: falls back to PERDANA regardless of marker
-        $this->assertEquals($this->settings['PERDANA']->id, $this->purchase('INV-PLAIN')->setting_id);
+        $this->assertEquals($this->settings['WHITE KNIGHT COMPUTER']->id, $this->purchase('INV-PLAIN')->setting_id);
+        $this->assertEquals($this->settings['DUNIA COMPUTER']->id, $this->purchase('INV-AGUS')->setting_id);
+        $this->assertEquals($this->settings['PERDANA']->id, $this->purchase('INV-PERDANA')->setting_id);
     }
 
-    // 1.3 — unmapped/blank tag falls back to PERDANA while preserving raw tag metadata
+    // 1.5 — unmapped/blank tag falls back to PERDANA while preserving raw tag metadata
     public function test_unmapped_tag_falls_back_to_perdana_and_preserves_metadata(): void
     {
         $batch = $this->makeBatch();
@@ -179,19 +184,19 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals($this->settings['DAIZU KEDELAI']->id, $this->purchase('INV-DZ')->setting_id);
     }
 
-    // 1.5 — duplicate check uses effective owner: different non-owner-routing tags same effective PERDANA owner skipped
+    // 1.6 — duplicate check uses effective owner: different non-owner-routing tags same effective PERDANA owner skipped
     public function test_duplicate_with_changed_raw_tag_same_effective_owner_is_skipped(): void
     {
         $batch1 = $this->makeBatch();
-        // perdana is non-owner-routing → effective owner PERDANA
-        $this->makeRow($batch1, ['no_faktur' => 'INV-DUP', 'tag' => 'perdana', 'produk' => 'MONITOR SAMPLE']);
+        // unmapped1 is non-owner-routing → effective owner PERDANA
+        $this->makeRow($batch1, ['no_faktur' => 'INV-DUP', 'tag' => 'unmapped1', 'produk' => 'MONITOR SAMPLE']);
         $this->service->processBatch($batch1);
         $first = $this->purchase('INV-DUP');
         $this->assertNotNull($first);
 
-        // Re-import with different non-owner-routing tag (rahmat) that also resolves to PERDANA
+        // Re-import with different non-owner-routing tag (unmapped2) that also resolves to PERDANA
         $batch2 = $this->makeBatch();
-        $this->makeRow($batch2, ['no_faktur' => 'INV-DUP', 'tag' => 'rahmat', 'produk' => 'MONITOR SAMPLE']);
+        $this->makeRow($batch2, ['no_faktur' => 'INV-DUP', 'tag' => 'unmapped2', 'produk' => 'MONITOR SAMPLE']);
         $this->service->processBatch($batch2);
 
         $row = PurchaseImportRow::where('batch_id', $batch2->id)->first();
@@ -199,7 +204,7 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals($first->id, $row->purchase_id);
     }
 
-    // 1.5 — changed mapped tag different owner is NOT skipped under old owner
+    // 1.6 — changed mapped tag different owner is NOT skipped under old owner
     public function test_duplicate_with_changed_mapped_tag_different_owner_creates_new(): void
     {
         $batch1 = $this->makeBatch();
@@ -215,8 +220,8 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         $this->assertEquals(PurchaseImportRow::STATUS_PROCESSED, $row->status);
         $this->assertNotEquals($first->id, $row->purchase_id);
         $new = Purchase::find($row->purchase_id);
-        // rahmat is non-owner-routing: effective owner is PERDANA (different from cv tiga nusa owner)
-        $this->assertEquals($this->settings['PERDANA']->id, $new->setting_id);
+        // rahmat routes to WHITE KNIGHT COMPUTER, different from cv tiga nusa owner
+        $this->assertEquals($this->settings['WHITE KNIGHT COMPUTER']->id, $new->setting_id);
     }
 
     // 1.6 — tagged invoice with zero-total unmarked rows stays in tag owner group, no mismatch
