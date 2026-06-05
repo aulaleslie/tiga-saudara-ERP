@@ -1144,17 +1144,7 @@ class PurchaseImportService
                 $purchase->syncTags($allTags);
             }
 
-            $receivedNote = \Modules\Purchase\Entities\ReceivedNote::create([
-                'po_id' => $purchase->id,
-                'external_delivery_number' => $data['no_faktur'] ?? null,
-                'date' => $purchaseDate,
-                'location_id' => $location->id,
-                'status' => \Modules\Purchase\Entities\ReceivedNote::STATUS_APPROVED,
-                'approved_at' => now(),
-                'approved_by' => $batch->user_id ?? 1,
-            ]);
-
-            $settingLocationIds = Location::where('setting_id', $setting->id)->pluck('id')->toArray();
+            // Imports are accounting/document imports and do not mutate stock
 
             // Create purchase details and collect purchase-price updates.
             foreach ($details as $detail) {
@@ -1175,65 +1165,6 @@ class PurchaseImportService
 
                 $product = $detail['product'];
                 $unitPriceFinal = $detail['unit_price_final'];
-                $quantity = $detail['quantity'];
-
-                \Modules\Purchase\Entities\ReceivedNoteDetail::create([
-                    'received_note_id' => $receivedNote->id,
-                    'quantity_received' => $quantity,
-                    'po_detail_id' => $purchaseDetail->id,
-                    'note' => 'Imported',
-                ]);
-
-                if ($quantity > 0) {
-                    $productStock = ProductStock::firstOrCreate(
-                        ['product_id' => $product->id, 'location_id' => $location->id],
-                        [
-                            'quantity' => 0,
-                            'quantity_tax' => 0,
-                            'quantity_non_tax' => 0,
-                            'broken_quantity' => 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity_non_tax' => 0,
-                        ]
-                    );
-
-                    $previousQtyAtLocation = $productStock->quantity;
-                    $previousQtyForSetting = ProductStock::where('product_id', $product->id)
-                        ->whereIn('location_id', $settingLocationIds)
-                        ->sum('quantity');
-
-                    $productStock->increment('quantity', $quantity);
-                    if ($detail['tax_id']) {
-                        $productStock->increment('quantity_tax', $quantity);
-                    } else {
-                        $productStock->increment('quantity_non_tax', $quantity);
-                    }
-
-                    $product->increment('product_quantity', $quantity);
-
-                    $afterQtyAtLocation = $productStock->quantity;
-                    $afterQtyForSetting = $previousQtyForSetting + $quantity;
-
-                    Transaction::create([
-                        'product_id' => $product->id,
-                        'setting_id' => $setting->id,
-                        'quantity' => $quantity,
-                        'current_quantity' => $afterQtyForSetting,
-                        'broken_quantity' => 0,
-                        'location_id' => $location->id,
-                        'user_id' => $batch->user_id ?? 1,
-                        'reason' => 'Diterima dari Pembelian Import #' . $purchase->reference,
-                        'type' => 'BUY',
-                        'previous_quantity' => $previousQtyForSetting,
-                        'after_quantity' => $afterQtyForSetting,
-                        'previous_quantity_at_location' => $previousQtyAtLocation,
-                        'after_quantity_at_location' => $afterQtyAtLocation,
-                        'quantity_non_tax' => $detail['tax_id'] ? 0 : $quantity,
-                        'quantity_tax' => $detail['tax_id'] ? $quantity : 0,
-                        'broken_quantity_non_tax' => 0,
-                        'broken_quantity_tax' => 0,
-                    ]);
-                }
 
                 // Accumulate purchase-price updates for invoice-level deduplication
                 // existing average_purchase_price is preserved during upsert; new rows default to 0.

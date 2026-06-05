@@ -213,8 +213,7 @@ class PurchaseImportReproductionTest extends TestCase
         $this->assertEquals($daizuSetting->id, $purchase->setting_id, 'Purchase should belong to Daizu setting');
 
         $transaction = Transaction::where('product_id', $purchase->purchaseDetails->first()->product_id)->first();
-        $this->assertNotNull($transaction, 'Transaction should be created');
-        $this->assertEquals($daizuSetting->id, $transaction->setting_id, 'Transaction should belong to Daizu setting');
+        $this->assertNull($transaction, 'Transaction should NOT be created for purchase import');
     }
 
     /** @test */
@@ -465,9 +464,9 @@ class PurchaseImportReproductionTest extends TestCase
             ->first();
         $this->assertNotNull($kedelaiDetail, 'Daizu purchase should contain KEDELE IMPORT detail');
 
-        // Check that Daizu product has stock movement with Daizu setting
+        // Check that Daizu product has NO stock movement
         $kedelaiTransaction = Transaction::where('product_id', $kedelaiDetail->product_id)->latest('id')->first();
-        $this->assertEquals($daizuSetting->id, $kedelaiTransaction->setting_id, 'KEDELE should have Daizu stock ownership');
+        $this->assertNull($kedelaiTransaction, 'KEDELE should have NO stock transaction');
 
         // Find the non-Daizu purchase (for Monitor Generic)
         $normalPurchase = Purchase::where('supplier_purchase_number', 'MIX001')

@@ -108,7 +108,7 @@ class ImportStockLocationTest extends TestCase
     /** @test */
     public function it_resolves_stock_setting_correctly_based_on_markers()
     {
-        $service = new PurchaseImportService();
+        $service = new SalesImportService();
 
         // Product with * marker (Should -> Tiga Nusa)
         $productName = '*Mouse Gaming';
@@ -130,7 +130,7 @@ class ImportStockLocationTest extends TestCase
     /** @test */
     public function it_resolves_stock_setting_based_on_history_when_no_marker()
     {
-        $service = new PurchaseImportService();
+        $service = new SalesImportService();
 
         // Create a product
         $product = Product::create([
@@ -187,7 +187,7 @@ class ImportStockLocationTest extends TestCase
     /** @test */
     public function it_ignores_tiga_nusa_in_history_lookup()
     {
-        $service = new PurchaseImportService();
+        $service = new SalesImportService();
 
         // Create a product
         $product = Product::create([
@@ -256,14 +256,11 @@ class ImportStockLocationTest extends TestCase
     /** @test */
     public function sales_service_uses_same_logic()
     {
-        // Just verify method exists and basic case, assuming shared logic is copy-pasted (or ideally trait, but for now duplicate is fine)
+        // Just verify method exists
         $service = new SalesImportService();
 
         $productName = '*Mouse Gaming';
         $tag = 'unmapped_tag';
-        
-        // Mock finding setting through reflection or just reliance on DB
-        // The service methods rely on Setting::model
         
         $resolved = $service->resolveStockSetting($tag, $productName, $this->otherTenant);
         $this->assertEquals($this->tigaNusa->id, $resolved->id);
