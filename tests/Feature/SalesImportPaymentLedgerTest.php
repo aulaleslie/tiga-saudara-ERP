@@ -72,7 +72,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $batch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-001',
-                'pembayaran' => '111000',
+                'pembayaran' => '100000',
                 'sisa_tagihan' => '0',
             ]),
         ]);
@@ -82,13 +82,13 @@ class SalesImportPaymentLedgerTest extends TestCase
         $sale = Sale::where('imported_sales_reference_number', 'INV-PAY-001')->firstOrFail();
 
         $this->assertSame('PAID', $sale->payment_status);
-        $this->assertEquals(111000.0, (float) $sale->paid_amount);
+        $this->assertEquals(100000.0, (float) $sale->paid_amount);
         $this->assertEquals(0.0, (float) $sale->due_amount);
         $this->assertCount(1, $sale->salePayments);
         $this->assertSame($sale->reference, $sale->salePayments->first()->reference);
         $this->assertSame('ACTIVE', $sale->salePayments->first()->status);
         $this->assertSame('CASH', strtoupper((string) $sale->salePayments->first()->paymentMethod?->name));
-        $this->assertEquals(111000.0, (float) $sale->salePayments->first()->amount);
+        $this->assertEquals(100000.0, (float) $sale->salePayments->first()->amount);
     }
 
     /** @test */
@@ -97,7 +97,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $batch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-002',
-                'pembayaran' => '61000',
+                'pembayaran' => '50000',
                 'sisa_tagihan' => '50000',
             ]),
         ]);
@@ -106,7 +106,7 @@ class SalesImportPaymentLedgerTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-PAY-002')->firstOrFail();
         $this->assertSame('PARTIAL', $sale->payment_status);
-        $this->assertEquals(61000.0, (float) $sale->paid_amount);
+        $this->assertEquals(50000.0, (float) $sale->paid_amount);
         $this->assertEquals(50000.0, (float) $sale->due_amount);
         $this->assertCount(1, $sale->salePayments);
     }
@@ -118,7 +118,7 @@ class SalesImportPaymentLedgerTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-003',
                 'pembayaran' => '0',
-                'sisa_tagihan' => '111000',
+                'sisa_tagihan' => '100000',
             ]),
         ]);
 
@@ -127,7 +127,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $sale = Sale::where('imported_sales_reference_number', 'INV-PAY-003')->firstOrFail();
         $this->assertSame('UNPAID', $sale->payment_status);
         $this->assertEquals(0.0, (float) $sale->paid_amount);
-        $this->assertEquals(111000.0, (float) $sale->due_amount);
+        $this->assertEquals(100000.0, (float) $sale->due_amount);
         $this->assertCount(0, $sale->salePayments);
     }
 
@@ -138,9 +138,9 @@ class SalesImportPaymentLedgerTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-004',
                 'pembayaran' => '20000',
-                'sisa_tagihan_hari_ini' => '91000',
+                'sisa_tagihan_hari_ini' => '80000',
                 'sisa_tagihan' => '0',
-                'source_total' => '111000',
+                'source_total' => '100000',
             ]),
         ]);
 
@@ -149,7 +149,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $preferredSale = Sale::where('imported_sales_reference_number', 'INV-PAY-004')->firstOrFail();
         $this->assertSame('PARTIAL', $preferredSale->payment_status);
         $this->assertEquals(20000.0, (float) $preferredSale->paid_amount);
-        $this->assertEquals(91000.0, (float) $preferredSale->due_amount);
+        $this->assertEquals(80000.0, (float) $preferredSale->due_amount);
 
         $fallbackBatch = $this->createImportBatch([
             $this->baseRow([
@@ -157,7 +157,7 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'pembayaran' => '',
                 'sisa_tagihan_hari_ini' => '10000',
                 'sisa_tagihan' => '50000',
-                'source_total' => '111000',
+                'source_total' => '100000',
             ]),
         ]);
 
@@ -165,7 +165,7 @@ class SalesImportPaymentLedgerTest extends TestCase
 
         $fallbackSale = Sale::where('imported_sales_reference_number', 'INV-PAY-005')->firstOrFail();
         $this->assertSame('PARTIAL', $fallbackSale->payment_status);
-        $this->assertEquals(101000.0, (float) $fallbackSale->paid_amount);
+        $this->assertEquals(90000.0, (float) $fallbackSale->paid_amount);
         $this->assertEquals(10000.0, (float) $fallbackSale->due_amount);
     }
 
@@ -178,18 +178,18 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'produk' => 'TEST PRODUCT A',
                 'diskon' => '15000',
                 'diskon_document_persen' => '7.26',
-                'pembayaran' => '207000',
+                'pembayaran' => '185000',
                 'sisa_tagihan' => '0',
-                'source_total' => '207000',
+                'source_total' => '185000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'JL.2021.17756',
                 'produk' => 'TEST PRODUCT B',
                 'diskon' => '15000',
                 'diskon_document_persen' => '7.26',
-                'pembayaran' => '207000',
+                'pembayaran' => '185000',
                 'sisa_tagihan' => '0',
-                'source_total' => '207000',
+                'source_total' => '185000',
             ]),
         ]);
 
@@ -198,13 +198,13 @@ class SalesImportPaymentLedgerTest extends TestCase
         $sale = Sale::where('imported_sales_reference_number', 'JL.2021.17756')->firstOrFail();
 
         $this->assertSame('PAID', $sale->payment_status);
-        $this->assertEquals(207000.0, (float) $sale->total_amount);
+        $this->assertEquals(185000.0, (float) $sale->total_amount);
         $this->assertEquals(15000.0, (float) $sale->discount_amount);
         $this->assertEquals(0.0, (float) $sale->discount_percentage);
-        $this->assertEquals(207000.0, (float) $sale->paid_amount);
+        $this->assertEquals(185000.0, (float) $sale->paid_amount);
         $this->assertEquals(0.0, (float) $sale->due_amount);
         $this->assertCount(1, $sale->salePayments);
-        $this->assertEquals(207000.0, (float) $sale->salePayments->first()->amount);
+        $this->assertEquals(185000.0, (float) $sale->salePayments->first()->amount);
         $this->assertCount(2, $sale->saleDetails);
         $this->assertEquals(0.0, (float) $sale->saleDetails->first()->product_discount_amount);
         $this->assertDatabaseMissing('sales_import_rows', [
@@ -223,9 +223,9 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'harga_satuan' => '50000',
                 'pajak' => '5500',
                 'biaya_pengiriman' => '5000',
-                'pembayaran' => '116000',
+                'pembayaran' => '105000',
                 'sisa_tagihan' => '0',
-                'source_total' => '116000',
+                'source_total' => '105000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-SHIP-001',
@@ -233,9 +233,9 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'harga_satuan' => '50000',
                 'pajak' => '5500',
                 'biaya_pengiriman' => '5000',
-                'pembayaran' => '116000',
+                'pembayaran' => '105000',
                 'sisa_tagihan' => '0',
-                'source_total' => '116000',
+                'source_total' => '105000',
             ]),
         ]);
 
@@ -243,9 +243,9 @@ class SalesImportPaymentLedgerTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-SHIP-001')->firstOrFail();
 
-        $this->assertEquals(116000.0, (float) $sale->total_amount);
+        $this->assertEquals(105000.0, (float) $sale->total_amount);
         $this->assertEquals(5000.0, (float) $sale->shipping_amount);
-        $this->assertEquals(116000.0, (float) $sale->paid_amount);
+        $this->assertEquals(105000.0, (float) $sale->paid_amount);
         $this->assertCount(1, $sale->salePayments);
     }
 
@@ -257,13 +257,13 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'no_faktur' => 'INV-DISC-CONFLICT-001',
                 'produk' => 'TEST PRODUCT A',
                 'diskon' => '15000',
-                'source_total' => '207000',
+                'source_total' => '185000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-DISC-CONFLICT-001',
                 'produk' => 'TEST PRODUCT B',
                 'diskon' => '10000',
-                'source_total' => '212000',
+                'source_total' => '190000',
             ]),
         ]);
 
@@ -286,17 +286,17 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'no_faktur' => 'INV-DISC-BLANK-001',
                 'produk' => 'TEST PRODUCT A',
                 'diskon' => '',
-                'pembayaran' => '207000',
+                'pembayaran' => '185000',
                 'sisa_tagihan' => '0',
-                'source_total' => '207000',
+                'source_total' => '185000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-DISC-BLANK-001',
                 'produk' => 'TEST PRODUCT B',
                 'diskon' => '15000',
-                'pembayaran' => '207000',
+                'pembayaran' => '185000',
                 'sisa_tagihan' => '0',
-                'source_total' => '207000',
+                'source_total' => '185000',
             ]),
         ]);
 
@@ -306,7 +306,7 @@ class SalesImportPaymentLedgerTest extends TestCase
 
         $this->assertSame('PAID', $sale->payment_status);
         $this->assertEquals(15000.0, (float) $sale->discount_amount);
-        $this->assertEquals(207000.0, (float) $sale->total_amount);
+        $this->assertEquals(185000.0, (float) $sale->total_amount);
         $this->assertDatabaseMissing('sales_import_rows', [
             'batch_id' => $batch->id,
             'status' => SalesImportRow::STATUS_INVALID,
@@ -321,13 +321,13 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'no_faktur' => 'INV-SHIP-CONFLICT-001',
                 'produk' => 'TEST PRODUCT A',
                 'biaya_pengiriman' => '5000',
-                'source_total' => '116000',
+                'source_total' => '105000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-SHIP-CONFLICT-001',
                 'produk' => 'TEST PRODUCT B',
                 'biaya_pengiriman' => '7000',
-                'source_total' => '118000',
+                'source_total' => '107000',
             ]),
         ]);
 
@@ -352,9 +352,9 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'harga_satuan' => '50000',
                 'pajak' => '5500',
                 'biaya_pengiriman' => '',
-                'pembayaran' => '116000',
+                'pembayaran' => '105000',
                 'sisa_tagihan' => '0',
-                'source_total' => '116000',
+                'source_total' => '105000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-SHIP-BLANK-001',
@@ -362,9 +362,9 @@ class SalesImportPaymentLedgerTest extends TestCase
                 'harga_satuan' => '50000',
                 'pajak' => '5500',
                 'biaya_pengiriman' => '5000',
-                'pembayaran' => '116000',
+                'pembayaran' => '105000',
                 'sisa_tagihan' => '0',
-                'source_total' => '116000',
+                'source_total' => '105000',
             ]),
         ]);
 
@@ -374,7 +374,7 @@ class SalesImportPaymentLedgerTest extends TestCase
 
         $this->assertSame('PAID', $sale->payment_status);
         $this->assertEquals(5000.0, (float) $sale->shipping_amount);
-        $this->assertEquals(116000.0, (float) $sale->total_amount);
+        $this->assertEquals(105000.0, (float) $sale->total_amount);
         $this->assertDatabaseMissing('sales_import_rows', [
             'batch_id' => $batch->id,
             'status' => SalesImportRow::STATUS_INVALID,
@@ -388,14 +388,14 @@ class SalesImportPaymentLedgerTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-006',
                 'produk' => 'TEST PRODUCT A',
-                'pembayaran' => '111000',
-                'source_total' => '222000',
+                'pembayaran' => '90000',
+                'source_total' => '200000',
             ]),
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-006',
                 'produk' => 'TEST PRODUCT B',
-                'pembayaran' => '110000',
-                'source_total' => '222000',
+                'pembayaran' => '99000',
+                'source_total' => '200000',
             ]),
         ]);
 
@@ -412,9 +412,9 @@ class SalesImportPaymentLedgerTest extends TestCase
         $mismatchBatch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-007',
-                'pembayaran' => '100000',
+                'pembayaran' => '90000',
                 'sisa_tagihan' => '0',
-                'source_total' => '111000',
+                'source_total' => '100000',
             ]),
         ]);
 
@@ -437,7 +437,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $paidBatch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-008',
-                'pembayaran' => '111000',
+                'pembayaran' => '100000',
                 'sisa_tagihan' => '0',
             ]),
         ]);
@@ -450,7 +450,7 @@ class SalesImportPaymentLedgerTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-009',
                 'pembayaran' => '0',
-                'sisa_tagihan' => '111000',
+                'sisa_tagihan' => '100000',
             ]),
         ]);
 
@@ -468,7 +468,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $batch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-011',
-                'pembayaran' => '111000',
+                'pembayaran' => '100000',
                 'sisa_tagihan' => '0',
             ]),
         ]);
@@ -490,7 +490,7 @@ class SalesImportPaymentLedgerTest extends TestCase
         $firstBatch = $this->createImportBatch([
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-010',
-                'pembayaran' => '111000',
+                'pembayaran' => '100000',
                 'sisa_tagihan' => '0',
             ]),
         ]);
@@ -502,7 +502,7 @@ class SalesImportPaymentLedgerTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-PAY-010',
                 'pembayaran' => '50000',
-                'sisa_tagihan' => '61000',
+                'sisa_tagihan' => '50000',
             ]),
         ]);
 
@@ -550,7 +550,7 @@ class SalesImportPaymentLedgerTest extends TestCase
             'tag' => '',
             'gudang' => '',
             'pembayaran' => '0',
-            'sisa_tagihan' => '111000',
+            'sisa_tagihan' => '100000',
         ], $overrides);
     }
 }

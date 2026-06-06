@@ -24,6 +24,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
     protected Setting $globalSetting;
     protected Setting $daizuSetting;
     protected Setting $otherSetting;
+    protected Setting $topItSetting;
     protected SalesImportService $service;
 
     protected function setUp(): void
@@ -64,7 +65,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             'default_currency_position' => 'prefix',
             'notification_email' => 'notify@example.com',
             'footer_text' => 'Footer',
-            'is_pkp' => true,
+            'is_pkp' => false,
         ]);
         Location::create(['setting_id' => $this->daizuSetting->id, 'name' => 'Gudang Utama']);
 
@@ -78,9 +79,23 @@ class SalesImportProductSplitNoStockTest extends TestCase
             'default_currency_position' => 'prefix',
             'notification_email' => 'notify@example.com',
             'footer_text' => 'Footer',
-            'is_pkp' => false,
+            'is_pkp' => true,
         ]);
         Location::create(['setting_id' => $this->otherSetting->id, 'name' => 'Other Loc']);
+
+        // Top IT Setting (is_pkp = false)
+        $this->topItSetting = Setting::create([
+            'company_name' => 'CV TOP IT INTERNUSA',
+            'company_email' => 'topit@test.com',
+            'company_phone' => '123',
+            'company_address' => 'Test',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+            'is_pkp' => false,
+        ]);
+        Location::create(['setting_id' => $this->topItSetting->id, 'name' => 'Top IT Loc']);
 
         // Configure Daizu
         config([
@@ -189,7 +204,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
     {
         $batch = SalesImportBatch::create([
             'status' => SalesImportBatch::STATUS_QUEUED,
-            'total_rows' => 3,
+            'total_rows' => 4,
             'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
         ]);
 
@@ -233,18 +248,29 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ]),
         ]);
 
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => 'Mouse TP', // tp -> topItSetting
+                'kuantitas' => '4',
+                'harga_satuan' => '250',
+            ]),
+        ]);
+
         $this->service->processBatch($batch);
 
         $sales = Sale::where('imported_sales_reference_number', 'MIX-100')->get();
-        $this->assertCount(3, $sales);
+        $this->assertCount(4, $sales);
 
         $settings = $sales->pluck('setting_id')->toArray();
         $this->assertContains($this->daizuSetting->id, $settings);
         $this->assertContains($this->otherSetting->id, $settings);
         $this->assertContains($this->globalSetting->id, $settings);
+        $this->assertContains($this->topItSetting->id, $settings);
         
         $totalSum = $sales->sum('total_amount');
-        $this->assertEquals(3000, $totalSum);
+        $this->assertEquals(4000, $totalSum);
     }
 
     public function test_non_pkp_owners_persist_zero_tax_regardless_of_csv()
@@ -299,8 +325,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
                 'no_faktur' => 'INV-PKP',
                 'tanggal' => '01/01/2023',
                 'customer' => 'Cust A',
-                'produk' => 'Daizu Kedelai', // daizu setting, is_pkp = true
-                'gudang' => 'Gudang Utama',
+                'produk' => '* Beras', // * marker -> Tiga Nusa setting, is_pkp = true
                 'kuantitas' => '10',
                 'harga_satuan' => '1000',
                 'pajak' => '1100', // 11% tax
