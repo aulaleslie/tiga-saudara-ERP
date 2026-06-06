@@ -17,7 +17,7 @@ class ImportPaymentSummaryResolver
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
      */
-    public function resolve(array $rows, float $calculatedDocumentTotal): array
+    public function resolveForSales(array $rows, float $calculatedDocumentTotal): array
     {
         $calculatedDocumentTotal = round($calculatedDocumentTotal, 2);
 
@@ -72,11 +72,33 @@ class ImportPaymentSummaryResolver
         $deductionAmount = round(max($deductionValues[0] ?? 0.0, 0.0), 2);
 
         $matchedStatus = false;
-        $totalToReconcile = $sourceTotal ?? $calculatedDocumentTotal;
+        $authoritativeTotal = ($status !== null && $sourceTotal !== null) ? $sourceTotal : ($sourceTotal ?? $calculatedDocumentTotal);
 
         if ($status === 'lunas' || $status === 'paid') {
-            $paidAmount = max($totalToReconcile - $deductionAmount, 0.0);
+            $paidAmount = max($authoritativeTotal - $deductionAmount, 0.0);
             $outstandingBalance = 0.0;
+            $matchedStatus = true;
+        } elseif ($status === 'belum dibayar') {
+            $paidAmount = 0.0;
+            $outstandingBalance = max($authoritativeTotal - $deductionAmount, 0.0);
+            $matchedStatus = true;
+        } elseif ($status === 'terbayar sebagian') {
+            $cashCap = max($authoritativeTotal - $deductionAmount, 0.0);
+            $paidAmount = min($explicitPaidAmount ?? 0.0, $cashCap);
+            $paidAmount = max($paidAmount, 0.0);
+            $outstandingBalance = max($authoritativeTotal - $paidAmount - $deductionAmount, 0.0);
+            $matchedStatus = true;
+        } elseif ($status === 'lewat jatuh tempo') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            if ($paidAmount > 0.01) {
+                $cashCap = max($authoritativeTotal - $deductionAmount, 0.0);
+                $paidAmount = min($paidAmount, $cashCap);
+                $paidAmount = max($paidAmount, 0.0);
+                $outstandingBalance = max($authoritativeTotal - $paidAmount - $deductionAmount, 0.0);
+            } else {
+                $paidAmount = 0.0;
+                $outstandingBalance = max($authoritativeTotal - $deductionAmount, 0.0);
+            }
             $matchedStatus = true;
         }
 
@@ -95,8 +117,8 @@ class ImportPaymentSummaryResolver
                 $outstandingBalance = 0.0;
                 $explicitPaidAmount = null;
             } elseif ($explicitPaidAmount !== null && $todayOutstanding !== null && $sisaTagihan !== null) {
-                $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $calculatedDocumentTotal) <= self::TOLERANCE;
-                $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $calculatedDocumentTotal) <= self::TOLERANCE;
+                $todayReconciles = abs(($explicitPaidAmount + $deductionAmount + $todayOutstanding) - $authoritativeTotal) <= self::TOLERANCE;
+                $sisaReconciles = abs(($explicitPaidAmount + $deductionAmount + $sisaTagihan) - $authoritativeTotal) <= self::TOLERANCE;
 
                 if (! $todayReconciles && $sisaReconciles) {
                     $outstandingBalance = $sisaTagihan;
@@ -104,7 +126,7 @@ class ImportPaymentSummaryResolver
             }
 
             // Cash Pembayaran: explicit when present, otherwise the residual after deduction/outstanding.
-            $paidAmount = $explicitPaidAmount ?? round($calculatedDocumentTotal - $deductionAmount - $outstandingBalance, 2);
+            $paidAmount = $explicitPaidAmount ?? round($authoritativeTotal - $deductionAmount - $outstandingBalance, 2);
         }
         
         // If there is a small precision drift (e.g. from header tax vs line tax) that is within the
@@ -127,11 +149,11 @@ class ImportPaymentSummaryResolver
         
         $paidAmount = round(max($paidAmount, 0), 2);
 
-        if ($sourceTotal !== null && abs($sourceTotal - $calculatedDocumentTotal) > self::SOURCE_TOTAL_TOLERANCE) {
+        if ($sourceTotal !== null && !$matchedStatus && abs($sourceTotal - $calculatedDocumentTotal) > self::SOURCE_TOTAL_TOLERANCE) {
             throw new \RuntimeException('Payment total mismatch: source Total does not reconcile with calculated document total.');
         }
 
-        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - $calculatedDocumentTotal) > self::TOLERANCE) {
+        if (abs(($paidAmount + $deductionAmount + $outstandingBalance) - ($matchedStatus ? $authoritativeTotal : $calculatedDocumentTotal)) > self::TOLERANCE) {
             throw new \RuntimeException('Payment total mismatch: paid amount plus deduction and outstanding balance does not reconcile with calculated document total.');
         }
 
@@ -295,7 +317,7 @@ class ImportPaymentSummaryResolver
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool,drift_amount:float,drift_accepted:bool}
      */
-    public function resolveWithSalesPrecisionDrift(array $rows, float $calculatedDocumentTotal): array
+    public function resolveForSalesWithPrecisionDrift(array $rows, float $calculatedDocumentTotal): array
     {
         $calculatedDocumentTotal = round($calculatedDocumentTotal, 2);
 
@@ -357,6 +379,28 @@ class ImportPaymentSummaryResolver
         if ($status === 'lunas' || $status === 'paid') {
             $paidAmount = max($totalToReconcile - $deductionAmount, 0.0);
             $outstandingBalance = 0.0;
+            $matchedStatus = true;
+        } elseif ($status === 'belum dibayar') {
+            $paidAmount = 0.0;
+            $outstandingBalance = max($totalToReconcile - $deductionAmount, 0.0);
+            $matchedStatus = true;
+        } elseif ($status === 'terbayar sebagian') {
+            $cashCap = max($totalToReconcile - $deductionAmount, 0.0);
+            $paidAmount = min($explicitPaidAmount ?? 0.0, $cashCap);
+            $paidAmount = max($paidAmount, 0.0);
+            $outstandingBalance = max($totalToReconcile - $paidAmount - $deductionAmount, 0.0);
+            $matchedStatus = true;
+        } elseif ($status === 'lewat jatuh tempo') {
+            $paidAmount = $explicitPaidAmount ?? 0.0;
+            if ($paidAmount > 0.01) {
+                $cashCap = max($totalToReconcile - $deductionAmount, 0.0);
+                $paidAmount = min($paidAmount, $cashCap);
+                $paidAmount = max($paidAmount, 0.0);
+                $outstandingBalance = max($totalToReconcile - $paidAmount - $deductionAmount, 0.0);
+            } else {
+                $paidAmount = 0.0;
+                $outstandingBalance = max($totalToReconcile - $deductionAmount, 0.0);
+            }
             $matchedStatus = true;
         }
 

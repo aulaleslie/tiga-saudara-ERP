@@ -213,10 +213,6 @@ class SalesImportService
             ->first();
     }
 
-    /**
-     * Resolve tenant using effective owner priority:
-     * Daizu product (Priority 0), then mapped CSV Tag (Priority 1), then product marker fallback (Priority 2).
-     */
     public function resolveTenant(?string $tag, string $productName): ?Setting
     {
         // Priority 0: Check for Daizu product
@@ -224,30 +220,19 @@ class SalesImportService
             return $this->getDaizuSetting();
         }
 
-        // Priority 1: Mapped CSV Tag
-        $tagSetting = $this->getSettingForTag($tag);
-        if ($tagSetting) {
-            return $tagSetting;
-        }
-
-        // Priority 2: Product marker fallback
+        // Priority 1: Product marker
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
 
     /**
      * Resolve a stable effective-owner grouping key for a row.
-     * Daizu (Priority 0), then mapped CSV Tag (Priority 1), then product marker (Priority 2).
+     * Daizu (Priority 0), then product marker (Priority 1).
      */
     public function resolveEffectiveOwnerKey(?string $tag, string $productName): string
     {
         if ($this->isDaizuProduct($productName)) {
             return 'daizu';
-        }
-
-        $normalizedTag = strtolower(trim((string) $tag));
-        if ($normalizedTag !== '' && isset($this->tagMapping[$normalizedTag])) {
-            return 'tag:' . $this->tagMapping[$normalizedTag];
         }
 
         $parsed = $this->parseProductName($productName);
@@ -256,8 +241,7 @@ class SalesImportService
 
     /**
      * Resolve the Setting (Tenant) where stock should be affected.
-     * Uses the effective owner rule: Daizu (Priority 0), mapped CSV Tag (Priority 1),
-     * then product-name marker fallback (Priority 2).
+     * Uses the effective owner rule: Daizu (Priority 0), then product-name marker (Priority 1).
      */
     public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
     {
@@ -271,16 +255,10 @@ class SalesImportService
             return $daizuSetting;
         }
 
-        // Rule 1: Mapped CSV Tag
-        $tagSetting = $this->getSettingForTag($tag);
-        if ($tagSetting) {
-            return $tagSetting;
-        }
-
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
-        // Rule 2: Product marker fallback
+        // Rule 1: Product marker
         if ($marker === 'asterisk') {
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) {
@@ -878,20 +856,20 @@ class SalesImportService
         $summaryB = null;
 
         try {
-            $summaryB = $this->paymentSummaryResolver->resolve($allRows, $totalB);
+            $summaryB = $this->paymentSummaryResolver->resolveForSales($allRows, $totalB);
         } catch (\RuntimeException $e) {
             try {
-                $summaryB = $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $totalB);
+                $summaryB = $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift($allRows, $totalB);
             } catch (\RuntimeException $driftError) {
                 $errorB = $e;
             }
         }
 
         try {
-            $this->paymentSummaryResolver->resolve($allRows, $totalA);
+            $this->paymentSummaryResolver->resolveForSales($allRows, $totalA);
         } catch (\RuntimeException $e) {
             try {
-                $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $totalA);
+                $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift($allRows, $totalA);
             } catch (\RuntimeException $driftError) {
                 $errorA = $e;
             }
@@ -928,10 +906,10 @@ class SalesImportService
         $driftAccepted = false;
         
         try {
-            $paymentSummary = $this->paymentSummaryResolver->resolve($allRows, $sourceInvoiceTotal);
+            $paymentSummary = $this->paymentSummaryResolver->resolveForSales($allRows, $sourceInvoiceTotal);
         } catch (\RuntimeException $e) {
             try {
-                $paymentSummary = $this->paymentSummaryResolver->resolveWithSalesPrecisionDrift($allRows, $sourceInvoiceTotal);
+                $paymentSummary = $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift($allRows, $sourceInvoiceTotal);
                 $driftAccepted = true;
                 $driftAmount = $paymentSummary['drift_amount'];
                 
@@ -1050,6 +1028,14 @@ class SalesImportService
         $totalAmount = 0.0;
         $totalTaxAmount = 0.0;
 
+        if (empty($rows)) {
+            return 0.0;
+        }
+
+        $firstRowData = $rows[0]->raw_json;
+        $setting = $this->resolveTenant($firstRowData['tag'] ?? null, $firstRowData['produk'] ?? '');
+        $isPkp = $setting ? ($setting->is_pkp ?? false) : false;
+
         foreach ($rows as $row) {
             $rowData = $row->raw_json;
 
@@ -1063,6 +1049,10 @@ class SalesImportService
             } else {
                 $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
                 $taxAmount = $taxRateFromCsv > 0 ? ($quantity * $unitPriceDpp) * ($taxRateFromCsv / 100) : 0;
+            }
+
+            if (!$isPkp) {
+                $taxAmount = 0;
             }
 
             $totalAmount += $quantity * $unitPriceDpp;
@@ -1096,6 +1086,8 @@ class SalesImportService
         $productName = $data['produk'] ?? '';
         $isDaizu = $this->isDaizuProduct($productName);
         $setting = $this->resolveTenant($tag, $productName);
+
+        $isPkp = $setting->is_pkp ?? false;
 
         // For Daizu products, validate that the setting exists
         if ($isDaizu && !$setting) {
@@ -1219,12 +1211,18 @@ class SalesImportService
                     $taxAmount = $taxRateFromCsv > 0 ? $subtotalDpp * ($taxRateFromCsv / 100) : 0;
                 }
 
+                if (!$isPkp) {
+                    $taxAmount = 0;
+                }
+
                 $totalAmount += $subtotalDpp;
                 $totalTaxAmount += $taxAmount;
 
                 // Get tax: prefer tarif_pajak from CSV, fallback to calculated percentage
                 $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
-                if ($taxRateFromCsv > 0) {
+                if (!$isPkp) {
+                    $tax = null;
+                } elseif ($taxRateFromCsv > 0) {
                     $tax = $this->findOrCreateTax($taxRateFromCsv);
                 } else {
                     if ($taxAmount > 0 && $subtotalDpp > 0) {
@@ -1479,43 +1477,7 @@ class SalesImportService
                 }
             }
 
-            // Get or create ProductStock for this product/location (use cache)
-            $locationCacheKey = "location_{$location->id}";
-            $productStock = $this->productStocksCache[$locationCacheKey][$product->id] ?? null;
 
-            if (!$productStock) {
-                $productStock = ProductStock::firstOrCreate(
-                    [
-                        'product_id' => $product->id,
-                        'location_id' => $location->id,
-                    ],
-                    [
-                        'quantity' => 0,
-                        'quantity_tax' => 0,
-                        'quantity_non_tax' => 0,
-                        'broken_quantity' => 0,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                    ]
-                );
-                // Cache it
-                $this->productStocksCache[$locationCacheKey][$product->id] = $productStock;
-            }
-
-            // Capture previous quantities
-            $previousQuantity = $product->product_quantity ?? 0;
-            $previousQuantityAtLocation = $productStock->quantity ?? 0;
-
-            // Decrement stock (can go negative for imported historical data)
-            $productStock->decrement('quantity', $quantity);
-            if ($taxId) {
-                $productStock->decrement('quantity_tax', $quantity);
-            } else {
-                $productStock->decrement('quantity_non_tax', $quantity);
-            }
-
-            // Decrement product global quantity
-            $product->decrement('product_quantity', $quantity);
 
             // Create DispatchDetail
             DispatchDetail::create([
@@ -1528,28 +1490,7 @@ class SalesImportService
                 'serial_numbers' => json_encode([]),
             ]);
 
-            // Create Transaction log with sale date
-            Transaction::create([
-                'product_id' => $product->id,
-                'setting_id' => $stockSetting->id, // Log transaction against the Stock Owner
-                'quantity' => -$quantity,
-                'current_quantity' => $product->product_quantity,
-                'broken_quantity' => 0,
-                'location_id' => $location->id, // Resolved Location
-                'user_id' => auth()->id() ?? 1,
-                'reason' => 'Imported from Sale #' . $sale->reference . ' (Source: ' . $setting->company_name . ')',
-                'type' => 'DISPATCH',
-                'previous_quantity' => $previousQuantity,
-                'after_quantity' => $product->product_quantity,
-                'previous_quantity_at_location' => $previousQuantityAtLocation,
-                'after_quantity_at_location' => $productStock->quantity,
-                'quantity_non_tax' => $taxId ? 0 : $quantity,
-                'quantity_tax' => $taxId ? $quantity : 0,
-                'broken_quantity_non_tax' => 0,
-                'broken_quantity_tax' => 0,
-                'created_at' => $saleDate,
-                'updated_at' => $saleDate,
-            ]);
+
         }
 
         Log::info('[SalesImport] Created dispatch', [
