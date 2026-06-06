@@ -902,7 +902,7 @@ class SalesImportService
 
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
         
-        $driftAmount = 0.0;
+        $appliedDriftAllocations = [];
         $driftAccepted = false;
         
         try {
@@ -912,29 +912,58 @@ class SalesImportService
                 $paymentSummary = $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift($allRows, $sourceInvoiceTotal);
                 $driftAccepted = true;
                 $driftAmount = $paymentSummary['drift_amount'];
-                
-                $sourceInvoiceTotal = $paymentSummary['source_total'];
-                
-                $appliedDriftAllocations = [];
-                $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupGrossTotals, abs($driftAmount));
-                $driftSign = $driftAmount <=> 0;
-                
+            } catch (\RuntimeException $driftError) {
+                // If drift is not accepted, throw the original reconciliation error to maintain error messages
+                throw $e;
+            }
+        }
+
+        // Sales imports usually calculate document total strictly from line items. However, if the
+        // source total is authoritative (e.g. Lunas status) or precision drift was accepted, the
+        // generated sale totals must be adjusted to reconcile with it before settlement is allocated.
+        $reconciledTotal = round(
+            $paymentSummary['paid_amount'] + 
+            ($paymentSummary['deduction_amount'] ?? 0.0) + 
+            $paymentSummary['outstanding_balance'],
+            2
+        );
+
+        $sourceDelta = round($reconciledTotal - $sourceInvoiceTotal, 2);
+
+        if (abs($sourceDelta) > 0.01) {
+            $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupTotals, abs($sourceDelta));
+            $driftSign = $sourceDelta <=> 0;
+
+            foreach ($groupTotals as $groupKey => $groupTotal) {
+                $appliedDriftAllocations[$groupKey] = round($driftAllocations[$groupKey] * $driftSign, 2);
+                $groupTotals[$groupKey] = round($groupTotal + $appliedDriftAllocations[$groupKey], 2);
+            }
+
+            $postAdjustmentTotal = round(array_sum($groupTotals), 2);
+            $remainder = round($reconciledTotal - $postAdjustmentTotal, 2);
+            if (abs($remainder) > 0.0) {
+                $remainderKey = array_key_first($groupTotals);
                 foreach ($groupTotals as $groupKey => $groupTotal) {
-                    $appliedDriftAllocations[$groupKey] = $driftAllocations[$groupKey] * $driftSign;
-                    $groupTotals[$groupKey] = round($groupTotal + $appliedDriftAllocations[$groupKey], 2);
+                    if ($groupTotal > ($groupTotals[$remainderKey] ?? -INF)) {
+                        $remainderKey = $groupKey;
+                    }
                 }
-                
+
+                $appliedDriftAllocations[$remainderKey] = round(($appliedDriftAllocations[$remainderKey] ?? 0.0) + $remainder, 2);
+                $groupTotals[$remainderKey] = round($groupTotals[$remainderKey] + $remainder, 2);
+            }
+
+            $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
+            
+            if ($driftAccepted) {
                 Log::info('[SalesImport] Accepted precision drift for source invoice', [
                     'batch_id' => $batch->id,
                     'invoice_number' => $allRows[0]['no_faktur'] ?? 'unknown',
                     'source_total' => $sourceInvoiceTotal,
-                    'recomputed_adjusted_total' => round($sourceInvoiceTotal - $driftAmount, 2),
-                    'drift_amount' => $driftAmount,
+                    'recomputed_adjusted_total' => round($sourceInvoiceTotal - $sourceDelta, 2),
+                    'drift_amount' => $sourceDelta,
                     'row_ids' => $rowIds,
                 ]);
-            } catch (\RuntimeException $driftError) {
-                // If drift is not accepted, throw the original reconciliation error to maintain error messages
-                throw $e;
             }
         }
 
@@ -1280,7 +1309,7 @@ class SalesImportService
                 }
             }
 
-            $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($groupPaidAmount > 0.01 ? 'Partial' : 'Unpaid');
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($groupPaidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
 
             // Create sale
             $sale = new Sale();

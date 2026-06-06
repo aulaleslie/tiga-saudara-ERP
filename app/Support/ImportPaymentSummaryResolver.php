@@ -14,6 +14,16 @@ class ImportPaymentSummaryResolver
     public const SALES_PRECISION_DRIFT_RELATIVE = 0.00000005;
 
     /**
+     * @deprecated Use resolveForSales() instead.
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
+     */
+    public function resolve(array $rows, float $calculatedDocumentTotal): array
+    {
+        return $this->resolveForSales($rows, $calculatedDocumentTotal);
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{source_total:?float,outstanding_balance:float,paid_amount:float,deduction_amount:float,needs_payment:bool}
      */

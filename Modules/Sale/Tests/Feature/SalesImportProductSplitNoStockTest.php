@@ -141,7 +141,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ],
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-001')->first();
         $this->assertNotNull($sale);
@@ -178,7 +178,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ],
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-002')->first();
         $this->assertNotNull($sale);
@@ -233,7 +233,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ]),
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sales = Sale::where('imported_sales_reference_number', 'MIX-100')->get();
         $this->assertCount(3, $sales);
@@ -272,7 +272,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ],
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-NONPKP')->first();
         $this->assertEquals(10000, $sale->total_amount); // 10 * 1000 + 0 tax
@@ -310,7 +310,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ],
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-PKP')->first();
         $this->assertEquals(11100, $sale->total_amount); // 10000 + 1100
@@ -346,7 +346,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
         // Ensure no initial transactions
         $initialTransactions = \Modules\Product\Entities\Transaction::count();
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-DISPATCH')->first();
         $this->assertEquals(\Modules\Sale\Entities\Sale::STATUS_DISPATCHED, $sale->status);
@@ -405,7 +405,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             ]),
         ]);
 
-        $this->service->processBatch($batch); dump('BATCH', $batch->fresh()->toArray(), 'ROWS', \Modules\Sale\Entities\SalesImportRow::all()->toArray());
+        $this->service->processBatch($batch);
 
         $daizuSale = Sale::where('imported_sales_reference_number', 'MIX-DISCOUNT')
             ->where('setting_id', $this->daizuSetting->id)->first();
