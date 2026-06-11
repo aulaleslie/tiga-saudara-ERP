@@ -48,6 +48,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('reports.mekari-converter.formatted-xlsx');
 
     Route::prefix('reports')->middleware(['web', 'auth'])->group(function () {
+        Route::get('/', 'ReportsController@index')->name('reports.index');
+
         Route::get('/invoice-generator', [MekariConverterController::class, 'showForm'])->name('reports.mekari-invoice-generator.index');
         Route::post('/invoice-generator', [MekariConverterController::class, 'generate'])->name('reports.mekari-invoice-generator.generate');
 

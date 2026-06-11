@@ -1,26 +1,34 @@
 ## ADDED Requirements
 
-### Requirement: PKP Default Tax Fallback
-The system SHALL prioritize product-specific tax configurations for PKP businesses, but MUST fallback to the system default tax or the first available tax if no explicit mapping exists, ensuring the cart retains a valid tax ID.
+### Requirement: Sales import tax follows resolved owner PKP status
+The sales importer SHALL apply CSV sales tax only when the generated sale's resolved owner setting is PKP, and SHALL suppress tax for non-PKP generated owner sales.
 
-#### Scenario: Product without specific tax added to PKP cart
-- **WHEN** a product is added to a sales cart in a PKP-enabled business environment, and the product lacks a specific sale tax mapping
-- **THEN** the system MUST auto-assign the explicit default tax (if one exists), or the first available tax in the system (if no default exists).
+#### Scenario: Asterisk owner row may retain CSV tax
+- **WHEN** a sales CSV row resolves to `CV TIGA NUSA COMPUTER` from a leading `*` product-name marker
+- **AND** that setting has `is_pkp = true`
+- **AND** the row has CSV `pajak` or `tarif_pajak`
+- **THEN** the importer MUST allow tax resolution for that row
+- **AND** the generated sale detail MAY persist a non-null `tax_id`
+- **AND** the generated sale detail MAY persist a positive `product_tax_amount`
 
-### Requirement: Proper Binding of PKP Tax Validation Errors
-The system SHALL NOT silently swallow PKP tax validation errors by binding them to unrelated input fields. Instead, it MUST provide clear, visible feedback when a cart item is missing a required tax ID.
+#### Scenario: TP owner row suppresses CSV tax when non-PKP
+- **WHEN** a sales CSV row resolves to `CV TOP IT INTERNUSA` from a ` TP` product-name suffix
+- **AND** that setting has `is_pkp = false`
+- **AND** the row has CSV `pajak` or `tarif_pajak`
+- **THEN** the importer MUST persist `tax_id` as null for that sale detail
+- **AND** the importer MUST persist `product_tax_amount` as `0.00`
+- **AND** the generated owner sale header tax amount MUST NOT include tax from that row
 
-#### Scenario: Saving a cart with missing taxes
-- **WHEN** the user attempts to save a sale and the PKP validation confirms a missing tax ID on any cart item
-- **THEN** the system MUST emit a visible flash notification (e.g., dispatch 'notify' with type 'error') or bind the validation failure to a general level that halts processing and alerts the user immediately, rather than failing silently on the `paymentTermId` field.
+#### Scenario: Perdana owner row suppresses CSV tax when non-PKP
+- **WHEN** a sales CSV row resolves to `PERDANA` from the unmarked product-name fallback
+- **AND** that setting has `is_pkp = false`
+- **AND** the row has CSV `pajak` or `tarif_pajak`
+- **THEN** the importer MUST persist `tax_id` as null for that sale detail
+- **AND** the importer MUST persist `product_tax_amount` as `0.00`
+- **AND** the generated owner sale header tax amount MUST NOT include tax from that row
 
-### Requirement: Dispatch tax bucket assignment preserves parent sale-line intent for bundle components
-The system SHALL preserve sale-line tax intent during dispatch by assigning each bundle component to the tax bucket implied by its parent sale detail tax status.
-
-#### Scenario: Bundled component under taxed sale detail
-- **WHEN** dispatch processing evaluates a bundle component whose parent sale detail is taxed
-- **THEN** stock checks and dispatch records for that component MUST use taxed bucket semantics.
-
-#### Scenario: Bundled component under non-tax sale detail
-- **WHEN** dispatch processing evaluates a bundle component whose parent sale detail is non-tax
-- **THEN** stock checks and dispatch records for that component MUST use non-tax bucket semantics.
+#### Scenario: Split invoice allocation uses persisted tax-gated totals
+- **WHEN** a source sales invoice splits into PKP and non-PKP generated owner sales
+- **AND** CSV tax fields are present on rows for multiple owners
+- **THEN** the importer MUST compute owner group totals using the same PKP-gated tax values that will be persisted to sale details
+- **AND** proportional document adjustment and payment allocation MUST be based on those persisted tax-gated owner totals
