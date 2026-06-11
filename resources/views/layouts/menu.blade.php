@@ -92,30 +92,45 @@
             </li>
         </ul>
         @endcanany
-        @can('saleReports.access')
-        @if(Route::has('reports.sale-report.index'))
+        @canany(['saleReports.access', 'saleReports.global.access'])
         <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.index') ? 'c-active' : '' }}"
-                   href="{{ route('reports.sale-report.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-graph-up-arrow" style="line-height: 1;"></i> Laporan Penjualan
+            <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.sale-report.*') || request()->routeIs('reports.sale-by-customer.*') ? 'c-show' : '' }}">
+                <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+                    <i class="c-sidebar-nav-icon bi bi-graph-up-arrow" style="line-height: 1;"></i> Penjualan
                 </a>
+                <ul class="c-sidebar-nav-dropdown-items">
+                    @can('saleReports.access')
+                    @if(Route::has('reports.sale-report.index'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.index') ? 'c-active' : '' }}"
+                               href="{{ route('reports.sale-report.index') }}">
+                                <i class="c-sidebar-nav-icon bi bi-clipboard-data" style="line-height: 1;"></i> Daftar Penjualan
+                            </a>
+                        </li>
+                    @endif
+                    @if(Route::has('reports.sale-by-customer.index'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-by-customer.*') ? 'c-active' : '' }}"
+                               href="{{ route('reports.sale-by-customer.index') }}">
+                                <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Penjualan Per Customer
+                            </a>
+                        </li>
+                    @endif
+                    @endcan
+                    @can('saleReports.global.access')
+                    @if(Route::has('reports.sale-report.global'))
+                        <li class="c-sidebar-nav-item">
+                            <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.global') ? 'c-active' : '' }}"
+                               href="{{ route('reports.sale-report.global') }}">
+                                <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Penjualan Global
+                            </a>
+                        </li>
+                    @endif
+                    @endcan
+                </ul>
             </li>
         </ul>
-        @endif
-        @endcan
-        @can('saleReports.global.access')
-        @if(Route::has('reports.sale-report.global'))
-        <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.global') ? 'c-active' : '' }}"
-                   href="{{ route('reports.sale-report.global') }}">
-                    <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Penjualan Global
-                </a>
-            </li>
-        </ul>
-        @endif
-        @endcan
+        @endcanany
         @can('stockMutationReports.access')
         @if(Route::has('reports.stock-mutation-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">

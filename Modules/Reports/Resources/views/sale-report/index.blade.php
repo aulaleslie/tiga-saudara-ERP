@@ -18,7 +18,7 @@
                         <i class="bi bi-globe"></i> <strong>Mode Global:</strong> Menampilkan data dari semua setting/cabang.
                     </div>
                 @endif
-                <livewire:reports.sale-report :customers="$customers" :isGlobal="$isGlobal" />
+                <livewire:reports.sale-report :isGlobal="$isGlobal" />
             </div>
         </div>
     </div>

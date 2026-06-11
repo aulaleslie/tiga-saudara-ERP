@@ -89,6 +89,7 @@ class SaleServiceProvider extends ServiceProvider
     {
         \Livewire\Livewire::component('sale::global-sales-search', \Modules\Sale\Http\Livewire\GlobalSalesSearch::class);
         \Livewire\Livewire::component('sale::global-sales-filters', \Modules\Sale\Http\Livewire\GlobalSalesFilters::class);
+        \Livewire\Livewire::component('sale.sale-summary-cards', \Modules\Sale\Livewire\SaleSummaryCards::class);
     }
 
     /**

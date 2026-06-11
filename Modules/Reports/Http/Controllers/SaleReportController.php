@@ -13,7 +13,6 @@ class SaleReportController extends Controller
         abort_if(Gate::denies('saleReports.access'), 403);
 
         return view('reports::sale-report.index', [
-            'customers' => Customer::all(),
             'isGlobal' => false,
         ]);
     }
@@ -23,7 +22,6 @@ class SaleReportController extends Controller
         abort_if(Gate::denies('saleReports.global.access'), 403);
 
         return view('reports::sale-report.index', [
-            'customers' => Customer::all(),
             'isGlobal' => true,
         ]);
     }

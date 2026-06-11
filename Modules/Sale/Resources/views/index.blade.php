@@ -28,6 +28,8 @@
 
                         <hr>
 
+                        <livewire:sale.sale-summary-cards />
+
                         <div class="table-responsive">
                             <livewire:sale.sale-table />
                         </div>
