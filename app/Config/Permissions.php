@@ -106,6 +106,8 @@ return [
         'expenses.create' => 'Buat',
         'expenses.edit' => 'Ubah',
         'expenses.delete' => 'Hapus',
+        'expenses.approval' => 'Persetujuan',
+        'expenses.archive' => 'Arsipkan',
     ],
 
     'Jurnal' => [

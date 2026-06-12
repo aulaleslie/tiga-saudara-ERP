@@ -1,18 +1,34 @@
 <div>
-    <form wire:submit.prevent="save" enctype="multipart/form-data">
+    <form enctype="multipart/form-data">
         <input type="hidden" wire:model="idempotencyToken">
-        <div class="d-flex justify-content-end mb-3">
+        <div class="d-flex justify-content-end mb-3 gap-2">
             <button
-                type="submit"
-                class="btn btn-primary"
+                type="button"
+                class="btn btn-secondary me-2"
+                wire:click="saveDraft"
                 wire:loading.attr="disabled"
-                wire:target="save"
+                wire:target="saveDraft,submitForApproval"
             >
-                <span wire:loading.remove wire:target="save">
-                    {{ $expenseId ? 'Ubah Biaya' : 'Simpan Biaya' }}
+                <span wire:loading.remove wire:target="saveDraft">
+                    Simpan Draft
+                </span>
+                <span wire:loading wire:target="saveDraft">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Memproses...
+                </span>
+            </button>
+            <button
+                type="button"
+                class="btn btn-primary"
+                wire:click="submitForApproval"
+                wire:loading.attr="disabled"
+                wire:target="saveDraft,submitForApproval"
+            >
+                <span wire:loading.remove wire:target="submitForApproval">
+                    Ajukan Persetujuan
                     <i class="bi bi-check"></i>
                 </span>
-                <span wire:loading wire:target="save">
+                <span wire:loading wire:target="submitForApproval">
                     <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
                     Memproses...
                 </span>
@@ -66,7 +82,12 @@
                     @foreach($details as $index => $row)
                         <tr wire:key="detail-{{ $row['id'] ?? 'new-'.$index }}">
                             <td>
-                                <input type="text" class="form-control" wire:model="details.{{ $index }}.name">
+                                <datalist id="expenseNames">
+                                    @foreach($suggestedNames as $name)
+                                        <option value="{{ $name }}">
+                                    @endforeach
+                                </datalist>
+                                <input type="text" list="expenseNames" class="form-control" wire:model="details.{{ $index }}.name">
                                 @error("details.$index.name") <span class="text-danger small">{{ $message }}</span> @enderror
                             </td>
                             <td>
@@ -163,17 +184,33 @@
             </div>
         </div>
 
-        <div class="form-group">
+        <div class="form-group d-flex gap-2">
             <button
-                type="submit"
-                class="btn btn-success"
+                type="button"
+                class="btn btn-secondary me-2"
+                wire:click="saveDraft"
                 wire:loading.attr="disabled"
-                wire:target="save"
+                wire:target="saveDraft,submitForApproval"
             >
-                <span wire:loading.remove wire:target="save">
-                    {{ $expenseId ? 'Perbarui' : 'Simpan' }}
+                <span wire:loading.remove wire:target="saveDraft">
+                    Simpan Draft
                 </span>
-                <span wire:loading wire:target="save">
+                <span wire:loading wire:target="saveDraft">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Memproses...
+                </span>
+            </button>
+            <button
+                type="button"
+                class="btn btn-success"
+                wire:click="submitForApproval"
+                wire:loading.attr="disabled"
+                wire:target="saveDraft,submitForApproval"
+            >
+                <span wire:loading.remove wire:target="submitForApproval">
+                    Ajukan Persetujuan
+                </span>
+                <span wire:loading wire:target="submitForApproval">
                     <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
                     Memproses...
                 </span>

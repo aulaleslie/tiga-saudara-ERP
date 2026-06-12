@@ -16,6 +16,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Expense Category
     Route::resource('expense-categories', 'ExpenseCategoriesController')->except('show', 'create');
     //Expense
-    Route::resource('expenses', 'ExpenseController')->except('show');
+    Route::resource('expenses', 'ExpenseController');
+    Route::post('expenses/{expense}/submit', 'ExpenseController@submit')->name('expenses.submit')->middleware('idempotency');
+    Route::post('expenses/{expense}/approve', 'ExpenseController@approve')->name('expenses.approve')->middleware('idempotency');
+    Route::post('expenses/{expense}/reject', 'ExpenseController@reject')->name('expenses.reject')->middleware('idempotency');
+    Route::post('expenses/{expense}/archive', 'ExpenseController@archive')->name('expenses.archive');
 
 });

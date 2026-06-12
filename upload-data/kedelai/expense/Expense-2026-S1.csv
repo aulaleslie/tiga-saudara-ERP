@@ -1,0 +1,42 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+06/01/2026	,Expense,10476	,PLN,"",PLN,321012.0,0.0,Paid,0.0
+12/01/2026	,Expense,10486	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1400000.0,0.0,Paid,0.0
+12/01/2026	,Expense,10489	,Beban Pajak - Kini,"",PAJAK AGUS,1053765.0,0.0,Paid,0.0
+12/01/2026	,Expense,10485	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,4431949.0,0.0,Paid,0.0
+12/01/2026	,Expense,10488	,Beban Pajak - Kini,"",PAJAK ARIES,1529580.0,0.0,Paid,0.0
+12/01/2026	,Expense,10487	,Beban Pajak - Kini,"",PAJAK RAHMAT,2125735.0,0.0,Paid,0.0
+31/01/2026	,Expense,10477	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,851460.0,0.0,Paid,0.0
+01/02/2026	,Expense,10478	,PLN,"",PLN,301764.0,0.0,Paid,0.0
+11/02/2026	,Expense,10481	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+11/02/2026	,Expense,10483	,Beban Pajak - Kini,"",PAJAK RAHMAT,2705350.0,0.0,Paid,0.0
+11/02/2026	,Expense,10482	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,880000.0,0.0,Paid,0.0
+11/02/2026	,Expense,10479	,Beban Pajak - Kini,"",PAJAK AGUS,6500.0,0.0,Paid,0.0
+11/02/2026	,Expense,10484	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,663750.0,0.0,Paid,0.0
+11/02/2026	,Expense,10480	,Beban Pajak - Kini,"",PAJAK ARIES,3229520.0,0.0,Paid,0.0
+12/03/2026	,Expense,10490	,Beban Pajak - Kini,"",PAJAK AGUS,2005350.0,0.0,Paid,0.0
+12/03/2026	,Expense,10492	,Beban Pajak - Kini,"",PAJAK RAHMAT,1341500.0,0.0,Paid,0.0
+12/03/2026	,Expense,10495	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1025000.0,0.0,Paid,0.0
+12/03/2026	,Expense,10493	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,318250.0,0.0,Paid,0.0
+12/03/2026	,Expense,10491	,Beban Pajak - Kini,"",PAJAK ARIES,1002285.0,0.0,Paid,0.0
+12/03/2026	,Expense,10494	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+12/03/2026	,Expense,10496	,PLN,"",PLN,284283.0,0.0,Paid,0.0
+02/04/2026	,Expense,10497	,PLN,"",PLN,263624.0,0.0,Paid,0.0
+13/04/2026	,Expense,10501	,Beban Pajak - Kini,"",PAJAK AGUS,102500.0,0.0,Paid,0.0
+13/04/2026	,Expense,10500	,Beban Pajak - Kini,"",PAJAK RAHMAT,887500.0,0.0,Paid,0.0
+13/04/2026	,Expense,10499	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,192400.0,0.0,Paid,0.0
+13/04/2026	,Expense,10503	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+13/04/2026	,Expense,10502	,Beban Pajak - Kini,"",PAJAK ARIES,1040000.0,0.0,Paid,0.0
+13/04/2026	,Expense,10498	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1665000.0,0.0,Paid,0.0
+02/05/2026	,Expense,10504	,PLN,"",PLN,303353.0,0.0,Paid,0.0
+11/05/2026	,Expense,10506	,Beban Pajak - Kini,"",PAJAK ARIES,803750.0,0.0,Paid,0.0
+11/05/2026	,Expense,10508	,Beban Pajak - Kini,"",PAJAK ARIES,771000.0,0.0,Paid,0.0
+11/05/2026	,Expense,10505	,Beban Pajak - Kini,"",PAJAK ARIES,1000000.0,0.0,Paid,0.0
+11/05/2026	,Expense,10507	,Beban Pajak - Kini,"",PAJAK ARIES,438485.0,0.0,Paid,0.0
+11/05/2026	,Expense,10509	,Beban Pajak - Kini,"",PAJAK ARIES,1295000.0,0.0,Paid,0.0
+14/05/2026	,Expense,10513	,Beban Pajak - Kini,"",PAJAK AGUS,1380625.0,0.0,Paid,0.0
+14/05/2026	,Expense,10515	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,130825.0,0.0,Paid,0.0
+14/05/2026	,Expense,10510	,Beban Pajak - Kini,"",PAJAK RAHMAT,633550.0,0.0,Paid,0.0
+14/05/2026	,Expense,10512	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+14/05/2026	,Expense,10514	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,650000.0,0.0,Paid,0.0
+14/05/2026	,Expense,10511	,Beban Pajak - Kini,"",PAJAK ARIES,321750.0,0.0,Paid,0.0
+01/06/2026	,Expense,10516	,PLN,"",PLN,319245.0,0.0,Paid,0.0

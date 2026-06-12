@@ -166,7 +166,9 @@ class ProfitLossReport extends Component
             })
             ->sum('total_amount') / 100;
 
-        $this->expenses_amount = Expense::when($this->start_date, function ($query) {
+        $this->expenses_amount = Expense::where('status', Expense::STATUS_APPROVED)
+            ->whereNull('archived_at')
+            ->when($this->start_date, function ($query) {
                 return $query->whereDate('date', '>=', $this->start_date);
             })
             ->when($this->end_date, function ($query) {

@@ -13,7 +13,17 @@ class Expense extends BaseModel implements HasMedia
 {
     use InteractsWithMedia;
 
+    public const STATUS_DRAFT = 'DRAFT';
+    public const STATUS_SUBMITTED = 'SUBMITTED';
+    public const STATUS_APPROVED = 'APPROVED';
+    public const STATUS_REJECTED = 'REJECTED';
+
     protected $guarded = [];
+
+    protected $casts = [
+        'date' => 'date',
+        'archived_at' => 'datetime',
+    ];
 
     /**
      * Category relationship
@@ -32,6 +42,23 @@ class Expense extends BaseModel implements HasMedia
     }
 
     /**
+     * User who archived the expense
+     */
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'archived_by');
+    }
+
+    /**
+     * Scope for active approved expenses (not archived)
+     */
+    public function scopeActiveApproved($query)
+    {
+        return $query->where('status', self::STATUS_APPROVED)
+                     ->whereNull('archived_at');
+    }
+
+    /**
      * Media collection for uploaded files
      */
     public function registerMediaCollections(): void
@@ -47,22 +74,30 @@ class Expense extends BaseModel implements HasMedia
         parent::boot();
 
         static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
+            if (empty($model->reference)) {
+                $year = now()->year;
+                $month = str_pad(now()->month, 2, '0', STR_PAD_LEFT);
+                $settingId = $model->setting_id;
 
-            $latestReference = Expense::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
+                $setting = \Modules\Setting\Entities\Setting::find($settingId);
+                $documentPrefix = $setting ? $setting->document_prefix : 'INV';
+                $prefix = $documentPrefix ? "{$documentPrefix}-EXP" : 'EXP';
 
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
+                $latestReference = Expense::where('setting_id', $settingId)
+                    ->whereYear('created_at', $year)
+                    ->whereMonth('created_at', now()->month)
+                    ->latest('id')
+                    ->value('reference');
+
+                $nextNumber = 1;
+                if ($latestReference) {
+                    $parts = explode('-', $latestReference);
+                    $lastNumber = (int) end($parts);
+                    $nextNumber = $lastNumber + 1;
+                }
+
+                $model->reference = sprintf('%s-%s-%s-%05d', $prefix, $year, $month, $nextNumber);
             }
-
-            $model->reference = make_reference_id('EXP', $year, $month, $nextNumber);
         });
     }
 

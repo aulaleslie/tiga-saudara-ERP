@@ -32,7 +32,8 @@ class ExpenseForm extends Component
         $this->idempotencyToken = $idempotencyToken ?? (string) Str::uuid();
         $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
 
-        if ($expense) {
+        if ($expense && $expense->exists) {
+            app(\Modules\Expense\Services\ExpenseService::class)->verifySettingOwnership($expense);
             $this->hydrateFromExpense($expense);
             return;
         }
@@ -100,7 +101,17 @@ class ExpenseForm extends Component
         }
     }
 
-    public function save()
+    public function saveDraft()
+    {
+        $this->processSave(Expense::STATUS_DRAFT);
+    }
+
+    public function submitForApproval()
+    {
+        $this->processSave(Expense::STATUS_SUBMITTED);
+    }
+
+    private function processSave($status)
     {
         $this->dispatch('expense:submit-start');
 
@@ -121,13 +132,22 @@ class ExpenseForm extends Component
 
             $this->normalizeAmounts();
 
-            $settingId = session('setting_id');
-            $totalAmount = $this->calculateTotalAmount();
+            $data = [
+                'setting_id' => session('setting_id'),
+                'date' => $this->date,
+                'category_id' => $this->category_id,
+                'details' => $this->details,
+                'files' => $this->files,
+                'removed_attachment_ids' => $this->removedAttachmentIds,
+                'is_tax_included' => $this->is_tax_included,
+                'status' => $status,
+            ];
 
             if ($this->expenseId) {
-                $this->updateExpense($totalAmount);
+                $expense = Expense::with('details', 'media')->findOrFail($this->expenseId);
+                app(\Modules\Expense\Services\ExpenseService::class)->saveExpense($data, $expense);
             } else {
-                $this->createExpense($settingId, $totalAmount);
+                app(\Modules\Expense\Services\ExpenseService::class)->saveExpense($data);
             }
 
             return redirect()->route('expenses.index');
@@ -138,9 +158,17 @@ class ExpenseForm extends Component
 
     public function render()
     {
+        $suggestedNames = \Illuminate\Support\Facades\DB::table('expense_details')
+            ->select('name')
+            ->distinct()
+            ->limit(50)
+            ->pluck('name')
+            ->toArray();
+
         return view('livewire.expense.expense-form', [
             'categories' => ExpenseCategory::all(),
             'taxes' => Tax::all(),
+            'suggestedNames' => $suggestedNames,
         ]);
     }
 
@@ -258,70 +286,7 @@ class ExpenseForm extends Component
         return (float) ($this->taxRates[$taxId] ?? 0);
     }
 
-    private function createExpense($settingId, float $totalAmount): void
-    {
-        $expense = Expense::create([
-            'date' => $this->date,
-            'category_id' => $this->category_id,
-            'amount' => $totalAmount,
-            'setting_id' => $settingId,
-        ]);
 
-        foreach ($this->details as $detail) {
-            $expense->details()->create([
-                'name' => $detail['name'],
-                'tax_id' => $detail['tax_id'],
-                'amount' => $detail['amount'],
-            ]);
-        }
-
-        foreach ($this->files as $file) {
-            $expense->addMedia($file)->toMediaCollection('attachments');
-        }
-
-        toast('Expense Created!', 'success');
-    }
-
-    private function updateExpense(float $totalAmount): void
-    {
-        $expense = Expense::with('details', 'media')->findOrFail($this->expenseId);
-
-        $expense->update([
-            'date' => $this->date,
-            'category_id' => $this->category_id,
-            'amount' => $totalAmount,
-        ]);
-
-        $existingIds = $expense->details->pluck('id')->all();
-        $retainedIds = [];
-
-        foreach ($this->details as $detail) {
-            $detailData = Arr::only($detail, ['name', 'tax_id', 'amount']);
-
-            if (!empty($detail['id']) && in_array($detail['id'], $existingIds, true)) {
-                $expense->details()->whereKey($detail['id'])->update($detailData);
-                $retainedIds[] = $detail['id'];
-            } else {
-                $newDetail = $expense->details()->create($detailData);
-                $retainedIds[] = $newDetail->id;
-            }
-        }
-
-        $idsToDelete = array_diff($existingIds, $retainedIds);
-        if (!empty($idsToDelete)) {
-            $expense->details()->whereIn('id', $idsToDelete)->delete();
-        }
-
-        if (!empty($this->removedAttachmentIds)) {
-            $expense->media()->whereIn('id', $this->removedAttachmentIds)->get()->each->delete();
-        }
-
-        foreach ($this->files as $file) {
-            $expense->addMedia($file)->toMediaCollection('attachments');
-        }
-
-        toast('Expense Updated!', 'info');
-    }
 
     private function extractFloat($value): float
     {

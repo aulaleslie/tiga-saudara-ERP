@@ -18,14 +18,49 @@ class ExpensesDataTable extends DataTable
             ->addColumn('amount', function ($data) {
                 return format_currency($data->amount);
             })
+            ->addColumn('status', function ($data) {
+                $badges = [
+                    'DRAFT' => 'badge-secondary',
+                    'SUBMITTED' => 'badge-primary',
+                    'APPROVED' => 'badge-success',
+                    'REJECTED' => 'badge-danger',
+                ];
+                $labels = [
+                    'DRAFT' => 'Draft',
+                    'SUBMITTED' => 'Diajukan',
+                    'APPROVED' => 'Disetujui',
+                    'REJECTED' => 'Ditolak',
+                ];
+                $badgeClass = $badges[$data->status] ?? 'badge-info';
+                $label = $labels[$data->status] ?? $data->status;
+                
+                $html = '<span class="badge ' . $badgeClass . '">' . $label . '</span>';
+                if ($data->archived_at) {
+                    $html .= '<br><span class="badge badge-dark mt-1">Diarsipkan</span>';
+                }
+                return $html;
+            })
             ->addColumn('action', function ($data) {
                 return view('expense::expenses.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['status', 'action']);
     }
 
     public function query(Expense $model) {
         $currentSettingId = session('setting_id');
-        return $model->newQuery()->where('setting_id', $currentSettingId)->with('category');
+        $query = $model->newQuery()->where('setting_id', $currentSettingId)->with('category');
+
+        if (request()->has('status') && request('status') != '') {
+            $query->where('status', request('status'));
+        }
+        
+        if (request('archived') == '1') {
+            $query->whereNotNull('archived_at');
+        } else {
+            $query->whereNull('archived_at');
+        }
+
+        return $query;
     }
 
     public function html() {
@@ -69,6 +104,10 @@ class ExpensesDataTable extends DataTable
 
             Column::make('details')
                 ->title('Rincian')
+                ->className('text-center align-middle'),
+
+            Column::computed('status')
+                ->title('Status')
                 ->className('text-center align-middle'),
 
             Column::computed('action')

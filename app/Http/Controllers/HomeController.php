@@ -117,7 +117,9 @@ class HomeController extends Controller
             ->groupBy('month')->orderBy('month')
             ->get()->pluck('amount', 'month');
 
-        $expenses = Expense::where('date', '>=', $date_range)
+        $expenses = Expense::where('status', Expense::STATUS_APPROVED)
+            ->whereNull('archived_at')
+            ->where('date', '>=', $date_range)
             ->select([
                 DB::raw("DATE_FORMAT(date, '%m-%Y') as month"),
                 DB::raw("SUM(amount) as amount")

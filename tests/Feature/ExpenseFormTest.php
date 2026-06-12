@@ -21,8 +21,6 @@ class ExpenseFormTest extends TestCase
 
     public function test_expense_detail_without_tax_is_saved_with_null_tax_id(): void
     {
-        $this->dropExpenseDetailsColumn();
-
         $category = ExpenseCategory::create([
             'category_name' => 'Travel',
         ]);
@@ -36,7 +34,7 @@ class ExpenseFormTest extends TestCase
                     'amount' => '150000',
                 ],
             ])
-            ->call('save')
+            ->call('saveDraft')
             ->assertHasNoErrors();
 
         $detail = ExpenseDetail::first();
@@ -47,7 +45,27 @@ class ExpenseFormTest extends TestCase
 
     public function test_editing_expense_updates_rows_taxes_and_total(): void
     {
-        $this->dropExpenseDetailsColumn();
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Test Company',
+            'company_email' => 'test@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'test@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
 
         Storage::fake('public');
 
@@ -105,7 +123,7 @@ class ExpenseFormTest extends TestCase
             ])
             ->set('files', [$newAttachment])
             ->call('removeExistingAttachment', $existingMediaId)
-            ->call('save')
+            ->call('saveDraft')
             ->assertRedirect(route('expenses.index'));
 
         $expense->refresh();
@@ -138,14 +156,4 @@ class ExpenseFormTest extends TestCase
         $this->assertEquals('new-receipt.pdf', $expense->getMedia('attachments')->first()->file_name);
     }
 
-    private function dropExpenseDetailsColumn(): void
-    {
-        if (! Schema::hasColumn('expenses', 'details')) {
-            return;
-        }
-
-        Schema::table('expenses', function (Blueprint $table) {
-            $table->dropColumn('details');
-        });
-    }
 }
