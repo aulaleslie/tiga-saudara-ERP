@@ -131,10 +131,9 @@ class ExpenseFormTest extends TestCase
 
         $this->assertSame(2, $expense->details()->count());
 
-        // Note: The name 'Taxi Ride' is not uppercased because it uses update() on query builder in the component
         $this->assertDatabaseHas('expense_details', [
             'id' => $detailWithTax->id,
-            'name' => 'Taxi Ride',
+            'name' => 'TAXI RIDE',
             'tax_id' => $tax->id,
             'amount' => 75000.00,
         ]);
@@ -157,4 +156,116 @@ class ExpenseFormTest extends TestCase
         $this->assertEquals('new-receipt.pdf', $expense->getMedia('attachments')->first()->file_name);
     }
 
+    public function test_pkp_expense_with_default_tax_and_tax_included_calculates_correctly(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $tax = Tax::create([
+            'name' => 'VAT 11%',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Test Company',
+            'company_email' => 'test@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'test@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create([
+            'category_name' => 'Office Supplies',
+        ]);
+
+        Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('category_id', $category->id)
+            ->set('is_tax_included', true)
+            ->set('details', [
+                [
+                    'name' => 'Printer Ink',
+                    'tax_id' => $tax->id,
+                    'amount' => '100000',
+                ],
+            ])
+            ->assertSet('totalBeforeTaxFormatted', 'Rp 90.090')
+            ->assertSet('totalTaxFormatted', 'Rp 9.910')
+            ->assertSet('totalFormatted', 'Rp 100.000')
+            ->call('saveDraft')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('expenses.index'));
+
+        $expense = Expense::first();
+        $this->assertNotNull($expense);
+
+        // When tax is included, gross amount is just sum of details
+        $this->assertEquals(100000.0, $expense->amount);
+        $this->assertTrue($expense->is_tax_included);
+
+        $detail = $expense->details()->first();
+        $this->assertEquals('PRINTER INK', $detail->name);
+        $this->assertEquals(100000.0, $detail->amount);
+        $this->assertEquals($tax->id, $detail->tax_id);
+    }
+
+    public function test_non_pkp_expense_ignores_tax_included_payload(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Non PKP Company',
+            'company_email' => 'test@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'test@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => false,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create([
+            'category_name' => 'Office Supplies',
+        ]);
+
+        Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('category_id', $category->id)
+            ->set('is_tax_included', true) // Attempt to set tax included
+            ->set('details', [
+                [
+                    'name' => 'Printer Ink',
+                    'amount' => '100000',
+                ],
+            ])
+            ->call('saveDraft')
+            ->assertHasNoErrors();
+
+        $expense = Expense::first();
+        $this->assertNotNull($expense);
+
+        // Assert the normalization forces it to false since setting is not PKP
+        $this->assertFalse((bool) $expense->is_tax_included);
+    }
 }

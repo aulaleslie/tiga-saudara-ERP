@@ -87,6 +87,9 @@
                                 <div><strong>Referensi:</strong> {{ $expense->reference }}</div>
                                 <div><strong>Tanggal:</strong> {{ \Carbon\Carbon::parse($expense->date)->format('d M Y') }}</div>
                                 <div><strong>Kategori:</strong> {{ $expense->category->category_name }}</div>
+                                @if(\Modules\Setting\Entities\Setting::find($expense->setting_id)->is_pkp)
+                                <div><strong>Termasuk Pajak:</strong> {{ $expense->is_tax_included ? 'Ya' : 'Tidak' }}</div>
+                                @endif
                             </div>
 
                             <div class="col-sm-4 mb-3">
@@ -126,9 +129,21 @@
                                 @php $subtotal = 0; $taxTotal = 0; @endphp
                                 @foreach($expense->details as $detail)
                                     @php
-                                        $subtotal += $detail->amount;
-                                        if ($detail->tax) {
-                                            $taxTotal += ($detail->amount * $detail->tax->value) / 100;
+                                        $amount = $detail->amount;
+                                        if ($expense->is_tax_included) {
+                                            if ($detail->tax && $detail->tax->value > 0) {
+                                                $base = $amount / (1 + ($detail->tax->value / 100));
+                                                $tax = $amount - $base;
+                                                $subtotal += $base;
+                                                $taxTotal += $tax;
+                                            } else {
+                                                $subtotal += $amount;
+                                            }
+                                        } else {
+                                            $subtotal += $amount;
+                                            if ($detail->tax && $detail->tax->value > 0) {
+                                                $taxTotal += ($amount * $detail->tax->value) / 100;
+                                            }
                                         }
                                     @endphp
                                     <tr>

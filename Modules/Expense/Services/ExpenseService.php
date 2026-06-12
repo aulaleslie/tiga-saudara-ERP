@@ -57,7 +57,7 @@ class ExpenseService
         }
 
         $taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
-        $isTaxIncluded = $data['is_tax_included'] ?? false;
+        $isTaxIncluded = $isPkp ? (bool) ($data['is_tax_included'] ?? false) : false;
 
         foreach ($details as $index => $row) {
             $amount = floatval($row['amount']);
@@ -101,7 +101,7 @@ class ExpenseService
         // Generate details summary for legacy column
         $detailsSummary = collect($normalizedDetails)->pluck('name')->implode(', ');
 
-        return DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary) {
+        return DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded) {
             if ($expense) {
                 $this->verifySettingOwnership($expense);
 
@@ -116,6 +116,7 @@ class ExpenseService
                     'amount' => $totalAmount,
                     'status' => $status,
                     'details' => $detailsSummary,
+                    'is_tax_included' => $isTaxIncluded,
                 ]);
             } else {
                 try {
@@ -126,6 +127,7 @@ class ExpenseService
                         'amount' => $totalAmount,
                         'status' => $status,
                         'details' => $detailsSummary,
+                        'is_tax_included' => $isTaxIncluded,
                     ]);
                 } catch (\Illuminate\Database\QueryException $e) {
                     if ($e->getCode() === '23000' && str_contains($e->getMessage(), 'expenses_setting_id_reference_unique')) {
@@ -141,7 +143,11 @@ class ExpenseService
 
             foreach ($normalizedDetails as $detailData) {
                 if (!empty($detailData['id']) && in_array($detailData['id'], $existingIds, true)) {
-                    $expense->details()->whereKey($detailData['id'])->update(Arr::only($detailData, ['name', 'tax_id', 'amount']));
+                    $updateData = Arr::only($detailData, ['name', 'tax_id', 'amount']);
+                    if (isset($updateData['name'])) {
+                        $updateData['name'] = mb_strtoupper(trim($updateData['name']), 'UTF-8');
+                    }
+                    $expense->details()->whereKey($detailData['id'])->update($updateData);
                     $retainedIds[] = $detailData['id'];
                 } else {
                     $newDetail = $expense->details()->create(Arr::only($detailData, ['name', 'tax_id', 'amount']));

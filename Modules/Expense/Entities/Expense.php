@@ -23,6 +23,7 @@ class Expense extends BaseModel implements HasMedia
     protected $casts = [
         'date' => 'date',
         'archived_at' => 'datetime',
+        'is_tax_included' => 'boolean',
     ];
 
     /**

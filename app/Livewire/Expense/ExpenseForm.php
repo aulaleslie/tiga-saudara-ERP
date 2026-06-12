@@ -27,6 +27,7 @@ class ExpenseForm extends Component
     public $expenseId;
     public string $idempotencyToken;
     public $is_pkp = false;
+    public $default_tax_id = null;
 
     public function mount(?Expense $expense = null, ?string $idempotencyToken = null): void
     {
@@ -34,19 +35,27 @@ class ExpenseForm extends Component
         $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
         $this->is_pkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
+        if ($this->is_pkp) {
+            $this->default_tax_id = Tax::where('is_default', true)->value('id') ?? Tax::first()?->id;
+        }
+
         if ($expense && $expense->exists) {
             app(\Modules\Expense\Services\ExpenseService::class)->verifySettingOwnership($expense);
             $this->hydrateFromExpense($expense);
             return;
         }
 
+        if ($this->is_pkp) {
+            $this->is_tax_included = true;
+        }
+
         $this->date = now()->format('Y-m-d');
-        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
+        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => $this->default_tax_id, 'amount' => 0];
     }
 
     public function addDetail(): void
     {
-        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
+        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => $this->default_tax_id, 'amount' => 0];
     }
 
     public function removeDetail($index): void
@@ -217,7 +226,7 @@ class ExpenseForm extends Component
             ->toArray();
 
         if (empty($this->details)) {
-            $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
+            $this->details[] = ['id' => null, 'name' => '', 'tax_id' => $this->default_tax_id, 'amount' => 0];
         }
     }
 
@@ -251,7 +260,19 @@ class ExpenseForm extends Component
         $total = 0;
 
         foreach ($this->details as $detail) {
-            $total += $this->extractFloat($detail['amount'] ?? 0);
+            $amount = $this->extractFloat($detail['amount'] ?? 0);
+
+            if ($this->is_tax_included) {
+                $taxRate = $this->getTaxRate($detail['tax_id'] ?? null);
+                if ($taxRate > 0) {
+                    $base = $amount / (1 + ($taxRate / 100));
+                    $total += $base;
+                } else {
+                    $total += $amount;
+                }
+            } else {
+                $total += $amount;
+            }
         }
 
         return $total;
@@ -259,10 +280,6 @@ class ExpenseForm extends Component
 
     private function calculateTaxTotal(): float
     {
-        if ($this->is_tax_included) {
-            return 0;
-        }
-
         $taxTotal = 0;
 
         foreach ($this->details as $detail) {
@@ -270,7 +287,12 @@ class ExpenseForm extends Component
             $taxRate = $this->getTaxRate($detail['tax_id'] ?? null);
 
             if ($taxRate > 0) {
-                $taxTotal += ($amount * $taxRate) / 100;
+                if ($this->is_tax_included) {
+                    $base = $amount / (1 + ($taxRate / 100));
+                    $taxTotal += ($amount - $base);
+                } else {
+                    $taxTotal += ($amount * $taxRate) / 100;
+                }
             }
         }
 
@@ -279,6 +301,14 @@ class ExpenseForm extends Component
 
     private function calculateTotalAmount(): float
     {
+        if ($this->is_tax_included) {
+            $total = 0;
+            foreach ($this->details as $detail) {
+                $total += $this->extractFloat($detail['amount'] ?? 0);
+            }
+            return $total;
+        }
+
         return $this->calculateBeforeTax() + $this->calculateTaxTotal();
     }
 
