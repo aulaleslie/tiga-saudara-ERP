@@ -155,7 +155,7 @@ class ExpenseForm extends Component
             ];
 
             if ($this->expenseId) {
-                $expense = Expense::with('details', 'media')->findOrFail($this->expenseId);
+                $expense = Expense::with('detailRows', 'media')->findOrFail($this->expenseId);
                 app(\Modules\Expense\Services\ExpenseService::class)->saveExpense($data, $expense);
             } else {
                 app(\Modules\Expense\Services\ExpenseService::class)->saveExpense($data);
@@ -204,7 +204,7 @@ class ExpenseForm extends Component
         $this->category_id = $expense->category_id;
         $this->is_tax_included = (bool) data_get($expense, 'is_tax_included', false);
 
-        $this->details = $expense->details
+        $this->details = $expense->detailRows
             ->map(function ($detail) {
                 return [
                     'id' => $detail->id,

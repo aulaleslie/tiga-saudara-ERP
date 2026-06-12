@@ -85,13 +85,13 @@ class ExpenseFormTest extends TestCase
             'amount' => 110000,
         ]);
 
-        $detailWithTax = $expense->details()->create([
+        $detailWithTax = $expense->detailRows()->create([
             'name' => 'Initial Taxi',
             'tax_id' => $tax->id,
             'amount' => 50000,
         ]);
 
-        $detailWithoutTax = $expense->details()->create([
+        $detailWithoutTax = $expense->detailRows()->create([
             'name' => 'Initial Meal',
             'tax_id' => null,
             'amount' => 50000,
@@ -104,8 +104,8 @@ class ExpenseFormTest extends TestCase
         $newAttachment = UploadedFile::fake()->create('new-receipt.pdf', 12, 'application/pdf');
 
         $expenseForComponent = $expense->fresh();
-        unset($expenseForComponent->details);
-        $expenseForComponent->setRelation('details', $expenseForComponent->details()->get());
+        unset($expenseForComponent->detailRows);
+        $expenseForComponent->setRelation('detailRows', $expenseForComponent->detailRows()->get());
         $expenseForComponent->setRelation('media', $expenseForComponent->media()->get());
 
         Livewire::test(ExpenseForm::class, ['expense' => $expenseForComponent])
@@ -129,7 +129,7 @@ class ExpenseFormTest extends TestCase
 
         $expense->refresh();
 
-        $this->assertSame(2, $expense->details()->count());
+        $this->assertSame(2, $expense->detailRows()->count());
 
         $this->assertDatabaseHas('expense_details', [
             'id' => $detailWithTax->id,
@@ -215,7 +215,7 @@ class ExpenseFormTest extends TestCase
         $this->assertEquals(100000.0, $expense->amount);
         $this->assertTrue($expense->is_tax_included);
 
-        $detail = $expense->details()->first();
+        $detail = $expense->detailRows()->first();
         $this->assertEquals('PRINTER INK', $detail->name);
         $this->assertEquals(100000.0, $detail->amount);
         $this->assertEquals($tax->id, $detail->tax_id);

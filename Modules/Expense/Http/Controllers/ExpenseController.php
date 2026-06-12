@@ -65,7 +65,7 @@ class ExpenseController extends Controller
         abort_if(Gate::denies('expenses.access'), 403);
         $this->expenseService->verifySettingOwnership($expense);
 
-        $expense->load('details.tax', 'media', 'category', 'archivedBy');
+        $expense->load('detailRows.tax', 'media', 'category', 'archivedBy');
 
         return view('expense::expenses.show', compact('expense'));
     }

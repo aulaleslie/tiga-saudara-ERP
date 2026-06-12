@@ -37,7 +37,7 @@ class Expense extends BaseModel implements HasMedia
     /**
      * Detail rows
      */
-    public function details(): HasMany
+    public function detailRows(): HasMany
     {
         return $this->hasMany(ExpenseDetail::class);
     }

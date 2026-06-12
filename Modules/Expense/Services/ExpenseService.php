@@ -138,7 +138,7 @@ class ExpenseService
             }
 
             // Sync details
-            $existingIds = $expense->details()->pluck('id')->all();
+            $existingIds = $expense->detailRows()->pluck('id')->all();
             $retainedIds = [];
 
             foreach ($normalizedDetails as $detailData) {
@@ -147,17 +147,17 @@ class ExpenseService
                     if (isset($updateData['name'])) {
                         $updateData['name'] = mb_strtoupper(trim($updateData['name']), 'UTF-8');
                     }
-                    $expense->details()->whereKey($detailData['id'])->update($updateData);
+                    $expense->detailRows()->whereKey($detailData['id'])->update($updateData);
                     $retainedIds[] = $detailData['id'];
                 } else {
-                    $newDetail = $expense->details()->create(Arr::only($detailData, ['name', 'tax_id', 'amount']));
+                    $newDetail = $expense->detailRows()->create(Arr::only($detailData, ['name', 'tax_id', 'amount']));
                     $retainedIds[] = $newDetail->id;
                 }
             }
 
             $idsToDelete = array_diff($existingIds, $retainedIds);
             if (!empty($idsToDelete)) {
-                $expense->details()->whereIn('id', $idsToDelete)->delete();
+                $expense->detailRows()->whereIn('id', $idsToDelete)->delete();
             }
 
             // Handle removed attachments
@@ -172,7 +172,7 @@ class ExpenseService
                 }
             }
 
-            return $expense->load('details', 'media');
+            return $expense->load('detailRows', 'media');
         });
     }
 
