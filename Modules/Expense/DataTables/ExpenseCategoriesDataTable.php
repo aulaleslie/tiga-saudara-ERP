@@ -28,7 +28,11 @@ class ExpenseCategoriesDataTable extends DataTable
 
     public function query(ExpenseCategory $model): _IH_ExpenseCategory_QB|Builder
     {
-        return $model->newQuery()->withCount('expenses');
+        $currentSettingId = session('setting_id');
+        return $model->newQuery()
+            ->withCount(['expenses' => function ($query) use ($currentSettingId) {
+                $query->where('setting_id', $currentSettingId);
+            }]);
     }
 
     public function html(): \Yajra\DataTables\Html\Builder

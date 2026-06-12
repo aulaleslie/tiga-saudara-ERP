@@ -79,6 +79,7 @@ class ExpenseFormTest extends TestCase
         ]);
 
         $expense = Expense::create([
+            'setting_id' => $setting->id,
             'category_id' => $category->id,
             'date' => now()->format('Y-m-d'),
             'amount' => 110000,

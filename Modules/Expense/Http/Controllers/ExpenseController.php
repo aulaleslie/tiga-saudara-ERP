@@ -46,7 +46,7 @@ class ExpenseController extends Controller
             'details.*.amount' => 'required|numeric|min:0.01',
             'details.*.tax_id' => 'nullable|exists:taxes,id',
             'files.*' => 'nullable|file|max:10240',
-            'status' => 'nullable|string',
+            'status' => 'nullable|string|in:' . Expense::STATUS_DRAFT . ',' . Expense::STATUS_SUBMITTED,
             'is_tax_included' => 'nullable|boolean',
         ]);
 
@@ -92,7 +92,7 @@ class ExpenseController extends Controller
             'details.*.tax_id' => 'nullable|exists:taxes,id',
             'files.*' => 'nullable|file|max:10240',
             'removed_attachment_ids' => 'nullable|array',
-            'status' => 'nullable|string',
+            'status' => 'nullable|string|in:' . Expense::STATUS_DRAFT . ',' . Expense::STATUS_SUBMITTED,
             'is_tax_included' => 'nullable|boolean',
         ]);
 

@@ -33,7 +33,7 @@ class ExpensesDataTable extends DataTable
                 ];
                 $badgeClass = $badges[$data->status] ?? 'badge-info';
                 $label = $labels[$data->status] ?? $data->status;
-                
+
                 $html = '<span class="badge ' . $badgeClass . '">' . $label . '</span>';
                 if ($data->archived_at) {
                     $html .= '<br><span class="badge badge-dark mt-1">Diarsipkan</span>';
@@ -53,7 +53,7 @@ class ExpensesDataTable extends DataTable
         if (request()->has('status') && request('status') != '') {
             $query->where('status', request('status'));
         }
-        
+
         if (request('archived') == '1') {
             $query->whereNotNull('archived_at');
         } else {

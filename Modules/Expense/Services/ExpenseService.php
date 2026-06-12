@@ -23,21 +23,21 @@ class ExpenseService
     {
         $currentSettingId = session('setting_id');
 
-        if (! is_null($currentSettingId) && (int) $expense->setting_id !== (int) $currentSettingId) {
+        if (is_null($currentSettingId) || (int) $expense->setting_id !== (int) $currentSettingId) {
             Log::warning('Expense setting ownership mismatch', [
                 'expense_id' => $expense->id,
                 'expense_setting' => $expense->setting_id,
                 'session_setting' => $currentSettingId,
                 'user_id' => auth()->id()
             ]);
-            
+
             abort(403, 'Anda tidak memiliki akses ke data ini.');
         }
     }
 
     /**
      * Save an expense from a structured payload.
-     * 
+     *
      * @param array $data
      * @param Expense|null $expense
      * @return Expense
@@ -50,7 +50,7 @@ class ExpenseService
         // Normalize details and calculate totals
         $normalizedDetails = [];
         $totalAmount = 0;
-        
+
         $details = $data['details'] ?? [];
         if (empty($details)) {
             throw ValidationException::withMessages(['details' => 'Detail pengeluaran tidak boleh kosong.']);
@@ -58,7 +58,7 @@ class ExpenseService
 
         $taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
         $isTaxIncluded = $data['is_tax_included'] ?? false;
-        
+
         foreach ($details as $index => $row) {
             $amount = floatval($row['amount']);
             if ($amount <= 0) {
@@ -88,7 +88,11 @@ class ExpenseService
         }
 
         $status = $data['status'] ?? Expense::STATUS_DRAFT;
-        
+
+        if (in_array($status, [Expense::STATUS_APPROVED, Expense::STATUS_REJECTED]) && \Illuminate\Support\Facades\Gate::denies('expenses.approval')) {
+            abort(403, 'Anda tidak memiliki hak untuk menetapkan status ini.');
+        }
+
         // When editing a rejected expense, return it to DRAFT
         if ($expense && $expense->status === Expense::STATUS_REJECTED) {
             $status = Expense::STATUS_DRAFT;
@@ -100,12 +104,12 @@ class ExpenseService
         return DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary) {
             if ($expense) {
                 $this->verifySettingOwnership($expense);
-                
+
                 // Allow edit only for DRAFT or REJECTED
                 if (in_array($expense->status, [Expense::STATUS_SUBMITTED, Expense::STATUS_APPROVED])) {
                     abort(403, 'Pengeluaran yang sudah diajukan atau disetujui tidak dapat diubah.');
                 }
-                
+
                 $expense->update([
                     'date' => $data['date'],
                     'category_id' => $data['category_id'],
@@ -169,7 +173,7 @@ class ExpenseService
     public function submit(Expense $expense): Expense
     {
         $this->verifySettingOwnership($expense);
-        
+
         if (!in_array($expense->status, [Expense::STATUS_DRAFT, Expense::STATUS_REJECTED])) {
             abort(403, 'Hanya pengeluaran dengan status Draft atau Ditolak yang dapat diajukan.');
         }
@@ -181,7 +185,7 @@ class ExpenseService
     public function approve(Expense $expense): Expense
     {
         $this->verifySettingOwnership($expense);
-        
+
         if ($expense->status !== Expense::STATUS_SUBMITTED) {
             abort(403, 'Hanya pengeluaran yang diajukan yang dapat disetujui.');
         }
@@ -193,7 +197,7 @@ class ExpenseService
     public function reject(Expense $expense, string $reason): Expense
     {
         $this->verifySettingOwnership($expense);
-        
+
         if ($expense->status !== Expense::STATUS_SUBMITTED) {
             abort(403, 'Hanya pengeluaran yang diajukan yang dapat ditolak.');
         }
@@ -206,7 +210,7 @@ class ExpenseService
             'status' => Expense::STATUS_REJECTED,
             'rejection_reason' => $reason
         ]);
-        
+
         return $expense;
     }
 

@@ -26,11 +26,13 @@ class ExpenseForm extends Component
     public $taxRates = [];
     public $expenseId;
     public string $idempotencyToken;
+    public $is_pkp = false;
 
     public function mount(?Expense $expense = null, ?string $idempotencyToken = null): void
     {
         $this->idempotencyToken = $idempotencyToken ?? (string) Str::uuid();
         $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
+        $this->is_pkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
         if ($expense && $expense->exists) {
             app(\Modules\Expense\Services\ExpenseService::class)->verifySettingOwnership($expense);
@@ -159,7 +161,10 @@ class ExpenseForm extends Component
     public function render()
     {
         $suggestedNames = \Illuminate\Support\Facades\DB::table('expense_details')
-            ->select('name')
+            ->join('expenses', 'expense_details.expense_id', '=', 'expenses.id')
+            ->where('expenses.status', Expense::STATUS_APPROVED)
+            ->whereNull('expenses.archived_at')
+            ->select('expense_details.name')
             ->distinct()
             ->limit(50)
             ->pluck('name')

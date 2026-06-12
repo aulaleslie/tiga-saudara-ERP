@@ -73,8 +73,10 @@
                     <thead class="thead-light">
                     <tr>
                         <th style="width: 45%">Nama</th>
-                        <th style="width: 25%">Pajak</th>
-                        <th style="width: 20%" class="text-end">Jumlah</th>
+                        @if($is_pkp)
+                            <th style="width: 25%">Pajak</th>
+                        @endif
+                        <th style="width: {{ $is_pkp ? '20%' : '45%' }}" class="text-end">Jumlah</th>
                         <th style="width: 10%">Aksi</th>
                     </tr>
                     </thead>
@@ -90,6 +92,7 @@
                                 <input type="text" list="expenseNames" class="form-control" wire:model="details.{{ $index }}.name">
                                 @error("details.$index.name") <span class="text-danger small">{{ $message }}</span> @enderror
                             </td>
+                            @if($is_pkp)
                             <td>
                                 <select class="form-control" wire:model="details.{{ $index }}.tax_id">
                                     <option value="">-</option>
@@ -99,6 +102,7 @@
                                 </select>
                                 @error("details.$index.tax_id") <span class="text-danger small">{{ $message }}</span> @enderror
                             </td>
+                            @endif
                             <td>
                                 <input type="text"
                                        class="form-control text-end"
@@ -119,6 +123,7 @@
                     <div class="col-md-5">
                         <div class="table-responsive">
                             <table class="table table-sm">
+                                @if($is_pkp)
                                 <tr>
                                     <th style="width: 50%">Termasuk Pajak</th>
                                     <td>
@@ -143,6 +148,7 @@
                                     <th>Total Pajak</th>
                                     <td>(+) {{ $this->totalTaxFormatted }}</td>
                                 </tr>
+                                @endif
                                 <tr>
                                     <th>Total Biaya</th>
                                     <th>(=) {{ $this->totalFormatted }}</th>
