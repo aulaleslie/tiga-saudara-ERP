@@ -26,13 +26,14 @@ class ReportsController extends Controller
 
         $config = [
             [
-                'slug' => 'laba-rugi',
-                'label' => 'Laba/Rugi',
-                'icon' => 'bi bi-cash-stack',
+                'slug' => 'sekilas-bisnis',
+                'label' => 'Sekilas bisnis',
+                'icon' => 'bi bi-graph-up',
                 'cards' => [
                     [
                         'label' => 'Laporan Laba Rugi',
                         'icon' => 'bi bi-wallet2',
+                        'description' => 'Menampilkan ringkasan pendapatan, biaya, dan laba/rugi dalam periode tertentu.',
                         'route' => 'profit-loss-report.index',
                         'permission' => 'reports.access'
                     ]
@@ -46,18 +47,21 @@ class ReportsController extends Controller
                     [
                         'label' => 'Daftar Penjualan',
                         'icon' => 'bi bi-cart-check',
+                        'description' => 'Menampilkan daftar transaksi penjualan beserta total nilainya dalam periode tertentu.',
                         'route' => 'reports.sale-report.index',
                         'permission' => 'saleReports.access'
                     ],
                     [
                         'label' => 'Penjualan Per Customer',
                         'icon' => 'bi bi-people',
+                        'description' => 'Menampilkan rekap nilai penjualan yang dikelompokkan per customer.',
                         'route' => 'reports.sale-by-customer.index',
                         'permission' => 'saleReports.access'
                     ],
                     [
                         'label' => 'Penjualan Global',
                         'icon' => 'bi bi-globe',
+                        'description' => 'Menampilkan data penjualan dari semua setting/cabang dalam satu laporan.',
                         'route' => 'reports.sale-report.global',
                         'permission' => 'saleReports.global.access'
                     ],
@@ -71,47 +75,77 @@ class ReportsController extends Controller
                     [
                         'label' => 'Daftar Pembelian',
                         'icon' => 'bi bi-bag-check',
+                        'description' => 'Menampilkan daftar transaksi pembelian beserta total nilainya dalam periode tertentu.',
                         'route' => 'reports.purchase-report.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [
                         'label' => 'Pembelian Per Supplier',
                         'icon' => 'bi bi-truck',
+                        'description' => 'Menampilkan rekap nilai pembelian yang dikelompokkan per supplier.',
                         'route' => 'reports.purchase-by-supplier.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [
                         'label' => 'Pembelian Global',
                         'icon' => 'bi bi-globe',
+                        'description' => 'Menampilkan data pembelian dari semua setting/cabang dalam satu laporan.',
                         'route' => 'reports.purchase-report.global',
                         'permission' => 'purchaseReports.global.access'
                     ],
                 ]
             ],
             [
-                'slug' => 'stock',
-                'label' => 'Stock',
+                'slug' => 'produk',
+                'label' => 'Produk',
                 'icon' => 'bi bi-box-seam',
                 'cards' => [
                     [
                         'label' => 'Mutasi Stok',
                         'icon' => 'bi bi-arrow-left-right',
+                        'description' => 'Menampilkan pergerakan masuk dan keluar stok per produk dalam periode tertentu.',
                         'route' => 'reports.stock-mutation-report.index',
                         'permission' => 'stockMutationReports.access'
                     ],
                     [
                         'label' => 'Mutasi Stok Global',
                         'icon' => 'bi bi-globe',
+                        'description' => 'Menampilkan pergerakan stok dari semua setting/cabang dalam satu laporan.',
                         'route' => 'reports.stock-mutation-report.global',
                         'permission' => 'stockMutationReports.global.access'
                     ],
                     [
                         'label' => 'Valuasi Stok',
                         'icon' => 'bi bi-calculator',
+                        'description' => 'Menampilkan nilai persediaan barang berdasarkan kuantitas dan harga rata-rata.',
                         'route' => 'reports.inventory-valuation-report.index',
                         'permission' => 'inventoryValuationReports.access'
                     ],
                 ]
+            ],
+            [
+                'slug' => 'aset',
+                'label' => 'Aset',
+                'icon' => 'bi bi-building',
+                'cards' => []
+            ],
+            [
+                'slug' => 'bank',
+                'label' => 'Bank',
+                'icon' => 'bi bi-bank',
+                'cards' => []
+            ],
+            [
+                'slug' => 'pajak',
+                'label' => 'Pajak',
+                'icon' => 'bi bi-receipt',
+                'cards' => []
+            ],
+            [
+                'slug' => 'produksi',
+                'label' => 'Produksi',
+                'icon' => 'bi bi-gear',
+                'cards' => []
             ],
             [
                 'slug' => 'lainnya',
@@ -121,12 +155,14 @@ class ReportsController extends Controller
                     [
                         'label' => 'Mekari Converter',
                         'icon' => 'bi bi-file-earmark-excel',
+                        'description' => 'Mengonversi laporan Mekari ke format yang siap diproses.',
                         'route' => 'reports.mekari-converter.index',
                         'permission' => 'reports.access'
                     ],
                     [
                         'label' => 'Mekari Invoice Generator',
                         'icon' => 'bi bi-file-earmark-pdf',
+                        'description' => 'Membuat dokumen invoice PDF dari data Mekari.',
                         'route' => 'reports.mekari-invoice-generator.index',
                         'permission' => 'reports.access'
                     ],

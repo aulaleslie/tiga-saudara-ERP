@@ -32,7 +32,7 @@ class ReportsLandingTest extends TestCase
     }
 
     /** @test */
-    public function all_permission_user_sees_all_five_tabs_with_full_card_set()
+    public function all_permission_user_sees_tabs_in_mekari_order_and_cards()
     {
         $user = User::factory()->create();
         $user->givePermissionTo(Permission::all());
@@ -40,13 +40,22 @@ class ReportsLandingTest extends TestCase
         $response = $this->actingAs($user)->get(route('reports.index'));
 
         $response->assertStatus(200);
-        $response->assertSeeText('Laba/Rugi');
-        $response->assertSeeText('Penjualan');
-        $response->assertSeeText('Pembelian');
-        $response->assertSeeText('Stock');
-        $response->assertSeeText('Lainnya');
+        $response->assertSeeTextInOrder([
+            'Sekilas bisnis',
+            'Penjualan',
+            'Pembelian',
+            'Produk',
+            'Lainnya'
+        ]);
+
+        $response->assertDontSeeText('Aset');
+        $response->assertDontSeeText('Bank');
+        $response->assertDontSeeText('Pajak');
+        $response->assertDontSeeText('Produksi');
 
         $response->assertSeeText('Laporan Laba Rugi');
+        $response->assertSeeText('Menampilkan ringkasan pendapatan, biaya, dan laba/rugi dalam periode tertentu.');
+        $response->assertSeeText('Lihat laporan');
 
         $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'penjualan']));
         $response->assertSeeText('Daftar Penjualan');
@@ -58,7 +67,7 @@ class ReportsLandingTest extends TestCase
         $response->assertSeeText('Pembelian Per Supplier');
         $response->assertSeeText('Pembelian Global');
 
-        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'stock']));
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'produk']));
         $response->assertSeeText('Mutasi Stok');
         $response->assertSeeText('Mutasi Stok Global');
         $response->assertSeeText('Valuasi Stok');
@@ -84,16 +93,12 @@ class ReportsLandingTest extends TestCase
         $response->assertDontSeeText('Penjualan Global');
         $response->assertDontSee(route('reports.sale-report.global'));
         
-        $response->assertDontSeeText('Laba/Rugi');
         $response->assertDontSee(route('profit-loss-report.index'));
 
-        $response->assertDontSeeText('Pembelian');
         $response->assertDontSee(route('reports.purchase-report.index'));
 
-        $response->assertDontSeeText('Stock');
         $response->assertDontSee(route('reports.stock-mutation-report.index'));
 
-        $response->assertDontSeeText('Lainnya');
         $response->assertDontSee(route('reports.mekari-converter.index'));
     }
 
