@@ -112,11 +112,6 @@ class SalesImportReproductionTest extends TestCase
 
         // Verification
         $sale = Sale::where('imported_sales_reference_number', 'INV-TEST-001')->first();
-        
-        if (!$sale) {
-             $row = SalesImportRow::first();
-             dump($row->status, $row->error_message);
-        }
 
         $this->assertNotNull($sale, 'Sale should be created');
 

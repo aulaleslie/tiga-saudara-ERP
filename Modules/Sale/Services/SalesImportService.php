@@ -905,66 +905,62 @@ class SalesImportService
         $appliedDriftAllocations = [];
         $driftAccepted = false;
         
-        try {
-            $paymentSummary = $this->paymentSummaryResolver->resolveForSales($allRows, $sourceInvoiceTotal);
-        } catch (\RuntimeException $e) {
-            try {
-                $paymentSummary = $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift($allRows, $sourceInvoiceTotal);
+        $firstRowData = is_array($allRows[0]) ? $allRows[0] : $allRows[0]->raw_json;
+        $sourceTotal = $this->paymentSummaryResolver->parseMoney($firstRowData['source_total'] ?? null);
+
+        if ($sourceTotal !== null) {
+            $sourceDelta = round($sourceTotal - $sourceInvoiceTotal, 2);
+
+            if (abs($sourceDelta) > 0.0) {
+                $paymentSummary = $this->paymentSummaryResolver->resolveForSalesWithPrecisionDrift(
+                    $allRows,
+                    $sourceInvoiceTotal
+                );
                 $driftAccepted = true;
-                $driftAmount = $paymentSummary['drift_amount'];
-            } catch (\RuntimeException $driftError) {
-                // If drift is not accepted, throw the original reconciliation error to maintain error messages
-                throw $e;
-            }
-        }
 
-        // Sales imports usually calculate document total strictly from line items. However, if the
-        // source total is authoritative (e.g. Lunas status) or precision drift was accepted, the
-        // generated sale totals must be adjusted to reconcile with it before settlement is allocated.
-        $reconciledTotal = round(
-            $paymentSummary['paid_amount'] + 
-            ($paymentSummary['deduction_amount'] ?? 0.0) + 
-            $paymentSummary['outstanding_balance'],
-            2
-        );
+                $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupTotals, abs($sourceDelta));
+                $driftSign = $sourceDelta <=> 0;
 
-        $sourceDelta = round($reconciledTotal - $sourceInvoiceTotal, 2);
-
-        if (abs($sourceDelta) > 0.01) {
-            $driftAllocations = $this->documentAdjustmentAllocator->allocate($groupTotals, abs($sourceDelta));
-            $driftSign = $sourceDelta <=> 0;
-
-            foreach ($groupTotals as $groupKey => $groupTotal) {
-                $appliedDriftAllocations[$groupKey] = round($driftAllocations[$groupKey] * $driftSign, 2);
-                $groupTotals[$groupKey] = round($groupTotal + $appliedDriftAllocations[$groupKey], 2);
-            }
-
-            $postAdjustmentTotal = round(array_sum($groupTotals), 2);
-            $remainder = round($reconciledTotal - $postAdjustmentTotal, 2);
-            if (abs($remainder) > 0.0) {
-                $remainderKey = array_key_first($groupTotals);
                 foreach ($groupTotals as $groupKey => $groupTotal) {
-                    if ($groupTotal > ($groupTotals[$remainderKey] ?? -INF)) {
-                        $remainderKey = $groupKey;
-                    }
+                    $appliedDriftAllocations[$groupKey] = round($driftAllocations[$groupKey] * $driftSign, 2);
+                    $groupTotals[$groupKey] = round($groupTotal + $appliedDriftAllocations[$groupKey], 2);
                 }
 
-                $appliedDriftAllocations[$remainderKey] = round(($appliedDriftAllocations[$remainderKey] ?? 0.0) + $remainder, 2);
-                $groupTotals[$remainderKey] = round($groupTotals[$remainderKey] + $remainder, 2);
-            }
+                $postAdjustmentTotal = round(array_sum($groupTotals), 2);
+                $remainder = round($sourceTotal - $postAdjustmentTotal, 2);
+                if (abs($remainder) > 0.0) {
+                    $remainderKey = array_key_first($groupTotals);
+                    foreach ($groupTotals as $groupKey => $groupTotal) {
+                        if ($groupTotal > ($groupTotals[$remainderKey] ?? -INF)) {
+                            $remainderKey = $groupKey;
+                        }
+                    }
 
-            $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
-            
-            if ($driftAccepted) {
+                    $appliedDriftAllocations[$remainderKey] = round(($appliedDriftAllocations[$remainderKey] ?? 0.0) + $remainder, 2);
+                    $groupTotals[$remainderKey] = round($groupTotals[$remainderKey] + $remainder, 2);
+                }
+
+                $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
+
                 Log::info('[SalesImport] Accepted precision drift for source invoice', [
                     'batch_id' => $batch->id,
-                    'invoice_number' => $allRows[0]['no_faktur'] ?? 'unknown',
+                    'invoice_number' => $firstRowData['no_faktur'] ?? 'unknown',
                     'source_total' => $sourceInvoiceTotal,
                     'recomputed_adjusted_total' => round($sourceInvoiceTotal - $sourceDelta, 2),
                     'drift_amount' => $sourceDelta,
                     'row_ids' => $rowIds,
                 ]);
+            } else {
+                $paymentSummary = $this->paymentSummaryResolver->resolveForSales(
+                    $allRows,
+                    $sourceInvoiceTotal
+                );
             }
+        } else {
+            $paymentSummary = $this->paymentSummaryResolver->resolveForSales(
+                $allRows,
+                $sourceInvoiceTotal
+            );
         }
 
         // Split the settlement (cash Pembayaran, non-cash Jumlah Pemotongan credit, outstanding
@@ -990,7 +986,7 @@ class SalesImportService
                 $settlement['deduction'],
                 $invoicePriceUpdates,
                 $invoiceSuccessCount,
-                $appliedDriftAllocations[$groupKey] ?? 0.0
+                $groupTotals[$groupKey] ?? 0.0
             );
         }
 
@@ -1095,7 +1091,7 @@ class SalesImportService
      * Process a group of rows belonging to the same invoice and effective owner.
      * Paid/due amounts are pre-allocated at source-invoice scope.
      */
-    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0, float $allocatedDrift = 0.0): void
+    protected function processInvoiceGroup(array $rows, SalesImportBatch $batch, float $allocatedPaid = 0.0, float $allocatedDue = 0.0, float $allocatedDiscount = 0.0, float $allocatedShipping = 0.0, float $allocatedDeduction = 0.0, array &$invoicePriceUpdates = [], int &$invoiceSuccessCount = 0, float $canonicalTotal = 0.0): void
     {
         if (empty($rows)) {
             return;
@@ -1284,7 +1280,7 @@ class SalesImportService
             }
 
             $totalWithTax = $totalAmount + $totalTaxAmount;
-            $adjustedTotalWithTax = round($totalWithTax - $allocatedDiscount + $allocatedShipping + $allocatedDrift, 2);
+            $adjustedTotalWithTax = $canonicalTotal;
 
             // Payment is reconciled once at source-invoice scope and allocated to this owner group.
             // Cash payment (Pembayaran) and the non-cash deduction (Jumlah Pemotongan) both settle
@@ -1297,6 +1293,12 @@ class SalesImportService
             $needsPayment = $cashPaidAmount > 0.01;
 
             if (abs(($groupPaidAmount + $dueAmount) - $adjustedTotalWithTax) > 0.01) {
+                Log::error('[SalesImport] Payment mismatch', [
+                    'group_paid' => $groupPaidAmount,
+                    'due' => $dueAmount,
+                    'adjusted_total' => $adjustedTotalWithTax,
+                    'diff' => ($groupPaidAmount + $dueAmount) - $adjustedTotalWithTax,
+                ]);
                 throw new \RuntimeException('Payment total mismatch: settlement fields do not reconcile with adjusted document total.');
             }
 

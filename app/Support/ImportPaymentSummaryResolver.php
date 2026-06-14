@@ -552,7 +552,7 @@ class ImportPaymentSummaryResolver
         return null;
     }
 
-    private function parseMoney(mixed $value): ?float
+    public function parseMoney(mixed $value): ?float
     {
         if ($value === null) {
             return null;

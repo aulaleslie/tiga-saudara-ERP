@@ -445,4 +445,60 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $this->assertEquals(300, $otherSale->discount_amount);
         $this->assertEquals(2700, $otherSale->paid_amount);
     }
+
+    public function test_accepted_source_total_precision_drift_is_allocated_pro_rata()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 2,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        $common = [
+            'no_faktur' => 'MIX-DRIFT',
+            'tanggal' => '01/01/2023',
+            'customer' => 'Cust Mixed',
+            'diskon' => '0',
+            'sisa_tagihan' => '0',
+            'status_hari_ini' => 'Lunas',
+            'pembayaran' => '4000.01',
+            'source_total' => '4000.01',
+        ];
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => 'Daizu Kedelai',
+                'gudang' => 'Gudang Utama',
+                'kuantitas' => '10',
+                'harga_satuan' => '100', // 1000 gross
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => '* Beras',
+                'kuantitas' => '10',
+                'harga_satuan' => '300', // 3000 gross
+            ]),
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $daizuSale = Sale::where('imported_sales_reference_number', 'MIX-DRIFT')
+            ->where('setting_id', $this->daizuSetting->id)->first();
+        $otherSale = Sale::where('imported_sales_reference_number', 'MIX-DRIFT')
+            ->where('setting_id', $this->otherSetting->id)->first();
+
+        // 4000.01 -> 1000 and 3000
+        // allocation of 0.01 to the largest which is 3000
+        $this->assertEquals(1000, $daizuSale->total_amount);
+        $this->assertEquals(1000, $daizuSale->paid_amount);
+
+        $this->assertEquals(3000.01, $otherSale->total_amount);
+        $this->assertEquals(3000.01, $otherSale->paid_amount);
+    }
 }

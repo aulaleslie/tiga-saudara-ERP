@@ -363,4 +363,59 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
         $this->assertEquals(SalesImportRow::STATUS_SKIPPED, $row2->status);
         $this->assertEquals($sale1->id, $row2->sale_id);
     }
+
+    /** @test */
+    public function owner_split_sales_import_allocates_precision_drift_before_settlement_allocation_so_owners_balance_independently()
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-SPLIT-DRIFT',
+                'produk' => 'MONITOR SAMPLE A', // PERDANA (no marker)
+                'tag' => 'cv perdana',
+                'harga_satuan' => '222000.01',
+                'pajak' => '0',
+                // Raw total for PERDANA = 222000.01
+
+                'pembayaran' => '444000.00',
+                'source_total' => '444000.00',
+                'status_hari_ini' => 'Lunas',
+                'sisa_tagihan' => '0',
+            ]),
+            $this->baseRow([
+                'no_faktur' => 'INV-SPLIT-DRIFT',
+                'produk' => '* MONITOR SAMPLE B', // TIGA NUSA (* marker)
+                'tag' => 'cv tiga nusa',
+                'harga_satuan' => '222000.01',
+                'pajak' => '0',
+                // Raw total for TIGA NUSA = 222000.01
+
+                'pembayaran' => '444000.00',
+                'source_total' => '444000.00',
+                'status_hari_ini' => 'Lunas',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'INV-SPLIT-DRIFT')->get();
+        $this->assertCount(2, $sales);
+
+        $perdanaSale = $sales->where('setting_id', $this->perdanaSetting->id)->first();
+        $tigaNusaSale = $sales->where('setting_id', $this->tigaNusaSetting->id)->first();
+
+        $this->assertNotNull($perdanaSale);
+        $this->assertNotNull($tigaNusaSale);
+
+        // Sum of both should be exactly 444000.00
+        $this->assertEquals(444000.00, $perdanaSale->total_amount + $tigaNusaSale->total_amount);
+
+        // Each should be PAID
+        $this->assertEquals('PAID', $perdanaSale->payment_status);
+        $this->assertEquals('PAID', $tigaNusaSale->payment_status);
+
+        // Due amounts should be 0
+        $this->assertEquals(0.0, (float) $perdanaSale->due_amount);
+        $this->assertEquals(0.0, (float) $tigaNusaSale->due_amount);
+    }
 }

@@ -513,6 +513,85 @@ class SalesImportPaymentLedgerTest extends TestCase
         $this->assertSame(SalesImportRow::STATUS_SKIPPED, $duplicateRow->status);
     }
 
+    /** @test */
+    public function sales_import_reconciles_sub_cent_precision_artifacts_in_lunas_rows(): void
+    {
+        $this->setting->update(['is_pkp' => true]);
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'JL.2026.4530',
+                'status_hari_ini' => 'Lunas',
+                'harga_satuan' => '501000.000001',
+                'pajak' => '55110.000001',
+                'diskon' => '6110.000001',
+                'pembayaran' => '550000.00',
+                'source_total' => '550000.000001',
+                'sisa_tagihan_hari_ini' => '1.0e-06',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'JL.2026.4530')->firstOrFail();
+        $this->assertSame('PAID', $sale->payment_status);
+        $this->assertEquals(0.0, (float) $sale->due_amount);
+        $this->assertEquals(550000.0, (float) $sale->paid_amount);
+        $this->assertEquals(550000.0, (float) $sale->total_amount);
+    }
+
+    /** @test */
+    public function sales_import_allocates_exact_one_cent_source_total_delta(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-ONE-CENT',
+                'status_hari_ini' => 'Lunas',
+                'harga_satuan' => '111000.01',
+                'pajak' => '0',
+                // Raw total is 111000.01
+                'pembayaran' => '111000.00',
+                'source_total' => '111000.00',
+                'sisa_tagihan_hari_ini' => '0',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'INV-ONE-CENT')->firstOrFail();
+        $this->assertSame('PAID', $sale->payment_status);
+        $this->assertEquals(0.0, (float) $sale->due_amount);
+        $this->assertEquals(111000.0, (float) $sale->total_amount); // Canonical total used!
+    }
+
+    /** @test */
+    public function sales_import_rejects_material_source_total_mismatches_outside_precision_limits(): void
+    {
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'INV-MISMATCH',
+                'status_hari_ini' => 'Lunas',
+                'harga_satuan' => '111000.00',
+                'pajak' => '0',
+                // Raw total is 111000.00
+                'pembayaran' => '110000.00',
+                'source_total' => '110000.00', // Delta is 1000, > absolute limit of precision drift
+                'sisa_tagihan_hari_ini' => '0',
+                'sisa_tagihan' => '0',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $this->assertDatabaseMissing('sales', ['imported_sales_reference_number' => 'INV-MISMATCH']);
+        $this->assertTrue(
+            SalesImportRow::where('batch_id', $batch->id)
+                ->where('status', SalesImportRow::STATUS_INVALID)
+                ->exists()
+        );
+    }
+
     protected function createImportBatch(array $rows): SalesImportBatch
     {
         $user = User::factory()->create(['is_active' => 1]);
