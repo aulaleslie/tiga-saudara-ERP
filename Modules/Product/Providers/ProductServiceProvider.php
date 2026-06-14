@@ -29,6 +29,10 @@ class ProductServiceProvider extends ServiceProvider
         $this->registerViews();
         $this->registerLivewireComponents();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        
+        $this->commands([
+            \Modules\Product\Console\NormalizeProductPurchasePricesCommand::class,
+        ]);
     }
 
     /**

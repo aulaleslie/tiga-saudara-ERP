@@ -68,3 +68,5 @@ If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-s
 **[Creative Commons Attribution 4.0	cc-by-4.0](https://creativecommons.org/licenses/by/4.0/)**
 
 php artisan queue:work --queue=default --tries=3 --timeout=7200
+php artisan product:normalize-purchase-prices
+php artisan product:normalize-purchase-prices --write
