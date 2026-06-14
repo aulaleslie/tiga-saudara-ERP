@@ -127,7 +127,7 @@
                                 </thead>
                                 <tbody>
                                 @php $subtotal = 0; $taxTotal = 0; @endphp
-                                @foreach($expense->detailRows as $detail)
+                                @foreach($expense->getRelation('detailRows') as $detail)
                                     @php
                                         $amount = $detail->amount;
                                         if ($expense->is_tax_included) {

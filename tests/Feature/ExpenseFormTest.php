@@ -268,4 +268,47 @@ class ExpenseFormTest extends TestCase
         // Assert the normalization forces it to false since setting is not PKP
         $this->assertFalse((bool) $expense->is_tax_included);
     }
+
+    public function test_expense_category_created_event_updates_category_id(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Non PKP Company',
+            'company_email' => 'test@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'test@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => false,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create([
+            'category_name' => 'New Event Category',
+        ]);
+
+        Livewire::test(ExpenseForm::class)
+            ->assertSet('category_id', null)
+            ->dispatch('expenseCategoryCreated', id: $category->id, name: 'New Event Category', requester: 'expense-form')
+            ->assertSet('category_id', $category->id);
+    }
+
+    public function test_expense_category_modal_dispatches_targeted_event(): void
+    {
+        Livewire::test(\App\Livewire\Expense\ExpenseCategoryQuickAddModal::class)
+            ->call('openModal', requester: 'expense-form')
+            ->set('category_name', 'Transport')
+            ->call('save')
+            ->assertDispatched('expenseCategoryCreated');
+    }
 }

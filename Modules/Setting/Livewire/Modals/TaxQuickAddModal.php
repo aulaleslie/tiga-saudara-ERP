@@ -47,17 +47,16 @@ class TaxQuickAddModal extends Component
         ];
     }
 
-    public function openModal($target = null)
+    public function openModal($requester = null, $product_id = null, $target = null)
     {
         $this->resetForm();
 
-        if (is_array($target)) {
-            $this->product_id = $target['product_id'] ?? null;
-            $this->requester = $target['requester'] ?? null;
-        } elseif (is_string($target) && ! is_numeric($target)) {
-            $this->requester = $target;
+        if ($target === null && is_array($requester)) {
+            $this->product_id = $requester['product_id'] ?? null;
+            $this->requester = $requester['requester'] ?? null;
         } else {
-            $this->product_id = $target;
+            $this->requester = $requester ?? (is_array($target) ? ($target['requester'] ?? null) : (is_string($target) && !is_numeric($target) ? $target : null));
+            $this->product_id = $product_id ?? (is_array($target) ? ($target['product_id'] ?? null) : (is_numeric($target) ? $target : null));
         }
 
         $this->showModal = true;
@@ -80,13 +79,17 @@ class TaxQuickAddModal extends Component
         ]);
 
         // Dispatch event with structured data for ProductCart to handle
-        $this->dispatch('taxCreated', 
+        $evt = $this->dispatch('taxCreated', 
             id: $tax->id,
             name: $tax->name,
             value: $tax->value,
             product_id: $this->product_id,
             requester: $this->requester
         );
+
+        if ($this->requester === 'expense-form') {
+            $evt->to(\App\Livewire\Expense\ExpenseForm::class);
+        }
 
         $this->closeModal();
     }

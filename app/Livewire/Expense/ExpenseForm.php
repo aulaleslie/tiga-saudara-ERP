@@ -5,6 +5,7 @@ namespace App\Livewire\Expense;
 use App\Services\IdempotencyService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Expense\Entities\Expense;
@@ -112,6 +113,44 @@ class ExpenseForm extends Component
         }
     }
 
+    #[On('expenseCategoryCreated')]
+    public function handleExpenseCategoryCreated($id, $name = null, $requester = null): void
+    {
+        if ($requester === 'expense-form') {
+            $this->category_id = (int) $id;
+        }
+    }
+
+    #[On('taxCreated')]
+    public function handleTaxCreated($id, $name = null, $value = null, $product_id = null, $requester = null): void
+    {
+        if ($requester === 'expense-form') {
+            $this->taxRates[$id] = (float) $value;
+            if (isset($this->details[$product_id])) {
+                $this->details[$product_id]['tax_id'] = (int) $id;
+                $this->handleTaxIncluded();
+            }
+        }
+    }
+
+    public function getSuggestions($query)
+    {
+        if (empty(trim($query))) {
+            return [];
+        }
+
+        return \Illuminate\Support\Facades\DB::table('expense_details')
+            ->join('expenses', 'expense_details.expense_id', '=', 'expenses.id')
+            ->where('expenses.status', Expense::STATUS_APPROVED)
+            ->whereNull('expenses.archived_at')
+            ->where('expense_details.name', 'like', '%' . trim($query) . '%')
+            ->select('expense_details.name')
+            ->distinct()
+            ->limit(20)
+            ->pluck('name')
+            ->toArray();
+    }
+
     public function saveDraft()
     {
         $this->processSave(Expense::STATUS_DRAFT);
@@ -169,20 +208,9 @@ class ExpenseForm extends Component
 
     public function render()
     {
-        $suggestedNames = \Illuminate\Support\Facades\DB::table('expense_details')
-            ->join('expenses', 'expense_details.expense_id', '=', 'expenses.id')
-            ->where('expenses.status', Expense::STATUS_APPROVED)
-            ->whereNull('expenses.archived_at')
-            ->select('expense_details.name')
-            ->distinct()
-            ->limit(50)
-            ->pluck('name')
-            ->toArray();
-
         return view('livewire.expense.expense-form', [
             'categories' => ExpenseCategory::all(),
             'taxes' => Tax::all(),
-            'suggestedNames' => $suggestedNames,
         ]);
     }
 
@@ -330,4 +358,3 @@ class ExpenseForm extends Component
         return floatval($clean);
     }
 }
-

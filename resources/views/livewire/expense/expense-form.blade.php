@@ -50,12 +50,17 @@
                 <div class="form-row">
                     <div class="col-md-6 mb-3">
                         <label>Kategori</label>
-                        <select class="form-control" wire:model="category_id" required>
-                            <option value="">Pilih Kategori</option>
-                            @foreach($categories as $cat)
-                                <option value="{{ $cat->id }}">{{ $cat->category_name }}</option>
-                            @endforeach
-                        </select>
+                        <div class="input-group">
+                            <select class="form-control" wire:model="category_id" required>
+                                <option value="">Pilih Kategori</option>
+                                @foreach($categories as $cat)
+                                    <option value="{{ $cat->id }}">{{ $cat->category_name }}</option>
+                                @endforeach
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" wire:click="$dispatch('openExpenseCategoryModal', { requester: 'expense-form' })">
+                                <i class="bi bi-plus"></i>
+                            </button>
+                        </div>
                         @error('category_id') <span class="text-danger">{{ $message }}</span> @enderror
                     </div>
                 </div>
@@ -84,22 +89,51 @@
                     @foreach($details as $index => $row)
                         <tr wire:key="detail-{{ $row['id'] ?? 'new-'.$index }}">
                             <td>
-                                <datalist id="expenseNames">
-                                    @foreach($suggestedNames as $name)
-                                        <option value="{{ $name }}">
-                                    @endforeach
-                                </datalist>
-                                <input type="text" list="expenseNames" class="form-control" wire:model="details.{{ $index }}.name">
+                                <div x-data="{
+                                        open: false,
+                                        search: @entangle('details.'.$index.'.name'),
+                                        suggestions: [],
+                                        async fetchSuggestions() {
+                                            if (this.search && this.search.length > 0) {
+                                                let res = await $wire.getSuggestions(this.search);
+                                                this.suggestions = res;
+                                                this.open = this.suggestions.length > 0;
+                                            } else {
+                                                this.suggestions = [];
+                                                this.open = false;
+                                            }
+                                        },
+                                        selectItem(name) {
+                                            this.search = name;
+                                            this.open = false;
+                                        }
+                                    }" 
+                                    @click.away="open = false" 
+                                    class="position-relative"
+                                >
+                                    <input type="text" class="form-control" x-model="search" @input.debounce.300ms="fetchSuggestions" @focus="fetchSuggestions">
+                                    
+                                    <ul x-show="open" class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto; display: none;">
+                                        <template x-for="suggestion in suggestions" :key="suggestion">
+                                            <li class="list-group-item list-group-item-action px-3 py-2" style="cursor: pointer;" @click="selectItem(suggestion)" x-text="suggestion"></li>
+                                        </template>
+                                    </ul>
+                                </div>
                                 @error("details.$index.name") <span class="text-danger small">{{ $message }}</span> @enderror
                             </td>
                             @if($is_pkp)
                             <td>
-                                <select class="form-control" wire:model="details.{{ $index }}.tax_id">
-                                    <option value="">-</option>
-                                    @foreach($taxes as $tax)
-                                        <option value="{{ $tax->id }}">{{ $tax->name }}</option>
-                                    @endforeach
-                                </select>
+                                <div class="input-group">
+                                    <select class="form-control" wire:model="details.{{ $index }}.tax_id">
+                                        <option value="">-</option>
+                                        @foreach($taxes as $tax)
+                                            <option value="{{ $tax->id }}">{{ $tax->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button class="btn btn-outline-secondary" type="button" wire:click="$dispatch('openTaxModal', { requester: 'expense-form', product_id: {{ $index }} })">
+                                        <i class="bi bi-plus"></i>
+                                    </button>
+                                </div>
                                 @error("details.$index.tax_id") <span class="text-danger small">{{ $message }}</span> @enderror
                             </td>
                             @endif
@@ -223,4 +257,7 @@
             </button>
         </div>
     </form>
+    
+    @livewire('expense.expense-category-quick-add-modal')
+    @livewire('modules.setting.modals.tax-quick-add-modal')
 </div>
