@@ -3,59 +3,52 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\ProfitLossReportExport;
+use App\Services\Reports\OperationalProfitLossReportService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use Maatwebsite\Excel\Facades\Excel;
-use Modules\Expense\Entities\Expense;
-use Modules\Purchase\Entities\Purchase;
-use Modules\Purchase\Entities\PurchasePayment;
-use Modules\PurchasesReturn\Entities\PurchaseReturn;
-use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
-use Modules\Sale\Entities\Sale;
-use Modules\Sale\Entities\SalePayment;
-use Modules\SalesReturn\Entities\SaleReturn;
-use Modules\SalesReturn\Entities\SaleReturnPayment;
 
 class ProfitLossReport extends Component
 {
-
     public $start_date;
     public $end_date;
-    public $total_sales, $sales_amount;
-    public $total_purchases, $purchases_amount;
-    public $total_sale_returns, $sale_returns_amount;
-    public $total_purchase_returns, $purchase_returns_amount;
-    public $expenses_amount;
-    public $profit_amount;
-    public $payments_received_amount;
-    public $payments_sent_amount;
-    public $payments_net_amount;
+    
+    // We don't make $report a public property because Value Objects with complex types
+    // don't hydrate back well in Livewire. We just pass it to the view.
 
     protected $rules = [
-        'start_date' => 'required|date|before:end_date',
-        'end_date'   => 'required|date|after:start_date'
+        'start_date' => 'required|date|before_or_equal:end_date',
+        'end_date'   => 'required|date|after_or_equal:start_date'
     ];
 
     public function mount() {
+        abort_if(Gate::denies('reports.access'), 403);
+
         $this->start_date = '';
         $this->end_date = '';
-        $this->total_sales = 0;
-        $this->sales_amount = 0;
-        $this->total_sale_returns = 0;
-        $this->sale_returns_amount = 0;
-        $this->total_purchases = 0;
-        $this->purchases_amount = 0;
-        $this->total_purchase_returns = 0;
-        $this->purchase_returns_amount = 0;
-        $this->payments_received_amount = 0;
-        $this->payments_sent_amount = 0;
-        $this->payments_net_amount = 0;
     }
 
-    public function render() {
-        $this->setValues();
+    public function render(OperationalProfitLossReportService $reportService) {
+        $settingId = session('setting_id');
+        
+        $report = null;
+        if ($this->start_date && $this->end_date) {
+            $report = $reportService->generate(
+                $settingId, 
+                $this->start_date, 
+                $this->end_date
+            );
+        } else {
+            // Provide a default empty report or calculate all time? 
+            // The original logic calculated all time if start_date/end_date were missing, 
+            // but the rules require them. We will calculate all time if not set.
+            $report = $reportService->generate($settingId, null, null);
+        }
 
-        return view('livewire.reports.profit-loss-report');
+        return view('livewire.reports.profit-loss-report', [
+            'report' => $report
+        ]);
     }
 
     public function generateReport() {
@@ -73,8 +66,9 @@ class ProfitLossReport extends Component
 
     private function exportFilters(): array {
         return [
-            'startDate' => $this->start_date,
-            'endDate' => $this->end_date,
+            'startDate' => $this->start_date ?: null,
+            'endDate' => $this->end_date ?: null,
+            'settingId' => session('setting_id')
         ];
     }
 
@@ -91,160 +85,5 @@ class ProfitLossReport extends Component
         }
 
         return Carbon::parse($date)->format('d-m-Y');
-    }
-
-    public function setValues() {
-        $this->total_sales = Sale::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->count();
-
-        $this->sales_amount = Sale::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('total_amount') / 100;
-
-        $this->total_purchases = Purchase::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->count();
-
-        $this->purchases_amount = Purchase::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('total_amount') / 100;
-
-        $this->total_sale_returns = SaleReturn::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->count();
-
-        $this->sale_returns_amount = SaleReturn::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('total_amount') / 100;
-
-        $this->total_purchase_returns = PurchaseReturn::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->count();
-
-        $this->purchase_returns_amount = PurchaseReturn::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('total_amount') / 100;
-
-        $this->expenses_amount = Expense::where('status', Expense::STATUS_APPROVED)
-            ->whereNull('archived_at')
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('amount') / 100;
-
-        $this->profit_amount = $this->calculateProfit();
-
-        $this->payments_received_amount = $this->calculatePaymentsReceived();
-
-        $this->payments_sent_amount = $this->calculatePaymentsSent();
-
-        $this->payments_net_amount = $this->payments_received_amount - $this->payments_sent_amount;
-    }
-
-    public function calculateProfit() {
-        $product_costs = 0;
-        $revenue = $this->sales_amount - $this->sale_returns_amount;
-        $sales = Sale::completed()
-            ->when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->with('saleDetails')->get();
-
-        foreach ($sales as $sale) {
-            foreach ($sale->saleDetails as $saleDetail) {
-                $product_costs += $saleDetail->product->product_cost;
-            }
-        }
-
-        $profit = $revenue - $product_costs;
-
-        return $profit;
-    }
-
-    public function calculatePaymentsReceived() {
-        $sale_payments = SalePayment::when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('amount') / 100;
-
-        $purchase_return_payments = PurchaseReturnPayment::when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('amount') / 100;
-
-        return $sale_payments + $purchase_return_payments;
-    }
-
-    public function calculatePaymentsSent() {
-        $purchase_payments = PurchasePayment::when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('amount') / 100;
-
-        $sale_return_payments = SaleReturnPayment::when($this->start_date, function ($query) {
-                return $query->whereDate('date', '>=', $this->start_date);
-            })
-            ->when($this->end_date, function ($query) {
-                return $query->whereDate('date', '<=', $this->end_date);
-            })
-            ->sum('amount') / 100;
-
-        return $purchase_payments + $sale_return_payments + $this->expenses_amount;
     }
 }
