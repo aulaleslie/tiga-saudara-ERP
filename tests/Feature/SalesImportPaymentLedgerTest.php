@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
+use Modules\Product\Entities\Product;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalesImportBatch;
 use Modules\Sale\Entities\SalesImportRow;
@@ -590,6 +591,50 @@ class SalesImportPaymentLedgerTest extends TestCase
                 ->where('status', SalesImportRow::STATUS_INVALID)
                 ->exists()
         );
+    }
+
+    /** @test */
+    public function sales_import_backfills_missing_product_code_before_creating_sale_detail(): void
+    {
+        $product = Product::create([
+            'product_name' => 'SP24-013 Epson Program Rebate - EPR Sell In H1 FY24',
+            'product_code' => null,
+            'unit_id' => null,
+            'setting_id' => $this->setting->id,
+            'product_quantity' => 0,
+            'purchase_price' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => 0,
+            'is_purchased' => 0,
+            'is_sold' => 1,
+        ]);
+
+        $batch = $this->createImportBatch([
+            $this->baseRow([
+                'no_faktur' => 'JL.2025.11393',
+                'produk' => 'SP24-013 Epson Program Rebate - EPR Sell In H1 FY24',
+                'satuan' => 'JASA',
+                'harga_satuan' => '16664518.0',
+                'tarif_pajak' => '',
+                'pajak' => '0.0',
+                'pembayaran' => '16664518.0',
+                'source_total' => '16664518.0',
+                'sisa_tagihan' => '0.0',
+                'status_hari_ini' => 'Lunas',
+            ]),
+        ]);
+
+        app(SalesImportService::class)->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'JL.2025.11393')
+            ->with('saleDetails')
+            ->firstOrFail();
+
+        $product->refresh();
+
+        $this->assertNotEmpty($product->product_code);
+        $this->assertSame($product->product_code, $sale->saleDetails->first()->product_code);
     }
 
     protected function createImportBatch(array $rows): SalesImportBatch

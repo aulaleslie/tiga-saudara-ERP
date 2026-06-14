@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Source invoice payment reconciliation before owner split creation
-The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembayaran`, `Sisa Tagihan`, and `Sisa Tagihan Hari Ini` at source invoice scope before creating owner-split documents. Sales import owner groups SHALL be based on Daizu/Kedelai ownership, product-name `*` marker ownership, product-name ` TP` suffix ownership, or `PERDANA` fallback, not CSV `Tag` values.
+The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembayaran`, `Sisa Tagihan`, and `Sisa Tagihan Hari Ini` at source invoice scope before creating owner-split documents. Sales import owner groups SHALL be based on Daizu/Kedelai ownership, product-name `*` marker ownership, product-name ` TP` suffix ownership, or `PERDANA` fallback, not CSV `Tag` values. For sales imports, any accepted source-total precision adjustment SHALL be allocated to owner groups before settlement allocation so each generated owner sale balances independently.
 
 #### Scenario: Full source invoice total reconciles across owner groups
 - **WHEN** a source CSV invoice contains rows that resolve to more than one owner document
@@ -16,6 +16,14 @@ The purchase and sales importers SHALL reconcile invoice-level `Total`, `Pembaya
 - **THEN** the sales importer MUST use source `Total` as the authoritative settlement total
 - **AND** the importer MUST reconcile generated owner document totals to source `Total` before settlement allocation
 - **AND** the importer MUST allocate the resolved paid, deduction, and due amounts across created owner sale documents using the existing split allocation rules
+
+#### Scenario: Sales source-total rounding adjustment is applied before owner settlement allocation
+- **WHEN** a sales source CSV invoice contains one or more owner groups
+- **AND** source `Total` is authoritative through current-status mapping
+- **AND** the source-reconciled invoice total requires an accepted precision adjustment
+- **THEN** the sales importer MUST allocate the precision adjustment to owner group canonical totals before allocating cash, deduction, and due amounts
+- **AND** each generated owner sale MUST satisfy paid amount plus due amount equals its canonical total
+- **AND** the sum of generated owner sale totals MUST equal the authoritative source `Total` within monetary tolerance
 
 #### Scenario: Current paid status overrides stale original balance
 - **WHEN** a source CSV invoice has `Status Hari Ini` equal to `Lunas`

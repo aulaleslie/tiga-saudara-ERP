@@ -415,7 +415,7 @@ class SalesImportService
             return $this->productsCache[$normalizedName];
         }
 
-        $product = Product::where('product_name', trim($cleanName))->first();
+        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
 
         if (!$product) {
             // Find or create unit (use cache)
@@ -436,7 +436,7 @@ class SalesImportService
 
             $product = Product::create([
                 'product_name' => trim($cleanName),
-                'product_code' => 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8)),
+                'product_code' => $this->importProductCode($cleanName),
                 'unit_id' => $unit->id,
                 'setting_id' => $settingId,
                 'product_cost' => 0,
@@ -452,12 +452,20 @@ class SalesImportService
                 'product_id' => $product->id,
                 'name' => $cleanName,
             ]);
+        } elseif (blank($product->product_code)) {
+            $product->product_code = $this->importProductCode($cleanName);
+            $product->save();
         }
 
         // Cache it
         $this->productsCache[$normalizedName] = $product;
 
         return $product;
+    }
+
+    protected function importProductCode(string $cleanName): string
+    {
+        return 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8));
     }
 
     /**

@@ -10,6 +10,13 @@ The sales importer SHALL resolve imported sale `paid_amount`, `due_amount`, and 
 - **AND** the generated sale document or split sale documents MUST have `due_amount` equal to `0.00`
 - **AND** the generated sale active payment rows MUST settle the authoritative generated sale totals
 
+#### Scenario: Lunas sales import with sub-cent source artifacts maps to paid
+- **WHEN** a sales CSV invoice has `Status Hari Ini` equal to `Lunas`
+- **AND** `Total`, `Pembayaran`, or `Sisa Tagihan Hari Ini` contain sub-cent precision artifacts that round to a fully paid two-decimal money value
+- **THEN** the generated sale document or split sale documents MUST have `payment_status` equal to `PAID`
+- **AND** the generated sale document or split sale documents MUST have `due_amount` equal to `0.00`
+- **AND** generated active payment rows MUST settle the canonical generated sale totals exactly within monetary tolerance
+
 #### Scenario: Belum Dibayar sales import maps to unpaid
 - **WHEN** a sales CSV invoice has `Status Hari Ini` equal to `Belum Dibayar` or `Belum Lunas`
 - **AND** the CSV `Total` is present
@@ -44,6 +51,12 @@ The sales importer SHALL use CSV `Total` as the authoritative settlement total f
 - **THEN** the sales importer MUST reconcile generated sale header totals to the CSV `Total`
 - **AND** the importer MUST allocate any source-total adjustment across owner sale documents using the same proportional rules as purchase import
 - **AND** the generated sale payment rows MUST reconcile to the adjusted generated sale totals
+
+#### Scenario: Exact one-cent source-total adjustment is allocated when status mapping is authoritative
+- **WHEN** a sales CSV invoice has a calculated adjusted total that differs from the two-decimal CSV `Total` by exactly `0.01`
+- **AND** `Status Hari Ini` can derive settlement from the CSV `Total`
+- **THEN** the sales importer MUST allocate the one-cent adjustment into the canonical generated sale total
+- **AND** generated sale payment rows MUST reconcile to that canonical generated sale total
 
 #### Scenario: Over-settled sales payment is clamped
 - **WHEN** a sales CSV invoice has `Status Hari Ini` equal to `Terbayar Sebagian` or `Lewat Jatuh Tempo`
