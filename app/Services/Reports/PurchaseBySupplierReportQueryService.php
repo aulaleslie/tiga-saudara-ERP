@@ -72,7 +72,7 @@ class PurchaseBySupplierReportQueryService
             $baseQuery->getQuery()->orders = [];
             
             $supplierTotals = $baseQuery
-                ->select('purchases.supplier_id', DB::raw('SUM(purchase_details.sub_total) as total_nominal'))
+                ->select('purchases.supplier_id', DB::raw('SUM(purchase_details.sub_total + COALESCE(purchase_details.product_tax_amount, 0)) as total_nominal'))
                 ->groupBy('purchases.supplier_id');
 
             $query->leftJoinSub($supplierTotals, 'st', 'st.supplier_id', '=', 'purchases.supplier_id')
@@ -105,11 +105,16 @@ class PurchaseBySupplierReportQueryService
         $query->orderBy('purchases.id', 'desc')->orderBy('purchase_details.id', 'asc');
     }
 
-    public static function mapRow(PurchaseDetail $detail, float $runningTotal): array
+    public static function mapRows(PurchaseDetail $detail, float $previousRunningTotal): array
     {
         $purchase = $detail->purchase;
+        $rows = [];
 
-        return [
+        $subTotal = (float) $detail->sub_total;
+        $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+
+        $productTotal = $previousRunningTotal + $subTotal;
+        $rows[] = [
             'Supplier / Tanggal'    => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
             'Tipe transaksi'        => 'Faktur Pembelian',
             'No. transaksi'         => $purchase?->reference ?? '-',
@@ -118,26 +123,70 @@ class PurchaseBySupplierReportQueryService
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
             'Harga per unit'        => $detail->unit_price ?? 0,
-            'Nominal tagihan'       => $detail->sub_total ?? 0,
-            'Total nominal tagihan' => $runningTotal,
+            'Nominal tagihan'       => $subTotal,
+            'Total nominal tagihan' => $productTotal,
+            'is_tax_row'            => false,
         ];
+
+        if ($taxAmount > 0) {
+            $taxTotal = $productTotal + $taxAmount;
+            $rows[] = [
+                'Supplier / Tanggal'    => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+                'Tipe transaksi'        => 'Faktur Pembelian',
+                'No. transaksi'         => $purchase?->reference ?? '-',
+                'Nama produk'           => 'Pajak',
+                'Keterangan'            => $purchase?->note ?? '-',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => $taxAmount,
+                'Total nominal tagihan' => $taxTotal,
+                'is_tax_row'            => true,
+            ];
+        }
+
+        return $rows;
     }
-    public static function mapRowForExport(PurchaseDetail $detail, float $runningTotal): array
+    public static function mapRowsForExport(PurchaseDetail $detail, float $previousRunningTotal): array
     {
         $purchase = $detail->purchase;
+        $rows = [];
 
-        return [
+        $subTotal = (float) $detail->sub_total;
+        $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+
+        $productTotal = $previousRunningTotal + $subTotal;
+        $rows[] = [
             'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
             'Tanggal'               => $purchase?->date ?? '-',
             'Tipe transaksi'        => 'Faktur Pembelian',
             'No. transaksi'         => $purchase?->reference ?? '-',
             'Nama produk'           => $detail->product_name ?? '-',
-            'Keterangan'            => $purchase?->note ?? '-',
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
             'Harga per unit'        => $detail->unit_price ?? 0,
-            'Nominal tagihan'       => $detail->sub_total ?? 0,
-            'Total nominal tagihan' => $runningTotal,
+            'Nominal tagihan'       => $subTotal,
+            'Total nominal tagihan' => $productTotal,
+            'is_tax_row'            => false,
         ];
+
+        if ($taxAmount > 0) {
+            $taxTotal = $productTotal + $taxAmount;
+            $rows[] = [
+                'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+                'Tanggal'               => $purchase?->date ?? '-',
+                'Tipe transaksi'        => 'Faktur Pembelian',
+                'No. transaksi'         => $purchase?->reference ?? '-',
+                'Nama produk'           => 'Pajak',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => $taxAmount,
+                'Total nominal tagihan' => $taxTotal,
+                'is_tax_row'            => true,
+            ];
+        }
+
+        return $rows;
     }
 }

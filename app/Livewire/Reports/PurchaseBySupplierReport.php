@@ -332,7 +332,7 @@ class PurchaseBySupplierReport extends Component
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total');
+                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
@@ -342,20 +342,21 @@ class PurchaseBySupplierReport extends Component
                 foreach ($previousRows as $row) {
                     $supplierId = $row->supplier_id;
                     if ($supplierId) {
-                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total;
+                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total + ($row->product_tax_amount ?? 0);
                     }
                 }
             }
             
-            // Calculate sequential running totals down the displayed rows for each supplier.
             $purchases->getCollection()->transform(function ($detail) use (&$runningTotals) {
                 $supplierId = $detail->purchase->supplier_id;
                 if (!isset($runningTotals[$supplierId])) {
                     $runningTotals[$supplierId] = 0;
                 }
-                $runningTotals[$supplierId] += $detail->sub_total;
-                
-                $detail->running_total = $runningTotals[$supplierId];
+
+                $detail->previous_running_total = $runningTotals[$supplierId];
+
+                $runningTotals[$supplierId] += $detail->sub_total + ($detail->product_tax_amount ?? 0);
+
                 return $detail;
             });
         }

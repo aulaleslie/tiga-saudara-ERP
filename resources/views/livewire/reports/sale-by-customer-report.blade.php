@@ -264,7 +264,7 @@
                 @forelse($sales as $row)
                     @php
                         $customerId = $row->sale->customer_id;
-                        $mapped = \App\Services\Reports\SaleByCustomerReportQueryService::mapRow($row, $row->running_total ?? 0);
+                        $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($row, $row->previous_running_total ?? 0);
                         $isFirstRow = $loop->first;
                         $isContinuation = $isFirstRow && $customerId === ($previousPageLastCustomerId ?? null);
                         $isNewCustomer = $currentCustomerId !== $customerId;
@@ -273,14 +273,15 @@
                     @if($isNewCustomer)
                         <tr class="table-active fw-bold">
                             <td colspan="10">
-                                {{ $mapped['Customer / Tanggal'] }}
+                                {{ $mappedRows[0]['Customer / Tanggal'] }}
                                 @if($isContinuation)
                                     <span class="fw-normal fst-italic text-muted ms-1">(Lanjutan)</span>
                                 @endif
                             </td>
                         </tr>
                     @endif
-                    <tr>
+                    @foreach($mappedRows as $mapped)
+                    <tr @if($mapped['is_tax_row']) class="text-muted bg-light" @endif>
                         <td class="ps-4">{{ date('d/m/Y', strtotime($row->sale->date)) }}</td>
                         <td>{{ $mapped['Tipe transaksi'] }}</td>
                         <td>
@@ -294,12 +295,13 @@
                         </td>
                         <td>{{ $mapped['Nama produk'] }}</td>
                         <td>{{ $mapped['Keterangan'] }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Qty'], 2, ',', '.') }}</td>
+                        <td class="text-end">{{ $mapped['Qty'] !== '' ? number_format((float)$mapped['Qty'], 2, ',', '.') : '' }}</td>
                         <td>{{ $mapped['Unit'] }}</td>
-                        <td class="text-end">{{ number_format((float)$mapped['Harga per unit'], 0, ',', '.') }}</td>
+                        <td class="text-end">{{ $mapped['is_tax_row'] ? '' : number_format((float)$mapped['Harga per unit'], 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$mapped['Nominal tagihan'], 0, ',', '.') }}</td>
                         <td class="text-end fw-bold text-primary">{{ number_format((float)$mapped['Total nominal tagihan'], 0, ',', '.') }}</td>
                     </tr>
+                    @endforeach
                 @empty
                     <tr>
                         <td colspan="10" class="text-center py-4 text-muted">

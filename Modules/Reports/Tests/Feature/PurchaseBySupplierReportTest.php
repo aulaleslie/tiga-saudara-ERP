@@ -136,7 +136,7 @@ class PurchaseBySupplierReportTest extends TestCase
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
 
-        $this->get(route('home'))
+        $this->get(route('reports.index'))
             ->assertStatus(200)
             ->assertSee('Pembelian Per Supplier');
     }
@@ -198,16 +198,16 @@ class PurchaseBySupplierReportTest extends TestCase
     }
 
     /** @test */
-    public function it_computes_running_totals_per_supplier_using_sub_total()
+    public function it_computes_running_totals_per_supplier_using_sub_total_and_tax()
     {
         $supplier = $this->makeSupplier('Supplier A');
         $purchase1 = $this->makePurchase($supplier, ['date' => '2026-05-01']);
         $purchase2 = $this->makePurchase($supplier, ['date' => '2026-05-02']);
 
         // First purchase detail
-        $this->makePurchaseDetail($purchase1, ['sub_total' => 1000]);
+        $this->makePurchaseDetail($purchase1, ['sub_total' => 1000, 'product_tax_amount' => 110]);
         // Second purchase detail
-        $this->makePurchaseDetail($purchase2, ['sub_total' => 2000]);
+        $this->makePurchaseDetail($purchase2, ['sub_total' => 2000, 'product_tax_amount' => 0]);
 
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
@@ -217,19 +217,40 @@ class PurchaseBySupplierReportTest extends TestCase
             ->call('applyFilters')
             ->assertViewHas('purchases', function ($purchases) {
                 // The query sorts by date desc.
-                // Row 0 is purchase2 (2026-05-02, sub_total 2000)
-                // Row 1 is purchase1 (2026-05-01, sub_total 1000)
+                // Row 0 is purchase2 (2026-05-02, sub_total 2000, tax 0)
+                // Row 1 is purchase1 (2026-05-01, sub_total 1000, tax 110)
                 $rows = $purchases->values(); // Use the original order
                 \PHPUnit\Framework\Assert::assertCount(2, $rows, 'Expected 2 rows, found ' . $rows->count());
-                
-                // Assert Nominal tagihan (sub_total) and Total nominal tagihan (running total)
+
                 \PHPUnit\Framework\Assert::assertEquals(2000, $rows[0]->sub_total);
-                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[0]->running_total);
+                \PHPUnit\Framework\Assert::assertEquals(0, $rows[0]->previous_running_total);
+
                 \PHPUnit\Framework\Assert::assertEquals(1000, $rows[1]->sub_total);
-                \PHPUnit\Framework\Assert::assertEquals(3000, $rows[1]->running_total);
-                
+                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[1]->previous_running_total);
+
                 return true;
             });
+    }
+
+    /** @test */
+    public function it_renders_pajak_row_when_product_tax_amount_is_greater_than_zero()
+    {
+        $supplier = $this->makeSupplier('Supplier A');
+        $purchase = $this->makePurchase($supplier, ['date' => '2026-05-01']);
+
+        $detailWithTax = $this->makePurchaseDetail($purchase, ['sub_total' => 1000, 'product_tax_amount' => 110]);
+        $detailWithoutTax = $this->makePurchaseDetail($purchase, ['sub_total' => 2000, 'product_tax_amount' => 0]);
+
+        $mappedWithTax = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($detailWithTax, 0);
+        \PHPUnit\Framework\Assert::assertCount(2, $mappedWithTax);
+        \PHPUnit\Framework\Assert::assertFalse($mappedWithTax[0]['is_tax_row']);
+        \PHPUnit\Framework\Assert::assertEquals(1000, $mappedWithTax[0]['Nominal tagihan']);
+        \PHPUnit\Framework\Assert::assertTrue($mappedWithTax[1]['is_tax_row']);
+        \PHPUnit\Framework\Assert::assertEquals(110, $mappedWithTax[1]['Nominal tagihan']);
+        \PHPUnit\Framework\Assert::assertEquals('Pajak', $mappedWithTax[1]['Nama produk']);
+
+        $mappedWithoutTax = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($detailWithoutTax, 0);
+        \PHPUnit\Framework\Assert::assertCount(1, $mappedWithoutTax);
     }
 
     /** @test */
@@ -321,6 +342,8 @@ class PurchaseBySupplierReportTest extends TestCase
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
             ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
             ->set('sortField', 'supplier_total')
             ->set('sortDirection', 'desc')
             ->call('applyFilters')
@@ -432,7 +455,49 @@ class PurchaseBySupplierReportTest extends TestCase
             return count($export->array()) === 6;
         });
     }
+    /** @test */
+    public function it_exports_correct_columns_and_includes_tax_rows()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        $supplier = $this->makeSupplier('Supplier A');
+        $purchase = $this->makePurchase($supplier, ['date' => '2026-05-15']);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Prod 1', 'sub_total' => 1000, 'product_tax_amount' => 110]);
 
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-05-01_2026-05-31.xlsx', function ($export) {
+            $headings = $export->headings();
+            \PHPUnit\Framework\Assert::assertNotContains('Keterangan', $headings);
+            \PHPUnit\Framework\Assert::assertEquals(['Supplier', 'Tanggal', 'Transaksi', 'No', 'Produk', 'Kuantitas', 'Satuan', 'Harga Satuan', 'Jumlah Tagihan', 'Total'], $headings);
+
+            $rows = $export->array();
+            \PHPUnit\Framework\Assert::assertCount(5, $rows);
+
+            $prodRow = $rows[1];
+            \PHPUnit\Framework\Assert::assertEquals('PROD 1', $prodRow[4]);
+            \PHPUnit\Framework\Assert::assertEquals(1000, $prodRow[8]);
+            \PHPUnit\Framework\Assert::assertEquals(1000, $prodRow[9]);
+
+            $taxRow = $rows[2];
+            \PHPUnit\Framework\Assert::assertEquals('Pajak', $taxRow[4]);
+            \PHPUnit\Framework\Assert::assertEquals(110, $taxRow[8]);
+            \PHPUnit\Framework\Assert::assertEquals(1110, $taxRow[9]);
+
+            $subtotalRow = $rows[3];
+            \PHPUnit\Framework\Assert::assertEquals(1110, $subtotalRow[9]);
+
+            $grandTotalRow = $rows[4];
+            \PHPUnit\Framework\Assert::assertEquals(1110, $grandTotalRow[9]);
+
+            return true;
+        });
+    }
     /** @test */
     public function it_export_respects_supplier_filter()
     {
@@ -465,10 +530,12 @@ class PurchaseBySupplierReportTest extends TestCase
     public function it_hides_the_menu_item_from_unauthorized_users()
     {
         $unauthorizedUser = User::factory()->create();
+        \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'reports.access']);
+        $unauthorizedUser->givePermissionTo('reports.access');
         $this->actingAs($unauthorizedUser);
         session(['setting_id' => $this->setting->id]);
 
-        $this->get(route('home'))
+        $this->get(route('reports.index'))
             ->assertStatus(200)
             ->assertDontSee('Pembelian Per Supplier');
     }
@@ -567,19 +634,18 @@ class PurchaseBySupplierReportTest extends TestCase
     }
 
     /** @test */
-    public function it_computes_running_totals_correctly_on_page_two()
+    public function it_computes_running_totals_correctly_on_page_two_including_tax()
     {
         $supplier = $this->makeSupplier('Supplier A');
         
         // Create 20 purchases so page 2 has 5 items (default perPage is 15)
         for ($i = 1; $i <= 20; $i++) {
             $purchase = $this->makePurchase($supplier, ['date' => '2026-05-01']);
-            // The very first inserted row gets a massive sub_total of 1000.
-            // Since the report sorts by date DESC, id DESC, this row will be the LAST row on page 2.
-            // Page 1 contains rows 20 down to 6. They all have sub_total = 100.
-            // So the correct running total at the start of page 2 (after page 1) MUST be 15 * 100 = 1500.
+            // Page 1 contains rows 20 down to 6. They all have sub_total = 100, tax = 10.
+            // So the correct running total at the start of page 2 (after page 1) MUST be 15 * 110 = 1650.
             $subTotal = ($i === 1) ? 1000 : 100;
-            $this->makePurchaseDetail($purchase, ['sub_total' => $subTotal]);
+            $taxAmount = ($i === 1) ? 100 : 10;
+            $this->makePurchaseDetail($purchase, ['sub_total' => $subTotal, 'product_tax_amount' => $taxAmount]);
         }
 
         \Livewire\Livewire::actingAs($this->user)
@@ -593,12 +659,13 @@ class PurchaseBySupplierReportTest extends TestCase
                 $rows = $purchases->values();
                 \PHPUnit\Framework\Assert::assertCount(5, $rows);
                 
-                // The first 15 items (rows 20 down to 6) had sub_total 100, so running total before page 2 is 1500.
-                // The first item on page 2 (row 5) should have a running total of 1600.
-                \PHPUnit\Framework\Assert::assertEquals(1600, $rows[0]->running_total);
+                // The first 15 items (rows 20 down to 6) had sub_total 100, tax 10, so running total before page 2 is 1650.
+                // The first item on page 2 (row 5) should have a previous_running_total of 1650.
+                \PHPUnit\Framework\Assert::assertEquals(1650, $rows[0]->previous_running_total);
                 
-                // The last item on page 2 (row 1) has sub_total 1000, so its running total should be 2500.
-                \PHPUnit\Framework\Assert::assertEquals(2900, $rows[4]->running_total);
+                // The last item on page 2 (row 1) has sub_total 1000, tax 100.
+                // Its previous_running_total should be 1650 + 4*110 = 2090.
+                \PHPUnit\Framework\Assert::assertEquals(2090, $rows[4]->previous_running_total);
                 
                 return true;
             });

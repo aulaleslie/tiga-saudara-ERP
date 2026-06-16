@@ -332,7 +332,7 @@ class SaleByCustomerReport extends Component
                 $offset = ($sales->currentPage() - 1) * $sales->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('sales.customer_id', 'sale_details.sub_total');
+                $previousQuery->select('sales.customer_id', 'sale_details.sub_total', 'sale_details.product_tax_amount');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
@@ -342,20 +342,21 @@ class SaleByCustomerReport extends Component
                 foreach ($previousRows as $row) {
                     $customerId = $row->customer_id;
                     if ($customerId) {
-                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total;
+                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total + ($row->product_tax_amount ?? 0);
                     }
                 }
             }
             
-            // Calculate sequential running totals down the displayed rows for each customer.
             $sales->getCollection()->transform(function ($detail) use (&$runningTotals) {
                 $customerId = $detail->sale->customer_id;
                 if (!isset($runningTotals[$customerId])) {
                     $runningTotals[$customerId] = 0;
                 }
-                $runningTotals[$customerId] += $detail->sub_total;
-                
-                $detail->running_total = $runningTotals[$customerId];
+
+                $detail->previous_running_total = $runningTotals[$customerId];
+
+                $runningTotals[$customerId] += $detail->sub_total + ($detail->product_tax_amount ?? 0);
+
                 return $detail;
             });
         }

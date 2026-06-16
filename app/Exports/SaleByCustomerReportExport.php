@@ -60,23 +60,23 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
                 $runningTotal = 0.0;
             }
             
-            $subTotal = (float) ($detail->sub_total ?? 0);
-            $runningTotal += $subTotal;
-            $grandTotal += $subTotal;
-            $date = $detail->sale?->date ? Carbon::parse($detail->sale->date)->format('d/m/Y') : '-';
-            
-            $rows[] = [
-                $date,
-                'Faktur Penjualan',
-                $detail->sale?->reference ?? '-',
-                $detail->product_name ?? '-',
-                $detail->sale?->note ?? '-',
-                (float) ($detail->quantity ?? 0),
-                $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
-                (float) ($detail->unit_price ?? 0),
-                $subTotal,
-                $runningTotal,
-            ];
+            $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRowsForExport($detail, $runningTotal);
+            foreach ($mappedRows as $mapped) {
+                $rows[] = [
+                    $mapped['Customer'],
+                    Carbon::parse($mapped['Tanggal'])->format('d/m/Y'),
+                    $mapped['Tipe transaksi'],
+                    $mapped['No. transaksi'],
+                    $mapped['Nama produk'],
+                    $mapped['Qty'] !== '' ? (float) $mapped['Qty'] : '',
+                    $mapped['Unit'],
+                    $mapped['is_tax_row'] ? '' : (float) $mapped['Harga per unit'],
+                    (float) $mapped['Nominal tagihan'],
+                    (float) $mapped['Total nominal tagihan'],
+                ];
+                $runningTotal = $mapped['Total nominal tagihan'];
+            }
+            $grandTotal += (float) $detail->sub_total + (float) ($detail->product_tax_amount ?? 0);
         }
         
         // Push subtotal for the very last customer
@@ -99,11 +99,11 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
     public function headings(): array
     {
         return [
-            'Customer / Tanggal',
+            'Customer',
+            'Tanggal',
             'Transaksi',
             'No',
             'Produk',
-            'Keterangan',
             'Kuantitas',
             'Satuan',
             'Harga Satuan',
