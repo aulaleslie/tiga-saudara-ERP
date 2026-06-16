@@ -565,19 +565,29 @@ class PurchaseBySupplierReportTest extends TestCase
     /** @test */
     public function it_handles_period_presets_without_refreshing_rows_until_filtered()
     {
+        $startOfMonth = now()->startOfMonth()->format('Y-m-d');
+        $today = now()->format('Y-m-d');
+        $startOfYear = now()->startOfYear()->format('Y-m-d');
+        $endOfYear = now()->endOfYear()->format('Y-m-d');
+
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
-            ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('startDate', $startOfMonth)
             ->set('periodPreset', 'today')
-            ->assertSet('startDate', now()->format('Y-m-d'))
+            ->assertSet('startDate', $today)
+            // Verify rendered HTML actually reflects the state update
+            ->assertSeeHtml('wire:model.live="startDate"')
+            ->assertSeeHtml('value="' . $today . '"')
             // Before applying filters, appliedFilters startDate is still the old one
-            ->assertSet('appliedFilters.startDate', now()->startOfMonth()->format('Y-m-d'))
+            ->assertSet('appliedFilters.startDate', $startOfMonth)
             ->call('applyFilters')
             // After applying filters, appliedFilters matches the new startDate
-            ->assertSet('appliedFilters.startDate', now()->format('Y-m-d'))
+            ->assertSet('appliedFilters.startDate', $today)
             ->set('periodPreset', 'this_year')
-            ->assertSet('startDate', now()->startOfYear()->format('Y-m-d'))
-            ->assertSet('endDate', now()->endOfYear()->format('Y-m-d'));
+            ->assertSet('startDate', $startOfYear)
+            ->assertSet('endDate', $endOfYear)
+            ->assertSeeHtml('value="' . $startOfYear . '"')
+            ->assertSeeHtml('value="' . $endOfYear . '"');
     }
 
     /** @test */
