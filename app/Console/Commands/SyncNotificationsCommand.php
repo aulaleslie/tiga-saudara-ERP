@@ -91,8 +91,12 @@ class SyncNotificationsCommand extends Command
             $needsApproval = false;
             $needsRevision = false;
             if (method_exists($source, 'settlementItems')) {
-                $pendingSettlements = $source->settlementItems()->whereIn('status', ['SUBMITTED'])->exists();
-                if ($isApproval && $pendingSettlements) $needsApproval = true;
+                if ($isApproval) {
+                    $needsApproval = $source->settlementItems()->whereIn('status', ['SUBMITTED'])->exists();
+                }
+                if ($isRevision) {
+                    $needsRevision = $source->settlementItems()->whereIn('status', ['REJECTED'])->exists();
+                }
             }
             
             if ($isApproval && !$needsApproval) {
@@ -102,20 +106,34 @@ class SyncNotificationsCommand extends Command
             }
             return;
         } elseif ($subCategory === 'dispatch') {
-            $dispatchStatus = Str::lower($source->return_dispatch_status ?? $source->dispatch_status ?? '');
+            $needsApproval = false;
+            $needsRevision = false;
             
-            if ($isApproval) {
-                $needsApproval = in_array($dispatchStatus, [
-                    'pending_approval'
-                ]);
-                if (!$needsApproval) {
-                    $notification->update(['resolved_at' => now()]);
+            if ($class === \Modules\SalesReturn\Entities\SaleReturn::class) {
+                if (method_exists($source, 'settlementItems')) {
+                    if ($isApproval) {
+                        $needsApproval = $source->settlementItems()->whereIn('status', ['DISPATCH_REQUESTED'])->exists();
+                    }
+                    if ($isRevision) {
+                        $needsRevision = $source->settlementItems()
+                            ->whereIn('status', ['APPROVED_AWAITING_DISPATCH'])
+                            ->whereNotNull('dispatch_rejected_at')
+                            ->exists();
+                    }
                 }
-            } elseif ($isRevision) {
-                $needsRevision = in_array($dispatchStatus, ['rejected']);
-                if (!$needsRevision) {
-                    $notification->update(['resolved_at' => now()]);
+            } else {
+                $dispatchStatus = Str::lower($source->return_dispatch_status ?? $source->dispatch_status ?? '');
+                if ($isApproval) {
+                    $needsApproval = in_array($dispatchStatus, ['pending_approval']);
+                } elseif ($isRevision) {
+                    $needsRevision = in_array($dispatchStatus, ['rejected']);
                 }
+            }
+            
+            if ($isApproval && !$needsApproval) {
+                $notification->update(['resolved_at' => now()]);
+            } elseif ($isRevision && !$needsRevision) {
+                $notification->update(['resolved_at' => now()]);
             }
             return;
         }
@@ -184,32 +202,50 @@ class SyncNotificationsCommand extends Command
             if ($status === 'rejected') $docService->notifyRevisionNeeded($pr, $pr->reference ?? 'POS Return', $pr->setting_id);
         }
 
-        $saleReturnSettlements = \Modules\SalesReturn\Entities\SaleReturnItemSettlement::whereIn('status', ['SUBMITTED'])->get();
-        foreach ($saleReturnSettlements as $srs) {
-            if ($srs->status === 'SUBMITTED' && $srs->saleReturn) {
-                $docService->notifyApprovalNeeded($srs->saleReturn, $srs->saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $srs->saleReturn->setting_id, null, 'settlement');
+        $saleReturnSettlements = \Modules\SalesReturn\Entities\SaleReturnItemSettlement::whereIn('status', ['SUBMITTED', 'REJECTED'])->with('saleReturn')->get();
+        $saleReturnSettlementsGrouped = $saleReturnSettlements->groupBy('sale_return_id');
+        foreach ($saleReturnSettlementsGrouped as $saleReturnId => $settlements) {
+            $saleReturn = $settlements->first()->saleReturn;
+            if (!$saleReturn) continue;
+
+            if ($settlements->contains('status', 'SUBMITTED')) {
+                $docService->notifyApprovalNeeded($saleReturn, $saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $saleReturn->setting_id, null, 'settlement');
+            }
+            if ($settlements->contains('status', 'REJECTED')) {
+                $docService->notifyRevisionNeeded($saleReturn, $saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $saleReturn->setting_id, '', null, 'settlement');
             }
         }
 
-        $purchaseReturnSettlements = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::whereIn('status', ['SUBMITTED'])->get();
-        foreach ($purchaseReturnSettlements as $prs) {
-            if ($prs->status === 'SUBMITTED' && $prs->purchaseReturn) {
-                $docService->notifyApprovalNeeded($prs->purchaseReturn, $prs->purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $prs->purchaseReturn->setting_id, null, 'settlement');
+        $purchaseReturnSettlements = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::whereIn('status', ['SUBMITTED', 'REJECTED'])->with('purchaseReturn')->get();
+        $purchaseReturnSettlementsGrouped = $purchaseReturnSettlements->groupBy('purchase_return_id');
+        foreach ($purchaseReturnSettlementsGrouped as $purchaseReturnId => $settlements) {
+            $purchaseReturn = $settlements->first()->purchaseReturn;
+            if (!$purchaseReturn) continue;
+
+            if ($settlements->contains('status', 'SUBMITTED')) {
+                $docService->notifyApprovalNeeded($purchaseReturn, $purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $purchaseReturn->setting_id, null, 'settlement');
+            }
+            if ($settlements->contains('status', 'REJECTED')) {
+                $docService->notifyRevisionNeeded($purchaseReturn, $purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $purchaseReturn->setting_id, '', null, 'settlement');
             }
         }
 
-        $receivedNotes = \Modules\Purchase\Entities\ReceivedNote::whereIn('status', ['WAITING_APPROVAL', 'PENDING APPROVAL', 'REJECTED'])->get();
+        $receivedNotes = \Modules\Purchase\Entities\ReceivedNote::with('purchase')->whereIn('status', ['PENDING', 'REJECTED'])->get();
         foreach ($receivedNotes as $rn) {
             $status = Str::upper($rn->status);
-            if ($status === 'WAITING_APPROVAL' || $status === 'PENDING APPROVAL') $docService->notifyApprovalNeeded($rn, $rn->reference ?? 'Penerimaan', $rn->setting_id);
-            if ($status === 'REJECTED') $docService->notifyRevisionNeeded($rn, $rn->reference ?? 'Penerimaan', $rn->setting_id);
+            $settingId = $rn->purchase ? $rn->purchase->setting_id : 1;
+            $reference = $rn->purchase ? $rn->purchase->reference : 'Penerimaan';
+            if ($status === 'PENDING') $docService->notifyApprovalNeeded($rn, $reference, $settingId);
+            if ($status === 'REJECTED') $docService->notifyRevisionNeeded($rn, $reference, $settingId);
         }
 
-        $dispatches = \Modules\Sale\Entities\Dispatch::whereIn('status', ['WAITING_APPROVAL', 'PENDING APPROVAL', 'REJECTED'])->get();
+        $dispatches = \Modules\Sale\Entities\Dispatch::with('sale')->whereIn('status', ['PENDING', 'REJECTED'])->get();
         foreach ($dispatches as $d) {
             $status = Str::upper($d->status);
-            if ($status === 'WAITING_APPROVAL' || $status === 'PENDING APPROVAL') $docService->notifyApprovalNeeded($d, $d->reference ?? 'Pengiriman', $d->setting_id);
-            if ($status === 'REJECTED') $docService->notifyRevisionNeeded($d, $d->reference ?? 'Pengiriman', $d->setting_id);
+            $settingId = $d->sale ? $d->sale->setting_id : 1;
+            $reference = $d->sale ? $d->sale->reference : 'Pengiriman';
+            if ($status === 'PENDING') $docService->notifyApprovalNeeded($d, $reference, $settingId);
+            if ($status === 'REJECTED') $docService->notifyRevisionNeeded($d, $reference, $settingId);
         }
 
         $purchaseReturnsDispatch = \Modules\PurchasesReturn\Entities\PurchaseReturn::whereIn('return_dispatch_status', ['PENDING_APPROVAL', 'pending_approval', 'REJECTED', 'rejected'])->get();
@@ -219,11 +255,19 @@ class SyncNotificationsCommand extends Command
             if ($status === 'rejected') $docService->notifyRevisionNeeded($pr, $pr->reference ?? 'Pengiriman Retur Pembelian', $pr->setting_id, '', null, 'dispatch');
         }
 
-        $saleReturnsDispatch = \Modules\SalesReturn\Entities\SaleReturn::whereIn('return_dispatch_status', ['PENDING_APPROVAL', 'pending_approval', 'REJECTED', 'rejected'])->get();
+        $saleReturnsDispatch = \Modules\SalesReturn\Entities\SaleReturn::whereHas('settlementItems', function($q) {
+            $q->whereIn('status', ['DISPATCH_REQUESTED']);
+        })->get();
         foreach ($saleReturnsDispatch as $sr) {
-            $status = Str::lower($sr->return_dispatch_status);
-            if ($status === 'pending_approval') $docService->notifyApprovalNeeded($sr, $sr->reference ?? 'Pengiriman Retur Penjualan', $sr->setting_id, null, 'dispatch');
-            if ($status === 'rejected') $docService->notifyRevisionNeeded($sr, $sr->reference ?? 'Pengiriman Retur Penjualan', $sr->setting_id, '', null, 'dispatch');
+            $docService->notifyApprovalNeeded($sr, $sr->reference ?? 'Pengiriman Retur Penjualan', $sr->setting_id, null, 'dispatch');
+        }
+
+        $saleReturnsDispatchRevision = \Modules\SalesReturn\Entities\SaleReturn::whereHas('settlementItems', function($q) {
+            $q->whereIn('status', ['APPROVED_AWAITING_DISPATCH'])
+              ->whereNotNull('dispatch_rejected_at');
+        })->get();
+        foreach ($saleReturnsDispatchRevision as $sr) {
+            $docService->notifyRevisionNeeded($sr, $sr->reference ?? 'Pengiriman Retur Penjualan', $sr->setting_id, '', null, 'dispatch');
         }
     }
 }

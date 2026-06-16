@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
  * 2. Snapshot generation handles "none" resolution source
  * 3. Checkout finalize still rejects null customer with CUSTOMER_UNRESOLVED
  */
-class CustomerResolutionContractTest extends TestCase
+class PosWsACustomerResolutionTest extends TestCase
 {
     /**
      * Test 1: Resolver returns non-fatal "none" resolution when customer_id is null

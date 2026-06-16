@@ -67,6 +67,16 @@ If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-s
 # License
 **[Creative Commons Attribution 4.0	cc-by-4.0](https://creativecommons.org/licenses/by/4.0/)**
 
+## Maintenance Commands
+
+```bash
 php artisan queue:work --queue=default --tries=3 --timeout=7200
 php artisan product:normalize-purchase-prices
 php artisan product:normalize-purchase-prices --write
+
+# Repair and sync persisted notification rows for stock, approval, and revision states.
+php artisan notifications:sync
+
+# Manually prune old notifications. Notifications are retained unless this command is run.
+php artisan notifications:prune --days=30
+```
