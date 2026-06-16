@@ -25,7 +25,7 @@ class SaleByCustomerReport extends Component
     public $startDate, $endDate;
     public $settingId;
     public $sortField = 'date';
-    public $sortDirection = 'desc';
+    public $sortDirection = 'asc';
 
     public $customerIds = [];
     public $tagIds = [];
@@ -178,7 +178,7 @@ class SaleByCustomerReport extends Component
             $this->tagLogic = $this->appliedFilters['tagLogic'] ?? 'Salah satu';
             $this->categoryLogic = $this->appliedFilters['categoryLogic'] ?? 'Salah satu';
             $this->sortField = $this->appliedFilters['sortField'] ?? 'date';
-            $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'desc';
+            $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'asc';
         }
         $this->customerSearch = '';
         $this->customerOptions = [];
@@ -202,7 +202,7 @@ class SaleByCustomerReport extends Component
         $this->tagLogic = 'Salah satu';
         $this->categoryLogic = 'Salah satu';
         $this->sortField = 'date';
-        $this->sortDirection = 'desc';
+        $this->sortDirection = 'asc';
         $this->customerSearch = '';
         $this->customerOptions = [];
         $this->tagSearch = '';
@@ -313,7 +313,7 @@ class SaleByCustomerReport extends Component
                 categoryIds: $this->appliedFilters['categoryIds'] ?? [],
                 categoryLogic: $this->appliedFilters['categoryLogic'] ?? 'Salah satu',
                 sortField: $this->appliedFilters['sortField'] ?? 'date',
-                sortDirection: $this->appliedFilters['sortDirection'] ?? 'desc'
+                sortDirection: $this->appliedFilters['sortDirection'] ?? 'asc'
             );
 
             $query = $queryService->build($filter);
@@ -361,11 +361,35 @@ class SaleByCustomerReport extends Component
 
                 return $detail;
             });
+
+            $grandTotal = 0;
+            if ($sales->total() > 0) {
+                $totalQuery = clone $baseQuery;
+                $totalQuery->setEagerLoads([]);
+                $totalQuery->select('sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included');
+                $grandTotal = $totalQuery->get()->sum(function($row) {
+                    $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
+                    return $row->sub_total + $tax;
+                });
+            }
+            $nextPageFirstCustomerId = null;
+            if ($sales->hasMorePages()) {
+                $nextOffset = $sales->currentPage() * $sales->perPage();
+                $nextQuery = clone $baseQuery;
+                $nextQuery->setEagerLoads([]);
+                $nextQuery->select('sales.customer_id');
+                $nextRow = $nextQuery->skip($nextOffset)->first();
+                if ($nextRow) {
+                    $nextPageFirstCustomerId = $nextRow->customer_id;
+                }
+            }
         }
 
         return view('livewire.reports.sale-by-customer-report', [
             'sales' => $sales,
             'previousPageLastCustomerId' => $previousPageLastCustomerId ?? null,
+            'nextPageFirstCustomerId' => $nextPageFirstCustomerId ?? null,
+            'grandTotal' => $grandTotal ?? 0,
         ]);
     }
 }

@@ -25,7 +25,7 @@ class PurchaseBySupplierReport extends Component
     public $startDate, $endDate;
     public $settingId;
     public $sortField = 'date';
-    public $sortDirection = 'desc';
+    public $sortDirection = 'asc';
 
     public $supplierIds = [];
     public $tagIds = [];
@@ -178,7 +178,7 @@ class PurchaseBySupplierReport extends Component
             $this->tagLogic = $this->appliedFilters['tagLogic'] ?? 'Salah satu';
             $this->categoryLogic = $this->appliedFilters['categoryLogic'] ?? 'Salah satu';
             $this->sortField = $this->appliedFilters['sortField'] ?? 'date';
-            $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'desc';
+            $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'asc';
         }
         $this->supplierSearch = '';
         $this->supplierOptions = [];
@@ -202,7 +202,7 @@ class PurchaseBySupplierReport extends Component
         $this->tagLogic = 'Salah satu';
         $this->categoryLogic = 'Salah satu';
         $this->sortField = 'date';
-        $this->sortDirection = 'desc';
+        $this->sortDirection = 'asc';
         $this->supplierSearch = '';
         $this->supplierOptions = [];
         $this->tagSearch = '';
@@ -313,7 +313,7 @@ class PurchaseBySupplierReport extends Component
                 categoryIds: $this->appliedFilters['categoryIds'] ?? [],
                 categoryLogic: $this->appliedFilters['categoryLogic'] ?? 'Salah satu',
                 sortField: $this->appliedFilters['sortField'] ?? 'date',
-                sortDirection: $this->appliedFilters['sortDirection'] ?? 'desc'
+                sortDirection: $this->appliedFilters['sortDirection'] ?? 'asc'
             );
 
             $query = $queryService->build($filter);
@@ -361,11 +361,35 @@ class PurchaseBySupplierReport extends Component
 
                 return $detail;
             });
+
+            $grandTotal = 0;
+            if ($purchases->total() > 0) {
+                $totalQuery = clone $baseQuery;
+                $totalQuery->setEagerLoads([]);
+                $totalQuery->select('purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included');
+                $grandTotal = $totalQuery->get()->sum(function($row) {
+                    $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
+                    return $row->sub_total + $tax;
+                });
+            }
+            $nextPageFirstSupplierId = null;
+            if ($purchases->hasMorePages()) {
+                $nextOffset = $purchases->currentPage() * $purchases->perPage();
+                $nextQuery = clone $baseQuery;
+                $nextQuery->setEagerLoads([]);
+                $nextQuery->select('purchases.supplier_id');
+                $nextRow = $nextQuery->skip($nextOffset)->first();
+                if ($nextRow) {
+                    $nextPageFirstSupplierId = $nextRow->supplier_id;
+                }
+            }
         }
 
         return view('livewire.reports.purchase-by-supplier-report', [
             'purchases' => $purchases,
             'previousPageLastSupplierId' => $previousPageLastSupplierId ?? null,
+            'nextPageFirstSupplierId' => $nextPageFirstSupplierId ?? null,
+            'grandTotal' => $grandTotal ?? 0,
         ]);
     }
 }

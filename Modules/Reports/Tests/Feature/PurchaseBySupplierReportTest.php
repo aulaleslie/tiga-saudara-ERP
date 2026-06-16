@@ -169,7 +169,9 @@ class PurchaseBySupplierReportTest extends TestCase
             ->call('applyFilters')
             ->assertViewHas('purchases', function ($purchases) {
                 return $purchases->count() === 3;
-            });
+            })
+            ->assertSeeHtml('Subtotal')
+            ->assertSeeHtml('Total');
     }
 
     /** @test */
@@ -218,15 +220,15 @@ class PurchaseBySupplierReportTest extends TestCase
             ->assertViewHas('purchases', function ($purchases) {
                 // The query sorts by date desc.
                 // Row 0 is purchase2 (2026-05-02, sub_total 2000, tax 0)
-                // Row 1 is purchase1 (2026-05-01, sub_total 1000, tax 110)
+                // Row 0 is purchase1 (2026-05-01, sub_total 1000, tax 110)
                 $rows = $purchases->values(); // Use the original order
                 \PHPUnit\Framework\Assert::assertCount(2, $rows, 'Expected 2 rows, found ' . $rows->count());
 
-                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[0]->sub_total);
+                \PHPUnit\Framework\Assert::assertEquals(1000, $rows[0]->sub_total);
                 \PHPUnit\Framework\Assert::assertEquals(0, $rows[0]->previous_running_total);
 
-                \PHPUnit\Framework\Assert::assertEquals(1000, $rows[1]->sub_total);
-                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[1]->previous_running_total);
+                \PHPUnit\Framework\Assert::assertEquals(2000, $rows[1]->sub_total);
+                \PHPUnit\Framework\Assert::assertEquals(1110, $rows[1]->previous_running_total);
 
                 return true;
             });
@@ -682,13 +684,14 @@ class PurchaseBySupplierReportTest extends TestCase
                 $rows = $purchases->values();
                 \PHPUnit\Framework\Assert::assertCount(5, $rows);
                 
-                // The first 15 items (rows 20 down to 6) had sub_total 100, tax 10, so running total before page 2 is 1650.
-                // The first item on page 2 (row 5) should have a previous_running_total of 1650.
-                \PHPUnit\Framework\Assert::assertEquals(1650, $rows[0]->previous_running_total);
+                // Since it's ascending, the first item (row 1) had sub_total 1000, tax 100 (total 1100).
+                // The next 14 items on page 1 had total 110 each (14 * 110 = 1540).
+                // Total before page 2 is 1100 + 1540 = 2640.
+                \PHPUnit\Framework\Assert::assertEquals(2640, $rows[0]->previous_running_total);
                 
-                // The last item on page 2 (row 1) has sub_total 1000, tax 100.
-                // Its previous_running_total should be 1650 + 4*110 = 2090.
-                \PHPUnit\Framework\Assert::assertEquals(2090, $rows[4]->previous_running_total);
+                // The last item on page 2 (row 20) is preceded by 4 items on page 2.
+                // Its previous_running_total should be 2640 + 4 * 110 = 3080.
+                \PHPUnit\Framework\Assert::assertEquals(3080, $rows[4]->previous_running_total);
                 
                 return true;
             });
@@ -722,5 +725,70 @@ class PurchaseBySupplierReportTest extends TestCase
             ->assertSet('periodPreset', '')
             ->assertSet('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->assertSet('endDate', now()->endOfMonth()->format('Y-m-d'));
+    }
+    /** @test */
+    public function it_does_not_render_subtotal_at_page_boundary_if_supplier_continues_on_next_page()
+    {
+        $supplier = $this->makeSupplier('Supplier A');
+        // default perPage is 15. Create 16 rows for the same supplier.
+        for ($i = 1; $i <= 16; $i++) {
+            $purchase = $this->makePurchase($supplier, ['date' => '2026-05-01']);
+            $this->makePurchaseDetail($purchase, ['sub_total' => 100]);
+        }
+
+        // Page 1 will have 15 rows. The last row on page 1 belongs to Supplier A.
+        // Supplier A continues on page 2.
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                return $purchases->count() === 15 && $purchases->hasMorePages();
+            })
+            // Since it continues to next page, Subtotal should NOT be rendered on page 1.
+            ->assertDontSeeHtml('>Subtotal</td>');
+            
+        // Page 2 will have 1 row for Supplier A.
+        // It's the end of Supplier A, so Subtotal SHOULD be rendered on page 2.
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('setPage', 2)
+            ->assertSeeHtml('>Subtotal</td>')
+            ->assertSeeHtml('(Lanjutan)');
+    }
+
+    /** @test */
+    public function it_renders_subtotal_at_page_boundary_if_supplier_changes_on_next_page()
+    {
+        $supplierA = $this->makeSupplier('Supplier A');
+        $supplierB = $this->makeSupplier('Supplier B');
+        // create 15 rows for Supplier A (fills page 1)
+        for ($i = 1; $i <= 15; $i++) {
+            $purchase = $this->makePurchase($supplierA, ['date' => '2026-05-02']); // higher date
+            $this->makePurchaseDetail($purchase, ['sub_total' => 100]);
+        }
+        // create 1 row for Supplier B (goes to page 2)
+        $purchaseB = $this->makePurchase($supplierB, ['date' => '2026-05-01']);
+        $this->makePurchaseDetail($purchaseB, ['sub_total' => 100]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('sortField', 'date')
+            ->set('sortDirection', 'desc')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                return $purchases->count() === 15 && $purchases->hasMorePages();
+            })
+            // Since next page is Supplier B, Subtotal SHOULD be rendered on page 1 for Supplier A.
+            ->assertSeeHtml('>Subtotal</td>');
     }
 }

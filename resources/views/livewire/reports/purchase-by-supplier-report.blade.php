@@ -266,15 +266,23 @@
                         $supplierId = $row->purchase->supplier_id;
                         $mappedRows = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($row, $row->previous_running_total ?? 0);
                         $isFirstRow = $loop->first;
-                        $isContinuation = $isFirstRow && $supplierId === ($previousPageLastSupplierId ?? null);
+                        $isLastRow = $loop->last;
+                        $nextRow = $isLastRow ? null : $purchases[$loop->index + 1];
+                        $nextSupplierId = $nextRow ? $nextRow->purchase->supplier_id : null;
+                        
                         $isNewSupplier = $currentSupplierId !== $supplierId;
+                        if ($isLastRow) {
+                            $isEndOfSupplier = !isset($nextPageFirstSupplierId) || $nextPageFirstSupplierId !== $supplierId;
+                        } else {
+                            $isEndOfSupplier = $nextSupplierId !== $supplierId;
+                        }
                         $currentSupplierId = $supplierId;
                     @endphp
                     @if($isNewSupplier)
                         <tr class="table-active fw-bold">
                             <td colspan="10">
                                 {{ $mappedRows[0]['Supplier / Tanggal'] }}
-                                @if($isContinuation)
+                                @if($isFirstRow && $supplierId === ($previousPageLastSupplierId ?? null))
                                     <span class="fw-normal fst-italic text-muted ms-1">(Lanjutan)</span>
                                 @endif
                             </td>
@@ -302,6 +310,12 @@
                         <td class="text-end fw-bold text-primary">{{ number_format((float)$mapped['Total nominal tagihan'], 0, ',', '.') }}</td>
                     </tr>
                     @endforeach
+                    @if($isEndOfSupplier)
+                        <tr class="table-light fw-bold">
+                            <td class="ps-4">Subtotal</td>
+                            <td colspan="9" class="text-end text-primary">{{ number_format((float)end($mappedRows)['Total nominal tagihan'], 0, ',', '.') }}</td>
+                        </tr>
+                    @endif
                 @empty
                     <tr>
                         <td colspan="10" class="text-center py-4 text-muted">
@@ -310,6 +324,12 @@
                         </td>
                     </tr>
                 @endforelse
+                @if($purchases->count() > 0)
+                    <tr class="table-secondary fw-bold fs-6">
+                        <td class="ps-4">Total</td>
+                        <td colspan="9" class="text-end text-primary">{{ number_format((float)$grandTotal, 0, ',', '.') }}</td>
+                    </tr>
+                @endif
             @else
                 <tr>
                     <td colspan="10" class="text-center py-5 text-muted">

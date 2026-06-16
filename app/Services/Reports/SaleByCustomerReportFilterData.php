@@ -14,7 +14,7 @@ class SaleByCustomerReportFilterData
         public array $categoryIds = [],
         public string $categoryLogic = 'Salah satu',
         public string $sortField = 'date',
-        public string $sortDirection = 'desc',
+        public string $sortDirection = 'asc',
         public ?string $periodPreset = null
     ) {
     }
@@ -48,7 +48,7 @@ class SaleByCustomerReportFilterData
             categoryIds: $data['categoryIds'] ?? [],
             categoryLogic: $data['categoryLogic'] ?? 'Salah satu',
             sortField: $data['sortField'] ?? 'date',
-            sortDirection: $data['sortDirection'] ?? 'desc',
+            sortDirection: $data['sortDirection'] ?? 'asc',
             periodPreset: $data['periodPreset'] ?? null,
         );
     }

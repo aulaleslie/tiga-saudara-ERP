@@ -78,11 +78,11 @@ class SaleByCustomerReportQueryService
             $query->leftJoinSub($customerTotals, 'ct', 'ct.customer_id', '=', 'sales.customer_id')
                   ->orderBy('ct.total_nominal', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', 'desc');
+                  ->orderBy('sales.date', $direction);
         } elseif ($sortField === 'customer_name') {
             $query->orderBy('customers.customer_name', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', 'desc');
+                  ->orderBy('sales.date', $direction);
         } else {
             // For date sorting, group customers by their max/min date first, so their rows don't interleave
             $aggFunc = $direction === 'asc' ? 'MIN' : 'MAX';
@@ -99,10 +99,10 @@ class SaleByCustomerReportQueryService
             $query->leftJoinSub($customerDates, 'cd', 'cd.customer_id', '=', 'sales.customer_id')
                   ->orderBy('cd.group_date', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', 'desc');
+                  ->orderBy('sales.date', $direction);
         }
         
-        $query->orderBy('sales.id', 'desc')->orderBy('sale_details.id', 'asc');
+        $query->orderBy('sales.id', $direction)->orderBy('sale_details.id', 'asc');
     }
 
     public static function mapRows(SaleDetails $detail, float $previousRunningTotal): array
