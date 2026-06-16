@@ -297,33 +297,25 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
     /** @test */
     public function historical_purchase_owner_is_ignored_for_unmarked_sales()
     {
-        // Import an asterisk purchase under Tiga Nusa to create BUY history
-        $purchaseBatch = $this->createPurchaseBatch([
-            [
-                'tanggal' => '01/09/2024',
-                'no_faktur' => 'PO-HIST-001',
-                'supplier' => 'HIST SUPPLIER',
-                'produk' => '* PLAIN PRODUCT HIST',
-                'kuantitas' => '10',
-                'satuan' => 'PCS',
-                'harga_satuan' => '50000',
-                'tarif_pajak' => '0',
-                'pajak' => '0',
-                'tag' => '',
-                'gudang' => '',
-            ],
+        // Pre-create a product registered under Tiga Nusa, simulating a product that
+        // was historically purchased/associated there. The sale import must NOT use
+        // this product ownership — it uses only product name marker and tag mapping.
+        $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'PCS']);
+        Product::create([
+            'product_name' => 'PLAIN PRODUCT HIST',
+            'product_code' => 'SKU-HIST-001',
+            'unit_id' => $unit->id,
+            'setting_id' => $this->tigaNusaSetting->id,
+            'product_cost' => 50000,
+            'product_price' => 100000,
+            'product_quantity' => 10,
+            'stock_managed' => 1,
+            'is_purchased' => 1,
+            'is_sold' => 1,
         ]);
-        app(\Modules\Purchase\Services\PurchaseImportService::class)->processBatch($purchaseBatch);
 
-        // The product should now exist with a BUY transaction under Tiga Nusa
-        $product = Product::where('product_name', 'PLAIN PRODUCT HIST')->first();
-        $this->assertNotNull($product);
-        $this->assertTrue(
-            Transaction::where('product_id', $product->id)->where('type', 'BUY')
-                ->where('setting_id', $this->tigaNusaSetting->id)->exists()
-        );
-
-        // Now import a sale for the same product WITHOUT a marker — should go to PERDANA
+        // Import a sale for the same product WITHOUT a marker or mapped tag.
+        // Should route to PERDANA, ignoring the product's registered Tiga Nusa ownership.
         $saleBatch = $this->createImportBatch([
             $this->baseRow(['produk' => 'PLAIN PRODUCT HIST', 'tag' => '']),
         ]);
@@ -331,13 +323,8 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
+        // Without a product marker or mapped tag, routing falls back to PERDANA
         $this->assertEquals($this->perdanaSetting->id, $sale->setting_id);
-
-        $dispatchTx = Transaction::where('type', 'DISPATCH')
-            ->where('product_id', $product->id)
-            ->first();
-        $this->assertNotNull($dispatchTx);
-        $this->assertEquals($this->perdanaSetting->id, $dispatchTx->setting_id);
     }
 
     /** @test */
@@ -371,8 +358,8 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-SPLIT-DRIFT',
                 'produk' => 'MONITOR SAMPLE A', // PERDANA (no marker)
-                'tag' => 'cv perdana',
                 'harga_satuan' => '222000.01',
+                'tarif_pajak' => '0',
                 'pajak' => '0',
                 // Raw total for PERDANA = 222000.01
 
@@ -384,8 +371,8 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
             $this->baseRow([
                 'no_faktur' => 'INV-SPLIT-DRIFT',
                 'produk' => '* MONITOR SAMPLE B', // TIGA NUSA (* marker)
-                'tag' => 'cv tiga nusa',
                 'harga_satuan' => '222000.01',
+                'tarif_pajak' => '0',
                 'pajak' => '0',
                 // Raw total for TIGA NUSA = 222000.01
 

@@ -224,14 +224,15 @@ class SalesImportDaizuOwnershipTest extends TestCase
         $this->assertNotNull($sale);
         $this->assertEquals($this->daizuSetting->id, $sale->setting_id);
 
-        // Check Transaction exists for Daizu setting
-        $transaction = Transaction::where('setting_id', $this->daizuSetting->id)
-            ->where('type', 'DISPATCH')
-            ->first();
-
-        $this->assertNotNull($transaction);
-        $this->assertEquals($this->daizuSetting->id, $transaction->setting_id);
-        $this->assertEquals(-5, $transaction->quantity);
+        // Import does not create stock Transaction records (that is the regular controller's job).
+        // Verify instead that a SaleDispatch was created for the correct Daizu location.
+        $sale->load('saleDispatches.details');
+        $this->assertTrue($sale->saleDispatches->count() > 0, 'A sale dispatch should be created');
+        $dispatch = $sale->saleDispatches->first();
+        $dispatchDetail = $dispatch->details->first();
+        $this->assertNotNull($dispatchDetail, 'Dispatch detail should exist');
+        $this->assertEquals($this->daizuLocation->id, $dispatchDetail->location_id);
+        $this->assertEquals(5, $dispatchDetail->dispatched_quantity, 'Dispatch detail quantity should equal row quantity');
     }
 
     /** @test */
@@ -279,14 +280,14 @@ class SalesImportDaizuOwnershipTest extends TestCase
         $this->assertNotNull($productPrice);
         $this->assertEquals($this->daizuSetting->id, $productPrice->setting_id);
 
-        // Check Transaction is under Daizu
-        $transaction = Transaction::where('setting_id', $this->daizuSetting->id)
-            ->where('type', 'DISPATCH')
-            ->first();
-
-        $this->assertNotNull($transaction);
-        $this->assertEquals($this->daizuSetting->id, $transaction->setting_id);
-        $this->assertEquals($this->daizuLocation->id, $transaction->location_id);
+        // Import does not create stock Transaction records (that is the regular controller's job).
+        // Verify instead that a SaleDispatch was created under the Daizu location.
+        $sale->load('saleDispatches.details');
+        $this->assertTrue($sale->saleDispatches->count() > 0, 'A sale dispatch should be created');
+        $dispatch = $sale->saleDispatches->first();
+        $dispatchDetail = $dispatch->details->first();
+        $this->assertNotNull($dispatchDetail, 'Dispatch detail should exist');
+        $this->assertEquals($this->daizuLocation->id, $dispatchDetail->location_id);
     }
 
     /** @test */

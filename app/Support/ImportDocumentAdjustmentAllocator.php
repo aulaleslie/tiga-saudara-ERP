@@ -62,11 +62,14 @@ class ImportDocumentAdjustmentAllocator
                 $largestKey = $key;
             }
 
-            $allocations[$key] = $documentAmount * ($total / $sumPositive);
+            $allocations[$key] = round($documentAmount * ($total / $sumPositive), 2);
         }
 
-        $allocated = array_sum($allocations);
-        $allocations[$largestKey] = $allocations[$largestKey] + ($documentAmount - $allocated);
+        $allocated = round(array_sum($allocations), 2);
+        $remainder = round($documentAmount - $allocated, 2);
+        if (abs($remainder) > 0.0) {
+            $allocations[$largestKey] = round($allocations[$largestKey] + $remainder, 2);
+        }
 
         return $allocations;
     }

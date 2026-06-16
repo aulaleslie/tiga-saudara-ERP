@@ -220,7 +220,13 @@ class SalesImportService
             return $this->getDaizuSetting();
         }
 
-        // Priority 1: Product marker
+        // Priority 1: Tag mapping
+        $setting = $this->getSettingForTag($tag);
+        if ($setting) {
+            return $setting;
+        }
+
+        // Priority 2: Product marker
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
@@ -233,6 +239,13 @@ class SalesImportService
     {
         if ($this->isDaizuProduct($productName)) {
             return 'daizu';
+        }
+
+        if (!empty($tag)) {
+            $normalizedTag = strtolower(trim($tag));
+            if (isset($this->tagMapping[$normalizedTag])) {
+                return 'tag:' . $normalizedTag;
+            }
         }
 
         $parsed = $this->parseProductName($productName);
@@ -255,10 +268,16 @@ class SalesImportService
             return $daizuSetting;
         }
 
+        // Rule 1: Tag mapping
+        $setting = $this->getSettingForTag($tag);
+        if ($setting) {
+            return $setting;
+        }
+
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
-        // Rule 1: Product marker
+        // Rule 2: Product marker
         if ($marker === 'asterisk') {
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) {
@@ -273,7 +292,7 @@ class SalesImportService
             }
         }
 
-        // Rule 2: No marker — always Perdana (no history fallback)
+        // Rule 3: No marker — always Perdana (no history fallback)
         $perdana = Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
         return $perdana ?? $sourceSetting;
     }
@@ -670,44 +689,44 @@ class SalesImportService
                     break; // No more rows to process
                 }
 
-                // Get the last row's invoice info to check for split groups
-                $lastRow = $initialRows->last();
-                $lastRowData = $lastRow->raw_json;
-                $lastInvoiceNo = $lastRowData['no_faktur'] ?? '';
-                $lastProductName = $lastRowData['produk'] ?? '';
+                // 2.1 Update chunk loading to collect distinct invoice numbers from the initial pending row window
+                $invoiceNumbers = $initialRows->map(function ($row) {
+                    return trim($row->raw_json['no_faktur'] ?? '');
+                })->filter(fn($val) => $val !== '')->unique()->values()->toArray();
 
-                // Check if there are more rows with the same invoice after this chunk
-                $additionalRows = collect([]);
-                if (!empty($lastInvoiceNo)) {
-                    // Load additional rows that belong to the same invoice group
-                    $lastRowNumber = $lastRow->row_number;
-
-                    // Keep all rows of the same source invoice together so invoice-level
-                    // payment reconciliation sees every owner group in one pass.
-                    $additionalRows = $batch->pendingRows()
-                        ->where('row_number', '>', $lastRowNumber)
+                // 2.2 Load all pending rows for the selected invoice numbers ordered by row_number
+                if (!empty($invoiceNumbers)) {
+                    $rowsWithInvoice = $batch->pendingRows()
+                        ->whereIn('raw_json->no_faktur', $invoiceNumbers)
                         ->orderBy('row_number')
-                        ->get()
-                        ->takeWhile(function ($row) use ($lastInvoiceNo) {
-                            $rowData = $row->raw_json;
-                            $rowInvoiceNo = $rowData['no_faktur'] ?? '';
+                        ->get();
 
-                            return $rowInvoiceNo === $lastInvoiceNo;
-                        });
+                    $rowsWithoutInvoice = $initialRows->filter(function ($row) {
+                        return trim($row->raw_json['no_faktur'] ?? '') === '';
+                    });
+
+                    $rows = $rowsWithInvoice->merge($rowsWithoutInvoice)
+                        ->unique('id')
+                        ->sortBy('row_number')
+                        ->values();
+                } else {
+                    $rows = $initialRows;
                 }
 
-                // Merge initial chunk with additional rows to keep invoice groups together
-                $rows = $initialRows->merge($additionalRows);
                 $actualChunkSize = $rows->count();
                 $processedChunks++;
+
+                // 2.3 update chunk logging to show initial rows, actual rows, invoice count, and any expanded rows.
+                $expandedRowsCount = $actualChunkSize - $initialRows->count();
 
                 Log::info('[SalesImport] Processing chunk', [
                     'batch_id' => $batch->id,
                     'chunk_number' => $processedChunks,
                     'target_size' => $targetChunkSize,
+                    'initial_rows' => $initialRows->count(),
                     'actual_size' => $actualChunkSize,
-                    'additional_rows' => $additionalRows->count(),
-                    // 'offset' => $offset,
+                    'invoice_count' => count($invoiceNumbers),
+                    'expanded_rows' => $expandedRowsCount > 0 ? $expandedRowsCount : 0,
                 ]);
 
                 // Pre-load customers and products specific to THIS chunk
@@ -785,7 +804,7 @@ class SalesImportService
         $invoiceChunks = array_chunk($invoices, $batchSize, true);
         $totalProcessed = 0;
 
-        
+
         $chunkSuccessCount = 0;
         $chunkErrorCount = 0;
 
@@ -909,10 +928,10 @@ class SalesImportService
         }
 
         $sourceInvoiceTotal = round(array_sum($groupTotals), 2);
-        
+
         $appliedDriftAllocations = [];
         $driftAccepted = false;
-        
+
         $firstRowData = is_array($allRows[0]) ? $allRows[0] : $allRows[0]->raw_json;
         $sourceTotal = $this->paymentSummaryResolver->parseMoney($firstRowData['source_total'] ?? null);
 
@@ -1309,7 +1328,7 @@ class SalesImportService
                 }
             }
 
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($groupPaidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+            $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($groupPaidAmount > 0.01 ? 'Partial' : 'Unpaid');
 
             // Create sale
             $sale = new Sale();
@@ -1428,12 +1447,13 @@ class SalesImportService
         ]);
     }
 
-    protected function markInvoiceGroupInvalid(array $rows, SalesImportBatch $batch, \Exception $e, int &$chunkErrorCount = 0): void
+    protected function markInvoiceGroupInvalid(array $groupRows, SalesImportBatch $batch, \Exception $e, int &$chunkErrorCount): void
     {
-        $invoice = $rows[0]->raw_json['no_faktur'] ?? 'Unknown';
+        // Log the failure
+        $invoice = $groupRows[0]->raw_json['no_faktur'] ?? 'Unknown';
         $rowIds = [];
 
-        foreach ($rows as $row) {
+        foreach ($groupRows as $row) {
             $rowIds[] = $row->id;
             Log::warning('[SalesImport] Row error - exception', [
                 'batch_id' => $batch->id,
@@ -1678,10 +1698,10 @@ class SalesImportService
     {
         $normalized = preg_replace('/[^0-9,.-]/', '', (string) $value) ?? '';
         if ($normalized === '') return 0.0;
-        
+
         $lastComma = strrpos($normalized, ',');
         $lastDot = strrpos($normalized, '.');
-        
+
         if ($lastComma !== false && $lastDot !== false) {
             if ($lastComma > $lastDot) {
                 $normalized = str_replace('.', '', $normalized);
@@ -1702,7 +1722,7 @@ class SalesImportService
                 $normalized = str_replace('.', '', $normalized);
             }
         }
-        
+
         return (float) $normalized;
     }
 

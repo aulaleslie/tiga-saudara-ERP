@@ -30,7 +30,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->user = \App\Models\User::factory()->create();
 
         $currency = Currency::create([
@@ -123,7 +123,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             'coa_id' => $coa->id,
             'is_cash' => true,
         ]);
-        
+
         // Deduction Method
         PaymentMethod::create([
             'name' => \App\Support\ImportPaymentSummaryResolver::DEDUCTION_METHOD_NAME,
@@ -160,10 +160,10 @@ class SalesImportProductSplitNoStockTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-001')->first();
         $this->assertNotNull($sale);
-        
+
         // Should fallback to global because 'Beras Lokal' has no marker
         $this->assertEquals($this->globalSetting->id, $sale->setting_id);
-        
+
         // Tag metadata is still present
         $this->assertTrue($sale->tags->contains(function ($t) {
             return strpos($t->name, 'CV TIGA NUSA COMPUTER') !== false;
@@ -268,7 +268,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $this->assertContains($this->otherSetting->id, $settings);
         $this->assertContains($this->globalSetting->id, $settings);
         $this->assertContains($this->topItSetting->id, $settings);
-        
+
         $totalSum = $sales->sum('total_amount');
         $this->assertEquals(4000, $totalSum);
     }
@@ -383,7 +383,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $finalTransactions = \Modules\Product\Entities\Transaction::count();
         $this->assertEquals($initialTransactions, $finalTransactions);
     }
-    
+
     public function test_document_level_adjustments_and_drift_allocated_pro_rata()
     {
         $batch = SalesImportBatch::create([
@@ -413,7 +413,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
             'batch_id' => $batch->id,
             'row_number' => 1,
             'raw_json' => array_merge($common, [
-                'produk' => 'Daizu Kedelai', 
+                'produk' => 'Daizu Kedelai',
                 'gudang' => 'Gudang Utama',
                 'kuantitas' => '10',
                 'harga_satuan' => '100', // 1000 gross
@@ -500,5 +500,345 @@ class SalesImportProductSplitNoStockTest extends TestCase
 
         $this->assertEquals(3000.01, $otherSale->total_amount);
         $this->assertEquals(3000.01, $otherSale->paid_amount);
+    }
+
+    public function test_jl_2025_14721_shape_split_owner_repeated_discount_exact_reconciliation()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 4,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        $common = [
+            'no_faktur' => 'JL.2025.14721',
+            'tanggal' => '02/08/2025',
+            'customer' => 'YADIN TANGGA',
+            'diskon' => '77857.316776',
+            'sisa_tagihan' => '0',
+            'status_hari_ini' => 'Lunas',
+            'pembayaran' => '1400000.0',
+            'source_total' => '1400000.0',
+        ];
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => '* AUTO SHEET FEEDER FOR G1010 / G2010', // * marker -> otherSetting (Tiga Nusa)
+                'kuantitas' => '1.0',
+                'harga_satuan' => '360360.36036',
+                'pajak' => '37496.9585585210599996250304144147894',
+                'tarif_pajak' => '11.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => array_merge($common, [
+                'produk' => 'SERVICE', // no marker -> globalSetting
+                'kuantitas' => '1.0',
+                'harga_satuan' => '50000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 3,
+            'raw_json' => array_merge($common, [
+                'produk' => 'SERVICE', // no marker -> globalSetting
+                'kuantitas' => '1.0',
+                'harga_satuan' => '30000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 4,
+            'raw_json' => array_merge($common, [
+                'produk' => 'PRINT HEAD CATRIDGE BH 70 CANON G1020', // no marker -> globalSetting
+                'kuantitas' => '2.0',
+                'harga_satuan' => '500000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'JL.2025.14721')->get();
+        $this->assertCount(2, $sales);
+
+        $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
+        $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
+
+        // Total gross = 1,477,857.318918521
+        // Other gross = 397,857.318918521
+        // Global gross = 1,080,000.0
+        // Discount = 77,857.316776
+        // Sum of owner canonical totals must equal 1,400,000.0
+        $this->assertEquals(1400000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
+    }
+
+    public function test_jl_2025_24026_shape_fractional_discount_allocation_no_over_settlement()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 4,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        $common = [
+            'no_faktur' => 'JL.2025.24026',
+            'tanggal' => '13/11/2025',
+            'customer' => 'CASH',
+            'diskon' => '2366.383237',
+            'sisa_tagihan' => '0',
+            'status_hari_ini' => 'Lunas',
+            'pembayaran' => '220000.0',
+            'source_total' => '220000.0',
+        ];
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => '* TINTA CANON ORI 790 BLACK',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '108108.108108',
+                'pajak' => '11758.2745945828399998824172540541716',
+                'tarif_pajak' => '11.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => array_merge($common, [
+                'produk' => 'BLUEPRINT CANON BLACK (100ML)',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '40000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 3,
+            'raw_json' => array_merge($common, [
+                'produk' => 'COOLINGPAD NC 32 1FAN BESAR',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '45000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 4,
+            'raw_json' => array_merge($common, [
+                'produk' => 'PLASTIK KLIP 5 X 8',
+                'kuantitas' => '5.0',
+                'harga_satuan' => '3500.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'JL.2025.24026')->get();
+        $this->assertCount(2, $sales);
+
+        $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
+        $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
+
+        // Ensure no over-settlement exception was thrown and totals exactly match the source_total of 220000.0
+        $this->assertEquals(220000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
+    }
+
+    public function test_jl_2025_25893_shape_exact_one_cent_artifact_with_split_owner_imports_as_paid()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 2,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        $common = [
+            'no_faktur' => 'JL.2025.25893',
+            'tanggal' => '03/12/2025',
+            'customer' => 'CASH',
+            'diskon' => '13824.638592',
+            'sisa_tagihan' => '0',
+            'status_hari_ini' => 'Lunas',
+            'pembayaran' => '200000.0',
+            'source_total' => '200000.0',
+        ];
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'produk' => '* ROBOT KEY + MOUSE KM3100 WIRELESS',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '153153.153153',
+                'pajak' => '15671.4928828672099998432850711713279',
+                'tarif_pajak' => '11.0',
+            ]),
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => array_merge($common, [
+                'produk' => 'KEYBOARD USB MTECH STK01',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '45000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'JL.2025.25893')->get();
+        $this->assertCount(2, $sales);
+
+        $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
+        $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
+
+        // 1-cent artifact means total mathematically was 200000.01, but source total is 200000.0.
+        // It must import exactly matching 200000.0
+        $this->assertEquals(200000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
+
+        // It must be marked paid since status was Lunas
+        $this->assertEquals('PAID', $otherSale->payment_status);
+        $this->assertEquals('PAID', $globalSale->payment_status);
+
+        $this->assertEquals($otherSale->total_amount, $otherSale->paid_amount);
+        $this->assertEquals($globalSale->total_amount, $globalSale->paid_amount);
+    }
+
+    public function test_jl_2026_2146_shape_single_row_lunas_no_drift_failure()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 1,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'no_faktur' => 'JL.2026.2146',
+                'tanggal' => '29/01/2026',
+                'customer' => 'PT EPSON INDONESIA',
+                'diskon' => '0.0',
+                'sisa_tagihan' => '0',
+                'status_hari_ini' => 'Lunas',
+                'pembayaran' => '15584400.0',
+                'source_total' => '15584400.0',
+                'produk' => 'Support Rack Display',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '14040000.0',
+                'pajak' => '1544399.999999999999984556',
+                'tarif_pajak' => '11.0',
+            ],
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'JL.2026.2146')->get();
+        $this->assertCount(1, $sales);
+
+        $sale = $sales->first();
+
+        $this->assertEquals(15584400.0, $sale->total_amount);
+        $this->assertEquals('PAID', $sale->payment_status);
+        $this->assertEquals(15584400.0, $sale->paid_amount);
+    }
+
+    public function test_same_no_faktur_non_contiguous_rows_reconcile_as_one_invoice()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 3,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        $common = [
+            'tanggal' => '01/01/2026',
+            'customer' => 'Customer A',
+            'diskon' => '0.0',
+            'sisa_tagihan' => '0',
+            'status_hari_ini' => 'Lunas',
+            'pembayaran' => '3000.0',
+            'source_total' => '3000.0',
+        ];
+
+        // Row 1: Invoice A
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => array_merge($common, [
+                'no_faktur' => 'INV-NON-CONTIG',
+                'produk' => 'Product 1',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '1000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        // Row 2: Invoice B (Interfering row)
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => [
+                'no_faktur' => 'INV-OTHER',
+                'tanggal' => '01/01/2026',
+                'customer' => 'Customer B',
+                'produk' => 'Product X',
+                'kuantitas' => '1.0',
+                'harga_satuan' => '500.0',
+                'pembayaran' => '500.0',
+                'source_total' => '500.0',
+                'sisa_tagihan' => '0',
+                'status_hari_ini' => 'Lunas',
+            ],
+        ]);
+
+        // Row 3: Invoice A (Continuation of Invoice A)
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 3,
+            'raw_json' => array_merge($common, [
+                'no_faktur' => 'INV-NON-CONTIG',
+                'produk' => 'Product 2',
+                'kuantitas' => '2.0',
+                'harga_satuan' => '1000.0',
+                'pajak' => '0.0',
+            ]),
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sales = Sale::where('imported_sales_reference_number', 'INV-NON-CONTIG')->get();
+        // Since there is no marker, both rows go to globalSetting.
+        // Therefore, it should combine into a single sale.
+        $this->assertCount(1, $sales);
+
+        $sale = $sales->first();
+
+        // The total amount should be 3000 (1*1000 + 2*1000)
+        $this->assertEquals(3000.0, $sale->total_amount);
+        $this->assertEquals('PAID', $sale->payment_status);
+        $this->assertEquals(3000.0, $sale->paid_amount);
+
+        // Ensure the interfering invoice also imported correctly
+        $otherSale = Sale::where('imported_sales_reference_number', 'INV-OTHER')->first();
+        $this->assertNotNull($otherSale);
+        $this->assertEquals(500.0, $otherSale->total_amount);
     }
 }
