@@ -49,6 +49,7 @@ class NotificationControllerTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Test Title');
         $response->assertSee('Test Msg');
+        $response->assertSee($this->setting->company_name);
     }
 
     public function test_read_redirects_and_marks_read()

@@ -40,6 +40,7 @@ class NotificationFeedService
     public function getPaginatedIndex(int $userId, int $perPage = 15)
     {
         return Notification::where('user_id', $userId)
+            ->with('setting:id,company_name')
             ->orderByRaw('read_at IS NOT NULL')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
