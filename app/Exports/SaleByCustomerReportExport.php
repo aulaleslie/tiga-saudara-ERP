@@ -76,7 +76,8 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
                 ];
                 $runningTotal = $mapped['Total nominal tagihan'];
             }
-            $grandTotal += (float) $detail->sub_total + (float) ($detail->product_tax_amount ?? 0);
+            $tax = $detail->sale?->is_tax_included ? 0 : (float) ($detail->product_tax_amount ?? 0);
+            $grandTotal += (float) $detail->sub_total + $tax;
         }
         
         // Push subtotal for the very last customer

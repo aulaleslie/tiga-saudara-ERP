@@ -72,7 +72,7 @@ class SaleByCustomerReportQueryService
             $baseQuery->getQuery()->orders = [];
             
             $customerTotals = $baseQuery
-                ->select('sales.customer_id', DB::raw('SUM(sale_details.sub_total + COALESCE(sale_details.product_tax_amount, 0)) as total_nominal'))
+                ->select('sales.customer_id', DB::raw('SUM(CASE WHEN sales.is_tax_included = 1 THEN sale_details.sub_total ELSE sale_details.sub_total + COALESCE(sale_details.product_tax_amount, 0) END) as total_nominal'))
                 ->groupBy('sales.customer_id');
 
             $query->leftJoinSub($customerTotals, 'ct', 'ct.customer_id', '=', 'sales.customer_id')
@@ -112,6 +112,14 @@ class SaleByCustomerReportQueryService
 
         $subTotal = (float) $detail->sub_total;
         $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+        $unitPrice = (float) ($detail->unit_price ?? 0);
+
+        if ($sale?->is_tax_included) {
+            $subTotal -= $taxAmount;
+            if ($detail->quantity > 0) {
+                $unitPrice = $subTotal / $detail->quantity;
+            }
+        }
 
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
@@ -122,7 +130,7 @@ class SaleByCustomerReportQueryService
             'Keterangan'            => $sale?->note ?? '-',
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
-            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Harga per unit'        => $unitPrice,
             'Nominal tagihan'       => $subTotal,
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,
@@ -154,6 +162,14 @@ class SaleByCustomerReportQueryService
 
         $subTotal = (float) $detail->sub_total;
         $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+        $unitPrice = (float) ($detail->unit_price ?? 0);
+
+        if ($sale?->is_tax_included) {
+            $subTotal -= $taxAmount;
+            if ($detail->quantity > 0) {
+                $unitPrice = $subTotal / $detail->quantity;
+            }
+        }
 
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
@@ -164,7 +180,7 @@ class SaleByCustomerReportQueryService
             'Nama produk'           => $detail->product_name ?? '-',
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
-            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Harga per unit'        => $unitPrice,
             'Nominal tagihan'       => $subTotal,
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,

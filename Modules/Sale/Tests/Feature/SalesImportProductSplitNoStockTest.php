@@ -273,7 +273,7 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $this->assertEquals(4000, $totalSum);
     }
 
-    public function test_non_pkp_owners_persist_zero_tax_regardless_of_csv()
+    public function test_non_pkp_owners_persist_csv_tax_regardless_of_is_pkp()
     {
         $batch = SalesImportBatch::create([
             'status' => SalesImportBatch::STATUS_QUEUED,
@@ -301,13 +301,13 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $this->service->processBatch($batch);
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-NONPKP')->first();
-        $this->assertEquals(10000, $sale->total_amount); // 10 * 1000 + 0 tax
-        $this->assertEquals(0, $sale->tax_amount);
-        $this->assertEquals(0, $sale->tax_percentage);
+        $this->assertEquals(10500, $sale->total_amount); // 10 * 1000 + 500 tax
+        $this->assertEquals(500, $sale->tax_amount);
+        $this->assertEquals(5, $sale->tax_percentage);
 
         $detail = $sale->saleDetails->first();
-        $this->assertEquals(0, $detail->product_tax_amount);
-        $this->assertNull($detail->tax_id);
+        $this->assertEquals(500, $detail->product_tax_amount);
+        $this->assertNotNull($detail->tax_id);
     }
 
     public function test_pkp_owners_persist_csv_tax_correctly()

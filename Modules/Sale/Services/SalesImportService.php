@@ -1084,10 +1084,6 @@ class SalesImportService
                 $taxAmount = $taxRateFromCsv > 0 ? ($quantity * $unitPriceDpp) * ($taxRateFromCsv / 100) : 0;
             }
 
-            if (!$isPkp) {
-                $taxAmount = 0;
-            }
-
             $totalAmount += $quantity * $unitPriceDpp;
             $totalTaxAmount += $taxAmount;
         }
@@ -1244,18 +1240,12 @@ class SalesImportService
                     $taxAmount = $taxRateFromCsv > 0 ? $subtotalDpp * ($taxRateFromCsv / 100) : 0;
                 }
 
-                if (!$isPkp) {
-                    $taxAmount = 0;
-                }
-
                 $totalAmount += $subtotalDpp;
                 $totalTaxAmount += $taxAmount;
 
                 // Get tax: prefer tarif_pajak from CSV, fallback to calculated percentage
                 $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
-                if (!$isPkp) {
-                    $tax = null;
-                } elseif ($taxRateFromCsv > 0) {
+                if ($taxRateFromCsv > 0) {
                     $tax = $this->findOrCreateTax($taxRateFromCsv);
                 } else {
                     if ($taxAmount > 0 && $subtotalDpp > 0) {

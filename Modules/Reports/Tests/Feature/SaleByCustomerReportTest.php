@@ -254,6 +254,26 @@ class SaleByCustomerReportTest extends TestCase
     }
 
     /** @test */
+    public function it_derives_dpp_for_tax_included_sales()
+    {
+        $customer = $this->makeCustomer('Customer A');
+        $sale = $this->makeSale($customer, ['date' => '2026-05-01', 'is_tax_included' => true]);
+
+        // sub_total 1110, tax 110. DPP should be 1000.
+        $detailWithTax = $this->makeSaleDetail($sale, ['sub_total' => 1110, 'product_tax_amount' => 110]);
+
+        $mappedWithTax = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($detailWithTax, 0);
+        \PHPUnit\Framework\Assert::assertCount(2, $mappedWithTax);
+        \PHPUnit\Framework\Assert::assertFalse($mappedWithTax[0]['is_tax_row']);
+        \PHPUnit\Framework\Assert::assertEquals(1000, $mappedWithTax[0]['Nominal tagihan']); // DPP
+        \PHPUnit\Framework\Assert::assertEquals(1000, $mappedWithTax[0]['Total nominal tagihan']);
+
+        \PHPUnit\Framework\Assert::assertTrue($mappedWithTax[1]['is_tax_row']);
+        \PHPUnit\Framework\Assert::assertEquals(110, $mappedWithTax[1]['Nominal tagihan']); // Tax
+        \PHPUnit\Framework\Assert::assertEquals(1110, $mappedWithTax[1]['Total nominal tagihan']);
+    }
+
+    /** @test */
     public function it_filters_by_categories_correctly()
     {
         $category1 = Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C1', 'category_name' => 'Cat 1', 'created_by' => $this->user->id]);
@@ -552,7 +572,10 @@ class SaleByCustomerReportTest extends TestCase
             ->assertSet('appliedFilters.startDate', now()->startOfMonth()->format('Y-m-d'))
             ->call('applyFilters')
             // After applying filters, appliedFilters matches the new startDate
-            ->assertSet('appliedFilters.startDate', now()->format('Y-m-d'));
+            ->assertSet('appliedFilters.startDate', now()->format('Y-m-d'))
+            ->set('periodPreset', 'this_year')
+            ->assertSet('startDate', now()->startOfYear()->format('Y-m-d'))
+            ->assertSet('endDate', now()->endOfYear()->format('Y-m-d'));
     }
 
     /** @test */

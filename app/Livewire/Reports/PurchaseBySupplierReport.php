@@ -332,7 +332,7 @@ class PurchaseBySupplierReport extends Component
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount');
+                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
@@ -342,7 +342,8 @@ class PurchaseBySupplierReport extends Component
                 foreach ($previousRows as $row) {
                     $supplierId = $row->supplier_id;
                     if ($supplierId) {
-                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total + ($row->product_tax_amount ?? 0);
+                        $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
+                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total + $tax;
                     }
                 }
             }
@@ -355,7 +356,8 @@ class PurchaseBySupplierReport extends Component
 
                 $detail->previous_running_total = $runningTotals[$supplierId];
 
-                $runningTotals[$supplierId] += $detail->sub_total + ($detail->product_tax_amount ?? 0);
+                $tax = $detail->purchase->is_tax_included ? 0 : ($detail->product_tax_amount ?? 0);
+                $runningTotals[$supplierId] += $detail->sub_total + $tax;
 
                 return $detail;
             });

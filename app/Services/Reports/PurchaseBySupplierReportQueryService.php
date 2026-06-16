@@ -72,7 +72,7 @@ class PurchaseBySupplierReportQueryService
             $baseQuery->getQuery()->orders = [];
             
             $supplierTotals = $baseQuery
-                ->select('purchases.supplier_id', DB::raw('SUM(purchase_details.sub_total + COALESCE(purchase_details.product_tax_amount, 0)) as total_nominal'))
+                ->select('purchases.supplier_id', DB::raw('SUM(CASE WHEN purchases.is_tax_included = 1 THEN purchase_details.sub_total ELSE purchase_details.sub_total + COALESCE(purchase_details.product_tax_amount, 0) END) as total_nominal'))
                 ->groupBy('purchases.supplier_id');
 
             $query->leftJoinSub($supplierTotals, 'st', 'st.supplier_id', '=', 'purchases.supplier_id')
@@ -112,6 +112,14 @@ class PurchaseBySupplierReportQueryService
 
         $subTotal = (float) $detail->sub_total;
         $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+        $unitPrice = (float) ($detail->unit_price ?? 0);
+
+        if ($purchase?->is_tax_included) {
+            $subTotal -= $taxAmount;
+            if ($detail->quantity > 0) {
+                $unitPrice = $subTotal / $detail->quantity;
+            }
+        }
 
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
@@ -122,7 +130,7 @@ class PurchaseBySupplierReportQueryService
             'Keterangan'            => $purchase?->note ?? '-',
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
-            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Harga per unit'        => $unitPrice,
             'Nominal tagihan'       => $subTotal,
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,
@@ -154,6 +162,14 @@ class PurchaseBySupplierReportQueryService
 
         $subTotal = (float) $detail->sub_total;
         $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+        $unitPrice = (float) ($detail->unit_price ?? 0);
+
+        if ($purchase?->is_tax_included) {
+            $subTotal -= $taxAmount;
+            if ($detail->quantity > 0) {
+                $unitPrice = $subTotal / $detail->quantity;
+            }
+        }
 
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
@@ -164,7 +180,7 @@ class PurchaseBySupplierReportQueryService
             'Nama produk'           => $detail->product_name ?? '-',
             'Qty'                   => $detail->quantity ?? 0,
             'Unit'                  => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
-            'Harga per unit'        => $detail->unit_price ?? 0,
+            'Harga per unit'        => $unitPrice,
             'Nominal tagihan'       => $subTotal,
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,

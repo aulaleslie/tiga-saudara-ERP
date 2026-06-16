@@ -332,7 +332,7 @@ class SaleByCustomerReport extends Component
                 $offset = ($sales->currentPage() - 1) * $sales->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('sales.customer_id', 'sale_details.sub_total', 'sale_details.product_tax_amount');
+                $previousQuery->select('sales.customer_id', 'sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
@@ -342,7 +342,8 @@ class SaleByCustomerReport extends Component
                 foreach ($previousRows as $row) {
                     $customerId = $row->customer_id;
                     if ($customerId) {
-                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total + ($row->product_tax_amount ?? 0);
+                        $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
+                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total + $tax;
                     }
                 }
             }
@@ -355,7 +356,8 @@ class SaleByCustomerReport extends Component
 
                 $detail->previous_running_total = $runningTotals[$customerId];
 
-                $runningTotals[$customerId] += $detail->sub_total + ($detail->product_tax_amount ?? 0);
+                $tax = $detail->sale->is_tax_included ? 0 : ($detail->product_tax_amount ?? 0);
+                $runningTotals[$customerId] += $detail->sub_total + $tax;
 
                 return $detail;
             });
