@@ -29,11 +29,11 @@
         </div>
         <div>
             <label class="form-label small">Tanggal awal</label>
-            <input type="date" wire:model="startDate" class="form-control">
+            <input type="date" wire:model.live="startDate" value="{{ $startDate }}" class="form-control">
         </div>
         <div>
             <label class="form-label small">Tanggal akhir</label>
-            <input type="date" wire:model="endDate" class="form-control">
+            <input type="date" wire:model.live="endDate" value="{{ $endDate }}" class="form-control">
         </div>
         <div class="ms-auto d-flex gap-2">
             <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">

@@ -199,6 +199,9 @@ class SaleReport extends Component
     public function cancelFilters(): void
     {
         if (!empty($this->appliedFilters)) {
+            $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
+            $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
+            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
             $this->customerIds = $this->appliedFilters['customerIds'] ?? [];
             $this->customerLabels = $this->appliedFilters['customerLabels'] ?? [];
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
@@ -217,6 +220,9 @@ class SaleReport extends Component
 
     public function resetFilters(): void
     {
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->periodPreset = '';
         $this->customerIds = [];
         $this->customerLabels = [];
         $this->tagIds = [];
@@ -252,6 +258,7 @@ class SaleReport extends Component
             $snapshotService->createSnapshot($filterData, $count);
 
             $this->appliedFilters = array_merge($validated, [
+                'periodPreset' => $this->periodPreset,
                 'customerLabels' => $this->customerLabels,
                 'tagLabels' => $this->tagLabels,
             ]);
@@ -331,6 +338,7 @@ class SaleReport extends Component
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
+            'periodPreset' => $this->periodPreset,
             'customerIds' => $this->customerIds,
             'tagIds' => $this->tagIds,
             'documentStatuses' => $this->documentStatuses,

@@ -199,6 +199,9 @@ class PurchaseReport extends Component
     public function cancelFilters(): void
     {
         if (!empty($this->appliedFilters)) {
+            $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
+            $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
+            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
             $this->supplierIds = $this->appliedFilters['supplierIds'] ?? [];
             $this->supplierLabels = $this->appliedFilters['supplierLabels'] ?? [];
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
@@ -217,6 +220,9 @@ class PurchaseReport extends Component
 
     public function resetFilters(): void
     {
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->periodPreset = '';
         $this->supplierIds = [];
         $this->supplierLabels = [];
         $this->tagIds = [];
@@ -252,6 +258,7 @@ class PurchaseReport extends Component
             $snapshotService->createSnapshot($filterData, $count);
 
             $this->appliedFilters = array_merge($validated, [
+                'periodPreset' => $this->periodPreset,
                 'supplierLabels' => $this->supplierLabels,
                 'tagLabels' => $this->tagLabels,
             ]);
@@ -331,6 +338,7 @@ class PurchaseReport extends Component
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
+            'periodPreset' => $this->periodPreset,
             'supplierIds' => $this->supplierIds,
             'tagIds' => $this->tagIds,
             'documentStatuses' => $this->documentStatuses,
