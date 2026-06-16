@@ -49,9 +49,11 @@ Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
         ->name('global-purchase-and-sales-search.statistics');
 
     // Notifications
+    Route::get('/notifications/{notification}/read', [\App\Http\Controllers\NotificationController::class, 'read'])
+        ->name('notifications.read');
+
     Route::group(['middleware' => ['role.setting', 'can:notifications.access']], function () {
         Route::get('/notifications', [\App\Http\Controllers\NotificationController::class, 'index'])->name('notifications.index');
-        Route::get('/notifications/{notification}/read', [\App\Http\Controllers\NotificationController::class, 'read'])->name('notifications.read');
         Route::post('/notifications/mark-all-read', [\App\Http\Controllers\NotificationController::class, 'markAllAsRead'])->name('notifications.markAllRead');
     });
 });

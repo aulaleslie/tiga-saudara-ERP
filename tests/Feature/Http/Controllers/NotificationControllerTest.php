@@ -73,6 +73,50 @@ class NotificationControllerTest extends TestCase
         $this->assertNotNull($notification->read_at);
     }
 
+    public function test_read_switches_session_business_if_different_and_user_has_access()
+    {
+        $otherSetting = Setting::factory()->create();
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Test Role']);
+        $this->user->settings()->attach($otherSetting->id, ['role_id' => $role->id]);
+
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $otherSetting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'Test Title',
+            'message' => 'Test Msg',
+            'fingerprint' => 'fp2',
+            'action_url' => '/test-url-2',
+        ]);
+
+        $response = $this->get(route('notifications.read', $notification->id));
+
+        $response->assertRedirect('/test-url-2');
+        $this->assertEquals($otherSetting->id, session('setting_id'));
+    }
+
+    public function test_read_returns_403_if_user_no_longer_has_access_to_business()
+    {
+        $otherSetting = Setting::factory()->create();
+
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $otherSetting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'Test Title',
+            'message' => 'Test Msg',
+            'fingerprint' => 'fp3',
+            'action_url' => '/test-url-3',
+        ]);
+
+        $response = $this->get(route('notifications.read', $notification->id));
+
+        $response->assertStatus(403);
+        $this->assertEquals($this->setting->id, session('setting_id'));
+    }
+
     public function test_mark_all_read()
     {
         Notification::create([
