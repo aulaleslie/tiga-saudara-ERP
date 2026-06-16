@@ -574,12 +574,43 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
         $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
 
+        $this->assertNotNull($otherSale, 'Asterisk product must create sale in otherSetting');
+        $this->assertNotNull($globalSale, 'Unmarked products must create sale in globalSetting');
+
         // Total gross = 1,477,857.318918521
         // Other gross = 397,857.318918521
         // Global gross = 1,080,000.0
         // Discount = 77,857.316776
         // Sum of owner canonical totals must equal 1,400,000.0
         $this->assertEquals(1400000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
+
+        // Verify each sale is marked as paid with no outstanding amount
+        $this->assertEquals('PAID', $otherSale->payment_status);
+        $this->assertEquals('PAID', $globalSale->payment_status);
+        $this->assertEquals(0.0, $otherSale->due_amount);
+        $this->assertEquals(0.0, $globalSale->due_amount);
+        $this->assertEquals($otherSale->total_amount, $otherSale->paid_amount);
+        $this->assertEquals($globalSale->total_amount, $globalSale->paid_amount);
+
+        // Verify no invalid rows in the batch
+        $invalidRows = $batch->rows()->where('status', 'invalid')->get();
+        $this->assertCount(0, $invalidRows, 'No rows should be marked invalid');
+
+        // Verify all 4 rows were processed
+        $processedRows = $batch->rows()->whereIn('status', ['processed', 'skipped'])->count();
+        $this->assertEquals(4, $processedRows, 'All rows must be processed or skipped');
+
+        // Verify payment rows exist and account for all paid amount
+        $otherPayments = $otherSale->salePayments()->get();
+        $globalPayments = $globalSale->salePayments()->get();
+        $this->assertGreaterThan(0, $otherPayments->count(), 'Split owner sale should have payment rows');
+        $this->assertGreaterThan(0, $globalPayments->count(), 'Global owner sale should have payment rows');
+
+        // Verify payment row amounts sum to paid amounts (including cash and deductions)
+        $otherPaidByPaymentRows = $otherPayments->sum('amount');
+        $globalPaidByPaymentRows = $globalPayments->sum('amount');
+        $this->assertEquals($otherSale->paid_amount, $otherPaidByPaymentRows);
+        $this->assertEquals($globalSale->paid_amount, $globalPaidByPaymentRows);
     }
 
     public function test_jl_2025_24026_shape_fractional_discount_allocation_no_over_settlement()
@@ -654,8 +685,25 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
         $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
 
+        $this->assertNotNull($otherSale, 'Asterisk product must create sale in otherSetting');
+        $this->assertNotNull($globalSale, 'Unmarked products must create sale in globalSetting');
+
         // Ensure no over-settlement exception was thrown and totals exactly match the source_total of 220000.0
         $this->assertEquals(220000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
+
+        // Verify each sale is marked as paid with no outstanding amount
+        $this->assertEquals('PAID', $otherSale->payment_status);
+        $this->assertEquals('PAID', $globalSale->payment_status);
+        $this->assertEquals(0.0, $otherSale->due_amount);
+        $this->assertEquals(0.0, $globalSale->due_amount);
+
+        // Verify no invalid rows in the batch
+        $invalidRows = $batch->rows()->where('status', 'invalid')->get();
+        $this->assertCount(0, $invalidRows, 'No rows should be marked invalid');
+
+        // Verify all 4 rows were processed
+        $processedRows = $batch->rows()->whereIn('status', ['processed', 'skipped'])->count();
+        $this->assertEquals(4, $processedRows, 'All rows must be processed or skipped');
     }
 
     public function test_jl_2025_25893_shape_exact_one_cent_artifact_with_split_owner_imports_as_paid()
@@ -708,6 +756,9 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $otherSale = $sales->where('setting_id', $this->otherSetting->id)->first();
         $globalSale = $sales->where('setting_id', $this->globalSetting->id)->first();
 
+        $this->assertNotNull($otherSale, 'Asterisk product must create sale in otherSetting');
+        $this->assertNotNull($globalSale, 'Unmarked products must create sale in globalSetting');
+
         // 1-cent artifact means total mathematically was 200000.01, but source total is 200000.0.
         // It must import exactly matching 200000.0
         $this->assertEquals(200000.0, round($otherSale->total_amount + $globalSale->total_amount, 2));
@@ -718,6 +769,16 @@ class SalesImportProductSplitNoStockTest extends TestCase
 
         $this->assertEquals($otherSale->total_amount, $otherSale->paid_amount);
         $this->assertEquals($globalSale->total_amount, $globalSale->paid_amount);
+        $this->assertEquals(0.0, $otherSale->due_amount);
+        $this->assertEquals(0.0, $globalSale->due_amount);
+
+        // Verify no invalid rows in the batch
+        $invalidRows = $batch->rows()->where('status', 'invalid')->get();
+        $this->assertCount(0, $invalidRows, 'No rows should be marked invalid');
+
+        // Verify both rows were processed
+        $processedRows = $batch->rows()->whereIn('status', ['processed', 'skipped'])->count();
+        $this->assertEquals(2, $processedRows, 'All rows must be processed or skipped');
     }
 
     public function test_jl_2026_2146_shape_single_row_lunas_no_drift_failure()
@@ -758,6 +819,15 @@ class SalesImportProductSplitNoStockTest extends TestCase
         $this->assertEquals(15584400.0, $sale->total_amount);
         $this->assertEquals('PAID', $sale->payment_status);
         $this->assertEquals(15584400.0, $sale->paid_amount);
+        $this->assertEquals(0.0, $sale->due_amount);
+
+        // Verify no invalid rows in the batch
+        $invalidRows = $batch->rows()->where('status', 'invalid')->get();
+        $this->assertCount(0, $invalidRows, 'No rows should be marked invalid');
+
+        // Verify the single row was processed
+        $processedRows = $batch->rows()->whereIn('status', ['processed', 'skipped'])->count();
+        $this->assertEquals(1, $processedRows, 'Row must be processed or skipped');
     }
 
     public function test_same_no_faktur_non_contiguous_rows_reconcile_as_one_invoice()

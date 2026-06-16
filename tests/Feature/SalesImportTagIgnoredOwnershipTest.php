@@ -198,9 +198,9 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function asterisk_row_routes_to_mapped_tag_owner()
+    public function asterisk_row_routes_to_product_marker_owner_ignoring_tag()
     {
-        // Mapped tag now takes priority over the product marker.
+        // Product marker (asterisk) determines ownership, not tag. Tag is metadata only.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
         ]);
@@ -209,13 +209,14 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        $this->assertEquals($this->perdanaSetting->id, $sale->setting_id);
+        // Asterisk marker routes to Tiga Nusa, not perdana tag
+        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
     }
 
     /** @test */
-    public function tp_suffix_row_routes_to_mapped_tag_owner()
+    public function tp_suffix_row_routes_to_product_marker_owner_ignoring_tag()
     {
-        // Mapped tag now takes priority over the product marker.
+        // Product marker (TP suffix) determines ownership, not tag. Tag is metadata only.
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => 'MONITOR SAMPLE TP', 'tag' => 'cv tiga nusa']),
         ]);
@@ -224,7 +225,8 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
+        // TP suffix routes to CV Top IT, not the tag. Tags are metadata only.
+        $this->assertEquals($this->topItSetting->id, $sale->setting_id);
     }
 
     /** @test */
@@ -242,7 +244,7 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
     }
 
     /** @test */
-    public function mapped_tag_row_preserves_csv_tag_as_metadata()
+    public function product_marker_determines_ownership_while_tag_is_synced_as_metadata()
     {
         $batch = $this->createImportBatch([
             $this->baseRow(['produk' => '* MONITOR SAMPLE', 'tag' => 'perdana']),
@@ -252,26 +254,27 @@ class SalesImportTagIgnoredOwnershipTest extends TestCase
 
         $sale = Sale::where('imported_sales_reference_number', 'INV-TAG-001')->first();
         $this->assertNotNull($sale);
-        // Mapped tag wins for ownership.
-        $this->assertEquals($this->perdanaSetting->id, $sale->setting_id);
+        // Product marker (asterisk) determines ownership, not tag
+        $this->assertEquals($this->tigaNusaSetting->id, $sale->setting_id);
         // Tag is synced as metadata — sale should have the tag attached
         $tagNames = $sale->tags->pluck('name')->toArray();
         $this->assertContains('perdana', $tagNames);
     }
 
     /** @test */
-    public function mapped_tag_differences_split_same_invoice_into_distinct_owners()
+    public function product_marker_differences_split_same_invoice_into_distinct_owners()
     {
-        // Mapped tags resolving to different owners now split the invoice.
+        // Product markers determine ownership and split the invoice, not tags.
         $batch = $this->createImportBatch([
-            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE', 'tag' => 'perdana']),
-            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE B', 'tag' => 'cv tiga nusa']),
+            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => 'MONITOR SAMPLE', 'tag' => 'cv tiga nusa']),
+            $this->baseRow(['no_faktur' => 'INV-GROUP-001', 'produk' => '* MONITOR SAMPLE B', 'tag' => 'perdana']),
         ]);
 
         app(SalesImportService::class)->processBatch($batch);
 
         $sales = Sale::where('imported_sales_reference_number', 'INV-GROUP-001')->get();
         $this->assertCount(2, $sales);
+        // Unmarked product routes to PERDANA, asterisk product routes to Tiga Nusa (product markers, not tags)
         $this->assertEqualsCanonicalizing(
             [$this->perdanaSetting->id, $this->tigaNusaSetting->id],
             $sales->pluck('setting_id')->all()

@@ -41,3 +41,14 @@
 - [x] 6.2 Run focused purchase import allocation/payment tests if any shared allocator or payment resolver behavior changes.
 - [x] 6.3 Run `php artisan test` with focused filters for sales import and import payment resolver coverage.
 - [x] 6.4 Confirm OpenSpec status shows implementation tasks tracked for `fix-sales-import-settlement-reconciliation`.
+
+## 7. Sales Upload Performance
+
+- [ ] 7.1 Add a nullable staged source invoice number column to `sales_import_rows` and an index suitable for pending-row invoice expansion, such as `batch_id`, `status`, and the source invoice number.
+- [ ] 7.2 Populate the staged invoice number from mapped `no_faktur` in sales row staging and any direct test/import-row creation helpers that bypass staging.
+- [ ] 7.3 Replace `SalesImportService::processBatch()` complete-invoice loading with the indexed staged invoice key for new rows, with a compatibility fallback for pending rows whose staged invoice key is missing.
+- [ ] 7.4 Keep chunk expansion observable by logging initial row count, expanded row count, invoice count, and whether the indexed or compatibility path was used.
+- [ ] 7.5 Update ZIP upload preparation in `SalesUploadController` to move or stream-copy extracted CSV/TXT files into storage without loading the whole extracted file into PHP memory.
+- [ ] 7.6 Reuse a single `SalesImportService` instance inside `StageSalesImportRows` instead of resolving it from the container for every CSV row, and avoid repeated per-row timestamps where a chunk timestamp is sufficient.
+- [ ] 7.7 Add focused tests that verify staged sales rows persist the invoice key, non-contiguous same-invoice rows still reconcile as one source invoice through that key, and ZIP extraction does not use whole-file reads.
+- [ ] 7.8 Re-run focused sales import tests and OpenSpec status after the performance tasks are complete.

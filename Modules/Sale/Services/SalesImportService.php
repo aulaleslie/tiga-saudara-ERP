@@ -220,13 +220,7 @@ class SalesImportService
             return $this->getDaizuSetting();
         }
 
-        // Priority 1: Tag mapping
-        $setting = $this->getSettingForTag($tag);
-        if ($setting) {
-            return $setting;
-        }
-
-        // Priority 2: Product marker
+        // Priority 1: Product marker (* or TP suffix)
         $parsed = $this->parseProductName($productName);
         return $this->getSettingForMarker($parsed['marker']);
     }
@@ -239,13 +233,6 @@ class SalesImportService
     {
         if ($this->isDaizuProduct($productName)) {
             return 'daizu';
-        }
-
-        if (!empty($tag)) {
-            $normalizedTag = strtolower(trim($tag));
-            if (isset($this->tagMapping[$normalizedTag])) {
-                return 'tag:' . $normalizedTag;
-            }
         }
 
         $parsed = $this->parseProductName($productName);
@@ -268,16 +255,10 @@ class SalesImportService
             return $daizuSetting;
         }
 
-        // Rule 1: Tag mapping
-        $setting = $this->getSettingForTag($tag);
-        if ($setting) {
-            return $setting;
-        }
-
         $parsed = $this->parseProductName($productName);
         $marker = $parsed['marker'];
 
-        // Rule 2: Product marker
+        // Rule 1: Product marker
         if ($marker === 'asterisk') {
             $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
             if ($setting) {
@@ -292,7 +273,7 @@ class SalesImportService
             }
         }
 
-        // Rule 3: No marker — always Perdana (no history fallback)
+        // Rule 2: No marker — always Perdana (no history fallback)
         $perdana = Setting::where('company_name', 'LIKE', '%PERDANA%')->first();
         return $perdana ?? $sourceSetting;
     }
@@ -689,12 +670,12 @@ class SalesImportService
                     break; // No more rows to process
                 }
 
-                // 2.1 Update chunk loading to collect distinct invoice numbers from the initial pending row window
+                // Collect distinct invoice numbers from the initial pending row window
                 $invoiceNumbers = $initialRows->map(function ($row) {
                     return trim($row->raw_json['no_faktur'] ?? '');
                 })->filter(fn($val) => $val !== '')->unique()->values()->toArray();
 
-                // 2.2 Load all pending rows for the selected invoice numbers ordered by row_number
+                // Load all pending rows for the selected invoice numbers to ensure complete source invoices are processed
                 if (!empty($invoiceNumbers)) {
                     $rowsWithInvoice = $batch->pendingRows()
                         ->whereIn('raw_json->no_faktur', $invoiceNumbers)
@@ -716,7 +697,7 @@ class SalesImportService
                 $actualChunkSize = $rows->count();
                 $processedChunks++;
 
-                // 2.3 update chunk logging to show initial rows, actual rows, invoice count, and any expanded rows.
+                // Log chunk processing details including any expanded rows beyond initial window
                 $expandedRowsCount = $actualChunkSize - $initialRows->count();
 
                 Log::info('[SalesImport] Processing chunk', [
