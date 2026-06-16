@@ -223,6 +223,13 @@ class SaleReturnCreateForm extends Component
                         'serial_number_ids' => $serialIds,
                     ]);
                 }
+
+                $saleReturn->refresh();
+                app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+                    $saleReturn,
+                    $saleReturn->reference ?? 'Retur Penjualan',
+                    $saleReturn->setting_id
+                );
             });
 
             session()->flash('success', 'Retur penjualan berhasil disimpan dan menunggu persetujuan.');

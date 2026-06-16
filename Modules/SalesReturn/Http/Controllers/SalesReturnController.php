@@ -125,6 +125,11 @@ class SalesReturnController extends Controller
             'archived_by' => auth()->id(),
         ]);
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
+
         toast('Retur Penjualan Diarsipkan!', 'info');
 
         return redirect()->route('sale-returns.index');
@@ -147,6 +152,11 @@ class SalesReturnController extends Controller
         }
 
         $sale_return->delete();
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
 
         toast('Retur Penjualan Dihapus!', 'warning');
 
@@ -184,6 +194,9 @@ class SalesReturnController extends Controller
             'settled_by' => null,
         ]);
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+
         toast('Retur penjualan disetujui.', 'success');
 
         return back();
@@ -218,6 +231,9 @@ class SalesReturnController extends Controller
             'settled_at' => null,
             'settled_by' => null,
         ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($sale_return, $sale_return->reference, $sale_return->setting_id, $data['reason'] ?? '');
 
         toast('Retur penjualan ditolak.', 'warning');
 

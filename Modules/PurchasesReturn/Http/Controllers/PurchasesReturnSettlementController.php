@@ -200,6 +200,13 @@ class PurchasesReturnSettlementController extends Controller
                 $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
             });
 
+            $purchaseReturn = $itemSettlement->purchaseReturn->fresh(['settlementItems']);
+            $hasSubmitted = $purchaseReturn->settlementItems->contains('status', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_SUBMITTED);
+            if (!$hasSubmitted) {
+                app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchaseReturn, 'settlement');
+                app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchaseReturn, 'settlement');
+            }
+
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
         } catch (\Exception $e) {
             \Log::error('Approval failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
@@ -237,6 +244,19 @@ class PurchasesReturnSettlementController extends Controller
         // Update Purchase Return status roll-up
         $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
         $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
+
+        $hasSubmitted = $purchaseReturn->settlementItems->contains('status', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_SUBMITTED);
+        if (!$hasSubmitted) {
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchaseReturn, 'settlement');
+        }
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            $purchaseReturn,
+            $purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian',
+            $purchaseReturn->setting_id,
+            $request->rejection_reason,
+            null,
+            'settlement'
+        );
 
         return back()->with('success', 'Item penyelesaian ditolak.');
     }

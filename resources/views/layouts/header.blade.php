@@ -79,35 +79,50 @@
     @endif
 
     @can('notifications.access')
+        @php
+            $feedService = app(\App\Services\Notification\NotificationFeedService::class);
+            $unreadCount = $feedService->getUnreadCount(auth()->id());
+            $dropdownItems = $feedService->getHeaderDropdownItems(auth()->id(), 10);
+        @endphp
         <li class="c-header-nav-item dropdown d-md-down-none mr-2">
             <a class="c-header-nav-link" data-toggle="dropdown" href="#" role="button" aria-haspopup="true"
                aria-expanded="false">
                 <i class="bi bi-bell" style="font-size: 20px;"></i>
-                <span class="badge badge-pill badge-danger">
-            @php
-                $low_quantity_products = Cache::remember('low_stock_products_' . session('setting_id'), 300, function() {
-                    return Modules\Product\Entities\Product::select('id', 'product_quantity', 'product_stock_alert', 'product_code')
-                        ->whereColumn('product_quantity', '<=', 'product_stock_alert')
-                        ->get();
-                });
-                echo $low_quantity_products->count();
-            @endphp
-            </span>
+                @if($unreadCount > 0)
+                    <span class="badge badge-pill badge-danger">{{ $unreadCount }}</span>
+                @endif
             </a>
             <div class="dropdown-menu dropdown-menu-right dropdown-menu-lg pt-0">
-                <div class="dropdown-header bg-light">
-                    <strong>{{ $low_quantity_products->count() }} Pemberitahuan</strong>
+                <div class="dropdown-header bg-light d-flex justify-content-between align-items-center">
+                    <strong>{{ $unreadCount }} Belum Dibaca</strong>
+                    <a href="{{ route('notifications.index') }}" class="text-muted small">Lihat Semua</a>
                 </div>
-                @forelse($low_quantity_products as $product)
-                    <a class="dropdown-item" href="{{ route('products.show', $product->id) }}">
-                        <i class="bi bi-hash mr-1 text-primary"></i> Product: "{{ $product->product_code }}" is low in
-                        quantity!
+                @forelse($dropdownItems as $notification)
+                    <a class="dropdown-item {{ is_null($notification->read_at) ? 'font-weight-bold bg-light' : '' }}" href="{{ route('notifications.read', $notification->id) }}">
+                        <div class="text-truncate" style="max-width: 250px;">
+                            @if(is_null($notification->read_at))
+                                <i class="bi bi-circle-fill text-primary mr-1" style="font-size: 8px;"></i>
+                            @endif
+                            {{ $notification->title }}
+                        </div>
+                        <div class="small text-muted text-truncate" style="max-width: 250px;">
+                            {{ $notification->message }}
+                        </div>
                     </a>
                 @empty
                     <a class="dropdown-item" href="#">
-                        <i class="bi bi-app-indicator mr-2 text-danger"></i> Tidak ada notifikasi yang tersedia.
+                        <i class="bi bi-app-indicator mr-2 text-muted"></i> Tidak ada notifikasi.
                     </a>
                 @endforelse
+                @if($dropdownItems->isNotEmpty())
+                    <div class="dropdown-divider"></div>
+                    <div class="p-2 text-center">
+                        <form action="{{ route('notifications.markAllRead') }}" method="POST">
+                            @csrf
+                            <button type="submit" class="btn btn-link btn-sm text-muted p-0">Tandai semua dibaca</button>
+                        </form>
+                    </div>
+                @endif
             </div>
         </li>
     @endcan

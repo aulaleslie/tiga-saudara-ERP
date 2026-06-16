@@ -48,6 +48,9 @@ class PurchaseReturnApprovalController extends Controller
             ]);
         });
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+
         toast('Retur pembelian disetujui.', 'success');
 
         return back();
@@ -75,6 +78,9 @@ class PurchaseReturnApprovalController extends Controller
             'rejected_at' => now(),
             'rejection_reason' => $data['reason'] ?? null,
         ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($purchase_return, $purchase_return->reference, $purchase_return->setting_id, $data['reason'] ?? '');
 
         toast('Retur pembelian ditolak.', 'warning');
 

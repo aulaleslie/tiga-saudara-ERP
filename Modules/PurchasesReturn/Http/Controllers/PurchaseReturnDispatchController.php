@@ -94,6 +94,14 @@ class PurchaseReturnDispatchController extends Controller
             }
         });
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+            $purchase_return,
+            'Pengiriman Retur ' . $purchase_return->reference,
+            $purchase_return->setting_id,
+            null,
+            'dispatch'
+        );
+
         toast('Permintaan dispatch dikirim untuk persetujuan.', 'success');
 
         return back();
@@ -125,6 +133,9 @@ class PurchaseReturnDispatchController extends Controller
                 'dispatch_rejection_reason' => null,
             ]);
         });
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
 
         toast('Pengiriman retur disetujui dan dieksekusi.', 'success');
 
@@ -165,6 +176,16 @@ class PurchaseReturnDispatchController extends Controller
                 'dispatch_rejection_reason' => $data['reason'] ?? null,
             ]);
         });
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            $purchase_return,
+            'Pengiriman Retur ' . $purchase_return->reference,
+            $purchase_return->setting_id,
+            $data['reason'] ?? '',
+            null,
+            'dispatch'
+        );
 
         toast('Pengiriman retur ditolak.', 'warning');
 

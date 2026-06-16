@@ -328,6 +328,19 @@ class SaleController extends Controller
 
         try {
             $sale->update(['status' => $validated['status']]);
+
+            $notificationService = app(\App\Services\Notification\DocumentNotificationService::class);
+            if ($validated['status'] === Sale::STATUS_WAITING_APPROVAL) {
+                $notificationService->notifyApprovalNeeded($sale, $sale->reference, $sale->setting_id);
+                $notificationService->resolveRevision($sale);
+            } elseif ($validated['status'] === Sale::STATUS_REJECTED) {
+                $notificationService->notifyRevisionNeeded($sale, $sale->reference, $sale->setting_id, $request->input('rejection_reason', ''));
+                $notificationService->resolveApproval($sale);
+            } else {
+                $notificationService->resolveApproval($sale);
+                $notificationService->resolveRevision($sale);
+            }
+
             toast("Sale status updated to {$validated['status']}!", 'success');
         } catch (Exception $e) {
             Log::error('Failed to update sale status', ['error' => $e->getMessage()]);
@@ -683,6 +696,9 @@ class SaleController extends Controller
                 'status' => Dispatch::STATUS_PENDING,
             ]);
 
+            app(\App\Services\Notification\DocumentNotificationService::class)
+                ->notifyApprovalNeeded($dispatch, 'Pengiriman ' . $sale->reference, $sale->setting_id);
+
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
             $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
@@ -782,6 +798,9 @@ class SaleController extends Controller
                 'approved_at' => now(),
             ]);
 
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($dispatch);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($dispatch);
+
             $this->recordSerialTrackingForApprovedDispatch($dispatch);
             $this->updateSaleStatus($sale);
 
@@ -818,6 +837,14 @@ class SaleController extends Controller
                 'approved_by' => auth()->id(),
                 'approved_at' => now(),
             ]);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($dispatch);
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+                $dispatch, 
+                'Pengiriman ' . $dispatch->sale->reference, 
+                $dispatch->sale->setting_id, 
+                $request->rejection_reason
+            );
 
             // Keep sale status in sync after reject, mirroring receiving reject consistency.
             $this->updateSaleStatus($dispatch->sale);

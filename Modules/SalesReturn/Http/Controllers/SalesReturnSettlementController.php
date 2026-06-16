@@ -61,6 +61,13 @@ class SalesReturnSettlementController extends Controller
                 $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
             });
 
+            $saleReturn = $itemSettlement->saleReturn->fresh(['settlementItems']);
+            $hasSubmitted = $saleReturn->settlementItems->contains('status', \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED);
+            if (!$hasSubmitted) {
+                app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement');
+                app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($saleReturn, 'settlement');
+            }
+
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
         } catch (\Exception $e) {
             Log::error('Sales Return Item Approval failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
@@ -96,6 +103,20 @@ class SalesReturnSettlementController extends Controller
                 $saleReturn = $itemSettlement->saleReturn->load('settlementItems');
                 $saleReturn->update(['status' => 'Awaiting Settlement']);
             });
+
+            $saleReturn = $itemSettlement->saleReturn->fresh(['settlementItems']);
+            $hasSubmitted = $saleReturn->settlementItems->contains('status', \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED);
+            if (!$hasSubmitted) {
+                app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement');
+            }
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+                $saleReturn,
+                $saleReturn->reference ?? 'Penyelesaian Retur Penjualan',
+                $saleReturn->setting_id,
+                $request->rejection_reason,
+                null,
+                'settlement'
+            );
 
             return back()->with('success', 'Item penyelesaian ditolak.');
         } catch (\Exception $e) {

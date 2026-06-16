@@ -60,6 +60,14 @@ class SaleReturnDispatchController extends Controller
                 }
             });
 
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+                $saleReturn,
+                'Pengiriman Retur Penjualan ' . $saleReturn->reference,
+                $saleReturn->setting_id,
+                null,
+                'dispatch'
+            );
+
             return back()->with('success', 'Pengajuan pengiriman berhasil dikirim untuk persetujuan.');
         } catch (\Exception $e) {
             Log::error('Failed to request dispatch for sale return', ['error' => $e->getMessage()]);
@@ -270,6 +278,9 @@ class SaleReturnDispatchController extends Controller
                 $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
             });
 
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch');
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($itemSettlement->saleReturn, 'dispatch');
+
             return back()->with('success', 'Pengiriman disetujui.');
         } catch (\Exception $e) {
             Log::error('Failed to approve dispatch', ['error' => $e->getMessage()]);
@@ -336,6 +347,14 @@ class SaleReturnDispatchController extends Controller
                 ]);
             });
 
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+                $itemSettlement->saleReturn,
+                'Pengiriman Retur Penjualan ' . $itemSettlement->saleReturn->reference,
+                $itemSettlement->saleReturn->setting_id,
+                null,
+                'dispatch'
+            );
+
             return back()->with('success', 'Pengajuan pengiriman berhasil dikirim.');
         } catch (\Exception $e) {
             Log::error('Failed to request dispatch for item', ['error' => $e->getMessage()]);
@@ -362,6 +381,16 @@ class SaleReturnDispatchController extends Controller
                     'dispatch_rejection_reason' => $request->rejection_reason,
                 ]);
             });
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch');
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+                $itemSettlement->saleReturn,
+                'Pengiriman Retur Penjualan ' . $itemSettlement->saleReturn->reference,
+                $itemSettlement->saleReturn->setting_id,
+                $request->rejection_reason,
+                null,
+                'dispatch'
+            );
 
             return back()->with('success', 'Pengajuan pengiriman ditolak.');
         } catch (\Exception $e) {

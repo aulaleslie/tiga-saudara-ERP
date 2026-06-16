@@ -267,6 +267,9 @@ class SaleReturnSettlementForm extends Component
                 $this->settlementLines[$index]['status'] = $settlement->status;
             });
 
+            $this->saleReturn->refresh();
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->saleReturn, $this->saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $this->saleReturn->setting_id, null, 'settlement');
+
             session()->flash('success', 'Baris penyelesaian dikirim untuk persetujuan.');
         } catch (Exception $e) {
             Log::error('Failed to submit sale return settlement line', [

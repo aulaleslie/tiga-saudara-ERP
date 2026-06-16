@@ -470,6 +470,9 @@ class PurchaseReturnSettlementForm extends Component
                 $this->settlementLines[$index]['status'] = $settlement->status;
             });
 
+            $this->purchaseReturn->refresh();
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->purchaseReturn, $this->purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $this->purchaseReturn->setting_id, null, 'settlement');
+
             session()->flash('success', 'Baris penyelesaian dikirim untuk persetujuan.');
         } catch (Exception $e) {
             Log::error('Failed to submit purchase return settlement line', [
@@ -575,6 +578,9 @@ class PurchaseReturnSettlementForm extends Component
                     ]
                 );
             });
+
+            $this->purchaseReturn->refresh();
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->purchaseReturn, $this->purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $this->purchaseReturn->setting_id, null, 'settlement');
 
             session()->flash('success', 'Penyelesaian berhasil disimpan sebagai draft.');
             return redirect()->route('purchase-returns.show', $this->purchaseReturn->id);

@@ -600,6 +600,19 @@ class PurchaseController extends Controller
                 $data['rejection_note'] = $validated['rejection_note'];
             }
             $purchase->update($data);
+
+            $notificationService = app(\App\Services\Notification\DocumentNotificationService::class);
+            if ($validated['status'] === Purchase::STATUS_WAITING_APPROVAL) {
+                $notificationService->notifyApprovalNeeded($purchase, $purchase->reference, $purchase->setting_id);
+                $notificationService->resolveRevision($purchase);
+            } elseif ($validated['status'] === Purchase::STATUS_REJECTED) {
+                $notificationService->notifyRevisionNeeded($purchase, $purchase->reference, $purchase->setting_id, $validated['rejection_note'] ?? '');
+                $notificationService->resolveApproval($purchase);
+            } else {
+                $notificationService->resolveApproval($purchase);
+                $notificationService->resolveRevision($purchase);
+            }
+
             toast("Status pembelian diperbarui menjadi {$validated['status']}!", 'success');
         } catch (Exception $e) {
             Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
@@ -733,6 +746,9 @@ class PurchaseController extends Controller
                 'location_id' => $data['location_id'],
                 'status' => ReceivedNote::STATUS_PENDING,
             ]);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)
+                ->notifyApprovalNeeded($receivedNote, 'Penerimaan ' . $purchase->reference, $purchase->setting_id, $data['location_id']);
 
             // Get purchase details for validation
             $purchaseDetails = $purchase->purchaseDetails()->get();
@@ -967,6 +983,11 @@ class PurchaseController extends Controller
                             $after_quantity_at_location = $productStock->quantity;
                             $after_quantity_for_setting = $previous_quantity_for_setting + $receivedQuantity;
 
+                            app(\App\Services\Notification\StockNotificationService::class)
+                                ->checkGlobalStock($product, $previous_quantity, $after_quantity);
+                            app(\App\Services\Notification\StockNotificationService::class)
+                                ->checkLocationStock($productStock, $previous_quantity_at_location, $after_quantity_at_location);
+
                             // Update Last Purchase Price
                             $product->update(['last_purchase_price' => $purchaseDetail->price]);
 
@@ -1081,6 +1102,9 @@ class PurchaseController extends Controller
                         'approved_by' => auth()->id(),
                     ]);
 
+                    app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
+                    app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($receivedNote);
+
                     // Calculate and update purchase status based on all APPROVED receivings
                     $purchaseDetails = $purchase->purchaseDetails;
                     $approvedReceiveds = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
@@ -1160,7 +1184,7 @@ class PurchaseController extends Controller
             return redirect()->back();
         }
 
-        $request->validate([
+        $validated = $request->validate([
             'rejection_reason' => 'required|string|max:1000',
         ], [
             'rejection_reason.required' => 'Alasan penolakan wajib diisi.',
@@ -1168,12 +1192,21 @@ class PurchaseController extends Controller
 
         $receivedNote->update([
             'status' => ReceivedNote::STATUS_REJECTED,
-            'rejection_reason' => $request->rejection_reason,
-            'approved_at' => now(),
-            'approved_by' => auth()->id(),
+            'rejected_by' => auth()->id(),
+            'rejected_at' => now(),
+            'rejection_reason' => $validated['rejection_reason']
         ]);
 
-        toast('Penerimaan berhasil ditolak.', 'warning');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            $receivedNote, 
+            'Penerimaan ' . $receivedNote->purchase->reference, 
+            $receivedNote->purchase->setting_id, 
+            $validated['rejection_reason'], 
+            $receivedNote->location_id
+        );
+
+        toast('Penerimaan ditolak.', 'warning');
         return redirect()->back();
     }
 }

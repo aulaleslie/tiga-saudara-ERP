@@ -101,7 +101,7 @@ class ExpenseService
         // Generate details summary for legacy column
         $detailsSummary = collect($normalizedDetails)->pluck('name')->implode(', ');
 
-        return DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded) {
+        $result = DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded) {
             if ($expense) {
                 $this->verifySettingOwnership($expense);
 
@@ -174,6 +174,14 @@ class ExpenseService
 
             return $expense->load('detailRows', 'media');
         });
+
+        $notificationService = app(\App\Services\Notification\DocumentNotificationService::class);
+        if ($result->status === Expense::STATUS_SUBMITTED) {
+            $notificationService->notifyApprovalNeeded($result, $result->reference, $result->setting_id);
+            $notificationService->resolveRevision($result);
+        }
+
+        return $result;
     }
 
     public function submit(Expense $expense): Expense
@@ -185,6 +193,10 @@ class ExpenseService
         }
 
         $expense->update(['status' => Expense::STATUS_SUBMITTED]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($expense, $expense->reference, $expense->setting_id);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($expense);
+
         return $expense;
     }
 
@@ -197,6 +209,10 @@ class ExpenseService
         }
 
         $expense->update(['status' => Expense::STATUS_APPROVED]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($expense);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($expense);
+
         return $expense;
     }
 
@@ -216,6 +232,9 @@ class ExpenseService
             'status' => Expense::STATUS_REJECTED,
             'rejection_reason' => $reason
         ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($expense);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($expense, $expense->reference, $expense->setting_id, $reason);
 
         return $expense;
     }

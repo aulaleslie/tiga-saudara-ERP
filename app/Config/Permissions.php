@@ -399,5 +399,6 @@ return [
 
     'Notifications' => [
         'notifications.access' => 'Tampilkan Notifikasi',
+        'notifications.lowStock' => 'Notifikasi Stok Rendah',
     ],
 ];

@@ -140,6 +140,9 @@ class AdjustmentController extends Controller
                 ]);
             }
 
+            app(\App\Services\Notification\DocumentNotificationService::class)
+                ->notifyApprovalNeeded($adjustment, $adjustment->reference, session('setting_id'), $adjustment->location_id);
+
             DB::commit();
             return redirect()->route('adjustments.index')->with('success', 'Penyesuaian berhasil disimpan.');
         } catch (\Throwable $e) {
@@ -201,12 +204,16 @@ class AdjustmentController extends Controller
 
         DB::transaction(function () use ($request) {
             $adjustment = Adjustment::create([
+                'reference' => $request->reference,
                 'date' => $request->date,
                 'note' => $request->note,
                 'type' => 'breakage',
                 'status' => 'pending',
                 'location_id' => $request->location_id,
             ]);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)
+                ->notifyApprovalNeeded($adjustment, $adjustment->reference, session('setting_id'), $adjustment->location_id);
 
             foreach ($request->product_ids as $key => $id) {
                 $product = Product::findOrFail($id);
@@ -704,8 +711,13 @@ class AdjustmentController extends Controller
                     if ($updatedTotalQuantity !== $currentProductQuantity) {
                         $product->product_quantity = $updatedTotalQuantity;
                         $product->save();
+                        app(\App\Services\Notification\StockNotificationService::class)
+                            ->checkGlobalStock($product, $currentProductQuantity, $updatedTotalQuantity);
                     }
                 }
+
+                app(\App\Services\Notification\StockNotificationService::class)
+                    ->checkLocationStock($productStock, $prev_quantity_at_location, $new_quantity_at_location);
 
                 // 🧾 Log the transaction
                 Transaction::create([
@@ -736,6 +748,9 @@ class AdjustmentController extends Controller
             }
 
             $adjustment->update(['status' => 'approved']);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($adjustment);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($adjustment);
 
             DB::commit();
             toast('Adjustment Approved!', 'success');
@@ -902,6 +917,9 @@ class AdjustmentController extends Controller
                     'updated_at'                     => now(),
                 ]);
 
+                app(\App\Services\Notification\StockNotificationService::class)
+                    ->checkLocationStock($productStock, $prevQuantityAtLocation, $newQuantityAtLocation);
+
                 // Optional: keep product-level broken counter if you use it
                 if ($qtyToBreak > 0) {
                     $product->increment('broken_quantity', $qtyToBreak);
@@ -909,6 +927,10 @@ class AdjustmentController extends Controller
             }
 
             $adjustment->update(['status' => 'approved']);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($adjustment);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($adjustment);
+
             DB::commit();
 
             toast('Breakage Adjustment Approved!', 'success');
@@ -934,6 +956,15 @@ class AdjustmentController extends Controller
         ]), 403);
         // Update the status of the adjustment to 'rejected'
         $adjustment->update(['status' => 'rejected']);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($adjustment);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            $adjustment, 
+            $adjustment->reference ?? 'Penyesuaian Barang', 
+            session('setting_id'), 
+            '', 
+            $adjustment->location_id
+        );
 
         // Optionally, you can add a success message to be displayed after the redirect
         toast('Penyesuaian Ditolak!', 'info');

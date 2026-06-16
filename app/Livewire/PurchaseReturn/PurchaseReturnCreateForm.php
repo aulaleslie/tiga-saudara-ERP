@@ -140,6 +140,13 @@ class PurchaseReturnCreateForm extends Component
                         'serial_number_ids' => $serialNumberIds,
                     ]);
                 }
+
+                $purchaseReturn->refresh();
+                app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+                    $purchaseReturn, 
+                    $purchaseReturn->reference ?? 'Retur Pembelian', 
+                    $purchaseReturn->setting_id
+                );
             });
 
             session()->flash('success', 'Retur pembelian berhasil disimpan dan menunggu persetujuan.');

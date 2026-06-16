@@ -312,6 +312,11 @@ class PurchasesReturnController extends Controller
             'archived_by' => auth()->id(),
         ]);
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
+
         toast('Retur Pembelian Diarsipkan!', 'info');
 
         return redirect()->route('purchase-returns.index');
@@ -334,6 +339,11 @@ class PurchasesReturnController extends Controller
 
         $purchase_return->delete();
 
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
+
         toast('Retur Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
@@ -353,6 +363,9 @@ class PurchasesReturnController extends Controller
             'rejected_by' => null,
             'rejection_reason' => null,
         ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($purchase_return, $purchase_return->reference, $purchase_return->setting_id);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
 
         toast('Retur Pembelian Diajukan Ulang!', 'success');
 

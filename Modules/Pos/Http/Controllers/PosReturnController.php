@@ -140,6 +140,10 @@ class PosReturnController extends Controller
                 $return->lines()->forceDelete();
                 $return->forceDelete();
             });
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($return);
+
             toast('Retur POS draft berhasil dihapus permanen.', 'success');
         } elseif ($return->isRejectedSoftDeletable()) {
             $reason = $data['delete_reason'] ?? $data['reason'] ?? null;
@@ -153,6 +157,9 @@ class PosReturnController extends Controller
 
                 $return->delete();
             });
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($return);
 
             toast('Retur POS ditolak berhasil dihapus.', 'success');
         } else {
@@ -168,6 +175,9 @@ class PosReturnController extends Controller
 
         try {
             $this->submissionService->submitDraftForApproval($return);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($return, $return->reference ?? 'Retur POS', $return->setting_id);
+
             toast('Retur POS draft berhasil diajukan untuk persetujuan.', 'success');
         } catch (\Throwable $throwable) {
             report($throwable);
@@ -231,6 +241,10 @@ class PosReturnController extends Controller
 
         try {
             $this->lifecycleService->executeApprovalFromPreview($return->id, $request->input('return_option'), $previewPlan);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($return);
+
             toast('Persetujuan final retur POS berhasil dijalankan.', 'success');
         } catch (\Throwable $throwable) {
             report($throwable);
@@ -252,6 +266,10 @@ class PosReturnController extends Controller
 
         try {
             $this->lifecycleService->reject($return->id, $data['reason'] ?? null);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($return, $return->reference ?? 'Retur POS', $return->setting_id, $data['reason'] ?? '');
+
             toast('Retur POS berhasil ditolak.', 'warning');
         } catch (\Throwable $throwable) {
             report($throwable);
@@ -326,6 +344,10 @@ class PosReturnController extends Controller
 
         try {
             $this->lifecycleService->archive($return->id, $data['reason'] ?? null);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($return);
+
             toast('Retur POS berhasil diarsipkan.', 'warning');
         } catch (\Throwable $throwable) {
             report($throwable);
@@ -345,6 +367,10 @@ class PosReturnController extends Controller
 
         try {
             $this->lifecycleService->cancel($return->id, $data['reason'] ?? null);
+
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($return);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($return);
+
             toast('Retur POS berhasil dibatalkan.', 'warning');
         } catch (\Throwable $throwable) {
             report($throwable);
