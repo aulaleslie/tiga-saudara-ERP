@@ -26,6 +26,7 @@ return new class extends Migration
             $table->unsignedBigInteger('source_id')->nullable();
             
             $table->string('fingerprint');
+            $table->string('active_fingerprint')->virtualAs('CASE WHEN resolved_at IS NULL THEN fingerprint ELSE NULL END')->unique();
             $table->text('action_url')->nullable();
             $table->json('metadata')->nullable();
             

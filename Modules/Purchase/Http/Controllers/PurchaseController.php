@@ -1192,8 +1192,8 @@ class PurchaseController extends Controller
 
         $receivedNote->update([
             'status' => ReceivedNote::STATUS_REJECTED,
-            'rejected_by' => auth()->id(),
-            'rejected_at' => now(),
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
             'rejection_reason' => $validated['rejection_reason']
         ]);
 

@@ -33,10 +33,36 @@ class NotificationCommandTest extends TestCase
         $role = Role::firstOrCreate(['name' => 'Super Admin']);
         $user->assignRole($role);
 
-        // Create a purchase needing approval
-        $purchase = Purchase::factory()->create([
+        // Create a supplier
+        $supplier = \Modules\People\Entities\Supplier::create([
             'setting_id' => $setting->id,
-            'status' => 'WAITING_APPROVAL'
+            'supplier_name' => 'Test Supplier',
+            'supplier_email' => 'test@example.com',
+            'supplier_phone' => '1234567890',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address'
+        ]);
+
+        // Create a purchase needing approval
+        $purchase = Purchase::create([
+            'setting_id' => $setting->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->toDateString(),
+            'reference' => 'PR-TEST',
+            'supplier_id' => $supplier->id,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => 'WAITING_APPROVAL',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'note' => '',
         ]);
 
         // Run sync
@@ -60,9 +86,34 @@ class NotificationCommandTest extends TestCase
     {
         $setting = Setting::factory()->create();
         
-        $purchase = Purchase::factory()->create([
+        $supplier = \Modules\People\Entities\Supplier::create([
             'setting_id' => $setting->id,
-            'status' => 'APPROVED' // No longer needs approval
+            'supplier_name' => 'Test Supplier 2',
+            'supplier_email' => 'test2@example.com',
+            'supplier_phone' => '1234567891',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address'
+        ]);
+
+        $purchase = Purchase::create([
+            'setting_id' => $setting->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->toDateString(),
+            'reference' => 'PR-TEST',
+            'supplier_id' => $supplier->id,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => 'APPROVED', // No longer needs approval
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'note' => '',
         ]);
 
         // Manually create a notification that should be resolved

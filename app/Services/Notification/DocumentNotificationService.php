@@ -38,7 +38,7 @@ class DocumentNotificationService
             ],
             \Modules\Purchase\Entities\ReceivedNote::class => [
                 'approval_permission' => 'purchases.receive.approval',
-                'edit_permission' => 'purchases.receive.edit',
+                'edit_permission' => 'purchases.receive',
                 'title_prefix' => 'Penerimaan Pembelian',
                 'route_prefix' => 'purchases.receiving',
             ],
@@ -62,7 +62,7 @@ class DocumentNotificationService
             ],
             \Modules\PurchasesReturn\Entities\PurchaseReturn::class . ':dispatch' => [
                 'approval_permission' => 'purchaseReturns.dispatchApproval',
-                'edit_permission' => 'purchaseReturns.dispatch',
+                'edit_permission' => 'purchaseReturns.dispatchRequest',
                 'title_prefix' => 'Pengiriman Retur Pembelian',
                 'route_prefix' => 'purchase-returns',
             ],

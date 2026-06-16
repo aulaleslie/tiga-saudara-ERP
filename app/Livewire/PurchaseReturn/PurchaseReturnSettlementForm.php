@@ -572,15 +572,12 @@ class PurchaseReturnSettlementForm extends Component
                     ['purchase_return_id' => $this->purchaseReturn->id],
                     [
                         'method' => 'mixed',
-                        'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_SUBMITTED,
-                        'submitted_by' => Auth::id(),
-                        'submitted_at' => now(),
+                        'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
                     ]
                 );
             });
 
             $this->purchaseReturn->refresh();
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->purchaseReturn, $this->purchaseReturn->reference ?? 'Penyelesaian Retur Pembelian', $this->purchaseReturn->setting_id, null, 'settlement');
 
             session()->flash('success', 'Penyelesaian berhasil disimpan sebagai draft.');
             return redirect()->route('purchase-returns.show', $this->purchaseReturn->id);

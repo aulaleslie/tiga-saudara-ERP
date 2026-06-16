@@ -26,6 +26,7 @@ class NotificationControllerTest extends TestCase
         $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Test Role']);
         $role->givePermissionTo(\Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'notifications.access']));
         $this->user->settings()->attach($this->setting->id, ['role_id' => $role->id]);
+        $this->user->givePermissionTo('notifications.access');
 
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id, 'user_settings' => collect([$this->setting])]);
