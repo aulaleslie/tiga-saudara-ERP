@@ -348,14 +348,18 @@ class SaleByCustomerReport extends Component
                     $saleRowsCount[$row->sale_id] = ($saleRowsCount[$row->sale_id] ?? 0) + 1;
                 }
                 // To accurately determine if a row is the last across the entire query,
-                // we'd need the total count of details per sale.
-                // Let's get total detail count per sale for all sales in the previous rows
+                // we'd need the total count of details per sale that match the current filters.
                 $totalDetailsPerSale = [];
                 $saleIdsToFetch = array_keys($saleRowsCount);
                 if (!empty($saleIdsToFetch)) {
-                    $totalDetailsPerSale = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $saleIdsToFetch)
-                        ->select('sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
-                        ->groupBy('sale_id')
+                    $detailsCountQuery = clone $baseQuery;
+                    $detailsCountQuery->setEagerLoads([]);
+                    $detailsCountQuery->getQuery()->columns = [];
+                    $detailsCountQuery->getQuery()->orders = [];
+
+                    $totalDetailsPerSale = $detailsCountQuery->select('sales.id as sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                        ->whereIn('sales.id', $saleIdsToFetch)
+                        ->groupBy('sales.id')
                         ->pluck('total', 'sale_id')
                         ->toArray();
                 }
@@ -376,13 +380,18 @@ class SaleByCustomerReport extends Component
                 }
             }
             
-            // Get total detail count for sales on the current page
+            // Get total detail count for sales on the current page that match the current filters
             $currentPageSaleIds = $sales->pluck('sale_id')->unique()->toArray();
             $currentPageTotalDetails = [];
             if (!empty($currentPageSaleIds)) {
-                $currentPageTotalDetails = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $currentPageSaleIds)
-                    ->select('sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
-                    ->groupBy('sale_id')
+                $detailsCountQuery = clone $baseQuery;
+                $detailsCountQuery->setEagerLoads([]);
+                $detailsCountQuery->getQuery()->columns = [];
+                $detailsCountQuery->getQuery()->orders = [];
+
+                $currentPageTotalDetails = $detailsCountQuery->select('sales.id as sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                    ->whereIn('sales.id', $currentPageSaleIds)
+                    ->groupBy('sales.id')
                     ->pluck('total', 'sale_id')
                     ->toArray();
             }

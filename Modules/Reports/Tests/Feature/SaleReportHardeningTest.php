@@ -160,7 +160,7 @@ class SaleReportHardeningTest extends TestCase
 
         $this->get(route('home'))
             ->assertStatus(200)
-            ->assertSee('Penjualan Per Customer');
+            ->assertSee('href="' . route('reports.index') . '"', false);
     }
 
     /** @test */
@@ -172,7 +172,7 @@ class SaleReportHardeningTest extends TestCase
 
         $this->get(route('home'))
             ->assertStatus(200)
-            ->assertDontSee('Penjualan Per Customer');
+            ->assertDontSee('href="' . route('reports.index') . '"', false);
     }
 
     /** @test */

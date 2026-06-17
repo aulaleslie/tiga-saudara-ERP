@@ -801,4 +801,94 @@ class SaleByCustomerReportTest extends TestCase
             // Since next page is Customer B, Subtotal SHOULD be rendered on page 1 for Customer A.
             ->assertSeeHtml('>Subtotal</td>');
     }
+
+    /** @test */
+    public function it_renders_discount_row_only_when_sale_has_discount_and_it_is_the_last_filtered_detail()
+    {
+        $category1 = Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C1', 'category_name' => 'Cat 1', 'created_by' => $this->user->id]);
+        $category2 = Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C2', 'category_name' => 'Cat 2', 'created_by' => $this->user->id]);
+        
+        $product1 = Product::create(['product_name' => 'P1', 'product_code' => 'P1', 'product_cost' => 0, 'product_price' => 0, 'setting_id' => $this->setting->id, 'category_id' => $category1->id]);
+        $product2 = Product::create(['product_name' => 'P2', 'product_code' => 'P2', 'product_cost' => 0, 'product_price' => 0, 'setting_id' => $this->setting->id, 'category_id' => $category2->id]);
+
+        $customer = $this->makeCustomer();
+        // Sale with discount
+        $saleWithDiscount = $this->makeSale($customer, ['date' => '2026-05-01', 'discount_amount' => 500]);
+        $this->makeSaleDetail($saleWithDiscount, ['product_id' => $product1->id, 'product_name' => 'P1']);
+        $this->makeSaleDetail($saleWithDiscount, ['product_id' => $product2->id, 'product_name' => 'P2']);
+
+        // Sale without discount
+        $saleNoDiscount = $this->makeSale($customer, ['date' => '2026-05-02', 'discount_amount' => 0]);
+        $this->makeSaleDetail($saleNoDiscount, ['product_id' => $product1->id, 'product_name' => 'P1']);
+
+        // Filter by category 1. P2 will be excluded. So P1 is the ONLY detail (and the last detail) for both sales.
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('categoryIds', [$category1->id])
+            ->call('applyFilters')
+            ->assertViewHas('sales', function ($sales) use ($saleWithDiscount, $saleNoDiscount) {
+                // There should be exactly 2 details loaded (one per sale)
+                \PHPUnit\Framework\Assert::assertEquals(2, $sales->count());
+                
+                // For the sale with discount, the single P1 detail should be flagged as last detail
+                $detailWithDiscount = $sales->firstWhere('sale_id', $saleWithDiscount->id);
+                \PHPUnit\Framework\Assert::assertNotNull($detailWithDiscount);
+                \PHPUnit\Framework\Assert::assertTrue($detailWithDiscount->is_last_detail);
+                
+                // For the sale without discount, it should also be flagged as last detail
+                $detailNoDiscount = $sales->firstWhere('sale_id', $saleNoDiscount->id);
+                \PHPUnit\Framework\Assert::assertNotNull($detailNoDiscount);
+                \PHPUnit\Framework\Assert::assertTrue($detailNoDiscount->is_last_detail);
+                
+                return true;
+            });
+            
+        // Check HTML output
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->set('categoryIds', [$category1->id])
+            ->call('applyFilters')
+            ->assertSeeHtml('Diskon')
+            ->assertSeeHtml('-500'); // the negative amount
+
+        // Map rows manually using mappedRows to test the presentation logic
+        // For sale with discount, discount row is added
+        $detailWithDiscount = \Modules\Sale\Entities\SaleDetails::where('sale_id', $saleWithDiscount->id)->where('product_id', $product1->id)->first();
+        $mappedRowsWithDiscount = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($detailWithDiscount, 0, true);
+        \PHPUnit\Framework\Assert::assertCount(2, $mappedRowsWithDiscount);
+        \PHPUnit\Framework\Assert::assertEquals('Diskon', $mappedRowsWithDiscount[1]['Nama produk']);
+        \PHPUnit\Framework\Assert::assertEquals(-500, $mappedRowsWithDiscount[1]['Nominal tagihan']);
+
+        // For sale without discount, no discount row
+        $detailNoDiscount = \Modules\Sale\Entities\SaleDetails::where('sale_id', $saleNoDiscount->id)->first();
+        $mappedRowsNoDiscount = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($detailNoDiscount, 0, true);
+        \PHPUnit\Framework\Assert::assertCount(1, $mappedRowsNoDiscount);
+    }
+
+    /** @test */
+    public function it_accounts_for_document_discount_in_cross_page_running_totals()
+    {
+        $customer = $this->makeCustomer();
+        // Create a sale with 16 details and a discount of 500
+        $saleWithDiscount = $this->makeSale($customer, ['date' => '2026-05-01', 'discount_amount' => 500]);
+        for ($i = 1; $i <= 16; $i++) {
+            $this->makeSaleDetail($saleWithDiscount, ['product_name' => "P$i", 'sub_total' => 100, 'product_tax_amount' => 0]);
+        }
+
+        // Default pagination is 15. Page 1 has 15 items (subtotal 1500). Page 2 has 1 item (100) + discount (-500) = total 1100.
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->set('page', 2)
+            ->assertSeeHtml('1.100'); // The final grand total / subtotal for the customer should be 1.100
+    }
 }

@@ -272,7 +272,6 @@
                     <th class="text-end" style="white-space:nowrap">Kuantitas</th>
                     <th style="white-space:nowrap">Satuan</th>
                     <th class="text-end" style="white-space:nowrap">Harga per Unit</th>
-                    <th class="text-end" style="white-space:nowrap">Diskon Per Baris %</th>
                     <th style="white-space:nowrap">Tarif Pajak</th>
                     <th class="text-end" style="white-space:nowrap">Jumlah Pajak</th>
                     <th class="text-end" style="white-space:nowrap">Jumlah Kena Pajak per Baris</th>
@@ -280,7 +279,6 @@
                     <th class="text-end" style="white-space:nowrap">Diskon</th>
                     <th style="white-space:nowrap">Pesan</th>
                     <th class="text-end" style="white-space:nowrap">Biaya Pengiriman</th>
-                    <th class="text-end" style="white-space:nowrap">Jumlah Pemotongan</th>
                     <th style="white-space:nowrap">Nama Perusahaan</th>
                     <th style="white-space:nowrap">Nomor Pajak</th>
                     <th style="white-space:nowrap">Nomor Ponsel</th>
@@ -351,9 +349,6 @@
                             <td class="text-end">{{ number_format((float)$mapped['Kuantitas'], 2, ',', '.') }}</td>
                             <td>{{ $mapped['Satuan'] }}</td>
                             <td class="text-end">{{ number_format((float)$mapped['Harga per Unit'], 0, ',', '.') }}</td>
-                            <td class="text-end">
-                                {{ (float)$mapped['Diskon Per Baris %'] > 0 ? number_format((float)$mapped['Diskon Per Baris %'], 2, ',', '.') . '%' : '-' }}
-                            </td>
                             <td>{{ $mapped['Tarif Pajak'] !== '-' ? $mapped['Tarif Pajak'] . '%' : '-' }}</td>
                             <td class="text-end">{{ number_format((float)$mapped['Jumlah Pajak'], 0, ',', '.') }}</td>
                             <td class="text-end">{{ number_format((float)$mapped['Jumlah Kena Pajak per Baris'], 0, ',', '.') }}</td>
@@ -361,7 +356,6 @@
                             <td class="text-end">{{ number_format((float)$mapped['Diskon'], 0, ',', '.') }}</td>
                             <td>{{ $mapped['Pesan'] }}</td>
                             <td class="text-end">{{ number_format((float)$mapped['Biaya Pengiriman'], 0, ',', '.') }}</td>
-                            <td class="text-end">{{ number_format((float)$mapped['Jumlah Pemotongan'], 0, ',', '.') }}</td>
                             <td>{{ $mapped['Nama Perusahaan'] }}</td>
                             <td>{{ $mapped['Nomor Pajak'] }}</td>
                             <td>{{ $mapped['Nomor Ponsel'] }}</td>

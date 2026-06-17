@@ -144,7 +144,7 @@ class PurchaseReportHardeningTest extends TestCase
 
         $this->get(route('home'))
             ->assertStatus(200)
-            ->assertSee('Daftar Pembelian');
+            ->assertSee('href="' . route('reports.index') . '"', false);
     }
 
     /** @test */
@@ -156,7 +156,7 @@ class PurchaseReportHardeningTest extends TestCase
 
         $this->get(route('home'))
             ->assertStatus(200)
-            ->assertDontSee('Daftar Pembelian');
+            ->assertDontSee('href="' . route('reports.index') . '"', false);
     }
 
     /** @test */

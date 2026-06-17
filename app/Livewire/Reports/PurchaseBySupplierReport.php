@@ -351,9 +351,14 @@ class PurchaseBySupplierReport extends Component
                 $totalDetailsPerPurchase = [];
                 $purchaseIdsToFetch = array_keys($purchaseRowsCount);
                 if (!empty($purchaseIdsToFetch)) {
-                    $totalDetailsPerPurchase = \Modules\Purchase\Entities\PurchaseDetail::whereIn('purchase_id', $purchaseIdsToFetch)
-                        ->select('purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
-                        ->groupBy('purchase_id')
+                    $detailsCountQuery = clone $baseQuery;
+                    $detailsCountQuery->setEagerLoads([]);
+                    $detailsCountQuery->getQuery()->columns = [];
+                    $detailsCountQuery->getQuery()->orders = [];
+
+                    $totalDetailsPerPurchase = $detailsCountQuery->select('purchases.id as purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                        ->whereIn('purchases.id', $purchaseIdsToFetch)
+                        ->groupBy('purchases.id')
                         ->pluck('total', 'purchase_id')
                         ->toArray();
                 }
@@ -374,13 +379,18 @@ class PurchaseBySupplierReport extends Component
                 }
             }
 
-            // Get total detail count for purchases on the current page
+            // Get total detail count for purchases on the current page that match the current filters
             $currentPagePurchaseIds = $purchases->pluck('purchase_id')->unique()->toArray();
             $currentPageTotalDetails = [];
             if (!empty($currentPagePurchaseIds)) {
-                $currentPageTotalDetails = \Modules\Purchase\Entities\PurchaseDetail::whereIn('purchase_id', $currentPagePurchaseIds)
-                    ->select('purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
-                    ->groupBy('purchase_id')
+                $detailsCountQuery = clone $baseQuery;
+                $detailsCountQuery->setEagerLoads([]);
+                $detailsCountQuery->getQuery()->columns = [];
+                $detailsCountQuery->getQuery()->orders = [];
+
+                $currentPageTotalDetails = $detailsCountQuery->select('purchases.id as purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                    ->whereIn('purchases.id', $currentPagePurchaseIds)
+                    ->groupBy('purchases.id')
                     ->pluck('total', 'purchase_id')
                     ->toArray();
             }
