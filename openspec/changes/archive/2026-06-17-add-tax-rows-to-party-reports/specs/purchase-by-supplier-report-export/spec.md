@@ -19,8 +19,6 @@ The system SHALL export a separate `Pajak` row immediately after a purchase deta
 - **THEN** the exported file contains the `Pajak` row
 - **AND** the exported file does not recompute tax from current tax settings
 
-## MODIFIED Requirements
-
 ### Requirement: Purchase by supplier XLSX export format
 The system SHALL produce an XLSX file with a formatted header block and data rows matching the applied filters and sort.
 

@@ -20,8 +20,6 @@ The system SHALL render a separate `Pajak` row immediately after a purchase deta
 - **THEN** the report displays the `Pajak` row
 - **AND** the report does not recompute tax from current tax settings
 
-## MODIFIED Requirements
-
 ### Requirement: Purchase by supplier monetary totals
 The system SHALL use purchase detail `sub_total` for product-row `Nominal tagihan`, use purchase detail `product_tax_amount` for tax-row `Nominal tagihan`, and compute `Total nominal tagihan` as a running total per supplier group across all rendered product and tax rows.
 

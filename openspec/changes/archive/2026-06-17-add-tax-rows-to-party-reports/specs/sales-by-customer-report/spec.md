@@ -35,8 +35,6 @@ The system SHALL omit `Keterangan` from `Penjualan Per Customer` Excel and CSV e
 - **WHEN** a user views `Penjualan Per Customer` in the browser
 - **THEN** the table still includes the `Keterangan` column
 
-## MODIFIED Requirements
-
 ### Requirement: Running per-customer subtotals
 The report SHALL display a running subtotal per customer down the expanded result rows, carrying the accumulated total across pagination boundaries and including persisted sale detail tax rows.
 

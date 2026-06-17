@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Import processing is memory-bounded by chunks
 The purchase and sales importers SHALL process staged CSV import rows in bounded chunks while preserving complete source invoice groups within a processing unit.

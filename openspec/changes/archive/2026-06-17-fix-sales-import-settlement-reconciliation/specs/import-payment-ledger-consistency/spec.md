@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Sales imports map CSV current payment status
 The sales importer SHALL resolve imported sale `paid_amount`, `due_amount`, and `payment_status` from CSV `Status Hari Ini` using the same current-status semantics as purchase import. Generated sale payment status and active payment rows SHALL reconcile to the canonical generated sale total selected during source-invoice reconciliation.

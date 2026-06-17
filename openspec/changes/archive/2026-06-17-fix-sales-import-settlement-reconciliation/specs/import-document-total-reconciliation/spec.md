@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Imports apply document-level discount and shipping once
 The purchase and sales importers SHALL calculate imported document totals by applying document-level `Diskon` once and document-level `Biaya Pengiriman` once per invoice and owner group. For sales source invoices that split into multiple owner groups, the importer SHALL allocate document-level `Diskon` and `Biaya Pengiriman` into two-decimal canonical owner totals whose sum equals the source-invoice adjusted total.
