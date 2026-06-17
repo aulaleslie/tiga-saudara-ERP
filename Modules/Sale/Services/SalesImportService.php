@@ -671,19 +671,41 @@ class SalesImportService
                 }
 
                 // Collect distinct invoice numbers from the initial pending row window
-                $invoiceNumbers = $initialRows->map(function ($row) {
-                    return trim($row->raw_json['no_faktur'] ?? '');
-                })->filter(fn($val) => $val !== '')->unique()->values()->toArray();
+                $invoiceNumbers = [];
+                $hasUnindexedInvoices = false;
+
+                foreach ($initialRows as $row) {
+                    $inv = $row->invoice_number;
+                    if ($inv !== null && $inv !== '') {
+                        $invoiceNumbers[] = $inv;
+                    } else {
+                        $inv = trim($row->raw_json['no_faktur'] ?? '');
+                        if ($inv !== '') {
+                            $invoiceNumbers[] = $inv;
+                            $hasUnindexedInvoices = true;
+                        }
+                    }
+                }
+
+                $invoiceNumbers = array_values(array_unique($invoiceNumbers));
+                $pathUsed = 'none';
 
                 // Load all pending rows for the selected invoice numbers to ensure complete source invoices are processed
                 if (!empty($invoiceNumbers)) {
+                    $pathUsed = 'indexed_with_fallback';
                     $rowsWithInvoice = $batch->pendingRows()
-                        ->whereIn('raw_json->no_faktur', $invoiceNumbers)
+                        ->where(function ($query) use ($invoiceNumbers) {
+                            $query->whereIn('invoice_number', $invoiceNumbers)
+                                  ->orWhere(function ($q) use ($invoiceNumbers) {
+                                      $q->whereNull('invoice_number')
+                                        ->whereIn('raw_json->no_faktur', $invoiceNumbers);
+                                  });
+                        })
                         ->orderBy('row_number')
                         ->get();
 
                     $rowsWithoutInvoice = $initialRows->filter(function ($row) {
-                        return trim($row->raw_json['no_faktur'] ?? '') === '';
+                        return trim($row->invoice_number ?? $row->raw_json['no_faktur'] ?? '') === '';
                     });
 
                     $rows = $rowsWithInvoice->merge($rowsWithoutInvoice)
@@ -708,6 +730,7 @@ class SalesImportService
                     'actual_size' => $actualChunkSize,
                     'invoice_count' => count($invoiceNumbers),
                     'expanded_rows' => $expandedRowsCount > 0 ? $expandedRowsCount : 0,
+                    'path_used' => $pathUsed,
                 ]);
 
                 // Pre-load customers and products specific to THIS chunk
@@ -1006,7 +1029,7 @@ class SalesImportService
 
     /**
      * Group rows by invoice number and effective owner key.
-     * Effective owner: Daizu (Priority 0), mapped CSV Tag (Priority 1), product marker (Priority 2).
+     * Effective owner: Daizu (Priority 0), then product marker (Priority 1).
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -1110,7 +1133,7 @@ class SalesImportService
             $rows
         ))));
 
-        // Resolve tenant using Daizu (Priority 0), Tag (Priority 1), then product marker (Priority 2)
+        // Resolve tenant using Daizu (Priority 0) then product marker (Priority 1)
         $tag = $data['tag'] ?? null;
         $productName = $data['produk'] ?? '';
         $isDaizu = $this->isDaizuProduct($productName);

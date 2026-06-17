@@ -22,13 +22,7 @@ class StageSalesImportRowsTest extends TestCase
             'line_total' => 'Jumlah Per Baris',
         ];
 
-        // Access the protected mapCsvRow via a subclass
-        $job = new class(1, $headers, array_values($headers)) extends StageSalesImportRows {
-            public function testMapCsvRow(array $record): array
-            {
-                return $this->mapCsvRow($record);
-            }
-        };
+        $service = app(\Modules\Sale\Services\SalesImportService::class);
 
         // Row missing harga_satuan but has line_total and quantity
         $record = [
@@ -41,7 +35,7 @@ class StageSalesImportRowsTest extends TestCase
             'Jumlah Per Baris' => '60000',
         ];
 
-        $mapped = $job->testMapCsvRow($record);
+        $mapped = $service->mapCsvRow($record, $headers);
 
         $this->assertEquals('2400', $mapped['harga_satuan'], 'Should fallback to 60000 / 25');
     }

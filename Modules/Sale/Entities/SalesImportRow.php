@@ -10,6 +10,7 @@ class SalesImportRow extends BaseModel
     protected $fillable = [
         'batch_id',
         'row_number',
+        'invoice_number',
         'raw_json',
         'status',
         'error_message',
@@ -40,5 +41,14 @@ class SalesImportRow extends BaseModel
     public function sale(): BelongsTo
     {
         return $this->belongsTo(Sale::class);
+    }
+
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (empty($model->invoice_number) && !empty($model->raw_json['no_faktur'])) {
+                $model->invoice_number = (string) $model->raw_json['no_faktur'];
+            }
+        });
     }
 }

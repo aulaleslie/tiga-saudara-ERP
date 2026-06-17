@@ -149,12 +149,24 @@ class SalesUploadController extends Controller
                     $extractDir = dirname($absolutePath) . '/extracted_' . time();
                     $zip->extractTo($extractDir, $extractedCsv);
                     $zip->close();
-                    
                     $newRelativePath = 'imports/sales/' . time() . '_' . basename($extractedCsv);
-                    Storage::put($newRelativePath, file_get_contents($extractDir . '/' . $extractedCsv));
-                    
+                    $newAbsolutePath = Storage::path($newRelativePath);
+
+                    // Ensure target directory exists
+                    $targetDir = dirname($newAbsolutePath);
+                    if (!file_exists($targetDir)) {
+                        mkdir($targetDir, 0755, true);
+                    }
+
+                    // Move extracted file without reading into memory
+                    if (!rename($extractDir . '/' . $extractedCsv, $newAbsolutePath)) {
+                        \Illuminate\Support\Facades\File::deleteDirectory($extractDir);
+                        return response()->json(['error' => 'Failed to move extracted file.'], 500);
+                    }
+                    \Illuminate\Support\Facades\File::deleteDirectory($extractDir);
+
                     $csvPath = $newRelativePath;
-                    $processingPath = Storage::path($csvPath);
+                    $processingPath = $newAbsolutePath;
                 } else {
                     $zip->close();
                     return response()->json(['error' => 'No CSV file found inside ZIP.'], 422);

@@ -52,8 +52,11 @@ class StageSalesImportRows implements ShouldQueue
             $rowNo = 0;
             $chunk = [];
 
+            $importService = app(\Modules\Sale\Services\SalesImportService::class);
+            $now = now();
+
             foreach ($records as $record) {
-                $mapped = $this->mapCsvRow((array) $record);
+                $mapped = $importService->mapCsvRow((array) $record, $this->normalizedHeaders);
 
                 // Skip empty rows
                 if (empty($mapped['produk']) || empty($mapped['tanggal'])) {
@@ -63,16 +66,18 @@ class StageSalesImportRows implements ShouldQueue
                 $chunk[] = [
                     'batch_id' => $this->batchId,
                     'row_number' => ++$rowNo,
+                    'invoice_number' => $mapped['no_faktur'] ?? null,
                     'raw_json' => json_encode($mapped),
                     'status' => SalesImportRow::STATUS_PENDING,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'created_at' => $now,
+                    'updated_at' => $now,
                 ];
 
                 // Bulk insert when chunk is full
                 if (count($chunk) >= self::CHUNK_SIZE) {
                     SalesImportRow::insert($chunk);
                     $chunk = [];
+                    $now = now();
 
                     // Log progress every 5000 rows
                     if ($rowNo % 5000 === 0) {
@@ -113,10 +118,7 @@ class StageSalesImportRows implements ShouldQueue
         }
     }
 
-    protected function mapCsvRow(array $record): array
-    {
-        return app(\Modules\Sale\Services\SalesImportService::class)->mapCsvRow($record, $this->normalizedHeaders);
-    }
+
 
     public function failed(\Throwable $exception): void
     {
