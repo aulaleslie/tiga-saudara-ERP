@@ -327,28 +327,78 @@ class SaleByCustomerReport extends Component
             $runningTotals = [];
             
             $previousPageLastCustomerId = null;
+            $previousPageLastSaleId = null;
             
             if ($sales->currentPage() > 1) {
                 $offset = ($sales->currentPage() - 1) * $sales->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('sales.customer_id', 'sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included');
+                $previousQuery->select('sales.customer_id', 'sale_details.sale_id', 'sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included', 'sales.discount_amount');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
                     $previousPageLastCustomerId = $previousRows->last()->customer_id;
+                    $previousPageLastSaleId = $previousRows->last()->sale_id;
                 }
                 
+                // Group by sale to know which row is the last for a given sale
+                $saleRowsCount = [];
+                $saleRowsProcessed = [];
+                foreach ($previousRows as $row) {
+                    $saleRowsCount[$row->sale_id] = ($saleRowsCount[$row->sale_id] ?? 0) + 1;
+                }
+                // To accurately determine if a row is the last across the entire query,
+                // we'd need the total count of details per sale.
+                // Let's get total detail count per sale for all sales in the previous rows
+                $totalDetailsPerSale = [];
+                $saleIdsToFetch = array_keys($saleRowsCount);
+                if (!empty($saleIdsToFetch)) {
+                    $totalDetailsPerSale = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $saleIdsToFetch)
+                        ->select('sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                        ->groupBy('sale_id')
+                        ->pluck('total', 'sale_id')
+                        ->toArray();
+                }
+
                 foreach ($previousRows as $row) {
                     $customerId = $row->customer_id;
                     if ($customerId) {
                         $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
-                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total + $tax;
+                        
+                        $saleRowsProcessed[$row->sale_id] = ($saleRowsProcessed[$row->sale_id] ?? 0) + 1;
+                        $discount = 0;
+                        if ($saleRowsProcessed[$row->sale_id] == ($totalDetailsPerSale[$row->sale_id] ?? 1)) {
+                            $discount = $row->discount_amount ?? 0;
+                        }
+                        
+                        $runningTotals[$customerId] = ($runningTotals[$customerId] ?? 0) + $row->sub_total + $tax - $discount;
                     }
                 }
             }
             
-            $sales->getCollection()->transform(function ($detail) use (&$runningTotals) {
+            // Get total detail count for sales on the current page
+            $currentPageSaleIds = $sales->pluck('sale_id')->unique()->toArray();
+            $currentPageTotalDetails = [];
+            if (!empty($currentPageSaleIds)) {
+                $currentPageTotalDetails = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $currentPageSaleIds)
+                    ->select('sale_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                    ->groupBy('sale_id')
+                    ->pluck('total', 'sale_id')
+                    ->toArray();
+            }
+
+            // Also we need to track how many we've processed so far across pages.
+            // If a sale started on previous page, we need to know how many were processed there.
+            $currentSaleRowsProcessed = [];
+            foreach ($currentPageSaleIds as $sId) {
+                if (isset($saleRowsProcessed[$sId])) {
+                    $currentSaleRowsProcessed[$sId] = $saleRowsProcessed[$sId];
+                } else {
+                    $currentSaleRowsProcessed[$sId] = 0;
+                }
+            }
+
+            $sales->getCollection()->transform(function ($detail) use (&$runningTotals, &$currentSaleRowsProcessed, $currentPageTotalDetails) {
                 $customerId = $detail->sale->customer_id;
                 if (!isset($runningTotals[$customerId])) {
                     $runningTotals[$customerId] = 0;
@@ -357,7 +407,18 @@ class SaleByCustomerReport extends Component
                 $detail->previous_running_total = $runningTotals[$customerId];
 
                 $tax = $detail->sale->is_tax_included ? 0 : ($detail->product_tax_amount ?? 0);
-                $runningTotals[$customerId] += $detail->sub_total + $tax;
+                
+                $currentSaleRowsProcessed[$detail->sale_id]++;
+                $isLastDetailInInvoice = $currentSaleRowsProcessed[$detail->sale_id] == ($currentPageTotalDetails[$detail->sale_id] ?? 1);
+                
+                $detail->is_last_detail = $isLastDetailInInvoice;
+                
+                $discount = 0;
+                if ($isLastDetailInInvoice) {
+                    $discount = $detail->sale->discount_amount ?? 0;
+                }
+                
+                $runningTotals[$customerId] += $detail->sub_total + $tax - $discount;
 
                 return $detail;
             });
@@ -366,10 +427,18 @@ class SaleByCustomerReport extends Component
             if ($sales->total() > 0) {
                 $totalQuery = clone $baseQuery;
                 $totalQuery->setEagerLoads([]);
-                $totalQuery->select('sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included');
-                $grandTotal = $totalQuery->get()->sum(function($row) {
+                $totalQuery->select('sales.id as sale_id', 'sale_details.sub_total', 'sale_details.product_tax_amount', 'sales.is_tax_included', 'sales.discount_amount');
+                $allRows = $totalQuery->get();
+                $processedSalesForGrandTotal = [];
+                
+                $grandTotal = $allRows->sum(function($row) use (&$processedSalesForGrandTotal) {
                     $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
-                    return $row->sub_total + $tax;
+                    $discount = 0;
+                    if (!isset($processedSalesForGrandTotal[$row->sale_id])) {
+                        $discount = $row->discount_amount ?? 0;
+                        $processedSalesForGrandTotal[$row->sale_id] = true;
+                    }
+                    return $row->sub_total + $tax - $discount;
                 });
             }
             $nextPageFirstCustomerId = null;

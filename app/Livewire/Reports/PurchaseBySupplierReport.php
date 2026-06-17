@@ -327,28 +327,74 @@ class PurchaseBySupplierReport extends Component
             $runningTotals = [];
             
             $previousPageLastSupplierId = null;
+            $previousPageLastPurchaseId = null;
             
             if ($purchases->currentPage() > 1) {
                 $offset = ($purchases->currentPage() - 1) * $purchases->perPage();
                 $previousQuery = clone $baseQuery;
                 $previousQuery->setEagerLoads([]);
-                $previousQuery->select('purchases.supplier_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included');
+                $previousQuery->select('purchases.supplier_id', 'purchase_details.purchase_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included', 'purchases.discount_amount');
                 $previousRows = $previousQuery->limit($offset)->get();
                 
                 if ($previousRows->isNotEmpty()) {
                     $previousPageLastSupplierId = $previousRows->last()->supplier_id;
+                    $previousPageLastPurchaseId = $previousRows->last()->purchase_id;
                 }
                 
+                // Group by purchase to know which row is the last for a given purchase
+                $purchaseRowsCount = [];
+                $purchaseRowsProcessed = [];
+                foreach ($previousRows as $row) {
+                    $purchaseRowsCount[$row->purchase_id] = ($purchaseRowsCount[$row->purchase_id] ?? 0) + 1;
+                }
+
+                $totalDetailsPerPurchase = [];
+                $purchaseIdsToFetch = array_keys($purchaseRowsCount);
+                if (!empty($purchaseIdsToFetch)) {
+                    $totalDetailsPerPurchase = \Modules\Purchase\Entities\PurchaseDetail::whereIn('purchase_id', $purchaseIdsToFetch)
+                        ->select('purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                        ->groupBy('purchase_id')
+                        ->pluck('total', 'purchase_id')
+                        ->toArray();
+                }
+
                 foreach ($previousRows as $row) {
                     $supplierId = $row->supplier_id;
                     if ($supplierId) {
                         $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
-                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total + $tax;
+                        
+                        $purchaseRowsProcessed[$row->purchase_id] = ($purchaseRowsProcessed[$row->purchase_id] ?? 0) + 1;
+                        $discount = 0;
+                        if ($purchaseRowsProcessed[$row->purchase_id] == ($totalDetailsPerPurchase[$row->purchase_id] ?? 1)) {
+                            $discount = $row->discount_amount ?? 0;
+                        }
+
+                        $runningTotals[$supplierId] = ($runningTotals[$supplierId] ?? 0) + $row->sub_total + $tax - $discount;
                     }
                 }
             }
+
+            // Get total detail count for purchases on the current page
+            $currentPagePurchaseIds = $purchases->pluck('purchase_id')->unique()->toArray();
+            $currentPageTotalDetails = [];
+            if (!empty($currentPagePurchaseIds)) {
+                $currentPageTotalDetails = \Modules\Purchase\Entities\PurchaseDetail::whereIn('purchase_id', $currentPagePurchaseIds)
+                    ->select('purchase_id', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+                    ->groupBy('purchase_id')
+                    ->pluck('total', 'purchase_id')
+                    ->toArray();
+            }
+
+            $currentPurchaseRowsProcessed = [];
+            foreach ($currentPagePurchaseIds as $pId) {
+                if (isset($purchaseRowsProcessed[$pId])) {
+                    $currentPurchaseRowsProcessed[$pId] = $purchaseRowsProcessed[$pId];
+                } else {
+                    $currentPurchaseRowsProcessed[$pId] = 0;
+                }
+            }
             
-            $purchases->getCollection()->transform(function ($detail) use (&$runningTotals) {
+            $purchases->getCollection()->transform(function ($detail) use (&$runningTotals, &$currentPurchaseRowsProcessed, $currentPageTotalDetails) {
                 $supplierId = $detail->purchase->supplier_id;
                 if (!isset($runningTotals[$supplierId])) {
                     $runningTotals[$supplierId] = 0;
@@ -357,7 +403,18 @@ class PurchaseBySupplierReport extends Component
                 $detail->previous_running_total = $runningTotals[$supplierId];
 
                 $tax = $detail->purchase->is_tax_included ? 0 : ($detail->product_tax_amount ?? 0);
-                $runningTotals[$supplierId] += $detail->sub_total + $tax;
+                
+                $currentPurchaseRowsProcessed[$detail->purchase_id]++;
+                $isLastDetailInInvoice = $currentPurchaseRowsProcessed[$detail->purchase_id] == ($currentPageTotalDetails[$detail->purchase_id] ?? 1);
+                
+                $detail->is_last_detail = $isLastDetailInInvoice;
+                
+                $discount = 0;
+                if ($isLastDetailInInvoice) {
+                    $discount = $detail->purchase->discount_amount ?? 0;
+                }
+
+                $runningTotals[$supplierId] += $detail->sub_total + $tax - $discount;
 
                 return $detail;
             });
@@ -366,10 +423,18 @@ class PurchaseBySupplierReport extends Component
             if ($purchases->total() > 0) {
                 $totalQuery = clone $baseQuery;
                 $totalQuery->setEagerLoads([]);
-                $totalQuery->select('purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included');
-                $grandTotal = $totalQuery->get()->sum(function($row) {
+                $totalQuery->select('purchases.id as purchase_id', 'purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchases.is_tax_included', 'purchases.discount_amount');
+                $allRows = $totalQuery->get();
+                $processedPurchasesForGrandTotal = [];
+                
+                $grandTotal = $allRows->sum(function($row) use (&$processedPurchasesForGrandTotal) {
                     $tax = $row->is_tax_included ? 0 : ($row->product_tax_amount ?? 0);
-                    return $row->sub_total + $tax;
+                    $discount = 0;
+                    if (!isset($processedPurchasesForGrandTotal[$row->purchase_id])) {
+                        $discount = $row->discount_amount ?? 0;
+                        $processedPurchasesForGrandTotal[$row->purchase_id] = true;
+                    }
+                    return $row->sub_total + $tax - $discount;
                 });
             }
             $nextPageFirstSupplierId = null;

@@ -221,15 +221,13 @@ SQL;
             'Kuantitas',
             'Satuan',
             'Harga per Unit',
-            'Diskon Per Baris %',
             'Tarif Pajak',
             'Jumlah Pajak',
             'Jumlah Kena Pajak per Baris',
             'Jumlah Per Baris',
-            'Diskon',
             'Pesan',
             'Biaya Pengiriman',
-            'Jumlah Pemotongan',
+            'Diskon',
             'Sisa Tagihan Hari Ini',
             'Diskon %',
         ];
@@ -281,17 +279,13 @@ SQL;
             'Kuantitas'                   => $detail->quantity ?? 0,
             'Satuan'                      => $detail->product?->unit?->short_name ?? $detail->product?->baseUnit?->short_name ?? $detail->product?->product_unit ?? '-',
             'Harga per Unit'              => $detail->price ?? 0,
-            'Diskon Per Baris %'          => strtolower($detail->product_discount_type ?? '') === 'percentage'
-                                                ? ($detail->product_discount_amount ?? 0)
-                                                : 0,
             'Tarif Pajak'                 => $tax?->tax_percentage ?? '-',
             'Jumlah Pajak'                => $detail->product_tax_amount ?? 0,
             'Jumlah Kena Pajak per Baris' => max(0, ($detail->sub_total ?? 0) - ($detail->product_tax_amount ?? 0)),
             'Jumlah Per Baris'            => $detail->sub_total ?? 0,
-            'Diskon'                      => $detail->product_discount_amount ?? 0,
             'Pesan'                       => $sale?->note ?? '-',
             'Biaya Pengiriman'            => $sale?->shipping_amount ?? 0,
-            'Jumlah Pemotongan'           => $sale?->discount_amount ?? 0,
+            'Diskon'                      => $sale?->discount_amount ?? 0,
             'Sisa Tagihan Hari Ini'       => max(0, $totalAmount - $activePaid),
             'Diskon %'                    => $sale?->discount_amount
                                                 ? ($totalAmount > 0 ? round($sale->discount_amount / $totalAmount * 100, 2) : 0)

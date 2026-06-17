@@ -264,7 +264,7 @@
                 @forelse($purchases as $row)
                     @php
                         $supplierId = $row->purchase->supplier_id;
-                        $mappedRows = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($row, $row->previous_running_total ?? 0);
+                        $mappedRows = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($row, $row->previous_running_total ?? 0, $row->is_last_detail ?? false);
                         $isFirstRow = $loop->first;
                         $isLastRow = $loop->last;
                         $nextRow = $isLastRow ? null : $purchases[$loop->index + 1];

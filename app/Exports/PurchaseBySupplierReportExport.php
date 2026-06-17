@@ -35,6 +35,13 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
         $grandTotal = 0.0;
         $prevSupplierName = '';
         
+        $purchaseDetailsCount = [];
+        $purchaseDetailsProcessed = [];
+        foreach ($queryResults as $detail) {
+            $purchaseId = $detail->purchase_id;
+            $purchaseDetailsCount[$purchaseId] = ($purchaseDetailsCount[$purchaseId] ?? 0) + 1;
+        }
+
         foreach ($queryResults as $detail) {
             $supplierId = $detail->purchase?->supplier_id ?? 0;
             $supplierName = $detail->supplier_name ?: ($detail->purchase?->supplier?->supplier_name ?? '-');
@@ -60,7 +67,11 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                 $runningTotal = 0.0;
             }
             
-            $mappedRows = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRowsForExport($detail, $runningTotal);
+            $purchaseId = $detail->purchase_id;
+            $purchaseDetailsProcessed[$purchaseId] = ($purchaseDetailsProcessed[$purchaseId] ?? 0) + 1;
+            $isLastDetailInInvoice = $purchaseDetailsProcessed[$purchaseId] === $purchaseDetailsCount[$purchaseId];
+
+            $mappedRows = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRowsForExport($detail, $runningTotal, $isLastDetailInInvoice);
             foreach ($mappedRows as $mapped) {
                 $rows[] = [
                     $mapped['Supplier'],
@@ -77,7 +88,8 @@ class PurchaseBySupplierReportExport implements FromArray, WithHeadings, WithEve
                 $runningTotal = $mapped['Total nominal tagihan'];
             }
             $tax = $detail->purchase?->is_tax_included ? 0 : (float) ($detail->product_tax_amount ?? 0);
-            $grandTotal += (float) $detail->sub_total + $tax;
+            $discount = $isLastDetailInInvoice ? (float) ($detail->purchase->discount_amount ?? 0) : 0;
+            $grandTotal += (float) $detail->sub_total + $tax - $discount;
         }
         
         // Push subtotal for the very last supplier

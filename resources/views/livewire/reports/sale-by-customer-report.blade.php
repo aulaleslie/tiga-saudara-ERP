@@ -264,7 +264,7 @@
                 @forelse($sales as $row)
                     @php
                         $customerId = $row->sale->customer_id;
-                        $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($row, $row->previous_running_total ?? 0);
+                        $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($row, $row->previous_running_total ?? 0, $row->is_last_detail ?? false);
                         $isFirstRow = $loop->first;
                         $isLastRow = $loop->last;
                         $nextRow = $isLastRow ? null : $sales[$loop->index + 1];

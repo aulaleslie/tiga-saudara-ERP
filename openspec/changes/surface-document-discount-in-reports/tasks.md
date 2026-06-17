@@ -16,22 +16,22 @@
 
 ## 3. Daftar Penjualan — discount column relabel
 
-- [ ] 3.1 In `app/Services/Reports/SaleReportQueryService.php`, point the displayed `Diskon` column at the document discount (`sale.discount_amount`) and retain the derived `Diskon %`; remove the always-zero per-line `Diskon` and `Diskon Per Baris %` columns from both detail and header modes.
-- [ ] 3.2 Update `headingsFor()` and the row maps so detail, header, and global variants are consistent.
-- [ ] 3.3 Update `app/Exports/SaleReportExport.php` heading/column map to match the on-screen columns.
+- [x] 3.1 In `app/Services/Reports/SaleReportQueryService.php`, point the displayed `Diskon` column at the document discount (`sale.discount_amount`) and retain the derived `Diskon %`; remove the always-zero per-line `Diskon` and `Diskon Per Baris %` columns from both detail and header modes.
+- [x] 3.2 Update `headingsFor()` and the row maps so detail, header, and global variants are consistent.
+- [x] 3.3 Update `app/Exports/SaleReportExport.php` heading/column map to match the on-screen columns.
 
 ## 4. Daftar Pembelian — discount column relabel
 
-- [ ] 4.1 Apply the same column relabel/prune in `app/Services/Reports/PurchaseReportQueryService.php` using `purchase.discount_amount`.
-- [ ] 4.2 Update its `headingsFor()` and row maps for detail, header, and global variants.
-- [ ] 4.3 Update `app/Exports/PurchaseReportExport.php` heading/column map to match.
+- [x] 4.1 Apply the same column relabel/prune in `app/Services/Reports/PurchaseReportQueryService.php` using `purchase.discount_amount`.
+- [x] 4.2 Update its `headingsFor()` and row maps for detail, header, and global variants.
+- [x] 4.3 Update `app/Exports/PurchaseReportExport.php` heading/column map to match.
 
 ## 5. Tests
 
-- [ ] 5.1 Add a `SaleByCustomerReportTest` case: discounted single-line invoice expands to product/DPP → `Diskon` (negative) → `Pajak`, and the post-tax running total equals the sale total.
-- [ ] 5.2 Add a `SaleByCustomerReportTest` case: multi-line discounted invoice emits exactly one `Diskon` row; undiscounted invoice emits none.
-- [ ] 5.3 Add matching `PurchaseBySupplierReportTest` cases (single-line, multi-line, zero-discount) within a supplier group.
-- [ ] 5.4 Extend `SaleReportExportParityTest` and `PurchaseReportExportParityTest` to assert the new discount columns/heads match between screen and export for a discounted document.
-- [ ] 5.5 Extend `SaleByCustomerReportExport`/`PurchaseBySupplierReportExport` coverage to assert the exported discount row matches the on-screen row position and value.
-- [ ] 5.6 Update `SaleReportHardeningTest` / `PurchaseReportHardeningTest` expectations affected by the column relabel.
-- [ ] 5.7 Run `composer test:fresh-sqlite` (or focused `php artisan test --filter` on the report tests) and confirm green.
+- [x] 5.1 Add a `SaleByCustomerReportTest` case: discounted single-line invoice expands to product/DPP -> Diskon (negative) -> Pajak, and the post-tax running total equals the sale total.
+- [x] 5.2 Add a `SaleByCustomerReportTest` case: multi-line discounted invoice emits exactly one Diskon row; undiscounted invoice emits none.
+- [x] 5.3 Add matching `PurchaseBySupplierReportTest` cases (single-line, multi-line, zero-discount) within a supplier group.
+- [x] 5.4 Extend `SaleReportExportParityTest` and `PurchaseReportExportParityTest` to assert the new discount columns/heads match between screen and export for a discounted document.
+- [x] 5.5 Extend `SaleByCustomerReportExport`/`PurchaseBySupplierReportExport` coverage to assert the exported discount row matches the on-screen row position and value.
+- [x] 5.6 Update `SaleReportHardeningTest` / `PurchaseReportHardeningTest` expectations affected by the column relabel.
+- [x] 5.7 Run `composer test:fresh-sqlite` (or focused `php artisan test --filter` on the report tests) and confirm green.

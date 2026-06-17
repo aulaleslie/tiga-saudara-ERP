@@ -105,7 +105,7 @@ class SaleByCustomerReportQueryService
         $query->orderBy('sales.id', $direction)->orderBy('sale_details.id', 'asc');
     }
 
-    public static function mapRows(SaleDetails $detail, float $previousRunningTotal): array
+    public static function mapRows(SaleDetails $detail, float $previousRunningTotal, bool $isLastDetail = false): array
     {
         $sale = $detail->sale;
         $rows = [];
@@ -136,6 +136,24 @@ class SaleByCustomerReportQueryService
             'is_tax_row'            => false,
         ];
 
+        if ($isLastDetail && $sale && $sale->discount_amount > 0) {
+            $discountAmount = (float) $sale->discount_amount;
+            $productTotal -= $discountAmount;
+            $rows[] = [
+                'Customer / Tanggal'    => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
+                'Tipe transaksi'        => 'Faktur Penjualan',
+                'No. transaksi'         => $sale?->reference ?? '-',
+                'Nama produk'           => 'Diskon',
+                'Keterangan'            => $sale?->note ?? '-',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => -$discountAmount,
+                'Total nominal tagihan' => $productTotal,
+                'is_tax_row'            => false,
+            ];
+        }
+
         if ($taxAmount > 0) {
             $taxTotal = $productTotal + $taxAmount;
             $rows[] = [
@@ -155,7 +173,7 @@ class SaleByCustomerReportQueryService
 
         return $rows;
     }
-    public static function mapRowsForExport(SaleDetails $detail, float $previousRunningTotal): array
+    public static function mapRowsForExport(SaleDetails $detail, float $previousRunningTotal, bool $isLastDetail = false): array
     {
         $sale = $detail->sale;
         $rows = [];
@@ -185,6 +203,24 @@ class SaleByCustomerReportQueryService
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,
         ];
+
+        if ($isLastDetail && $sale && $sale->discount_amount > 0) {
+            $discountAmount = (float) $sale->discount_amount;
+            $productTotal -= $discountAmount;
+            $rows[] = [
+                'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
+                'Tanggal'               => $sale?->date ?? '-',
+                'Tipe transaksi'        => 'Faktur Penjualan',
+                'No. transaksi'         => $sale?->reference ?? '-',
+                'Nama produk'           => 'Diskon',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => -$discountAmount,
+                'Total nominal tagihan' => $productTotal,
+                'is_tax_row'            => false,
+            ];
+        }
 
         if ($taxAmount > 0) {
             $taxTotal = $productTotal + $taxAmount;

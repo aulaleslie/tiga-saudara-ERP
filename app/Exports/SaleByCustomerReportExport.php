@@ -35,6 +35,13 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
         $grandTotal = 0.0;
         $prevCustomerName = '';
         
+        $saleDetailsCount = [];
+        $saleDetailsProcessed = [];
+        foreach ($queryResults as $detail) {
+            $saleId = $detail->sale_id;
+            $saleDetailsCount[$saleId] = ($saleDetailsCount[$saleId] ?? 0) + 1;
+        }
+
         foreach ($queryResults as $detail) {
             $customerId = $detail->sale?->customer_id ?? 0;
             $customerName = $detail->customer_name ?: ($detail->sale?->customer?->customer_name ?? '-');
@@ -60,7 +67,11 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
                 $runningTotal = 0.0;
             }
             
-            $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRowsForExport($detail, $runningTotal);
+            $saleId = $detail->sale_id;
+            $saleDetailsProcessed[$saleId] = ($saleDetailsProcessed[$saleId] ?? 0) + 1;
+            $isLastDetailInInvoice = $saleDetailsProcessed[$saleId] === $saleDetailsCount[$saleId];
+
+            $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRowsForExport($detail, $runningTotal, $isLastDetailInInvoice);
             foreach ($mappedRows as $mapped) {
                 $rows[] = [
                     $mapped['Customer'],
@@ -77,7 +88,8 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
                 $runningTotal = $mapped['Total nominal tagihan'];
             }
             $tax = $detail->sale?->is_tax_included ? 0 : (float) ($detail->product_tax_amount ?? 0);
-            $grandTotal += (float) $detail->sub_total + $tax;
+            $discount = $isLastDetailInInvoice ? (float) ($detail->sale->discount_amount ?? 0) : 0;
+            $grandTotal += (float) $detail->sub_total + $tax - $discount;
         }
         
         // Push subtotal for the very last customer

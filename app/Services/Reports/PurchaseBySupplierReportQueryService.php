@@ -105,7 +105,7 @@ class PurchaseBySupplierReportQueryService
         $query->orderBy('purchases.id', $direction)->orderBy('purchase_details.id', 'asc');
     }
 
-    public static function mapRows(PurchaseDetail $detail, float $previousRunningTotal): array
+    public static function mapRows(PurchaseDetail $detail, float $previousRunningTotal, bool $isLastDetail = false): array
     {
         $purchase = $detail->purchase;
         $rows = [];
@@ -136,6 +136,24 @@ class PurchaseBySupplierReportQueryService
             'is_tax_row'            => false,
         ];
 
+        if ($isLastDetail && $purchase && $purchase->discount_amount > 0) {
+            $discountAmount = (float) $purchase->discount_amount;
+            $productTotal -= $discountAmount;
+            $rows[] = [
+                'Supplier / Tanggal'    => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+                'Tipe transaksi'        => 'Faktur Pembelian',
+                'No. transaksi'         => $purchase?->reference ?? '-',
+                'Nama produk'           => 'Diskon',
+                'Keterangan'            => $purchase?->note ?? '-',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => -$discountAmount,
+                'Total nominal tagihan' => $productTotal,
+                'is_tax_row'            => false,
+            ];
+        }
+
         if ($taxAmount > 0) {
             $taxTotal = $productTotal + $taxAmount;
             $rows[] = [
@@ -155,7 +173,7 @@ class PurchaseBySupplierReportQueryService
 
         return $rows;
     }
-    public static function mapRowsForExport(PurchaseDetail $detail, float $previousRunningTotal): array
+    public static function mapRowsForExport(PurchaseDetail $detail, float $previousRunningTotal, bool $isLastDetail = false): array
     {
         $purchase = $detail->purchase;
         $rows = [];
@@ -185,6 +203,24 @@ class PurchaseBySupplierReportQueryService
             'Total nominal tagihan' => $productTotal,
             'is_tax_row'            => false,
         ];
+
+        if ($isLastDetail && $purchase && $purchase->discount_amount > 0) {
+            $discountAmount = (float) $purchase->discount_amount;
+            $productTotal -= $discountAmount;
+            $rows[] = [
+                'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
+                'Tanggal'               => $purchase?->date ?? '-',
+                'Tipe transaksi'        => 'Faktur Pembelian',
+                'No. transaksi'         => $purchase?->reference ?? '-',
+                'Nama produk'           => 'Diskon',
+                'Qty'                   => '',
+                'Unit'                  => '',
+                'Harga per unit'        => 0,
+                'Nominal tagihan'       => -$discountAmount,
+                'Total nominal tagihan' => $productTotal,
+                'is_tax_row'            => false,
+            ];
+        }
 
         if ($taxAmount > 0) {
             $taxTotal = $productTotal + $taxAmount;
