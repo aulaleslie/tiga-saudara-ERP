@@ -25,6 +25,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
     Route::get('/profit-loss-report', 'ReportsController@profitLossReport')
         ->name('profit-loss-report.index');
+    //Neraca Report
+    Route::get('/operational-balance-sheet-report', 'ReportsController@operationalBalanceSheetReport')
+        ->name('operational-balance-sheet-report.index');
     //Payments Report
     Route::get('/payments-report', 'ReportsController@paymentsReport')
         ->name('payments-report.index');

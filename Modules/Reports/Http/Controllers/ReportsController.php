@@ -41,7 +41,7 @@ class ReportsController extends Controller
                         'label' => 'Neraca',
                         'icon' => 'bi bi-bank',
                         'description' => 'Menampilkan apa yang dimiliki (aset), apa saja utangnya (liabilitas), dan apa yang sudah diinvestasikan ke perusahaan ini (ekuitas) pada tanggal tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'operational-balance-sheet-report.index',
                         'permission' => 'reports.access'
                     ],
                     [
@@ -391,6 +391,12 @@ class ReportsController extends Controller
         abort_if(Gate::denies('reports.access'), 403);
 
         return view('reports::profit-loss.index');
+    }
+
+    public function operationalBalanceSheetReport() {
+        abort_if(Gate::denies('reports.access'), 403);
+
+        return view('reports::operational-balance-sheet.index');
     }
 
     public function paymentsReport() {
