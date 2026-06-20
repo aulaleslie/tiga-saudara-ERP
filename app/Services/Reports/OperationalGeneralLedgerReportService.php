@@ -133,18 +133,20 @@ class OperationalGeneralLedgerReportService
         $purchases = Purchase::where('setting_id', $settingId)
             ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
             ->whereDate('date', '<=', $endDate)
-            ->get(['date', 'reference', 'total_amount', 'supplier_name', 'created_at']);
+            ->with('supplier:id,supplier_name')
+            ->get(['date', 'reference', 'total_amount', 'supplier_id', 'created_at']);
             
         foreach ($purchases as $purchase) {
             $amount = (float) $purchase->total_amount;
             $date = Carbon::parse($purchase->date)->format('Y-m-d');
             $time = $purchase->created_at->format('H:i:s');
             $dt = $date . ' ' . $time;
+            $tag = $purchase->supplier->supplier_name ?? null;
             
             // Debit Cost
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, $dt, 'Pembelian', $purchase->reference, 'Faktur Pembelian', $amount, 0, $purchase->supplier_name);
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, $dt, 'Pembelian', $purchase->reference, 'Faktur Pembelian', $amount, 0, $tag);
             // Credit AP
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Pembelian', $purchase->reference, 'Hutang Pembelian', 0, $amount, $purchase->supplier_name);
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Pembelian', $purchase->reference, 'Hutang Pembelian', 0, $amount, $tag);
         }
 
         // 6. Purchase Payments -> Cash (Cr) & AP (Dr)
@@ -154,7 +156,7 @@ class OperationalGeneralLedgerReportService
                 $q->where('setting_id', $settingId)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             })
-            ->with('purchase:id,supplier_name')
+            ->with(['purchase:id,supplier_id', 'purchase.supplier:id,supplier_name'])
             ->get(['date', 'reference', 'amount', 'purchase_id', 'created_at', 'payment_method']);
             
         foreach ($purchasePayments as $pp) {
@@ -162,7 +164,7 @@ class OperationalGeneralLedgerReportService
             $date = Carbon::parse($pp->date)->format('Y-m-d');
             $time = $pp->created_at->format('H:i:s');
             $dt = $date . ' ' . $time;
-            $tag = $pp->purchase->supplier_name ?? null;
+            $tag = $pp->purchase->supplier->supplier_name ?? null;
             $desc = 'Pembayaran Pembelian' . ($pp->payment_method ? ' - ' . $pp->payment_method : '');
             
             // Credit Cash
