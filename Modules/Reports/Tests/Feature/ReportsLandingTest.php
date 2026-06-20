@@ -59,6 +59,7 @@ class ReportsLandingTest extends TestCase
 
         $response->assertSeeText('Neraca');
         $response->assertSeeText('Buku besar');
+        $response->assertSee(route('operational-general-ledger-report.index'));
         $response->assertSeeText('Arus kas');
         $response->assertSeeText('Neraca saldo');
         
@@ -133,6 +134,7 @@ class ReportsLandingTest extends TestCase
         $response->assertDontSeeText('Pajak');
         $response->assertDontSeeText('Lainnya');
         $response->assertDontSeeText('Neraca');
+        $response->assertDontSeeText('Buku besar');
         $response->assertDontSeeText('Utang supplier');
         $response->assertDontSeeText('Pajak pemotongan');
 

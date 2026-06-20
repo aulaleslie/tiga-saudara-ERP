@@ -28,6 +28,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Neraca Report
     Route::get('/operational-balance-sheet-report', 'ReportsController@operationalBalanceSheetReport')
         ->name('operational-balance-sheet-report.index');
+    //Buku Besar Report
+    Route::get('/operational-general-ledger-report', 'ReportsController@operationalGeneralLedgerReport')
+        ->name('operational-general-ledger-report.index');
     //Payments Report
     Route::get('/payments-report', 'ReportsController@paymentsReport')
         ->name('payments-report.index');

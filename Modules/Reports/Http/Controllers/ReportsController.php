@@ -48,7 +48,7 @@ class ReportsController extends Controller
                         'label' => 'Buku besar',
                         'icon' => 'bi bi-journal-text',
                         'description' => 'Menampilkan semua transaksi berdasarkan akun dalam periode tertentu, termasuk kronologi pergerakan transaksinya selama periode berlangsung.',
-                        'is_placeholder' => true,
+                        'route' => 'operational-general-ledger-report.index',
                         'permission' => 'reports.access'
                     ],
                     [
@@ -397,6 +397,12 @@ class ReportsController extends Controller
         abort_if(Gate::denies('reports.access'), 403);
 
         return view('reports::operational-balance-sheet.index');
+    }
+
+    public function operationalGeneralLedgerReport() {
+        abort_if(Gate::denies('reports.access'), 403);
+
+        return view('reports::operational-general-ledger.index');
     }
 
     public function paymentsReport() {
