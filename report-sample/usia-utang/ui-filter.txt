@@ -1,0 +1,213 @@
+<div class="modal-dialog">
+<div class="modal-header">
+<h4 class="modal-title" id="modal-label">
+Filter Laporan
+</h4>
+</div>
+<div class="modal-body">
+<div class="row">
+<form role="form">
+<label class="control-label new-design col-md-12 col-sm-12 col-xs-12">
+Per
+<div class="input-group date datepicker-new-design" data-date-format="dd/mm/yyyy">
+<span class="input-group-addon custom"></span>
+<input class="string required" id="end_date_field_popup" type="text" value="20/06/2026">
+<div class="date-icon">
+<img src="https://d2lud967a5orp2.cloudfront.net/assets/icon/date-0dbe0eabfcaa5cf753a8d7425da4b432.svg">
+</div>
+</div>
+</label>
+<label class="control-label new-design col-md-12 col-sm-12 col-xs-12">
+Filter sesuai periode
+<div class="dropdown selection-new material-design" id="date_select_popup">
+<div class="dropdown-toggle" data-toggle="dropdown" type="button">
+<div class="selection-text text-ellipsis" value="custom" start-data-value="20/06/2026" end-data-value="20/06/2026">
+
+Tanggal
+
+</div>
+<div class="arrow">
+<i class="fa fa-caret-down"></i>
+</div>
+</div>
+<ul class="dropdown-menu">
+<li end-data-value="20/06/2026" start-data-value="20/06/2026" value="custom">
+<a href="#">
+Tanggal
+</a>
+</li>
+<li end-data-value="20/06/2026" start-data-value="20/06/2026" value="day">
+<a href="#">
+Hari ini
+</a>
+</li>
+<li end-data-value="21/06/2026" start-data-value="15/06/2026" value="week">
+<a href="#">
+Minggu ini
+</a>
+</li>
+<li end-data-value="30/06/2026" start-data-value="01/06/2026" value="month">
+<a href="#">
+Bulan ini
+</a>
+</li>
+<li end-data-value="31/12/2026" start-data-value="01/01/2026" value="year">
+<a href="#">
+Tahun ini
+</a>
+</li>
+<li end-data-value="19/06/2026" start-data-value="19/06/2026" value="yesterday">
+<a href="#">
+Kemarin
+</a>
+</li>
+<li end-data-value="14/06/2026" start-data-value="08/06/2026" value="last_week">
+<a href="#">
+Minggu lalu
+</a>
+</li>
+<li end-data-value="31/05/2026" start-data-value="01/05/2026" value="last_month">
+<a href="#">
+Bulan lalu
+</a>
+</li>
+<li end-data-value="31/12/2025" start-data-value="01/01/2025" value="last_year">
+<a href="#">
+Tahun lalu
+</a>
+</li>
+</ul>
+</div>
+</label>
+<label class="control-label new-design col-md-12 col-sm-12 col-xs-12">
+Filter menurut
+<div class="dropdown selection-new material-design general" id="aged-by">
+<div class="dropdown-toggle" data-toggle="dropdown" type="button">
+<div class="selection-text">
+Tanggal Transaksi
+</div>
+<div class="arrow">
+<i class="fa fa-caret-down"></i>
+</div>
+</div>
+<ul class="dropdown-menu">
+<li aged-by-value="transaction_date" value="transaction_date">
+<a href="#">
+Tanggal Transaksi
+</a>
+</li>
+<li aged-by-value="due_date" value="due_date">
+<a href="#">
+Tanggal Jatuh Tempo
+</a>
+</li>
+</ul>
+</div>
+</label>
+
+<label class="control-label new-design col-md-12 col-sm-12 col-xs-12">
+<div id="tag-label">
+Grup dengan Tag
+</div>
+<div class="select2-container select2-container-multi form-control fixed-in-bottom with-line reports material-style new-design-select2-multiple" id="s2id_tag_select"><ul class="select2-choices">  <li class="select2-search-field">    <label for="s2id_autogen2" class="select2-offscreen"></label>    <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="select2-input" id="s2id_autogen2" placeholder="" style="width: 22px;">  </li></ul><div class="select2-drop select2-drop-multi select2-display-none">   <ul class="select2-results">   <li class="select2-no-results">No matches found</li></ul></div></div><select class="form-control select2-multiple-no-add fixed-in-bottom with-line reports material-style new-design-select2-multiple" id="tag_select" multiple="multiple" tabindex="-1" style="display: none;">
+<option value="2344133">
+ARIES
+</option>
+<option value="2344142">
+RAHMAT
+</option>
+<option value="2344158">
+AGUS
+</option>
+<option value="2346045">
+CV TIGA NUSA
+</option>
+<option value="2346875">
+NON PPN
+</option>
+<option value="4306294">
+SERVICE
+</option>
+<option value="4417518">
+BLUE PRINT
+</option>
+<option value="6534899">
+ADA PPN
+</option>
+<option value="7227206">
+IKSAN KO
+</option>
+<option value="9084442">
+PERDANA
+</option>
+<option value="14282232">
+CV TOP IT
+</option>
+<option value="14821598">
+TAN JOHAN
+</option>
+</select>
+</label>
+<div class="col-lg-12 tag-radio-sidebar">
+<input name="tag_logic" style="margin-left: 8px;" type="radio" value="and">
+Mencakup Semua
+
+<input name="tag_logic" style="margin-left: 8px;" type="radio" value="or">
+Salah Satu
+
+<a class="tooltip_new tooltip-sidebar" title_name="Pilih cara filter tag:
+
+   cth. Tag A, Tag B
+
+Mencakup Semua: menampilkan transaksi dengan Tag A dan Tag B (keduanya).
+
+Salah Satu: Menampilkan transaksi dengan Tag A dan/atau Tag B.">
+<i class="fa fa-question-circle"></i>
+</a>
+</div>
+<label class="control-label new-design col-md-12 col-sm-12 col-xs-12">
+Urutkan sesuai kolom
+<div class="dropdown selection-new material-design general" id="column_select">
+<div class="dropdown-toggle" data-toggle="dropdown" type="button">
+<div class="selection-text">
+Vendor
+</div>
+<div class="arrow">
+<i class="fa fa-caret-down"></i>
+</div>
+</div>
+<ul class="dropdown-menu">
+<li value="vendor_name_ap">
+<a href="#">
+Vendor
+</a>
+</li>
+<li value="total_ap">
+<a href="#">
+Total
+</a>
+</li>
+</ul>
+</div>
+</label>
+<div class="col-lg-12 tag-radio-sidebar">
+<input name="sort_logic" style="margin-left: 8px;" type="radio" value="asc">
+Urutan Naik
+
+<input name="sort_logic" style="margin-left: 8px;" type="radio" value="desc">
+Urutan Turun
+
+</div>
+
+</form>
+</div>
+<div class="modal-footer text-center">
+<button class="btn btn-grey-flat-outline new-btn" data-dismiss="modal" id="balance-sheet-filter-btn-close" type="button">
+Batalkan
+</button>
+<a class="btn btn-filter-green new-btn" href="/reports/aged_payable" id="report_filter_button_modal">
+Filter
+</a>
+</div>
+</div>
+</div>
