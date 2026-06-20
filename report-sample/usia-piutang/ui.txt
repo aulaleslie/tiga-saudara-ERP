@@ -1,0 +1,898 @@
+<div id="main-content">
+<header class="page-heading border-bottom white-bg new-design header-fix">
+<div class="row">
+<div class="col-md-12">
+<div class="row">
+<div class="col-xs-12 col-sm-12 col-md-12">
+<div class="page-title-heading">
+<h2>
+Piutang
+<span>
+<small>
+(dalam IDR)
+</small>
+
+</span>
+</h2>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</header>
+<header class="page-heading border-bottom white-bg new-design header-search">
+<form class="form" role="form">
+<div class="row margin-top-29">
+<div class="col-xs-6 col-sm-6 col-md-6">
+<div class="row col-xs-12 col-sm-12 col-md-6 filter-section">
+<div class="row">
+<label class="control-label new-design col-xs-12 col-sm-12 col-md-6">
+Per
+<div class="input-group date datepicker-new-design" data-date-format="dd/mm/yyyy">
+<span class="input-group-addon custom"></span>
+<input class="string required" id="end_date_field" type="text" value="20/06/2026">
+<div class="date-icon">
+<img src="https://d2lud967a5orp2.cloudfront.net/assets/icon/date-0dbe0eabfcaa5cf753a8d7425da4b432.svg">
+</div>
+</div>
+</label>
+<label class="control-label new-design col-xs-12 col-sm-12 col-md-6 no-backdrop">
+Filter sesuai periode
+<div class="dropdown selection-new material-design" id="date_select">
+<div class="dropdown-toggle" data-toggle="dropdown" type="button">
+<div class="selection-text text-ellipsis padding-right-15" value="custom" end-data-value="20/06/2026">
+
+Tanggal
+
+</div>
+<div class="arrow">
+<i class="fa fa-caret-down"></i>
+</div>
+</div>
+<ul class="dropdown-menu">
+<li end-data-value="20/06/2026" value="custom">
+<a href="#">
+Tanggal
+</a>
+</li>
+<li end-data-value="20/06/2026" selected="" value="day">
+<a href="#">
+Hari ini
+</a>
+</li>
+<li end-data-value="21/06/2026" value="week">
+<a href="#">
+Minggu ini
+</a>
+</li>
+<li end-data-value="30/06/2026" value="month">
+<a href="#">
+Bulan ini
+</a>
+</li>
+<li end-data-value="31/12/2026" value="year">
+<a href="#">
+Tahun ini
+</a>
+</li>
+<li end-data-value="19/06/2026" value="yesterday">
+<a href="#">
+Kemarin
+</a>
+</li>
+<li end-data-value="14/06/2026" value="last_week">
+<a href="#">
+Minggu lalu
+</a>
+</li>
+<li end-data-value="31/05/2026" value="last_month">
+<a href="#">
+Bulan lalu
+</a>
+</li>
+<li end-data-value="31/12/2025" value="last_year">
+<a href="#">
+Tahun lalu
+</a>
+</li>
+</ul>
+</div>
+</label>
+</div>
+
+
+</div>
+<div class="col-xs-12 col-sm-12 col-md-6">
+<a class="btn btn-action-flat balance-sheet-filter-btn-2 new-btn" href="/reports/aged_receivable" id="report_filter_button">
+Filter
+</a>
+<a class="btn btn-transparent balance-sheet-filter-btn new-btn" data-target="#aged-receivable-filter" data-toggle="modal" href="" id="more-filter">
+Filter lebih lanjut
+</a>
+
+</div>
+</div>
+<div class="col-xs-6 col-sm-6 col-md-6 text-right">
+<div class="btn-group no-backdrop" style="">
+<button aria-expanded="false" aria-haspopup="true" class="btn btn-action-flat dropdown-toggle new-btn btn-export" data-action-name="aged_receivable" data-toggle="dropdown" id="export_report_dropdown" type="button">
+<span class="img_logo_export">
+<img style="" src="https://d2lud967a5orp2.cloudfront.net/assets/icon/export_report-9cf596804b2d503aa71beb824238e847.png" alt="Export report" width="12" height="15">
+</span>
+Ekspor
+<span class="caret"></span>
+</button>
+<ul class="dropdown-menu dropdown-export-report dropdown-menu-right mid-z-index mx-trigger" id="export_report_ul">
+<li>
+<a id="export_report_as_pdf" href="/reports/aged_receivable.pdf?compare_type=custom&amp;end_date=20%2F06%2F2026&amp;legacy=true&amp;show=true&amp;sort_logic=asc&amp;start_date=&amp;tag_logic=and">PDF
+</a></li>
+<li>
+<a id="export_report_as_xls" href="/reports/aged_receivable.xlsx?compare_type=custom&amp;end_date=20%2F06%2F2026&amp;legacy=true&amp;show=true&amp;sort_logic=asc&amp;start_date=&amp;tag_logic=and">XLS
+</a></li>
+<li>
+<a id="export_report_as_csv" href="/reports/aged_receivable.csv?compare_type=custom&amp;end_date=20%2F06%2F2026&amp;legacy=true&amp;show=true&amp;sort_logic=asc&amp;start_date=&amp;tag_logic=and">CSV
+</a></li>
+</ul>
+</div>
+
+</div>
+</div>
+</form>
+</header>
+<section class="page-content reports new-design">
+<div class="row">
+<div class="col-lg-12 content-wrapper">
+<div class="sample-text">
+<a href="https://jurnal-quickbook.jurnal.id/pdf_report/customer_balance.pdf" target="_blank" title="Lihat Sample">
+<img src="https://d2lud967a5orp2.cloudfront.net/assets/icon/pdf-08355391abfcf2ddf1e18ec7e89f25e0.svg">
+Contoh
+</a>
+</div>
+<div class="table-container list-table">
+<div class="report-title">
+<div class="table-responsive">
+<table class="report-table table table-striped" id="date-aged-receivable">
+<thead class="report-header">
+<tr>
+<th class="text-a-date">
+Customer
+</th>
+<th class="text-a-date text-right">
+Total
+</th>
+<th class="text-a-date text-right">
+1 - 30 Hari
+</th>
+<th class="text-a-date text-right">
+31 - 60 Hari
+</th>
+<th class="text-a-date text-right">
+61 - 90 Hari
+</th>
+<th class="text-a-date text-right">
+&gt; 90 Hari
+</th>
+</tr>
+
+</thead>
+<tbody>
+<tr>
+<td class="text-left">
+<a href="/contacts/16484345">ABA HARAPAN BARU</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16484345"> 649.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16484345?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 649.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16484345?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16484345?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16484345?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16764748">AGUS MANDE</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16764748"> 3.900.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16764748?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 3.900.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16764748?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16764748?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16764748?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16012739">ANUGRAH DOMPU</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16012739"> 6.600.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16012739?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 6.600.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16012739?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16012739?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16012739?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/38231418">ARDI JELITA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/38231418"> 16.400.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/38231418?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 16.400.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/38231418?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/38231418?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/38231418?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/19244856">ASNAN RSUD</a>
+</td>
+<td class="text-right">
+<a href="/contacts/19244856"> 31.600.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/19244856?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 31.600.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/19244856?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/19244856?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/19244856?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/61512916">BANG WAWAN</a>
+</td>
+<td class="text-right">
+<a href="/contacts/61512916"> 7.999.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/61512916?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/61512916?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/61512916?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/61512916?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 7.999.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/21752402">BOBBY</a>
+</td>
+<td class="text-right">
+<a href="/contacts/21752402"> 1.200.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/21752402?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/21752402?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/21752402?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/21752402?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 1.200.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/14476513">CASH</a>
+</td>
+<td class="text-right">
+<a href="/contacts/14476513"> 37.200.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/14476513?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 37.200.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/14476513?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/14476513?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/14476513?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/81060390">CE ERLIN SAPE</a>
+</td>
+<td class="text-right">
+<a href="/contacts/81060390"> 874.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/81060390?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/81060390?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/81060390?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/81060390?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 874.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/101123072">DAE KO'O</a>
+</td>
+<td class="text-right">
+<a href="/contacts/101123072"> 29.180.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/101123072?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/101123072?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 29.180.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/101123072?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/101123072?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/23892609">FAISAL</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23892609"> 2.550.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23892609?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 2.550.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23892609?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23892609?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23892609?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/84969232">HOLLYMART</a>
+</td>
+<td class="text-right">
+<a href="/contacts/84969232"> 760.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/84969232?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 760.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/84969232?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/84969232?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/84969232?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/23804385">IBU IDA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23804385"> 285.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23804385?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23804385?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23804385?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/23804385?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 285.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/35043690">JELITA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/35043690"> 10.782.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/35043690?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/35043690?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 3.336.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/35043690?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/35043690?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 7.446.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/75938809">KAK NAYA KEMENAK KOTA BIMA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/75938809"> 1.200.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/75938809?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 1.200.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/75938809?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/75938809?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/75938809?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16117708">KO AGUS C</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16117708"> 20.395.744,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16117708?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 20.395.744,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16117708?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16117708?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16117708?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/83361684">Ko Toni</a>
+</td>
+<td class="text-right">
+<a href="/contacts/83361684"> 165.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/83361684?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/83361684?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/83361684?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/83361684?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 165.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/78741166">MAHFUD DOMPU</a>
+</td>
+<td class="text-right">
+<a href="/contacts/78741166"> 4.670.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/78741166?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 4.670.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/78741166?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/78741166?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/78741166?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/17280955">OM JOKO</a>
+</td>
+<td class="text-right">
+<a href="/contacts/17280955"> 8.720.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/17280955?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 8.720.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/17280955?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/17280955?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/17280955?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/77983962">PAK ASIKIN</a>
+</td>
+<td class="text-right">
+<a href="/contacts/77983962"> 1.450.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/77983962?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/77983962?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/77983962?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/77983962?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 1.450.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/57493958">PAK DIDI</a>
+</td>
+<td class="text-right">
+<a href="/contacts/57493958"> 9.400.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/57493958?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/57493958?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/57493958?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/57493958?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 9.400.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/86998146">PAK GURU ABDI</a>
+</td>
+<td class="text-right">
+<a href="/contacts/86998146"> 15.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/86998146?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 15.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/86998146?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/86998146?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/86998146?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/95935158">PAK ILHAM SEKWAN</a>
+</td>
+<td class="text-right">
+<a href="/contacts/95935158"> 17.850.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/95935158?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/95935158?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 17.850.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/95935158?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/95935158?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/53736481">PAK TAUFIK DIKPORA KOTA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/53736481"> 460.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/53736481?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/53736481?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/53736481?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/53736481?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 460.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/80719237">PKM AMBALAWI</a>
+</td>
+<td class="text-right">
+<a href="/contacts/80719237"> 6.000.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/80719237?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 6.000.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/80719237?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/80719237?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/80719237?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/48833768">PKM BOLO</a>
+</td>
+<td class="text-right">
+<a href="/contacts/48833768"> 70.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/48833768?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 70.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/48833768?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/48833768?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/48833768?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/25449015">RANGGA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/25449015"> 900.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/25449015?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 900.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/25449015?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/25449015?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/25449015?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/15863738">SADIQ (TK ASD)</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15863738"> 4.625.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15863738?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 4.625.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15863738?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15863738?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15863738?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16190825">SAHRUL BRI</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16190825"> 2.022.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16190825?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16190825?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16190825?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16190825?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 2.022.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/15982317">SONY CCTV</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15982317"> 2.150.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15982317?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 2.150.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15982317?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15982317?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15982317?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/15842781">TOKO PASIFIK</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15842781"> 4.528.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15842781?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 4.528.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15842781?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15842781?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/15842781?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/74105964">UNSWA</a>
+</td>
+<td class="text-right">
+<a href="/contacts/74105964"> 13.875.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/74105964?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 13.875.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/74105964?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/74105964?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/74105964?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16482607">WELLY SAPE</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16482607"> 2.107.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16482607?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16482607?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 180.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16482607?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 685.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16482607?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 1.242.000,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left">
+<a href="/contacts/16889805">akiu ingseng</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16889805"> 732.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16889805?date_type=transaction_date&amp;detail=1-30days&amp;end_date=21%2F05%2F2026&amp;start_date=20%2F06%2F2026"> 732.000,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16889805?date_type=transaction_date&amp;detail=31-60days&amp;end_date=20%2F04%2F2026&amp;start_date=20%2F05%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16889805?date_type=transaction_date&amp;detail=61-90days&amp;end_date=20%2F03%2F2026&amp;start_date=19%2F04%2F2026"> 0,00</a>
+</td>
+<td class="text-right">
+<a href="/contacts/16889805?date_type=transaction_date&amp;detail=90days&amp;start_date=19%2F03%2F2026"> 0,00</a>
+</td>
+</tr>
+<tr>
+<td class="text-left report-subtotal-noindent">
+Total Piutang (semua pelanggan)
+</td>
+<td class="text-right report-subtotal-noindent">
+ 251.313.744,00
+</td>
+<td class="text-right report-subtotal-noindent">
+ 167.539.744,00
+</td>
+<td class="text-right report-subtotal-noindent">
+ 50.546.000,00
+</td>
+<td class="text-right report-subtotal-noindent">
+ 685.000,00
+</td>
+<td class="text-right report-subtotal-noindent">
+ 32.543.000,00
+</td>
+</tr>
+
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+<nav class="paging-nav">
+<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12 navbar-container">
+<div class="row">
+<div class="col-md-6 dataTables_info">
+Menampilkan 1 .. 34 dari 34 Baris
+</div>
+</div>
+</div>
+</nav>
+
+</div>
+</section>
+</div>
