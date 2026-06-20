@@ -1140,6 +1140,7 @@ class PurchasesReturnSettlementController extends Controller
 
                 // Record/Update the usage payment on the purchase return
                 $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->where('reference', 'like', 'PAY-RET/%')
                     ->latest()
                     ->first();
                 
@@ -1245,6 +1246,7 @@ class PurchasesReturnSettlementController extends Controller
 
                 // Record/Update the credit payment on the purchase return
                 $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->where('reference', 'like', 'PAY-RET/%')
                     ->latest()
                     ->first();
                 
@@ -1337,6 +1339,7 @@ class PurchasesReturnSettlementController extends Controller
 
                 // Record/Update the refund payment on the purchase return regardless of target allocation
                 $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->where('reference', 'like', 'PAY-RET/%')
                     ->latest()
                     ->first();
                 

@@ -399,4 +399,210 @@ class OperationalBalanceSheetReportServiceTest extends TestCase
         $this->assertEquals(800, collect($report->assets->rows)->firstWhere('name', 'Kas & Bank dari Transaksi')->amount);
         $this->assertEquals(200, collect($report->liabilities->rows)->firstWhere('name', 'Hutang Usaha')->amount);
     }
+
+
+    public function test_legacy_purchase_returns_with_manual_payment_and_settlement_are_scaled_correctly()
+    {
+        // Legacy Purchase Return (created before Jan 12, 2026)
+        $purchaseReturn = \Modules\PurchasesReturn\Entities\PurchaseReturn::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now()->format('Y-m-d'),
+            'total_amount' => 50000, // 500 in cents
+            'paid_amount' => 30000,
+            'due_amount' => 20000,
+            'status' => 'Completed',
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'created_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00')
+        ]);
+
+        // 1. Initial payment (cents) created at the exact same time
+        \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'amount' => 10000, // 100 in cents
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'CASH',
+            'reference' => 'INV-001',
+            'created_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00')
+        ]);
+
+        // 2. Manual payment added later (decimal)
+        \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'amount' => 200, // 200 in true decimal
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'CASH',
+            'reference' => 'INV-001', // manual payments reuse the same reference prefix
+            'created_at' => \Carbon\Carbon::parse('2025-12-02 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-02 10:00:00')
+        ]);
+
+        // 3. Settlement payment added later (cents, safely separated by PAY-RET prefix thanks to controller fix)
+        \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'amount' => 20000, // 200 in cents
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'Ubah Nota',
+            'reference' => 'PAY-RET/INV-001/' . time(),
+            'created_at' => \Carbon\Carbon::parse('2025-12-03 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-03 10:00:00')
+        ]);
+
+        // Add a Purchase so payables does not bottom out at 0
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED,
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d')
+        ]);
+
+        $report = $this->service->generate($this->setting->id, now()->format('Y-m-d'));
+
+        // Expected Cash Inflow:
+        // Initial Payment: 10000 cents -> 100
+        // Manual Payment: 200 decimal -> 200
+        // Settlement Payment: 20000 cents -> 200
+        // Total = 100 + 200 + 200 = 500
+        $this->assertEquals(500, collect($report->assets->rows)->firstWhere('name', 'Kas & Bank dari Transaksi')->amount);
+    }
+
+
+
+    public function test_legacy_purchase_returns_with_edited_initial_payment_are_scaled_correctly()
+    {
+        // Legacy Purchase Return
+        $purchaseReturn = \Modules\PurchasesReturn\Entities\PurchaseReturn::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now()->format('Y-m-d'),
+            'total_amount' => 50000, // 500 in cents
+            'paid_amount' => 15000,
+            'due_amount' => 35000,
+            'status' => 'Completed',
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'created_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00')
+        ]);
+
+        // 1. Initial payment, but EDITED!
+        \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'amount' => 150, // 150 in TRUE DECIMAL (the user edited it from 10000 cents)
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'CASH',
+            'reference' => 'INV-001',
+            'created_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00'),
+            // updated_at is GREATER than created_at, indicating it was edited via UI
+            'updated_at' => \Carbon\Carbon::parse('2025-12-02 10:00:00')
+        ]);
+
+        // Add a Purchase so payables does not bottom out at 0
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED,
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d')
+        ]);
+
+        $report = $this->service->generate($this->setting->id, now()->format('Y-m-d'));
+
+        // Expected Cash Inflow:
+        // Edited Initial Payment: 150 decimal -> 150 (NOT 1.5)
+        $this->assertEquals(150, collect($report->assets->rows)->firstWhere('name', 'Kas & Bank dari Transaksi')->amount);
+    }
+
+
+
+    public function test_legacy_purchase_returns_with_multiple_settlements_are_scaled_correctly()
+    {
+        // Legacy Purchase Return
+        $purchaseReturn = \Modules\PurchasesReturn\Entities\PurchaseReturn::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now()->format('Y-m-d'),
+            'total_amount' => 50000, // 500 in cents
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'created_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-01 10:00:00')
+        ]);
+
+        // 1. Settlement payment added later (cents)
+        $payment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'amount' => 20000, // 200 in cents
+            'date' => now()->format('Y-m-d'),
+            'payment_method' => 'CASH', // Cash is counted in Kas & Bank
+            'reference' => 'PAY-RET/INV-001/1',
+            'created_at' => \Carbon\Carbon::parse('2025-12-03 10:00:00'),
+            'updated_at' => \Carbon\Carbon::parse('2025-12-03 10:00:00')
+        ]);
+
+        // 2. Second settlement added later. The controller increments the existing row, updating updated_at!
+        // So updated_at > created_at, but it is a PAY-RET/ row, so it must still be scaled as cents!
+        $payment->amount = 50000; // 500 in cents (200 + 300)
+        $payment->updated_at = \Carbon\Carbon::parse('2025-12-04 10:00:00');
+        $payment->save();
+
+        // Add a Purchase so payables does not bottom out at 0
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED,
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d')
+        ]);
+
+        $report = $this->service->generate($this->setting->id, now()->format('Y-m-d'));
+
+        // Expected Cash Inflow:
+        // Incremented Settlement Payment: 50000 cents -> 500 (NOT 50000)
+        $this->assertEquals(500, collect($report->assets->rows)->firstWhere('name', 'Kas & Bank dari Transaksi')->amount);
+    }
+
 }

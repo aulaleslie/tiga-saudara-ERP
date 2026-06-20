@@ -34,7 +34,8 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
-        $purchaseReturnPaymentsLegacyCents = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
+        $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
+            ->whereHas('purchaseReturn', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
@@ -42,7 +43,33 @@ class OperationalBalanceSheetReportService
                   });
             })
             ->whereDate('date', '<=', $asOfDate)
-            ->sum('amount');
+            ->get(['id', 'amount', 'created_at', 'updated_at', 'reference', 'purchase_return_id']);
+
+        $legacyCentsSum = 0;
+        $legacyDecimalSum = 0;
+
+        foreach ($legacyPayments as $payment) {
+            // Initial payments (cents) are created in the same transaction as the parent return.
+            $isInitialPayment = $payment->created_at->diffInSeconds($payment->purchaseReturn->created_at) <= 2;
+            // Settlement payments (cents) always have 'PAY-RET/' reference.
+            $isSettlementPayment = str_starts_with($payment->reference, 'PAY-RET/');
+
+            // If a cents-scaled payment was later edited through the UI, the controller stores
+            // the new amount in true decimal format, updating the updated_at timestamp.
+            $isEdited = $payment->updated_at->diffInSeconds($payment->created_at) > 0;
+
+            // Settlement payments (PAY-RET/) are always cents, even if incremented (edited) later.
+            // Initial payments are cents only if they haven't been manually edited to decimal via UI.
+            if ($isSettlementPayment || ($isInitialPayment && !$isEdited)) {
+                $legacyCentsSum += $payment->amount;
+            } else {
+                // Manual payments (decimals) are added later by a user and don't have the settlement prefix.
+                // Edited initial cents payments also become decimals.
+                $legacyDecimalSum += $payment->amount;
+            }
+        }
+        
+        $purchaseReturnPaymentsLegacyScaled = ($legacyCentsSum / 100) + $legacyDecimalSum;
             
         $purchaseReturnPaymentsLivewire = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
@@ -54,7 +81,7 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
-        $purchaseReturnPayments = ($purchaseReturnPaymentsLegacyCents / 100) + $purchaseReturnPaymentsLivewire;
+        $purchaseReturnPayments = $purchaseReturnPaymentsLegacyScaled + $purchaseReturnPaymentsLivewire;
             
         // Outflows: Purchase payments, Sale return payments (refunds to customer), Expenses
         $purchasePaymentsCents = PurchasePayment::active()
