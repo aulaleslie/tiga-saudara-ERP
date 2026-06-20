@@ -1,0 +1,8 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+01/06/2026	,Expense,10516	,PLN,"",PLN,319245.0,0.0,Paid,0.0
+13/06/2026	,Expense,10520	,Beban Pajak - Kini,"",PAJAK AGUS,964250.0,0.0,Paid,0.0
+13/06/2026	,Expense,10518	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,184675.0,0.0,Paid,0.0
+13/06/2026	,Expense,10517	,Beban Pajak - Kini,"",PAJAK RAHMAT,106250.0,0.0,Paid,0.0
+13/06/2026	,Expense,10521	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,875000.0,0.0,Paid,0.0
+13/06/2026	,Expense,10522	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+13/06/2026	,Expense,10519	,Beban Pajak - Kini,"",PAJAK ARIES,208850.0,0.0,Paid,0.0
