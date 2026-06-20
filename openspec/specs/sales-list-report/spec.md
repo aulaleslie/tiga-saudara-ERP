@@ -75,3 +75,7 @@ The sales report SHALL run scoped to the current setting by default and SHALL su
 
 - **WHEN** the report is opened in global mode
 - **THEN** results are not restricted to the current `setting_id`
+
+### Requirement: Document discount column
+
+The sales report SHALL present the document-level discount (`Sale.discount_amount`) in a clearly labeled `Diskon` column and SHALL retain the derived `Diskon %` column (the discount as a percentage of the document total). The report SHALL NOT display the per-line discount columns backed by `SaleDetails.product_discount_amount` (`Diskon` per-line and `Diskon Per Baris %`), because the importer never populates them. This applies to detail mode, header mode, and the global variant, and the on-screen columns SHALL match the exported columns.

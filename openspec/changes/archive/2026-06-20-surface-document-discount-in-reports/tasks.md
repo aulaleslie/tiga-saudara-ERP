@@ -1,18 +1,18 @@
 ## 1. Per Customer report — document discount row
 
-- [ ] 1.1 In `app/Services/Reports/SaleByCustomerReportQueryService.php`, add a helper that builds the synthetic `Diskon` row from `Sale.discount_amount` (negative `Nominal tagihan`, `Nama produk` = `Diskon`, qty/unit blank) and reduces the running total.
-- [ ] 1.2 Track the current invoice in `app/Livewire/Reports/SaleByCustomerReport.php` (and `SaleByCustomerReportSnapshotService.php`) so the `Diskon` row is emitted once per invoice — after the invoice's product/DPP rows and before its `Pajak` row — never per detail line.
-- [ ] 1.3 Ensure `mapRows()` and `mapRowsForExport()` both produce the discount row identically, folded into the same running-`Total nominal tagihan` accumulator used by the tax row, including across pagination.
-- [ ] 1.4 Update `app/Exports/SaleByCustomerReportExport.php` to carry the discount row in parity with the on-screen report.
-- [ ] 1.5 Emit no `Diskon` row when `discount_amount` is 0.
+- [x] 1.1 In `app/Services/Reports/SaleByCustomerReportQueryService.php`, add a helper that builds the synthetic `Diskon` row from `Sale.discount_amount` (negative `Nominal tagihan`, `Nama produk` = `Diskon`, qty/unit blank) and reduces the running total.
+- [x] 1.2 Track the current invoice in `app/Livewire/Reports/SaleByCustomerReport.php` (and `SaleByCustomerReportSnapshotService.php`) so the `Diskon` row is emitted once per invoice — after the invoice's product/DPP rows and before its `Pajak` row — never per detail line.
+- [x] 1.3 Ensure `mapRows()` and `mapRowsForExport()` both produce the discount row identically, folded into the same running-`Total nominal tagihan` accumulator used by the tax row, including across pagination.
+- [x] 1.4 Update `app/Exports/SaleByCustomerReportExport.php` to carry the discount row in parity with the on-screen report.
+- [x] 1.5 Emit no `Diskon` row when `discount_amount` is 0.
 
 ## 2. Per Supplier report — document discount row
 
-- [ ] 2.1 Mirror task 1.1 in `app/Services/Reports/PurchaseBySupplierReportQueryService.php` using `Purchase.discount_amount`.
-- [ ] 2.2 Track the current invoice in `app/Livewire/Reports/PurchaseBySupplierReport.php` (and `PurchaseBySupplierReportSnapshotService.php`) to emit one `Diskon` row per purchase within the supplier group.
-- [ ] 2.3 Apply the discount row to both screen and export mapping with the shared running-total accumulator.
-- [ ] 2.4 Update `app/Exports/PurchaseBySupplierReportExport.php` to match.
-- [ ] 2.5 Emit no `Diskon` row when `discount_amount` is 0.
+- [x] 2.1 Mirror task 1.1 in `app/Services/Reports/PurchaseBySupplierReportQueryService.php` using `Purchase.discount_amount`.
+- [x] 2.2 Track the current invoice in `app/Livewire/Reports/PurchaseBySupplierReport.php` (and `PurchaseBySupplierReportSnapshotService.php`) to emit one `Diskon` row per purchase within the supplier group.
+- [x] 2.3 Apply the discount row to both screen and export mapping with the shared running-total accumulator.
+- [x] 2.4 Update `app/Exports/PurchaseBySupplierReportExport.php` to match.
+- [x] 2.5 Emit no `Diskon` row when `discount_amount` is 0.
 
 ## 3. Daftar Penjualan — discount column relabel
 

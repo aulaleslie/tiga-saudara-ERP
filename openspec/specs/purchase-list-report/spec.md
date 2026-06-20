@@ -456,3 +456,7 @@ The system SHALL keep PDF export unavailable for `Daftar Pembelian`.
 - **THEN** PDF is either hidden or disabled
 - **AND** selecting available export actions cannot generate a PDF file
 
+### Requirement: Document discount column
+
+The purchase report SHALL present the document-level discount (`Purchase.discount_amount`) in a clearly labeled `Diskon` column and SHALL retain the derived `Diskon %` column (the discount as a percentage of the document total). The report SHALL NOT display the per-line discount columns backed by `PurchaseDetail.product_discount_amount` (`Diskon` per-line and `Diskon Per Baris %`), because the importer never populates them. This applies to detail mode, header mode, and the global variant, and the on-screen columns SHALL match the exported columns.
+
