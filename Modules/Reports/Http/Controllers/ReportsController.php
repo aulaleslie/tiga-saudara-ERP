@@ -36,6 +36,34 @@ class ReportsController extends Controller
                         'description' => 'Menampilkan ringkasan pendapatan, biaya, dan laba/rugi dalam periode tertentu.',
                         'route' => 'profit-loss-report.index',
                         'permission' => 'reports.access'
+                    ],
+                    [
+                        'label' => 'Neraca',
+                        'icon' => 'bi bi-bank',
+                        'description' => 'Menampilkan apa yang dimiliki (aset), apa saja utangnya (liabilitas), dan apa yang sudah diinvestasikan ke perusahaan ini (ekuitas) pada tanggal tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
+                    ],
+                    [
+                        'label' => 'Buku besar',
+                        'icon' => 'bi bi-journal-text',
+                        'description' => 'Menampilkan semua transaksi berdasarkan akun dalam periode tertentu, termasuk kronologi pergerakan transaksinya selama periode berlangsung.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
+                    ],
+                    [
+                        'label' => 'Arus kas',
+                        'icon' => 'bi bi-cash-stack',
+                        'description' => 'Menampilkan pergerakan uang masuk dan keluar dari transaksi dalam periode tertentu. Template laporan ini bisa Anda custom sesuai kebutuhan.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
+                    ],
+                    [
+                        'label' => 'Neraca saldo',
+                        'icon' => 'bi bi-file-earmark-spreadsheet',
+                        'description' => 'Menampilkan saldo dari setiap akun, termasuk saldo awal, pergerakan, dan saldo akhir dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
                     ]
                 ]
             ],
@@ -65,6 +93,55 @@ class ReportsController extends Controller
                         'route' => 'reports.sale-report.global',
                         'permission' => 'saleReports.global.access'
                     ],
+                    [
+                        'label' => 'Piutang pelanggan',
+                        'icon' => 'bi bi-person-lines-fill',
+                        'description' => 'Menampilkan semua faktur yang belum dibayar dan saldo memo kredit pelanggan pada tanggal tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Usia piutang',
+                        'icon' => 'bi bi-calendar-range',
+                        'description' => 'Menampilkan total piutang dari setiap pelanggan berdasarkan usianya (30, 60, 90, dan setelah 90 hari).',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Pengiriman penjualan',
+                        'icon' => 'bi bi-truck',
+                        'description' => 'Menampilkan semua produk yang dikirim untuk transaksi penjualan dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Penjualan per produk',
+                        'icon' => 'bi bi-box',
+                        'description' => 'Menampilkan semua kuantitas produk yang terjual, kuantitas retur, penjualan bersih, dan harga penjualan rata-rata dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Penyelesaian pesanan penjualan',
+                        'icon' => 'bi bi-check2-square',
+                        'description' => 'Menampilkan ringkasan proses bisnis perusahaan ini. Anda dapat mengidentifikasi setiap penyelesaian penawaran dan pesanan penjualan hingga penagihan dan pembayarannya dilakukan.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Daftar faktur proforma',
+                        'icon' => 'bi bi-file-earmark-text',
+                        'description' => 'Menampilkan semua faktur proforma yang dibuat dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
+                        'label' => 'Daftar tukar faktur',
+                        'icon' => 'bi bi-arrow-left-right',
+                        'description' => 'Menampilkan semua tukar faktur dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'saleReports.access'
+                    ],
                 ]
             ],
             [
@@ -92,6 +169,55 @@ class ReportsController extends Controller
                         'description' => 'Menampilkan data pembelian dari semua setting/cabang dalam satu laporan.',
                         'route' => 'reports.purchase-report.global',
                         'permission' => 'purchaseReports.global.access'
+                    ],
+                    [
+                        'label' => 'Utang supplier',
+                        'icon' => 'bi bi-building',
+                        'description' => 'Menampilkan semua faktur yang belum dibayar dan saldo memo debit supplier pada tanggal tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Daftar pengeluaran',
+                        'icon' => 'bi bi-receipt',
+                        'description' => 'Menampilkan semua transaksi pengeluaran dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Detail pengeluaran',
+                        'icon' => 'bi bi-card-list',
+                        'description' => 'Menampilkan semua transaksi pengeluaran berdasarkan akun dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Usia utang',
+                        'icon' => 'bi bi-calendar-range',
+                        'description' => 'Menampilkan total utang kepada setiap supplier berdasarkan usianya (30, 60, 90, dan setelah 90 hari).',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Pengiriman pembelian',
+                        'icon' => 'bi bi-truck',
+                        'description' => 'Menampilkan semua produk yang dikirim untuk transaksi pembelian dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Pembelian per produk',
+                        'icon' => 'bi bi-box',
+                        'description' => 'Menampilkan semua kuantitas produk yang dibeli, kuantitas retur, pembelian bersih, dan harga pembelian rata-rata dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
+                    ],
+                    [
+                        'label' => 'Penyelesaian pesanan pembelian',
+                        'icon' => 'bi bi-check2-square',
+                        'description' => 'Menampilkan ringkasan proses bisnis perusahaan ini. Anda dapat mengidentifikasi setiap penyelesaian penawaran dan pesanan pembelian hingga penagihan dan pembayarannya dilakukan.',
+                        'is_placeholder' => true,
+                        'permission' => 'purchaseReports.access'
                     ],
                 ]
             ],
@@ -121,6 +247,48 @@ class ReportsController extends Controller
                         'route' => 'reports.inventory-valuation-report.index',
                         'permission' => 'inventoryValuationReports.access'
                     ],
+                    [
+                        'label' => 'Ringkasan persediaan barang',
+                        'icon' => 'bi bi-box-seam',
+                        'description' => 'Menampilkan kuantitas stok yang tersedia dengan harga rata-rata per unit dan total nilainya pada tanggal tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'inventoryValuationReports.access'
+                    ],
+                    [
+                        'label' => 'Kuantitas stok gudang',
+                        'icon' => 'bi bi-building',
+                        'description' => 'Menampilkan setiap kuantitas produk berdasarkan gudang yang dipilih pada tanggal tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'stockMutationReports.access'
+                    ],
+                    [
+                        'label' => 'Nilai persediaan barang',
+                        'icon' => 'bi bi-currency-dollar',
+                        'description' => 'Menampilkan pergerakan stok per produk berdasarkan stok yang tersedia dan nilai stoknya dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'inventoryValuationReports.access'
+                    ],
+                    [
+                        'label' => 'Nilai stok gudang',
+                        'icon' => 'bi bi-building',
+                        'description' => 'Menampilkan nilai persediaan barang per gudang dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'inventoryValuationReports.access'
+                    ],
+                    [
+                        'label' => 'Detail persediaan barang',
+                        'icon' => 'bi bi-card-list',
+                        'description' => 'Menampilkan daftar produk dengan mutasi dan kuantitas akhirnya.',
+                        'is_placeholder' => true,
+                        'permission' => 'stockMutationReports.access'
+                    ],
+                    [
+                        'label' => 'Pergerakan barang gudang',
+                        'icon' => 'bi bi-arrow-left-right',
+                        'description' => 'Menampilkan pergerakan stok per gudang dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'stockMutationReports.access'
+                    ],
                 ]
             ],
             [
@@ -139,7 +307,22 @@ class ReportsController extends Controller
                 'slug' => 'pajak',
                 'label' => 'Pajak',
                 'icon' => 'bi bi-receipt',
-                'cards' => []
+                'cards' => [
+                    [
+                        'label' => 'Pajak pemotongan',
+                        'icon' => 'bi bi-scissors',
+                        'description' => 'Menampilkan dasar pengenaan pajak (DPP), tarif pajak, dan jumlah pajak dengan tipe pemotongan yang digunakan di transaksi dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
+                    ],
+                    [
+                        'label' => 'Pajak penjualan',
+                        'icon' => 'bi bi-receipt',
+                        'description' => 'Menampilkan dasar pengenaan pajak (DPP), tarif pajak, dan jumlah pajak dengan pajak pertambahan nilai (PPN) yang digunakan di transaksi dalam periode tertentu.',
+                        'is_placeholder' => true,
+                        'permission' => 'reports.access'
+                    ]
+                ]
             ],
             [
                 'slug' => 'produksi',
@@ -174,8 +357,12 @@ class ReportsController extends Controller
         foreach ($config as $tab) {
             $filteredCards = [];
             foreach ($tab['cards'] as $card) {
-                if (Gate::allows($card['permission']) && Route::has($card['route'])) {
-                    $filteredCards[] = $card;
+                if (Gate::allows($card['permission'])) {
+                    if (isset($card['is_placeholder']) && $card['is_placeholder']) {
+                        $filteredCards[] = $card;
+                    } elseif (Route::has($card['route'])) {
+                        $filteredCards[] = $card;
+                    }
                 }
             }
             if (count($filteredCards) > 0) {

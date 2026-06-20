@@ -30,22 +30,39 @@
                             <div class="row">
                                 @foreach($activeTab['cards'] as $card)
                                     <div class="col-md-4 col-sm-6 mb-4">
-                                        <a href="{{ route($card['route']) }}" class="text-decoration-none card-link-wrapper" style="color: inherit;">
-                                            <div class="card h-100 mekari-card">
-                                                <div class="card-body p-4 d-flex flex-column">
+                                        @if(isset($card['is_placeholder']) && $card['is_placeholder'])
+                                            <div class="card h-100 mekari-card mekari-card-placeholder">
+                                                <div class="card-body p-4 d-flex flex-column text-muted">
                                                     <div class="d-flex align-items-center mb-3">
-                                                        <i class="{{ $card['icon'] }} text-primary mr-3" style="font-size: 1.5rem;"></i>
-                                                        <h6 class="card-title mb-0 font-weight-bold text-dark">{{ $card['label'] }}</h6>
+                                                        <i class="{{ $card['icon'] }} mr-3" style="font-size: 1.5rem; color: #adb5bd;"></i>
+                                                        <h6 class="card-title mb-0 font-weight-bold" style="color: #6c757d;">{{ $card['label'] }}</h6>
                                                     </div>
-                                                    <p class="card-text text-muted small mb-4 flex-grow-1">
+                                                    <p class="card-text small mb-4 flex-grow-1" style="color: #adb5bd;">
                                                         {{ $card['description'] }}
                                                     </p>
                                                     <div class="mt-auto">
-                                                        <span class="btn btn-outline-primary btn-sm rounded-pill px-3 mekari-btn">Lihat laporan</span>
+                                                        <span class="badge badge-light px-3 py-2 text-muted border">Belum tersedia</span>
                                                     </div>
                                                 </div>
                                             </div>
-                                        </a>
+                                        @else
+                                            <a href="{{ route($card['route']) }}" class="text-decoration-none card-link-wrapper" style="color: inherit;">
+                                                <div class="card h-100 mekari-card">
+                                                    <div class="card-body p-4 d-flex flex-column">
+                                                        <div class="d-flex align-items-center mb-3">
+                                                            <i class="{{ $card['icon'] }} text-primary mr-3" style="font-size: 1.5rem;"></i>
+                                                            <h6 class="card-title mb-0 font-weight-bold text-dark">{{ $card['label'] }}</h6>
+                                                        </div>
+                                                        <p class="card-text text-muted small mb-4 flex-grow-1">
+                                                            {{ $card['description'] }}
+                                                        </p>
+                                                        <div class="mt-auto">
+                                                            <span class="btn btn-outline-primary btn-sm rounded-pill px-3 mekari-btn">Lihat laporan</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </a>
+                                        @endif
                                     </div>
                                 @endforeach
                             </div>
@@ -83,6 +100,11 @@
         border-radius: 8px;
         transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
         background-color: #fff;
+    }
+    .mekari-card-placeholder {
+        background-color: #f8f9fa;
+        border-style: dashed;
+        cursor: not-allowed;
     }
     .card-link-wrapper:hover .mekari-card {
         transform: translateY(-3px);
