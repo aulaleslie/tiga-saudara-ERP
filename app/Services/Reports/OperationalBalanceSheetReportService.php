@@ -34,28 +34,45 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
-        $purchaseReturnPayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
+        $purchaseReturnPaymentsLegacyCents = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
-                  ->whereIn('status', ['Completed', 'COMPLETED']);
+                  ->whereIn('status', ['Completed', 'COMPLETED'])
+                  ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
+                      $q2->whereNotNull('location_id');
+                  });
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
+        $purchaseReturnPaymentsLivewire = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
+                $q->where('setting_id', $settingId)
+                  ->whereIn('status', ['Completed', 'COMPLETED'])
+                  ->whereHas('purchaseReturnDetails', function ($q2) {
+                      $q2->whereNotNull('location_id');
+                  });
+            })
+            ->whereDate('date', '<=', $asOfDate)
+            ->sum('amount');
+            
+        $purchaseReturnPayments = ($purchaseReturnPaymentsLegacyCents / 100) + $purchaseReturnPaymentsLivewire;
+            
         // Outflows: Purchase payments, Sale return payments (refunds to customer), Expenses
-        $purchasePayments = PurchasePayment::active()
+        $purchasePaymentsCents = PurchasePayment::active()
             ->whereHas('purchase', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
+        $purchasePayments = $purchasePaymentsCents / 100;
             
-        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
+        $saleReturnPaymentsCents = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
                   ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
+        $saleReturnPayments = $saleReturnPaymentsCents / 100;
             
         $expensesCentsTotal = Expense::activeApproved()
             ->where('setting_id', $settingId)
@@ -71,8 +88,13 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
             
+        $completedSaleReturns = SaleReturn::where('setting_id', $settingId)
+            ->whereIn('status', ['Completed', 'COMPLETED'])
+            ->whereDate('date', '<=', $asOfDate)
+            ->sum('total_amount');
+            
         // Note: paid_amount on sale might include future payments, so we calculate paid up to asOfDate
-        $receivables = max(0, $salesTotal - $salePayments);
+        $receivables = max(0, $salesTotal - $completedSaleReturns - $salePayments);
         
         // 3. Calculate Inventory Value
         $inventoryValue = $this->calculateInventoryValue($settingId, $asOfDate);
@@ -83,7 +105,27 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
             
-        $payables = max(0, $purchasesTotal - $purchasePayments);
+        $completedPurchaseReturnsRecords = PurchaseReturn::where('setting_id', $settingId)
+            ->whereIn('status', ['Completed', 'COMPLETED'])
+            ->whereDate('date', '<=', $asOfDate)
+            ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
+                $q->whereNotNull('location_id');
+            }])
+            ->get(['id', 'total_amount', 'return_type', 'payment_method']);
+            
+        $completedPurchaseReturns = $completedPurchaseReturnsRecords->sum(function ($pr) {
+            // Legacy records stored total_amount as * 100.
+            // The Livewire flow requires location_id on details, while the Legacy controller never maps it.
+            // Even if a legacy return later gets settlement items, its original amounts remain * 100.
+            // We use the presence of location_id on details as a durable structural discriminator.
+            $isLegacy = ! $pr->is_livewire;
+            if ($isLegacy) {
+                return (float) $pr->total_amount / 100;
+            }
+            return (float) $pr->total_amount;
+        });
+            
+        $payables = max(0, $purchasesTotal - $completedPurchaseReturns - $purchasePayments);
         
         // 5. Setup Report Rows & Sections
         $assetRows = [
@@ -104,7 +146,7 @@ class OperationalBalanceSheetReportService
         ];
         $equitySection = new OperationalBalanceSheetSection('Modal', $equityRows);
         
-        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda.';
+        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda. Perlu diketahui bahwa nilai persediaan barang menggunakan kuantitas dan harga pokok saat ini (current stock valuation), bukan nilai historis pada tanggal as-of.';
         
         return new OperationalBalanceSheetReport(
             $currencyCode,
@@ -118,9 +160,9 @@ class OperationalBalanceSheetReportService
     
     protected function calculateInventoryValue(int $settingId, string $asOfDate): float
     {
-        // First-version inventory valuation: encapsulates the calculation.
-        // We use current product_quantity * product_cost to approximate.
-        // Can be hardened later with historical valuation.
+        // For accurate historical inventory valuation, we would need to trace ProductMovements
+        // backwards from current stock. For now, since the app only supports current product_quantity,
+        // we use current stock but annotate the limitation.
         
         $valueCents = Product::where('setting_id', $settingId)
             ->where('stock_managed', true)

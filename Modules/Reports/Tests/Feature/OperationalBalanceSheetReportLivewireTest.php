@@ -20,8 +20,10 @@ class OperationalBalanceSheetReportLivewireTest extends TestCase
     {
         parent::setUp();
         $this->setting = Setting::factory()->create();
-        $this->user = \App\Models\User::factory()->create(['setting_id' => $this->setting->id]);
+        $this->user = \App\Models\User::factory()->create();
         session(['setting_id' => $this->setting->id]);
+        
+        \Spatie\Permission\Models\Permission::findOrCreate('reports.access', 'web');
     }
 
     public function test_authorization_prevents_access_without_permission()
