@@ -26,6 +26,18 @@ class OperationalGeneralLedgerReportService
         $endDate = $filter->endDate;
         $bucketKeys = $filter->bucketKeys;
 
+        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda.';
+
+        if ($startDate > $endDate) {
+            return new OperationalGeneralLedgerReport(
+                $currencyCode,
+                $startDate,
+                $endDate,
+                $sourceNote,
+                []
+            );
+        }
+
         // Collect all movement events
         $events = [];
 
@@ -273,10 +285,10 @@ class OperationalGeneralLedgerReportService
             // Filter events for this bucket
             $bucketEvents = array_filter($events, fn($e) => $e['bucket'] === $key);
             
-            // Sort by date/time ascending
+            // Sort by date/time ascending, tie-breaker by reference
             usort($bucketEvents, function($a, $b) {
                 if ($a['dt'] === $b['dt']) {
-                    return 0;
+                    return strcmp($a['reference'], $b['reference']);
                 }
                 return $a['dt'] <=> $b['dt'];
             });
@@ -337,8 +349,6 @@ class OperationalGeneralLedgerReportService
                 );
             }
         }
-
-        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda.';
 
         return new OperationalGeneralLedgerReport(
             $currencyCode,

@@ -11,14 +11,14 @@ class OperationalGeneralLedgerReportFilterData
     public function __construct(
         ?string $startDate = null,
         ?string $endDate = null,
-        array $bucketKeys = []
+        ?array $bucketKeys = null
     ) {
         $this->startDate = $startDate ?? now()->format('Y-m-d');
         $this->endDate = $endDate ?? now()->format('Y-m-d');
         
         $validKeys = array_keys(OperationalGeneralLedgerBucketConfig::getLabels());
         
-        if (empty($bucketKeys)) {
+        if ($bucketKeys === null) {
             $this->bucketKeys = $validKeys;
         } else {
             $this->bucketKeys = array_intersect($bucketKeys, $validKeys);

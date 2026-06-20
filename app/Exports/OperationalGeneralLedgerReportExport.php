@@ -24,7 +24,7 @@ class OperationalGeneralLedgerReportExport implements FromView, ShouldAutoSize
         $filterData = new OperationalGeneralLedgerReportFilterData(
             $this->filters['startDate'] ?? null,
             $this->filters['endDate'] ?? null,
-            $this->filters['bucketKeys'] ?? []
+            $this->filters['bucketKeys'] ?? null
         );
 
         $report = $reportService->generate(
