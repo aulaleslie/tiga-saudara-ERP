@@ -20,6 +20,9 @@
         <testsuite name="Sale">
             <directory suffix="Test.php">./Modules/Sale/Tests</directory>
         </testsuite>
+        <testsuite name="Reports">
+            <directory suffix="Test.php">./Modules/Reports/Tests</directory>
+        </testsuite>
     </testsuites>
     <coverage>
         <include>
