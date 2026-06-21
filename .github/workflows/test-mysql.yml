@@ -1,0 +1,67 @@
+name: Run Feature Tests (MySQL)
+
+on:
+  push:
+    branches: [ "main", "master", "SPRINT-*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test-mysql:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+        extensions: pdo_mysql, zip, gd, dom, curl, libxml, mbstring
+        coverage: none
+
+    - name: Get Composer Cache Directory
+      id: composer-cache
+      run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+    - name: Cache Composer Dependencies
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.composer-cache.outputs.dir }}
+        key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-composer-
+
+    - name: Install Dependencies
+      run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+    - name: Copy .env
+      run: cp .env.example .env
+
+    - name: Generate Key
+      run: php artisan key:generate
+
+    - name: Configure PHPUnit for MySQL
+      run: |
+        sed -i 's/value="sqlite"/value="mysql"/g' phpunit.xml
+        sed -i 's/value="database\/testing.sqlite"/value="testing"/g' phpunit.xml
+
+    - name: Run Tests (MySQL)
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan test --filter=CustomerReceivablesReportTest

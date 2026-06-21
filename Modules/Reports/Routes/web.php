@@ -19,6 +19,7 @@ use Modules\Reports\Http\Controllers\PurchaseReportController;
 use Modules\Reports\Http\Controllers\PurchaseBySupplierReportController;
 use Modules\Reports\Http\Controllers\SaleReportController;
 use Modules\Reports\Http\Controllers\SaleByCustomerReportController;
+use Modules\Reports\Http\Controllers\CustomerReceivablesReportController;
 use Modules\Reports\Http\Controllers\StockMutationReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -83,6 +84,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/sale-by-customer', [SaleByCustomerReportController::class, 'index'])
             ->name('reports.sale-by-customer.index')
+            ->middleware('can:saleReports.access');
+
+        Route::get('/customer-receivables', [CustomerReceivablesReportController::class, 'index'])
+            ->name('reports.customer-receivables.index')
             ->middleware('can:saleReports.access');
 
         Route::get('/sale-report/global', [SaleReportController::class, 'indexGlobal'])

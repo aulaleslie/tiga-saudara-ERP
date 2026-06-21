@@ -97,7 +97,7 @@ class ReportsController extends Controller
                         'label' => 'Piutang pelanggan',
                         'icon' => 'bi bi-person-lines-fill',
                         'description' => 'Menampilkan semua faktur yang belum dibayar dan saldo memo kredit pelanggan pada tanggal tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.customer-receivables.index',
                         'permission' => 'saleReports.access'
                     ],
                     [
