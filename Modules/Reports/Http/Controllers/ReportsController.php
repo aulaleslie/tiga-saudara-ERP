@@ -111,7 +111,7 @@ class ReportsController extends Controller
                         'label' => 'Pengiriman penjualan',
                         'icon' => 'bi bi-truck',
                         'description' => 'Menampilkan semua produk yang dikirim untuk transaksi penjualan dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.sale-delivery.index',
                         'permission' => 'saleReports.access'
                     ],
                     [

@@ -59,7 +59,7 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **AND** Sekilas bisnis shows Neraca (gated by `reports.access`, linking to `operational-balance-sheet-report.index`)
 - **AND** Sekilas bisnis shows Buku Besar (gated by `reports.access`, linking to the Buku Besar report route)
 - **AND** Sekilas bisnis shows Arus kas (gated by `reports.access`, linking to the Arus Kas report route)
-- **AND** Penjualan shows Daftar Penjualan and Penjualan Per Customer (gated by `saleReports.access`) and Penjualan Global (gated by `saleReports.global.access`)
+- **AND** Penjualan shows Daftar Penjualan, Penjualan Per Customer, Piutang pelanggan, Usia piutang, and Pengiriman penjualan (gated by `saleReports.access`) and Penjualan Global (gated by `saleReports.global.access`)
 - **AND** Pembelian shows Daftar Pembelian and Pembelian Per Supplier (gated by `purchaseReports.access`) and Pembelian Global (gated by `purchaseReports.global.access`)
 - **AND** Produk shows Mutasi Stok (gated by `stockMutationReports.access`), Mutasi Stok Global (gated by `stockMutationReports.global.access`), and Valuasi Stok (gated by `inventoryValuationReports.access`)
 - **AND** Lainnya shows Mekari Converter and Mekari Invoice Generator (gated by `reports.access`)
@@ -81,6 +81,12 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **WHEN** a user with `reports.access` views the Sekilas bisnis tab
 - **THEN** the Arus kas card is rendered as an actionable report link
 - **AND** the Arus kas card does not show placeholder or unavailable-state treatment
+
+#### Scenario: Pengiriman penjualan card is actionable
+
+- **WHEN** a user with `saleReports.access` views the Penjualan tab
+- **THEN** the Pengiriman penjualan card is rendered as an actionable report link
+- **AND** the Pengiriman penjualan card does not show placeholder or unavailable-state treatment
 
 ### Requirement: Tab selection via query parameter
 
