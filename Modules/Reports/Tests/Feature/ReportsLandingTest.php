@@ -194,4 +194,18 @@ class ReportsLandingTest extends TestCase
         $response->assertStatus(200);
         $response->assertViewHas('activeSlug', 'pembelian');
     }
+
+    /** @test */
+    public function utang_supplier_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('purchaseReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pembelian']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Utang supplier');
+        $response->assertSee(route('reports.supplier-payables.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }

@@ -174,7 +174,7 @@ class ReportsController extends Controller
                         'label' => 'Utang supplier',
                         'icon' => 'bi bi-building',
                         'description' => 'Menampilkan semua faktur yang belum dibayar dan saldo memo debit supplier pada tanggal tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.supplier-payables.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [
