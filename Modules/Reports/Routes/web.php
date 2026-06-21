@@ -24,6 +24,7 @@ use Modules\Reports\Http\Controllers\AgedReceivablesReportController;
 use Modules\Reports\Http\Controllers\SaleDeliveryReportController;
 use Modules\Reports\Http\Controllers\SaleByProductReportController;
 use Modules\Reports\Http\Controllers\StockMutationReportController;
+use Modules\Reports\Http\Controllers\SalesOrderCompletionReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -103,6 +104,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/sale-by-product', [SaleByProductReportController::class, 'index'])
             ->name('reports.sale-by-product.index')
+            ->middleware('can:saleReports.access');
+
+        Route::get('/sales-order-completion', [SalesOrderCompletionReportController::class, 'index'])
+            ->name('reports.sales-order-completion.index')
             ->middleware('can:saleReports.access');
 
         Route::get('/sale-report/global', [SaleReportController::class, 'indexGlobal'])
