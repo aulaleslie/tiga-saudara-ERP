@@ -62,7 +62,7 @@ class ReportsController extends Controller
                         'label' => 'Neraca saldo',
                         'icon' => 'bi bi-file-earmark-spreadsheet',
                         'description' => 'Menampilkan saldo dari setiap akun, termasuk saldo awal, pergerakan, dan saldo akhir dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'operational-trial-balance-report.index',
                         'permission' => 'reports.access'
                     ]
                 ]
@@ -409,6 +409,12 @@ class ReportsController extends Controller
         abort_if(Gate::denies('reports.access'), 403);
 
         return view('reports::operational-general-ledger.index');
+    }
+
+    public function operationalTrialBalanceReport() {
+        abort_if(Gate::denies('reports.access'), 403);
+
+        return view('reports::operational-trial-balance.index');
     }
 
     public function paymentsReport() {
