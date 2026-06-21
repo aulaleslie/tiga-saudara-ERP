@@ -58,6 +58,7 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **THEN** Sekilas bisnis shows Laporan Laba Rugi (gated by `reports.access`, linking to `profit-loss-report.index`)
 - **AND** Sekilas bisnis shows Neraca (gated by `reports.access`, linking to `operational-balance-sheet-report.index`)
 - **AND** Sekilas bisnis shows Buku Besar (gated by `reports.access`, linking to the Buku Besar report route)
+- **AND** Sekilas bisnis shows Arus kas (gated by `reports.access`, linking to the Arus Kas report route)
 - **AND** Penjualan shows Daftar Penjualan and Penjualan Per Customer (gated by `saleReports.access`) and Penjualan Global (gated by `saleReports.global.access`)
 - **AND** Pembelian shows Daftar Pembelian and Pembelian Per Supplier (gated by `purchaseReports.access`) and Pembelian Global (gated by `purchaseReports.global.access`)
 - **AND** Produk shows Mutasi Stok (gated by `stockMutationReports.access`), Mutasi Stok Global (gated by `stockMutationReports.global.access`), and Valuasi Stok (gated by `inventoryValuationReports.access`)
@@ -74,6 +75,12 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **WHEN** a user clicks a permitted report card
 - **THEN** the system navigates to the existing report route for that card
 - **AND** the report page behaves exactly as before
+
+#### Scenario: Arus kas card is actionable
+
+- **WHEN** a user with `reports.access` views the Sekilas bisnis tab
+- **THEN** the Arus kas card is rendered as an actionable report link
+- **AND** the Arus kas card does not show placeholder or unavailable-state treatment
 
 ### Requirement: Tab selection via query parameter
 

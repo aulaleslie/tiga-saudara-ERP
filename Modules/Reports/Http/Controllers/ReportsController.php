@@ -55,7 +55,7 @@ class ReportsController extends Controller
                         'label' => 'Arus kas',
                         'icon' => 'bi bi-cash-stack',
                         'description' => 'Menampilkan pergerakan uang masuk dan keluar dari transaksi dalam periode tertentu. Template laporan ini bisa Anda custom sesuai kebutuhan.',
-                        'is_placeholder' => true,
+                        'route' => 'operational-cash-flow-report.index',
                         'permission' => 'reports.access'
                     ],
                     [
@@ -397,6 +397,12 @@ class ReportsController extends Controller
         abort_if(Gate::denies('reports.access'), 403);
 
         return view('reports::operational-balance-sheet.index');
+    }
+
+    public function operationalCashFlowReport() {
+        abort_if(Gate::denies('reports.access'), 403);
+
+        return view('reports::operational-cash-flow.index');
     }
 
     public function operationalGeneralLedgerReport() {
