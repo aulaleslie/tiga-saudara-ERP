@@ -104,7 +104,7 @@ class ReportsController extends Controller
                         'label' => 'Usia piutang',
                         'icon' => 'bi bi-calendar-range',
                         'description' => 'Menampilkan total piutang dari setiap pelanggan berdasarkan usianya (30, 60, 90, dan setelah 90 hari).',
-                        'is_placeholder' => true,
+                        'route' => 'reports.aged-receivables.index',
                         'permission' => 'saleReports.access'
                     ],
                     [
