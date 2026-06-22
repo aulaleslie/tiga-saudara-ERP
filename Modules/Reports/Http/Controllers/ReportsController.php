@@ -195,7 +195,7 @@ class ReportsController extends Controller
                         'label' => 'Usia utang',
                         'icon' => 'bi bi-calendar-range',
                         'description' => 'Menampilkan total utang kepada setiap supplier berdasarkan usianya (30, 60, 90, dan setelah 90 hari).',
-                        'is_placeholder' => true,
+                        'route' => 'reports.aged-payables.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [

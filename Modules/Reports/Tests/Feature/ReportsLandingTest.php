@@ -208,4 +208,18 @@ class ReportsLandingTest extends TestCase
         $response->assertSee(route('reports.supplier-payables.index'));
         $response->assertSeeText('Lihat laporan');
     }
+
+    /** @test */
+    public function usia_utang_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('purchaseReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pembelian']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Usia utang');
+        $response->assertSee(route('reports.aged-payables.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }
