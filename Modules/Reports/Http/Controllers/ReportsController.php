@@ -216,7 +216,7 @@ class ReportsController extends Controller
                         'label' => 'Penyelesaian pesanan pembelian',
                         'icon' => 'bi bi-check2-square',
                         'description' => 'Menampilkan ringkasan proses bisnis perusahaan ini. Anda dapat mengidentifikasi setiap penyelesaian penawaran dan pesanan pembelian hingga penagihan dan pembayarannya dilakukan.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.purchase-order-completion.index',
                         'permission' => 'purchaseReports.access'
                     ],
                 ]
