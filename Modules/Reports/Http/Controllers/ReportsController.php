@@ -181,7 +181,7 @@ class ReportsController extends Controller
                         'label' => 'Daftar pengeluaran',
                         'icon' => 'bi bi-receipt',
                         'description' => 'Menampilkan semua transaksi pengeluaran dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.expense-list.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [

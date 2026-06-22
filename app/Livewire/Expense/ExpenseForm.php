@@ -10,7 +10,9 @@ use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Expense\Entities\Expense;
 use Modules\Expense\Entities\ExpenseCategory;
+use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Tax;
+use Spatie\Tags\Tag;
 
 class ExpenseForm extends Component
 {
@@ -29,6 +31,18 @@ class ExpenseForm extends Component
     public string $idempotencyToken;
     public $is_pkp = false;
     public $default_tax_id = null;
+
+    // Supplier selection
+    public $supplier_id = null;
+    public $supplierSearch = '';
+    public $supplierOptions = [];
+    public $supplierLabel = '';
+
+    // Tag selection
+    public $tagIds = [];
+    public $tagSearch = '';
+    public $tagOptions = [];
+    public $tagLabels = [];
 
     public function mount(?Expense $expense = null, ?string $idempotencyToken = null): void
     {
@@ -52,6 +66,71 @@ class ExpenseForm extends Component
 
         $this->date = now()->format('Y-m-d');
         $this->details[] = ['id' => null, 'name' => '', 'tax_id' => $this->default_tax_id, 'amount' => 0];
+    }
+
+    // Supplier search/select/remove
+    public function updatedSupplierSearch($value): void
+    {
+        $value = trim($value);
+        if (strlen($value) < 2) {
+            $this->supplierOptions = [];
+            return;
+        }
+        $settingId = session('setting_id');
+        $this->supplierOptions = Supplier::query()
+            ->where('setting_id', $settingId)
+            ->whereRaw('LOWER(supplier_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
+            ->limit(10)->get(['id', 'supplier_name'])->toArray();
+    }
+
+    public function selectSupplier(int $id, string $name): void
+    {
+        $this->supplier_id = $id;
+        $this->supplierLabel = $name;
+        $this->supplierSearch = '';
+        $this->supplierOptions = [];
+    }
+
+    public function removeSupplier(): void
+    {
+        $this->supplier_id = null;
+        $this->supplierLabel = '';
+    }
+
+    // Tag search/select/remove
+    public function updatedTagSearch($value): void
+    {
+        $value = trim($value);
+        if (strlen($value) < 2) {
+            $this->tagOptions = [];
+            return;
+        }
+        $locale = app()->getLocale();
+        $tags = Tag::query()
+            ->where(fn ($q) => $q->containing($value, $locale)->orWhere(fn($sq) => $sq->containing($value, 'en')))
+            ->limit(10)->get(['id', 'name']);
+            
+        $this->tagOptions = $tags->map(function ($tag) use ($locale) {
+            $nameData = is_string($tag->name) ? json_decode($tag->name, true) : $tag->name;
+            $name = is_array($nameData) ? ($nameData[$locale] ?? ($nameData['en'] ?? reset($nameData))) : (string) $tag->name;
+            return ['id' => $tag->id, 'name' => $name];
+        })->toArray();
+    }
+
+    public function selectTag(int $id, string $name): void
+    {
+        if (!in_array($id, $this->tagIds)) {
+            $this->tagIds[] = $id;
+            $this->tagLabels[$id] = $name;
+        }
+        $this->tagSearch = '';
+        $this->tagOptions = [];
+    }
+
+    public function removeTag(int $id): void
+    {
+        $this->tagIds = array_values(array_diff($this->tagIds, [$id]));
+        unset($this->tagLabels[$id]);
     }
 
     public function addDetail(): void
@@ -169,6 +248,8 @@ class ExpenseForm extends Component
             $this->validate([
                 'date' => 'required|date',
                 'category_id' => 'required|exists:expense_categories,id',
+                'supplier_id' => 'nullable|exists:suppliers,id',
+                'tagIds.*' => 'nullable|exists:tags,id',
                 'details.*.name' => 'required|string|max:255',
                 'details.*.amount' => 'required',
                 'details.*.tax_id' => 'nullable|exists:taxes,id',
@@ -191,6 +272,8 @@ class ExpenseForm extends Component
                 'removed_attachment_ids' => $this->removedAttachmentIds,
                 'is_tax_included' => $this->is_tax_included,
                 'status' => $status,
+                'supplier_id' => $this->supplier_id,
+                'tag_ids' => $this->tagIds,
             ];
 
             if ($this->expenseId) {
@@ -255,6 +338,25 @@ class ExpenseForm extends Component
 
         if (empty($this->details)) {
             $this->details[] = ['id' => null, 'name' => '', 'tax_id' => $this->default_tax_id, 'amount' => 0];
+        }
+
+        // Hydrate supplier
+        if ($expense->supplier_id) {
+            $this->supplier_id = $expense->supplier_id;
+            $this->supplierLabel = $expense->supplier?->supplier_name ?? '';
+        }
+
+        // Hydrate tags
+        $tags = $expense->tags;
+        if ($tags && $tags->isNotEmpty()) {
+            $locale = app()->getLocale();
+            foreach ($tags as $tag) {
+                $this->tagIds[] = $tag->id;
+                $nameData = is_string($tag->name) ? json_decode($tag->name, true) : $tag->name;
+                $this->tagLabels[$tag->id] = is_array($nameData)
+                    ? ($nameData[$locale] ?? ($nameData['en'] ?? reset($nameData)))
+                    : (string) $tag->name;
+            }
         }
     }
 

@@ -18,6 +18,20 @@ class ExpensesDataTable extends DataTable
             ->addColumn('amount', function ($data) {
                 return format_currency($data->amount);
             })
+            ->addColumn('supplier', function ($data) {
+                return $data->supplier ? $data->supplier->supplier_name : '-';
+            })
+            ->addColumn('tags', function ($data) {
+                if ($data->tags->isEmpty()) return '-';
+                $locale = app()->getLocale();
+                $badges = [];
+                foreach ($data->tags as $tag) {
+                    $nameData = is_string($tag->name) ? json_decode($tag->name, true) : $tag->name;
+                    $name = is_array($nameData) ? ($nameData[$locale] ?? ($nameData['en'] ?? reset($nameData))) : (string) $tag->name;
+                    $badges[] = '<span class="badge badge-secondary">' . e($name) . '</span>';
+                }
+                return implode(' ', $badges);
+            })
             ->addColumn('status', function ($data) {
                 $badges = [
                     'DRAFT' => 'badge-secondary',
@@ -43,12 +57,12 @@ class ExpensesDataTable extends DataTable
             ->addColumn('action', function ($data) {
                 return view('expense::expenses.partials.actions', compact('data'));
             })
-            ->rawColumns(['status', 'action']);
+            ->rawColumns(['status', 'action', 'tags']);
     }
 
     public function query(Expense $model) {
         $currentSettingId = session('setting_id');
-        $query = $model->newQuery()->where('setting_id', $currentSettingId)->with('category');
+        $query = $model->newQuery()->where('setting_id', $currentSettingId)->with(['category', 'supplier', 'tags']);
 
         if (request()->has('status') && request('status') != '') {
             $query->where('status', request('status'));
@@ -71,7 +85,7 @@ class ExpensesDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(6)
+            ->orderBy(9)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -96,6 +110,14 @@ class ExpensesDataTable extends DataTable
 
             Column::make('category.category_name')
                 ->title('Kategori')
+                ->className('text-center align-middle'),
+
+            Column::computed('supplier')
+                ->title('Supplier')
+                ->className('text-center align-middle'),
+
+            Column::computed('tags')
+                ->title('Tags')
                 ->className('text-center align-middle'),
 
             Column::computed('amount')

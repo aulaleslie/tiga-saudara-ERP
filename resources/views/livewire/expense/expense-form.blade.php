@@ -63,6 +63,59 @@
                         </div>
                         @error('category_id') <span class="text-danger">{{ $message }}</span> @enderror
                     </div>
+                    <div class="col-md-6 mb-3">
+                        <label>Supplier <small class="text-muted">(Opsional)</small></label>
+                        @if($supplier_id)
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-primary fs-6 py-2 px-3">
+                                    {{ $supplierLabel }}
+                                    <i class="bi bi-x-circle ms-2" style="cursor: pointer;" wire:click="removeSupplier"></i>
+                                </span>
+                            </div>
+                        @else
+                            <div class="position-relative">
+                                <input type="text" class="form-control" wire:model.live.debounce.300ms="supplierSearch" placeholder="Cari supplier...">
+                                @if(!empty($supplierOptions))
+                                    <div class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto;">
+                                        @foreach($supplierOptions as $option)
+                                            <button type="button" class="list-group-item list-group-item-action" wire:click="selectSupplier({{ $option['id'] }}, '{{ addslashes($option['supplier_name']) }}')">
+                                                {{ $option['supplier_name'] }}
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+                        @error('supplier_id') <span class="text-danger d-block">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="col-md-12 mb-3">
+                        <label>Label / Tags <small class="text-muted">(Opsional)</small></label>
+                        <div class="position-relative">
+                            <input type="text" class="form-control" wire:model.live.debounce.300ms="tagSearch" placeholder="Ketik untuk mencari tag...">
+                            @if(!empty($tagOptions))
+                                <div class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto;">
+                                    @foreach($tagOptions as $option)
+                                        <button type="button" class="list-group-item list-group-item-action" wire:click="selectTag({{ $option['id'] }}, '{{ addslashes($option['name']) }}')">
+                                            {{ $option['name'] }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                        @if(!empty($tagIds))
+                            <div class="mt-2 d-flex flex-wrap gap-2">
+                                @foreach($tagIds as $id)
+                                    <span class="badge bg-secondary fs-6 py-2 px-3">
+                                        {{ $tagLabels[$id] ?? 'Tag' }}
+                                        <i class="bi bi-x-circle ms-2" style="cursor: pointer;" wire:click="removeTag({{ $id }})"></i>
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endif
+                        @error('tagIds.*') <span class="text-danger d-block">{{ $message }}</span> @enderror
+                    </div>
                 </div>
             </div>
         </div>

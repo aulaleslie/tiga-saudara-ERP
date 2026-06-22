@@ -6,12 +6,15 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Modules\People\Entities\Supplier;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\Tags\HasTags;
+use Spatie\Tags\Tag;
 
 class Expense extends BaseModel implements HasMedia
 {
-    use InteractsWithMedia;
+    use InteractsWithMedia, HasTags;
 
     public const STATUS_DRAFT = 'DRAFT';
     public const STATUS_SUBMITTED = 'SUBMITTED';
@@ -32,6 +35,22 @@ class Expense extends BaseModel implements HasMedia
     public function category(): BelongsTo
     {
         return $this->belongsTo(ExpenseCategory::class, 'category_id', 'id');
+    }
+
+    /**
+     * Supplier relationship
+     */
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class, 'supplier_id', 'id');
+    }
+
+    /**
+     * Tags relationship (explicit morphToMany for report filter compatibility)
+     */
+    public function tags(): \Illuminate\Database\Eloquent\Relations\MorphToMany
+    {
+        return $this->morphToMany(Tag::class, 'taggable');
     }
 
     /**

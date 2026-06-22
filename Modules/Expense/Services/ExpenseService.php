@@ -47,6 +47,30 @@ class ExpenseService
         $settingId = $data['setting_id'] ?? session('setting_id');
         $isPkp = (bool) (Setting::query()->whereKey((int) $settingId)->value('is_pkp') ?? false);
 
+        // Validate supplier belongs to current setting if provided
+        $supplierId = $data['supplier_id'] ?? null;
+        if ($supplierId) {
+            $supplierId = (int) $supplierId;
+            $supplierExists = \Modules\People\Entities\Supplier::where('id', $supplierId)
+                ->where('setting_id', $settingId)
+                ->exists();
+            if (!$supplierExists) {
+                throw ValidationException::withMessages(['supplier_id' => 'Supplier yang dipilih tidak valid untuk setting ini.']);
+            }
+        }
+
+        $tagIds = $data['tag_ids'] ?? [];
+        if (!is_array($tagIds)) {
+            $tagIds = [];
+        }
+
+        if (!empty($tagIds)) {
+            $validTagCount = \Spatie\Tags\Tag::whereIn('id', $tagIds)->count();
+            if ($validTagCount !== count(array_unique($tagIds))) {
+                throw ValidationException::withMessages(['tag_ids' => 'Satu atau lebih tag yang dipilih tidak valid.']);
+            }
+        }
+
         // Normalize details and calculate totals
         $normalizedDetails = [];
         $totalAmount = 0;
@@ -101,7 +125,7 @@ class ExpenseService
         // Generate details summary for legacy column
         $detailsSummary = collect($normalizedDetails)->pluck('name')->implode(', ');
 
-        $result = DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded) {
+        $result = DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded, $supplierId, $tagIds) {
             if ($expense) {
                 $this->verifySettingOwnership($expense);
 
@@ -113,6 +137,7 @@ class ExpenseService
                 $expense->update([
                     'date' => $data['date'],
                     'category_id' => $data['category_id'],
+                    'supplier_id' => $supplierId,
                     'amount' => $totalAmount,
                     'status' => $status,
                     'details' => $detailsSummary,
@@ -124,6 +149,7 @@ class ExpenseService
                         'setting_id' => $settingId,
                         'date' => $data['date'],
                         'category_id' => $data['category_id'],
+                        'supplier_id' => $supplierId,
                         'amount' => $totalAmount,
                         'status' => $status,
                         'details' => $detailsSummary,
@@ -172,7 +198,15 @@ class ExpenseService
                 }
             }
 
-            return $expense->load('detailRows', 'media');
+            // Sync tags
+            if (!empty($tagIds)) {
+                $tags = \Spatie\Tags\Tag::whereIn('id', $tagIds)->get();
+                $expense->syncTags($tags);
+            } else {
+                $expense->syncTags([]);
+            }
+
+            return $expense->load('detailRows', 'media', 'tags');
         });
 
         $notificationService = app(\App\Services\Notification\DocumentNotificationService::class);

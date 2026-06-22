@@ -87,8 +87,22 @@
                                 <div><strong>Referensi:</strong> {{ $expense->reference }}</div>
                                 <div><strong>Tanggal:</strong> {{ \Carbon\Carbon::parse($expense->date)->format('d M Y') }}</div>
                                 <div><strong>Kategori:</strong> {{ $expense->category->category_name }}</div>
+                                <div><strong>Supplier:</strong> {{ $expense->supplier?->supplier_name ?? '-' }}</div>
                                 @if(\Modules\Setting\Entities\Setting::find($expense->setting_id)->is_pkp)
                                 <div><strong>Termasuk Pajak:</strong> {{ $expense->is_tax_included ? 'Ya' : 'Tidak' }}</div>
+                                @endif
+                                @if($expense->tags && $expense->tags->isNotEmpty())
+                                <div class="mt-1">
+                                    <strong>Tag:</strong>
+                                    @foreach($expense->tags as $tag)
+                                        @php
+                                            $locale = app()->getLocale();
+                                            $nameData = is_string($tag->name) ? json_decode($tag->name, true) : $tag->name;
+                                            $tagName = is_array($nameData) ? ($nameData[$locale] ?? ($nameData['en'] ?? reset($nameData))) : (string)$tag->name;
+                                        @endphp
+                                        <span class="badge badge-info">{{ $tagName }}</span>
+                                    @endforeach
+                                </div>
                                 @endif
                             </div>
 

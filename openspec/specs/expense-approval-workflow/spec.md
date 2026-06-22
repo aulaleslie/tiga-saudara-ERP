@@ -192,3 +192,72 @@ The system SHALL preserve existing expense behavior by migrating existing expens
 - **WHEN** an existing expense has structured detail rows and blank legacy `expenses.details`
 - **THEN** the system MUST populate a useful legacy details summary without changing the structured amounts
 
+### Requirement: Expense supplier assignment
+The system SHALL allow expenses to store an optional supplier while preserving existing expense lifecycle and setting ownership rules.
+
+#### Scenario: New expense can be saved with supplier
+- **WHEN** a user creates a valid expense and selects a supplier from the current setting
+- **THEN** the system MUST persist the supplier on the expense
+- **AND** the expense lifecycle status, detail rows, tax handling, attachments, and reference generation MUST behave as before
+
+#### Scenario: Expense can be saved without supplier
+- **WHEN** a user creates or edits a valid expense without selecting a supplier
+- **THEN** the system MUST persist the expense with no supplier
+- **AND** the expense MUST remain valid
+
+#### Scenario: Supplier from another setting is rejected
+- **WHEN** a user attempts to save an expense with a supplier that does not belong to the current setting
+- **THEN** the system MUST reject the save
+- **AND** the expense MUST remain unchanged
+
+#### Scenario: Expense review displays supplier
+- **WHEN** an authorized user views an expense show page or expense list row
+- **THEN** the system MUST display the assigned supplier when present
+- **AND** the system MUST display a placeholder when no supplier is assigned
+
+### Requirement: Expense tag assignment
+The system SHALL allow expenses to store optional tags using the existing tag infrastructure.
+
+#### Scenario: New expense can be saved with tags
+- **WHEN** a user creates a valid expense and selects one or more tags
+- **THEN** the system MUST persist those tags on the expense
+- **AND** the expense lifecycle status, detail rows, tax handling, attachments, and reference generation MUST behave as before
+
+#### Scenario: Expense edit syncs tags
+- **WHEN** a user edits a draft or rejected expense and changes its selected tags
+- **THEN** the system MUST sync the expense tags to exactly the submitted set
+
+#### Scenario: Submitted and approved expense tag mutation follows existing edit rules
+- **WHEN** a user attempts to change tags on a submitted or approved expense through the normal edit flow
+- **THEN** the system MUST enforce the same edit restrictions that apply to expense header and detail changes
+
+#### Scenario: Expense review displays tags
+- **WHEN** an authorized user views an expense show page or expense list row
+- **THEN** the system MUST display the assigned tags when present
+
+### Requirement: Expense persistence includes supplier and tags across write paths
+The system SHALL apply supplier and tag validation and persistence consistently across Livewire and controller expense write paths.
+
+#### Scenario: Livewire create persists supplier and tags
+- **WHEN** the Livewire expense form submits a valid expense with supplier and tags
+- **THEN** the saved expense MUST include the selected supplier and tags
+
+#### Scenario: Controller create persists supplier and tags
+- **WHEN** a controller expense create request submits a valid expense with supplier and tags
+- **THEN** the saved expense MUST include the selected supplier and tags
+
+#### Scenario: Validation failure does not partially sync tags
+- **WHEN** an expense save fails validation after tags were submitted
+- **THEN** the system MUST NOT partially persist tag changes for that expense
+
+### Requirement: Existing expenses remain compatible
+The system SHALL preserve existing expenses when supplier and tag support is introduced.
+
+#### Scenario: Existing expense has no supplier by default
+- **WHEN** the supplier migration runs against existing expenses
+- **THEN** existing expense rows MUST remain valid with `supplier_id` unset
+
+#### Scenario: Existing expense has no tags by default
+- **WHEN** tag support is enabled for expenses
+- **THEN** existing expense rows MUST remain valid without assigned tags
+

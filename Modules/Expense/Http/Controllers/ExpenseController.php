@@ -48,9 +48,12 @@ class ExpenseController extends Controller
             'files.*' => 'nullable|file|max:10240',
             'status' => 'nullable|string|in:' . Expense::STATUS_DRAFT . ',' . Expense::STATUS_SUBMITTED,
             'is_tax_included' => 'nullable|boolean',
+            'supplier_id' => 'nullable|integer|exists:suppliers,id',
+            'tag_ids' => 'nullable|array',
+            'tag_ids.*' => 'integer|exists:tags,id',
         ]);
 
-        $data = $request->only(['date', 'category_id', 'details', 'status', 'is_tax_included']);
+        $data = $request->only(['date', 'category_id', 'details', 'status', 'is_tax_included', 'supplier_id', 'tag_ids']);
         $data['files'] = $request->file('files', []);
         $data['setting_id'] = session('setting_id');
 
@@ -65,7 +68,7 @@ class ExpenseController extends Controller
         abort_if(Gate::denies('expenses.access'), 403);
         $this->expenseService->verifySettingOwnership($expense);
 
-        $expense->load('detailRows.tax', 'media', 'category', 'archivedBy');
+        $expense->load('detailRows.tax', 'media', 'category', 'archivedBy', 'supplier', 'tags');
 
         return view('expense::expenses.show', compact('expense'));
     }
@@ -94,9 +97,12 @@ class ExpenseController extends Controller
             'removed_attachment_ids' => 'nullable|array',
             'status' => 'nullable|string|in:' . Expense::STATUS_DRAFT . ',' . Expense::STATUS_SUBMITTED,
             'is_tax_included' => 'nullable|boolean',
+            'supplier_id' => 'nullable|integer|exists:suppliers,id',
+            'tag_ids' => 'nullable|array',
+            'tag_ids.*' => 'integer|exists:tags,id',
         ]);
 
-        $data = $request->only(['date', 'category_id', 'details', 'removed_attachment_ids', 'status', 'is_tax_included']);
+        $data = $request->only(['date', 'category_id', 'details', 'removed_attachment_ids', 'status', 'is_tax_included', 'supplier_id', 'tag_ids']);
         $data['files'] = $request->file('files', []);
         $data['setting_id'] = session('setting_id');
 
