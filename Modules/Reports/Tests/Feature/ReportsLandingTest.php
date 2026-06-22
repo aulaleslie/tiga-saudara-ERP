@@ -222,4 +222,18 @@ class ReportsLandingTest extends TestCase
         $response->assertSee(route('reports.aged-payables.index'));
         $response->assertSeeText('Lihat laporan');
     }
+
+    /** @test */
+    public function pembelian_per_produk_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('purchaseReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pembelian']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Pembelian per produk');
+        $response->assertSee(route('reports.purchase-by-product.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }

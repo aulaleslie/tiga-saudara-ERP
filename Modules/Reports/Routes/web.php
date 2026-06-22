@@ -29,6 +29,7 @@ use Modules\Reports\Http\Controllers\StockMutationReportController;
 use Modules\Reports\Http\Controllers\SalesOrderCompletionReportController;
 use Modules\Reports\Http\Controllers\SupplierPayablesReportController;
 use Modules\Reports\Http\Controllers\ExpenseListReportController;
+use Modules\Reports\Http\Controllers\PurchaseByProductReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -116,6 +117,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/purchase-delivery', [PurchaseDeliveryReportController::class, 'index'])
             ->name('reports.purchase-delivery.index')
+            ->middleware('can:purchaseReports.access');
+
+        Route::get('/purchase-by-product', [PurchaseByProductReportController::class, 'index'])
+            ->name('reports.purchase-by-product.index')
             ->middleware('can:purchaseReports.access');
 
         Route::get('/sale-delivery', [SaleDeliveryReportController::class, 'index'])

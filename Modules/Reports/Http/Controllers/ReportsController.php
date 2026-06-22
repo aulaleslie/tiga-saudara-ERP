@@ -209,7 +209,7 @@ class ReportsController extends Controller
                         'label' => 'Pembelian per produk',
                         'icon' => 'bi bi-box',
                         'description' => 'Menampilkan semua kuantitas produk yang dibeli, kuantitas retur, pembelian bersih, dan harga pembelian rata-rata dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.purchase-by-product.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [
