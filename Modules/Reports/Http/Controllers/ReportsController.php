@@ -272,7 +272,7 @@ class ReportsController extends Controller
                         'label' => 'Detail persediaan barang',
                         'icon' => 'bi bi-card-list',
                         'description' => 'Menampilkan daftar produk dengan mutasi dan kuantitas akhirnya.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.inventory-detail-report.index',
                         'permission' => 'stockMutationReports.access'
                     ],
                     [
