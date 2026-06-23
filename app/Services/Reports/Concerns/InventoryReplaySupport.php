@@ -389,4 +389,27 @@ trait InventoryReplaySupport
 
         return 0.0;
     }
+
+    protected function loadProductPriceMap(Collection $productIds, int $settingId): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('product_prices') || $productIds->isEmpty()) {
+            return [];
+        }
+
+        $prices = \Modules\Product\Entities\ProductPrice::query()
+            ->where('setting_id', $settingId)
+            ->whereIn('product_id', $productIds)
+            ->get();
+
+        $map = [];
+        foreach ($prices as $price) {
+            $map[$price->product_id] = [
+                'average' => (float) ($price->average_purchase_price ?? 0),
+                'sale' => (float) ($price->sale_price ?? 0),
+                'last_purchase' => (float) ($price->last_purchase_price ?? 0),
+            ];
+        }
+
+        return $map;
+    }
 }

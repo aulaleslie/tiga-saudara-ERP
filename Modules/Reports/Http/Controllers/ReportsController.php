@@ -255,7 +255,7 @@ class ReportsController extends Controller
                         'permission' => 'stockMutationReports.access'
                     ],
                     [
-                        'label' => 'Nilai Persediaan Barang',
+                        'label' => 'Nilai persediaan barang',
                         'icon' => 'bi bi-currency-dollar',
                         'description' => 'Menampilkan pergerakan stok per produk berdasarkan stok yang tersedia dan nilai stoknya dalam periode tertentu.',
                         'route' => 'reports.inventory-valuation-report.index',

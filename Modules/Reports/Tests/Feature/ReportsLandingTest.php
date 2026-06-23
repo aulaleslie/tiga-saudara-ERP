@@ -94,7 +94,6 @@ class ReportsLandingTest extends TestCase
         $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'produk']));
         $response->assertSeeText('Mutasi Stok');
         $response->assertSeeText('Mutasi Stok Global');
-        $response->assertSeeText('Valuasi Stok');
         $response->assertSeeText('Ringkasan persediaan barang');
         $response->assertSeeText('Kuantitas stok gudang');
         $response->assertSeeText('Nilai persediaan barang');

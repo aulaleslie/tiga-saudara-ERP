@@ -198,26 +198,4 @@ class InventorySummaryReportQueryService
         ];
     }
 
-    private function loadProductPriceMap(Collection $productIds, int $settingId): array
-    {
-        if (! Schema::hasTable('product_prices') || $productIds->isEmpty()) {
-            return [];
-        }
-
-        $prices = ProductPrice::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('product_id', $productIds)
-            ->get();
-
-        $map = [];
-        foreach ($prices as $price) {
-            $map[$price->product_id] = [
-                'average' => (float) ($price->average_purchase_price ?? 0),
-                'sale' => (float) ($price->sale_price ?? 0),
-                'last_purchase' => (float) ($price->last_purchase_price ?? 0),
-            ];
-        }
-
-        return $map;
-    }
 }

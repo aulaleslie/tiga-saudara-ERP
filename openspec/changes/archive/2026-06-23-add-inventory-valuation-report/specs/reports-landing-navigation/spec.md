@@ -13,7 +13,7 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **AND** Sekilas bisnis shows Arus kas (gated by `reports.access`, linking to the Arus Kas report route)
 - **AND** Penjualan shows Daftar Penjualan, Penjualan Per Customer, Piutang pelanggan, Usia piutang, Pengiriman penjualan, and Penjualan per produk (gated by `saleReports.access`) and Penjualan Global (gated by `saleReports.global.access`)
 - **AND** Pembelian shows Daftar Pembelian, Pembelian Per Supplier, Utang supplier, Daftar pengeluaran, Usia utang, Pengiriman pembelian, and Pembelian per produk (gated by `purchaseReports.access`) and Pembelian Global (gated by `purchaseReports.global.access`)
-- **AND** Produk shows Mutasi Stok (gated by `stockMutationReports.access`), Mutasi Stok Global (gated by `stockMutationReports.global.access`), Kuantitas stok gudang (gated by `stockMutationReports.access`), Valuasi Stok (gated by `inventoryValuationReports.access`), Ringkasan persediaan barang (gated by `inventoryValuationReports.access`), and Nilai persediaan barang (gated by `inventoryValuationReports.access`)
+- **AND** Produk shows Mutasi Stok (gated by `stockMutationReports.access`), Mutasi Stok Global (gated by `stockMutationReports.global.access`), Kuantitas stok gudang (gated by `stockMutationReports.access`), Ringkasan persediaan barang (gated by `inventoryValuationReports.access`), and Nilai persediaan barang (gated by `inventoryValuationReports.access`)
 - **AND** Lainnya shows Mekari Converter and Mekari Invoice Generator (gated by `reports.access`)
 
 #### Scenario: Card shows description and call-to-action
