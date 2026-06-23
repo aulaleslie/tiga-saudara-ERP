@@ -31,6 +31,7 @@ use Modules\Reports\Http\Controllers\SupplierPayablesReportController;
 use Modules\Reports\Http\Controllers\ExpenseListReportController;
 use Modules\Reports\Http\Controllers\PurchaseByProductReportController;
 use Modules\Reports\Http\Controllers\PurchaseOrderCompletionReportController;
+use Modules\Reports\Http\Controllers\WarehouseStockQuantityReportController;
 use Modules\Reports\Http\Controllers\InventorySummaryReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -156,6 +157,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/inventory-valuation-report', [InventoryValuationReportController::class, 'index'])
             ->name('reports.inventory-valuation-report.index')
             ->middleware('can:inventoryValuationReports.access');
+        
+        Route::get('/warehouse-stock-quantity-report', [WarehouseStockQuantityReportController::class, 'index'])
+            ->name('reports.warehouse-stock-quantity.index')
+            ->middleware('can:stockMutationReports.access');
 
         Route::get('/inventory-summary-report', [InventorySummaryReportController::class, 'index'])
             ->name('reports.inventory-summary-report.index')

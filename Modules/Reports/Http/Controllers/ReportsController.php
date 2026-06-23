@@ -258,7 +258,7 @@ class ReportsController extends Controller
                         'label' => 'Kuantitas stok gudang',
                         'icon' => 'bi bi-building',
                         'description' => 'Menampilkan setiap kuantitas produk berdasarkan gudang yang dipilih pada tanggal tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.warehouse-stock-quantity.index',
                         'permission' => 'stockMutationReports.access'
                     ],
                     [

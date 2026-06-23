@@ -250,4 +250,18 @@ class ReportsLandingTest extends TestCase
         $response->assertSee(route('reports.inventory-summary-report.index'));
         $response->assertSeeText('Lihat laporan');
     }
+
+    /** @test */
+    public function kuantitas_stok_gudang_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('stockMutationReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'produk']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Kuantitas stok gudang');
+        $response->assertSee(route('reports.warehouse-stock-quantity.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }
