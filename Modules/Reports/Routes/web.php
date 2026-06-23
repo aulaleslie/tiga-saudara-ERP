@@ -165,6 +165,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/inventory-summary-report', [InventorySummaryReportController::class, 'index'])
             ->name('reports.inventory-summary-report.index')
             ->middleware('can:inventoryValuationReports.access');
+
+        Route::get('/warehouse-stock-valuation', [\Modules\Reports\Http\Controllers\WarehouseStockValuationReportController::class, 'index'])
+            ->name('reports.warehouse-stock-valuation.index')
+            ->middleware('can:inventoryValuationReports.access');
     });
 
     Route::get('/test-pdf', function () {

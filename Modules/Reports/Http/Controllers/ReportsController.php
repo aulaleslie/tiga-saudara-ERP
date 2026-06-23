@@ -265,7 +265,7 @@ class ReportsController extends Controller
                         'label' => 'Nilai stok gudang',
                         'icon' => 'bi bi-building',
                         'description' => 'Menampilkan nilai persediaan barang per gudang dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.warehouse-stock-valuation.index',
                         'permission' => 'inventoryValuationReports.access'
                     ],
                     [
