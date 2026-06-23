@@ -236,4 +236,18 @@ class ReportsLandingTest extends TestCase
         $response->assertSee(route('reports.purchase-by-product.index'));
         $response->assertSeeText('Lihat laporan');
     }
+
+    /** @test */
+    public function ringkasan_persediaan_barang_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('inventoryValuationReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'produk']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Ringkasan persediaan barang');
+        $response->assertSee(route('reports.inventory-summary-report.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }

@@ -22,7 +22,7 @@
 
 @canany(['reports.access', 'purchaseReports.access', 'purchaseReports.global.access', 'saleReports.access', 'saleReports.global.access', 'stockMutationReports.access', 'stockMutationReports.global.access', 'inventoryValuationReports.access'])
     <li class="c-sidebar-nav-item">
-        <a class="c-sidebar-nav-link {{ request()->routeIs('reports.index') || request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('profit-loss-report.index') || request()->routeIs('reports.purchase-report.*') || request()->routeIs('reports.purchase-by-supplier.*') || request()->routeIs('reports.sale-report.*') || request()->routeIs('reports.sale-by-customer.*') || request()->routeIs('reports.stock-mutation-report.*') || request()->routeIs('reports.inventory-valuation-report.*') ? 'c-active' : '' }}" href="{{ route('reports.index') }}">
+        <a class="c-sidebar-nav-link {{ request()->routeIs('reports.index') || request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('profit-loss-report.index') || request()->routeIs('reports.purchase-report.*') || request()->routeIs('reports.purchase-by-supplier.*') || request()->routeIs('reports.sale-report.*') || request()->routeIs('reports.sale-by-customer.*') || request()->routeIs('reports.stock-mutation-report.*') || request()->routeIs('reports.inventory-valuation-report.*') || request()->routeIs('reports.inventory-summary-report.*') ? 'c-active' : '' }}" href="{{ route('reports.index') }}">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
         </a>
     </li>

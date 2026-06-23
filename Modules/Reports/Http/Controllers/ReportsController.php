@@ -251,7 +251,7 @@ class ReportsController extends Controller
                         'label' => 'Ringkasan persediaan barang',
                         'icon' => 'bi bi-box-seam',
                         'description' => 'Menampilkan kuantitas stok yang tersedia dengan harga rata-rata per unit dan total nilainya pada tanggal tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.inventory-summary-report.index',
                         'permission' => 'inventoryValuationReports.access'
                     ],
                     [
