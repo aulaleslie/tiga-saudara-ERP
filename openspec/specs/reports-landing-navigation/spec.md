@@ -1,4 +1,10 @@
-## ADDED Requirements
+# reports-landing-navigation Specification
+
+## Purpose
+
+Replace the nested "Laporan" sidebar dropdown with a single permission-gated reports landing page that organizes report cards into Mekari-taxonomy tabs, showing only the cards and tabs each user is permitted to access and linking to existing report routes without altering their behavior.
+
+## Requirements
 
 ### Requirement: Reports landing page entry point
 
@@ -22,20 +28,20 @@ The system SHALL provide a single "Laporan" sidebar entry that links to a report
 
 ### Requirement: Categorized report tabs
 
-The reports landing page SHALL organize reports into tabs using the Mekari taxonomy, declared in the fixed order: Sekilas bisnis, Penjualan, Pembelian, Produk, Aset, Bank, Pajak, Produksi, followed by a trailing Lainnya tab for custom tools. Tabs SHALL be rendered in this declared order. Each tab SHALL display only the report cards the current user is permitted to access, and any tab with no permitted cards SHALL be hidden (including tabs that currently have no reports mapped, such as Aset, Bank, Pajak, and Produksi). The tab navigation SHALL be presented as underline-style tabs, with the active tab marked by a bottom border rather than a filled pill.
+The reports landing page SHALL organize reports into tabs using the Mekari taxonomy, declared in the fixed order: Sekilas bisnis, Penjualan, Pembelian, Produk, Aset, Bank, Pajak, Produksi, followed by a trailing Lainnya tab for custom tools. Tabs SHALL be rendered in this declared order. Each tab SHALL display only the report cards the current user is permitted to access, and any tab with no permitted cards SHALL be hidden (including tabs that currently have no reports mapped, such as Aset, Bank, and Produksi). The Pajak tab SHALL be shown when the current user is permitted to access at least one Pajak report card, including the actionable Pajak penjualan report card. The tab navigation SHALL be presented as underline-style tabs, with the active tab marked by a bottom border rather than a filled pill.
 
 #### Scenario: All-permission user sees all populated tabs in Mekari order
 
 - **WHEN** a user with all report permissions opens the landing page
-- **THEN** the Sekilas bisnis, Penjualan, Pembelian, Produk, and Lainnya tabs are shown in that order
-- **AND** the Aset, Bank, Pajak, and Produksi tabs are not shown because they have no mapped reports
+- **THEN** the Sekilas bisnis, Penjualan, Pembelian, Produk, Pajak, and Lainnya tabs are shown in that order
+- **AND** the Aset, Bank, and Produksi tabs are not shown because they have no mapped reports
 - **AND** each visible tab contains the report cards mapped to its category
 
 #### Scenario: Restricted user sees only permitted tabs
 
 - **WHEN** a user holds only `saleReports.access`
 - **THEN** the Penjualan tab is shown with the Daftar Penjualan and Penjualan Per Customer cards
-- **AND** the Pembelian, Produk, Sekilas bisnis, and Lainnya tabs are not shown
+- **AND** the Pembelian, Produk, Sekilas bisnis, Pajak, and Lainnya tabs are not shown
 - **AND** the Penjualan Global card is not shown (it requires `saleReports.global.access`)
 
 #### Scenario: Empty tab is hidden
@@ -50,7 +56,7 @@ The reports landing page SHALL organize reports into tabs using the Mekari taxon
 
 ### Requirement: Permission-aware report cards
 
-Each report card SHALL be gated by the same permission as its corresponding sidebar entry was previously, and SHALL link to the existing report route without altering that report's behavior. Each card SHALL display a leading icon, a title, a descriptive sentence explaining what the report shows, and a "Lihat laporan" call-to-action. The entire card SHALL remain a navigable link to its report route; the call-to-action button is a visual affordance and SHALL navigate to the same route. The "Penjualan per produk" sales by product report card SHALL be included in the Penjualan tab, gated by `saleReports.access`, and remain actionable without placeholder treatment. The "Usia utang" aged payables report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Pengiriman pembelian" purchase delivery report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Pembelian per produk" purchase by product report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Ringkasan persediaan barang" inventory summary report card SHALL be included in the Produk tab, gated by `inventoryValuationReports.access`, and remain actionable without placeholder treatment. The "Kuantitas stok gudang" warehouse stock quantity report card SHALL be included in the Produk tab, gated by `stockMutationReports.access`, and remain actionable without placeholder treatment. The "Nilai persediaan barang" inventory valuation report card SHALL be included in the Produk tab, gated by `inventoryValuationReports.access`, linking to `reports.inventory-valuation-report.index`, and remain actionable without placeholder treatment. The "Detail persediaan barang" inventory detail report card SHALL be included in the Produk tab, gated by `stockMutationReports.access`, linking to `reports.inventory-detail-report.index`, and remain actionable without placeholder treatment.
+Each report card SHALL be gated by the same permission as its corresponding sidebar entry was previously, and SHALL link to the existing report route without altering that report's behavior. Each card SHALL display a leading icon, a title, a descriptive sentence explaining what the report shows, and a "Lihat laporan" call-to-action. The entire card SHALL remain a navigable link to its report route; the call-to-action button is a visual affordance and SHALL navigate to the same route. The "Penjualan per produk" sales by product report card SHALL be included in the Penjualan tab, gated by `saleReports.access`, and remain actionable without placeholder treatment. The "Usia utang" aged payables report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Pengiriman pembelian" purchase delivery report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Pembelian per produk" purchase by product report card SHALL be included in the Pembelian tab, gated by `purchaseReports.access`, and remain actionable without placeholder treatment. The "Ringkasan persediaan barang" inventory summary report card SHALL be included in the Produk tab, gated by `inventoryValuationReports.access`, and remain actionable without placeholder treatment. The "Kuantitas stok gudang" warehouse stock quantity report card SHALL be included in the Produk tab, gated by `stockMutationReports.access`, and remain actionable without placeholder treatment. The "Nilai persediaan barang" inventory valuation report card SHALL be included in the Produk tab, gated by `inventoryValuationReports.access`, linking to `reports.inventory-valuation-report.index`, and remain actionable without placeholder treatment. The "Detail persediaan barang" inventory detail report card SHALL be included in the Produk tab, gated by `stockMutationReports.access`, linking to `reports.inventory-detail-report.index`, and remain actionable without placeholder treatment. The "Pajak penjualan" sales tax report card SHALL be included in the Pajak tab, gated by `reports.access`, linking to the sales tax report route, and remain actionable without placeholder treatment.
 
 #### Scenario: Card permission and tab mapping is preserved
 
@@ -62,6 +68,7 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **AND** Penjualan shows Daftar Penjualan, Penjualan Per Customer, Piutang pelanggan, Usia piutang, Pengiriman penjualan, and Penjualan per produk (gated by `saleReports.access`) and Penjualan Global (gated by `saleReports.global.access`)
 - **AND** Pembelian shows Daftar Pembelian, Pembelian Per Supplier, Utang supplier, Daftar pengeluaran, Usia utang, Pengiriman pembelian, and Pembelian per produk (gated by `purchaseReports.access`) and Pembelian Global (gated by `purchaseReports.global.access`)
 - **AND** Produk shows Mutasi Stok (gated by `stockMutationReports.access`), Mutasi Stok Global (gated by `stockMutationReports.global.access`), Kuantitas stok gudang (gated by `stockMutationReports.access`), Ringkasan persediaan barang (gated by `inventoryValuationReports.access`), Nilai persediaan barang (gated by `inventoryValuationReports.access`), and Detail persediaan barang (gated by `stockMutationReports.access`)
+- **AND** Pajak shows Pajak penjualan (gated by `reports.access`)
 - **AND** Lainnya shows Mekari Converter and Mekari Invoice Generator (gated by `reports.access`)
 
 #### Scenario: Card shows description and call-to-action
@@ -129,6 +136,12 @@ Each report card SHALL be gated by the same permission as its corresponding side
 - **WHEN** a user with `stockMutationReports.access` views the Produk tab
 - **THEN** the Detail persediaan barang card is rendered as an actionable report link to `reports.inventory-detail-report.index`
 - **AND** the Detail persediaan barang card does not show placeholder or unavailable-state treatment
+
+#### Scenario: Pajak penjualan card is actionable
+
+- **WHEN** a user with `reports.access` views the Pajak tab
+- **THEN** the Pajak penjualan card is rendered as an actionable report link to the sales tax report route
+- **AND** the Pajak penjualan card does not show placeholder or unavailable-state treatment
 
 ### Requirement: Tab selection via query parameter
 

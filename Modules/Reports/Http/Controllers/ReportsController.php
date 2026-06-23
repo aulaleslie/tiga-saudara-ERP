@@ -312,7 +312,7 @@ class ReportsController extends Controller
                         'label' => 'Pajak penjualan',
                         'icon' => 'bi bi-receipt',
                         'description' => 'Menampilkan dasar pengenaan pajak (DPP), tarif pajak, dan jumlah pajak dengan pajak pertambahan nilai (PPN) yang digunakan di transaksi dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.sales-tax-report.index',
                         'permission' => 'reports.access'
                     ]
                 ]

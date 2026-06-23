@@ -157,8 +157,30 @@ class ReportsLandingTest extends TestCase
         $response->assertStatus(200);
         $response->assertSeeText('Pajak pemotongan');
         $response->assertSeeText('Belum tersedia');
-        // Assert we don't see an anchor tag for any report route, or 'Lihat laporan'
-        $response->assertDontSeeText('Lihat laporan');
+    }
+
+    /** @test */
+    public function pajak_tab_is_hidden_when_no_permitted_pajak_report_card_exists()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('saleReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index'));
+
+        $response->assertStatus(200);
+        $response->assertDontSeeText('Pajak');
+    }
+
+    /** @test */
+    public function pajak_tab_is_shown_for_permitted_users()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('reports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index'));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Pajak');
     }
 
     /** @test */
@@ -288,6 +310,20 @@ class ReportsLandingTest extends TestCase
         $response->assertStatus(200);
         $response->assertSeeText('Detail pengeluaran');
         $response->assertSee(route('reports.expense-details.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
+
+    /** @test */
+    public function pajak_penjualan_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('reports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pajak']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Pajak penjualan');
+        $response->assertSee(route('reports.sales-tax-report.index'));
         $response->assertSeeText('Lihat laporan');
     }
 }

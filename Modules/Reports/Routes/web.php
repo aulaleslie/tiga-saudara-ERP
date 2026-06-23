@@ -35,6 +35,7 @@ use Modules\Reports\Http\Controllers\WarehouseStockQuantityReportController;
 use Modules\Reports\Http\Controllers\InventorySummaryReportController;
 use Modules\Reports\Http\Controllers\InventoryDetailReportController;
 use Modules\Reports\Http\Controllers\ExpenseDetailsReportController;
+use Modules\Reports\Http\Controllers\SalesTaxReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -179,6 +180,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/warehouse-stock-valuation', [\Modules\Reports\Http\Controllers\WarehouseStockValuationReportController::class, 'index'])
             ->name('reports.warehouse-stock-valuation.index')
             ->middleware('can:inventoryValuationReports.access');
+
+        Route::get('/sales-tax-report', [SalesTaxReportController::class, 'index'])
+            ->name('reports.sales-tax-report.index')
+            ->middleware('can:reports.access');
     });
 
     Route::get('/test-pdf', function () {
