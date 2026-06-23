@@ -34,6 +34,7 @@ use Modules\Reports\Http\Controllers\PurchaseOrderCompletionReportController;
 use Modules\Reports\Http\Controllers\WarehouseStockQuantityReportController;
 use Modules\Reports\Http\Controllers\InventorySummaryReportController;
 use Modules\Reports\Http\Controllers\InventoryDetailReportController;
+use Modules\Reports\Http\Controllers\ExpenseDetailsReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -97,6 +98,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/expense-list', [ExpenseListReportController::class, 'index'])
             ->name('reports.expense-list.index')
+            ->middleware('can:purchaseReports.access');
+
+        Route::get('/expense-details', [ExpenseDetailsReportController::class, 'index'])
+            ->name('reports.expense-details.index')
             ->middleware('can:purchaseReports.access');
 
         Route::get('/sale-report', [SaleReportController::class, 'index'])

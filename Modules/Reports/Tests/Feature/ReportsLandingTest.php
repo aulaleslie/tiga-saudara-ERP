@@ -276,4 +276,18 @@ class ReportsLandingTest extends TestCase
         $response->assertSee(route('reports.inventory-detail-report.index'));
         $response->assertSeeText('Lihat laporan');
     }
+
+    /** @test */
+    public function detail_pengeluaran_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('purchaseReports.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pembelian']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Detail pengeluaran');
+        $response->assertSee(route('reports.expense-details.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
 }

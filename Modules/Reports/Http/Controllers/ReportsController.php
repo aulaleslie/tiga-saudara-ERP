@@ -188,7 +188,7 @@ class ReportsController extends Controller
                         'label' => 'Detail pengeluaran',
                         'icon' => 'bi bi-card-list',
                         'description' => 'Menampilkan semua transaksi pengeluaran berdasarkan akun dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.expense-details.index',
                         'permission' => 'purchaseReports.access'
                     ],
                     [

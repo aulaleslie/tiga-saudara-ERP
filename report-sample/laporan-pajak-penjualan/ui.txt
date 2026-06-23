@@ -1,0 +1,254 @@
+<div id="main-content">
+<header class="page-heading border-bottom white-bg new-design header-fix">
+<div class="row">
+<div class="col-md-12">
+<div class="row">
+<div class="col-xs-12 col-sm-12 col-md-12">
+<div class="page-title-heading">
+<h2>
+Laporan Pajak Penjualan
+<span>
+<small>
+(dalam IDR)
+</small>
+
+</span>
+</h2>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</header>
+<header class="page-heading border-bottom white-bg new-design header-search">
+<form class="form" role="form">
+<div class="row margin-top-29">
+<div class="col-xs-6 col-sm-6 col-md-8">
+<div class="row col-xs-12 col-sm-12 col-md-6 filter-section">
+<div class="row">
+<label class="control-label new-design col-xs-12 col-sm-12 col-md-4">
+Tanggal Mulai
+<div class="input-group date datepicker-new-design" data-date-format="dd/mm/yyyy">
+<span class="input-group-addon custom"></span>
+<input class="string required" id="start_date_field" type="text" value="01/01/2026">
+<div class="date-icon">
+<img src="https://d2lud967a5orp2.cloudfront.net/assets/icon/date-0dbe0eabfcaa5cf753a8d7425da4b432.svg">
+</div>
+</div>
+</label>
+<label class="control-label new-design col-xs-12 col-sm-12 col-md-4">
+Tanggal Selesai
+<div class="input-group date datepicker-new-design" data-date-format="dd/mm/yyyy">
+<span class="input-group-addon custom"></span>
+<input class="string required" id="end_date_field" type="text" value="31/12/2026">
+<div class="date-icon">
+<img src="https://d2lud967a5orp2.cloudfront.net/assets/icon/date-0dbe0eabfcaa5cf753a8d7425da4b432.svg">
+</div>
+</div>
+</label>
+<label class="control-label new-design col-md-4 col-sm-12 col-xs-12 no-backdrop">
+Filter sesuai periode
+<div class="dropdown selection-new material-design" id="date_select">
+<div class="dropdown-toggle" data-toggle="dropdown" type="button">
+<div class="selection-text" value="year" start-data-value="01/01/2026" end-data-value="31/12/2026">Tahun ini</div>
+<div class="arrow">
+<i class="fa fa-caret-down"></i>
+</div>
+</div>
+<ul class="dropdown-menu mid-z-index">
+<li end-data-value="31/12/2026" start-data-value="01/01/2026" value="custom">
+<a href="#">
+Tanggal
+</a>
+</li>
+<li end-data-value="23/06/2026" start-data-value="23/06/2026" value="day">
+<a href="#">
+Hari ini
+</a>
+</li>
+<li end-data-value="28/06/2026" start-data-value="22/06/2026" value="week">
+<a href="#">
+Minggu ini
+</a>
+</li>
+<li end-data-value="30/06/2026" start-data-value="01/06/2026" value="month">
+<a href="#">
+Bulan ini
+</a>
+</li>
+<li end-data-value="31/12/2026" start-data-value="01/01/2026" value="year">
+<a href="#">
+Tahun ini
+</a>
+</li>
+<li end-data-value="22/06/2026" start-data-value="22/06/2026" value="yesterday">
+<a href="#">
+Kemarin
+</a>
+</li>
+<li end-data-value="21/06/2026" start-data-value="15/06/2026" value="last_week">
+<a href="#">
+Minggu lalu
+</a>
+</li>
+<li end-data-value="31/05/2026" start-data-value="01/05/2026" value="last_month">
+<a href="#">
+Bulan lalu
+</a>
+</li>
+<li end-data-value="31/12/2025" start-data-value="01/01/2025" value="last_year">
+<a href="#">
+Tahun lalu
+</a>
+</li>
+</ul>
+</div>
+</label>
+</div>
+
+
+</div>
+<div class="col-xs-12 col-sm-12 col-md-6">
+<a class="btn btn-action-flat balance-sheet-filter-btn-2 new-btn" href="/reports/sales_tax_report" id="report_filter_button">
+Filter
+</a>
+<a class="btn btn-transparent balance-sheet-filter-btn new-btn" data-target="#sales-tax-report-filter" data-toggle="modal" href="" id="more-filter">
+Filter lebih lanjut
+</a>
+
+</div>
+</div>
+<div class="col-xs-6 col-sm-6 col-md-4 text-right">
+<div class="btn-group no-backdrop" style="">
+<button aria-expanded="false" aria-haspopup="true" class="btn btn-action-flat dropdown-toggle new-btn btn-export" data-action-name="sales_tax_report" data-toggle="dropdown" id="export_report_dropdown" type="button">
+<span class="img_logo_export">
+<img style="" src="https://d2lud967a5orp2.cloudfront.net/assets/icon/export_report-9cf596804b2d503aa71beb824238e847.png" alt="Export report" width="12" height="15">
+</span>
+Ekspor
+<span class="caret"></span>
+</button>
+<ul class="dropdown-menu dropdown-export-report dropdown-menu-right mid-z-index mx-trigger" id="export_report_ul">
+<li>
+<a id="export_report_as_pdf" href="/reports/sales_tax_report.pdf?compare_type=year&amp;detail=0&amp;end_date=31%2F12%2F2026&amp;legacy=true&amp;show=true&amp;sort_by_tax_type=all&amp;start_date=01%2F01%2F2026&amp;tax_id=all">PDF
+</a></li>
+<li>
+<a id="export_report_as_xls" href="/reports/sales_tax_report.xlsx?compare_type=year&amp;detail=0&amp;end_date=31%2F12%2F2026&amp;legacy=true&amp;show=true&amp;sort_by_tax_type=all&amp;start_date=01%2F01%2F2026&amp;tax_id=all">XLS
+</a></li>
+<li>
+<a id="export_report_as_csv" href="/reports/sales_tax_report.csv?compare_type=year&amp;detail=0&amp;end_date=31%2F12%2F2026&amp;legacy=true&amp;show=true&amp;sort_by_tax_type=all&amp;start_date=01%2F01%2F2026&amp;tax_id=all">CSV
+</a></li>
+</ul>
+</div>
+
+</div>
+</div>
+</form>
+</header>
+<section class="page-content reports new-design">
+<div class="row">
+<div class="col-lg-12 content-wrapper">
+<div class="table-container list-table">
+<div class="report-title">
+<div class="table-responsive">
+<table class="account-transactions report-table table" id="account-entry">
+<thead class="report-header">
+<tr>
+<th>
+Tanggal
+</th>
+<th class="text-right">
+DPP
+</th>
+<th class="text-right">
+Rate Pajak
+</th>
+<th class="text-right">
+Total Pajak
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="report-subheader-noindent text-left" colspan="4">
+PPN
+</td>
+</tr>
+<tr>
+<td class="text-left add-indent">
+Penjualan
+</td>
+<td class="text-right">
+ 636.363,64
+</td>
+<td class="text-right">
+10.0
+</td>
+<td class="text-right">
+ 63.636,36
+</td>
+</tr>
+<tr class="report-subtotal">
+<td class="text-right bold" colspan="4">
+ 63.636,36
+</td>
+</tr>
+<tr class="report-subtotal">
+<td colspan="4">
+&nbsp;
+</td>
+</tr>
+<tr>
+<td class="report-subheader-noindent text-left" colspan="4">
+PPN 12%
+</td>
+</tr>
+<tr>
+<td class="text-left add-indent">
+Penjualan
+</td>
+<td class="text-right">
+ 2.842.969.993,77
+</td>
+<td class="text-right">
+11.0
+</td>
+<td class="text-right">
+ 312.726.699,31
+</td>
+</tr>
+<tr>
+</tr>
+<tr>
+<td class="text-left add-indent">
+Pembelian
+</td>
+<td class="text-right">
+ 2.308.490.371,80
+</td>
+<td class="text-right">
+11.0
+</td>
+<td class="text-right">
+ 253.933.940,90
+</td>
+</tr>
+<tr class="report-subtotal">
+<td class="text-right bold" colspan="4">
+ 58.792.758,42
+</td>
+</tr>
+<tr class="report-subtotal">
+<td colspan="4">
+&nbsp;
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
