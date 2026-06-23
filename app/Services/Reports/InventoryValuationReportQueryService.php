@@ -3,7 +3,6 @@
 namespace App\Services\Reports;
 
 use App\Services\Reports\Concerns\InventoryReplaySupport;
-use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -11,11 +10,20 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\Transaction;
 
-class InventorySummaryReportQueryService
+class InventoryValuationReportQueryService
 {
     use InventoryReplaySupport;
 
-    public function getSummary(InventorySummaryReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
+    private const TYPE_LABELS = [
+        'BUY' => 'Pembelian',
+        'SELL' => 'Penjualan',
+        'DISPATCH' => 'Penjualan',
+        'ADJ' => 'Penyesuaian',
+        'TRF' => 'Transfer',
+        'OPENING' => 'Saldo Awal',
+    ];
+
+    public function getReport(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
     {
         $productsQuery = Product::query()
             ->where('setting_id', $settingId)
@@ -56,7 +64,6 @@ class InventorySummaryReportQueryService
         if ($productIds->isEmpty()) {
             return [
                 'paginator' => new LengthAwarePaginator([], 0, $perPage, $page),
-                'totalItems' => 0,
                 'totalValue' => 0.0,
                 'allRows' => collect()
             ];
@@ -92,10 +99,22 @@ class InventorySummaryReportQueryService
                 })->values();
             });
 
-        $asOfDate = $filters->asOfDate;
+        $sortColumnMap = [
+            'product_name' => 'product_name',
+            'product_code' => 'product_code',
+        ];
+        $sortColumn = $sortColumnMap[$filters->sortColumn] ?? 'product_name';
         
-        $results = [];
-        $totalValue = 0.0;
+        $products = $products->sortBy([
+            [$sortColumn, $filters->sortDirection === 'desc' ? 'desc' : 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        $tanggalAwal = $filters->tanggalAwal;
+        $tanggalAkhir = $filters->tanggalAkhir;
+        
+        $allGroupedRows = [];
+        $grandTotalValue = 0.0;
 
         foreach ($products as $product) {
             $productTransactions = $transactionsByProduct->get($product->id, collect());
@@ -107,12 +126,17 @@ class InventorySummaryReportQueryService
             $runningStock = 0.0;
             $runningAvg = 0.0;
             
+            $openingStock = 0.0;
+            $openingAvg = 0.0;
+            
+            $ledgerRows = [];
+
             foreach ($productTransactions as $transaction) {
                 $meta = $transactionMeta[$transaction->id] ?? null;
                 $transactionDate = $meta['date'] ?? null;
 
-                if (!$transactionDate || $transactionDate->gt($asOfDate)) {
-                    continue;
+                if (!$transactionDate || $transactionDate->gt($tanggalAkhir)) {
+                    continue; // Skip transactions after the period or without date
                 }
 
                 $delta = $this->resolveDelta($transaction);
@@ -134,54 +158,76 @@ class InventorySummaryReportQueryService
                 );
 
                 $this->applyTransaction($type, $delta, $unitPrice, $runningStock, $runningAvg);
+
+                if ($transactionDate->lt($tanggalAwal)) {
+                    // This is before the start date, just accumulate the running totals
+                    $openingStock = $runningStock;
+                    $openingAvg = $runningAvg;
+                } else {
+                    // This is within the period, add to ledger
+                    $ledgerRows[] = [
+                        'date' => $transactionDate->format('Y-m-d'),
+                        'type_label' => self::TYPE_LABELS[$type] ?? $type,
+                        'reference' => $meta['display_reference'] ?? '-',
+                        'description' => $transaction->reason ?? '-',
+                        'mutation' => $delta,
+                        'running_stock' => $runningStock,
+                        'unit' => $product->product_unit ?? 'Pcs',
+                        'running_avg' => $runningAvg,
+                        'unit_price' => $unitPrice,
+                        'running_value' => $runningStock * $runningAvg,
+                    ];
+                }
             }
 
+            // Fallback avg if zero and never bought
+            if ($openingAvg == 0.0 && $fallbackAvg > 0) {
+                $openingAvg = $fallbackAvg;
+            }
             if ($runningAvg == 0.0 && $fallbackAvg > 0) {
                 $runningAvg = $fallbackAvg;
+                // Update ledger rows avg and value if we used fallback
+                foreach ($ledgerRows as &$row) {
+                    if ($row['running_avg'] == 0.0) {
+                        $row['running_avg'] = $fallbackAvg;
+                        $row['running_value'] = $row['running_stock'] * $fallbackAvg;
+                    }
+                }
             }
 
-            if ($filters->stockStatus === 'available' && $runningStock <= 0) {
-                continue;
-            }
-            if ($filters->stockStatus === 'out_of_stock' && $runningStock > 0) {
-                continue;
-            }
-            if ($filters->stockStatus === 'below_minimum' && $runningStock >= ($product->product_stock_alert ?? 0)) {
-                continue;
-            }
+            $openingValue = $openingStock * $openingAvg;
+            $finalValue = $runningStock * $runningAvg;
 
-            $value = $runningStock * $runningAvg;
-
-            $results[] = [
+            $group = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
                 'product_name' => $product->product_name,
                 'product_unit' => $product->product_unit ?? 'Pcs',
-                'minimum_stock' => $product->product_stock_alert ?? 0,
-                'stock' => $runningStock,
-                'average_cost' => $runningAvg,
-                'value' => $value,
+                'opening_row' => [
+                    'date' => '-',
+                    'type_label' => self::TYPE_LABELS['OPENING'],
+                    'reference' => '-',
+                    'description' => '-',
+                    'mutation' => '-',
+                    'running_stock' => $openingStock,
+                    'unit' => $product->product_unit ?? 'Pcs',
+                    'running_avg' => $openingAvg,
+                    'unit_price' => '-',
+                    'running_value' => $openingValue,
+                ],
+                'ledger_rows' => $ledgerRows,
+                'subtotal' => [
+                    'stock' => $runningStock,
+                    'unit' => $product->product_unit ?? 'Pcs',
+                    'value' => $finalValue,
+                ],
             ];
-            
-            $totalValue += $value;
+
+            $allGroupedRows[] = $group;
+            $grandTotalValue += $finalValue;
         }
 
-        $resultsCollection = collect($results);
-
-        $sortColumnMap = [
-            'product_name' => 'product_name',
-            'product_code' => 'product_code',
-            'stock' => 'stock',
-            'average_cost' => 'average_cost',
-            'value' => 'value',
-        ];
-        $sortColumn = $sortColumnMap[$filters->sortColumn] ?? 'product_name';
-        
-        $resultsCollection = $resultsCollection->sortBy(
-            $sortColumn,
-            SORT_REGULAR,
-            $filters->sortDirection === 'desc'
-        )->values();
+        $resultsCollection = collect($allGroupedRows);
 
         $paginator = new LengthAwarePaginator(
             $resultsCollection->forPage($page, $perPage)->values(),
@@ -192,8 +238,7 @@ class InventorySummaryReportQueryService
 
         return [
             'paginator' => $paginator,
-            'totalItems' => $resultsCollection->count(),
-            'totalValue' => $totalValue,
+            'totalValue' => $grandTotalValue,
             'allRows' => $resultsCollection,
         ];
     }

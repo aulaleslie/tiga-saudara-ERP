@@ -241,13 +241,6 @@ class ReportsController extends Controller
                         'permission' => 'stockMutationReports.global.access'
                     ],
                     [
-                        'label' => 'Valuasi Stok',
-                        'icon' => 'bi bi-calculator',
-                        'description' => 'Menampilkan nilai persediaan barang berdasarkan kuantitas dan harga rata-rata.',
-                        'route' => 'reports.inventory-valuation-report.index',
-                        'permission' => 'inventoryValuationReports.access'
-                    ],
-                    [
                         'label' => 'Ringkasan persediaan barang',
                         'icon' => 'bi bi-box-seam',
                         'description' => 'Menampilkan kuantitas stok yang tersedia dengan harga rata-rata per unit dan total nilainya pada tanggal tertentu.',
@@ -262,10 +255,10 @@ class ReportsController extends Controller
                         'permission' => 'stockMutationReports.access'
                     ],
                     [
-                        'label' => 'Nilai persediaan barang',
+                        'label' => 'Nilai Persediaan Barang',
                         'icon' => 'bi bi-currency-dollar',
                         'description' => 'Menampilkan pergerakan stok per produk berdasarkan stok yang tersedia dan nilai stoknya dalam periode tertentu.',
-                        'is_placeholder' => true,
+                        'route' => 'reports.inventory-valuation-report.index',
                         'permission' => 'inventoryValuationReports.access'
                     ],
                     [

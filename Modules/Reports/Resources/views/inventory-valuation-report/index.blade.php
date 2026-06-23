@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', 'Valuasi Stok')
+@section('title', 'Nilai Persediaan Barang')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Valuasi Stok</li>
+        <li class="breadcrumb-item active">Nilai Persediaan Barang</li>
     </ol>
 @endsection
 
