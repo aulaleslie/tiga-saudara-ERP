@@ -36,6 +36,78 @@
 
                 <div class="w-full"></div>
 
+                {{-- Customer selection control --}}
+                <div class="w-full">
+                    @if($selectedCustomerId)
+                        <div class="flex items-center gap-2 p-2 bg-blue-50 rounded-md border border-blue-200 mb-2">
+                            <div class="flex-1">
+                                <div class="text-sm font-medium text-slate-800">
+                                    {{ $selectedCustomerLabel }}
+                                </div>
+                                @if($selectedCustomerTier)
+                                    <div class="text-[11px] text-slate-600">
+                                        @if($selectedCustomerTier === 'WHOLESALER')
+                                            Tier: <strong>Grosir</strong>
+                                        @elseif($selectedCustomerTier === 'RESELLER')
+                                            Tier: <strong>Reseller</strong>
+                                        @else
+                                            Tier: {{ $selectedCustomerTier }}
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                            <button
+                                wire:click="clearCustomer"
+                                class="inline-flex items-center gap-1 px-2 py-1 rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 text-[13px]"
+                                type="button"
+                                aria-label="Hapus pelanggan"
+                            >
+                                <i class="bi bi-x-lg text-[12px]"></i>
+                                <span class="hidden sm:inline">Hapus</span>
+                            </button>
+                        </div>
+                    @else
+                        <div class="relative mb-2">
+                            <div class="relative">
+                                <i class="bi bi-search pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                                <input
+                                    type="text"
+                                    class="w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 py-2 text-[13px] placeholder-slate-400 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                                    placeholder="Cari pelanggan (opsional)..."
+                                    wire:model.live="customerSearchText"
+                                    autocomplete="off"
+                                >
+                            </div>
+
+                            {{-- Customer dropdown --}}
+                            @if($showCustomerDropdown && count($customerSearchResults) > 0)
+                                <div class="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-md shadow-lg z-40">
+                                    @foreach($customerSearchResults as $customer)
+                                        <button
+                                            wire:click="selectCustomer({{ $customer['id'] }})"
+                                            type="button"
+                                            class="w-full text-left px-3 py-2 text-[13px] text-slate-800 hover:bg-slate-100 border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <div class="font-medium">{{ $customer['label'] }}</div>
+                                            @if($customer['tier'])
+                                                <div class="text-[11px] text-slate-600">
+                                                    @if($customer['tier'] === 'WHOLESALER')
+                                                        Grosir
+                                                    @elseif($customer['tier'] === 'RESELLER')
+                                                        Reseller
+                                                    @else
+                                                        {{ $customer['tier'] }}
+                                                    @endif
+                                                </div>
+                                            @endif
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+
                 {{-- Scanner-friendly search --}}
                 <form wire:submit.prevent="searchNow" class="flex w-full items-stretch gap-2">
                     <div class="relative flex-1 min-w-0">
@@ -119,27 +191,24 @@
 
                                     {{-- Desktop info grid (2 cols). On mobile it flows naturally. --}}
                                     <div class="md:grid md:grid-cols-2 md:gap-x-4 md:gap-y-1.5">
-                                        {{-- Price --}}
+                                        {{-- Contextual Price --}}
                                         <div class="mb-1 md:mb-0">
-                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Harga</div>
                                             @php
-                                                $priceTiers = [
-                                                    'Umum'   => $product->display_sale_price ?? null,
-                                                    'Tier 1' => $product->display_tier_1_price ?? null,
-                                                    'Tier 2' => $product->display_tier_2_price ?? null,
-                                                ];
+                                                $displayPrice = $product->contextual_price['price'];
+                                                $priceLabel = $product->contextual_price['label'];
                                             @endphp
-                                            <dl class="space-y-0.5">
-                                                @foreach($priceTiers as $label => $rawPrice)
-                                                    @php($formatted = $formatCurrency($rawPrice))
-                                                    @if($formatted)
-                                                        <div class="flex items-center justify-between text-[13.5px] md:text-[12.5px] text-slate-800">
-                                                            <dt class="font-medium text-slate-600">{{ $label }}</dt>
-                                                            <dd class="font-semibold">{{ $formatted }}</dd>
-                                                        </div>
-                                                    @endif
-                                                @endforeach
-                                            </dl>
+                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">
+                                                Harga
+                                                @if($selectedCustomerTier)
+                                                    ({{ $priceLabel }})
+                                                @endif
+                                            </div>
+                                            @php($formatted = $formatCurrency($displayPrice))
+                                            @if($formatted)
+                                                <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
+                                                    {{ $formatted }}
+                                                </div>
+                                            @endif
                                         </div>
 
                                         {{-- Codes (product code + barcode) --}}

@@ -6,6 +6,7 @@ use App\Services\TypoTolerantSearch;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Setting;
 use Livewire\Attributes\Url;
@@ -28,6 +29,31 @@ class Browser extends Component
 
     public int $perPage = 12;
 
+    // Customer selection state
+    public ?int $selectedCustomerId = null;
+    public ?string $selectedCustomerLabel = null;
+    public ?string $selectedCustomerTier = null;
+
+    // Customer search
+    public string $customerSearchText = '';
+    public array $customerSearchResults = [];
+    public bool $showCustomerDropdown = false;
+
+    public function updatedCustomerSearchText(string $value): void
+    {
+        $this->searchCustomers($value);
+    }
+
+    private function customerDisplayName(Customer $customer): string
+    {
+        $contactName = trim((string) $customer->contact_name);
+        $customerName = trim((string) $customer->customer_name);
+
+        return $contactName !== ''
+            ? $contactName
+            : ($customerName !== '' ? $customerName : 'Unnamed');
+    }
+
     public function mount(Setting $setting): void
     {
         $this->setting = $setting;
@@ -46,6 +72,90 @@ class Browser extends Component
 
         $this->resetPage(pageName: $this->pageName);
         $this->dispatch('refocus-search');
+    }
+
+    public function searchCustomers(string $term = ''): void
+    {
+        $this->customerSearchText = trim($term);
+
+        if (strlen($this->customerSearchText) < 2) {
+            $this->customerSearchResults = [];
+            $this->showCustomerDropdown = false;
+            return;
+        }
+
+        $like = "%{$this->customerSearchText}%";
+
+        $this->customerSearchResults = Customer::query()
+            ->where('customer_name', 'like', $like)
+            ->orWhere('contact_name', 'like', $like)
+            ->limit(10)
+            ->get(['id', 'customer_name', 'contact_name', 'tier'])
+            ->map(fn (Customer $c) => [
+                'id' => $c->id,
+                'label' => $this->customerDisplayName($c),
+                'tier' => $c->tier,
+            ])
+            ->toArray();
+
+        $this->showCustomerDropdown = count($this->customerSearchResults) > 0;
+    }
+
+    public function selectCustomer(int $customerId): void
+    {
+        $customer = Customer::find($customerId);
+
+        if ($customer) {
+            $this->selectedCustomerId = $customer->id;
+            $this->selectedCustomerLabel = $this->customerDisplayName($customer);
+            $this->selectedCustomerTier = $customer->tier;
+            $this->customerSearchText = '';
+            $this->customerSearchResults = [];
+            $this->showCustomerDropdown = false;
+
+            // Reset pagination when customer changes
+            $this->resetPage(pageName: $this->pageName);
+        }
+    }
+
+    public function clearCustomer(): void
+    {
+        $this->selectedCustomerId = null;
+        $this->selectedCustomerLabel = null;
+        $this->selectedCustomerTier = null;
+        $this->customerSearchText = '';
+        $this->customerSearchResults = [];
+        $this->showCustomerDropdown = false;
+
+        // Reset pagination when customer is cleared
+        $this->resetPage(pageName: $this->pageName);
+    }
+
+    private function resolveContextualPrice(?int $salePrice, ?int $tier1Price, ?int $tier2Price): array
+    {
+        // No customer selected or no recognized tier
+        if (!$this->selectedCustomerTier) {
+            return ['price' => $salePrice, 'label' => 'Umum'];
+        }
+
+        // WHOLESALER tier: use tier_1_price with fallback to sale_price
+        if ($this->selectedCustomerTier === 'WHOLESALER') {
+            if ($tier1Price > 0) {
+                return ['price' => $tier1Price, 'label' => 'Grosir'];
+            }
+            return ['price' => $salePrice, 'label' => 'Umum'];
+        }
+
+        // RESELLER tier: use tier_2_price with fallback to sale_price
+        if ($this->selectedCustomerTier === 'RESELLER') {
+            if ($tier2Price > 0) {
+                return ['price' => $tier2Price, 'label' => 'Reseller'];
+            }
+            return ['price' => $salePrice, 'label' => 'Umum'];
+        }
+
+        // Unknown tier: default to sale_price
+        return ['price' => $salePrice, 'label' => 'Umum'];
     }
 
     public function render()
@@ -126,6 +236,16 @@ class Browser extends Component
                 perPage: $this->perPage,
                 pageName: $this->pageName // <- IMPORTANT
             );
+
+        // Add contextual prices to each product to avoid N+1 queries in the view
+        $products->transform(function ($product) {
+            $product->contextual_price = $this->resolveContextualPrice(
+                $product->display_sale_price,
+                $product->display_tier_1_price,
+                $product->display_tier_2_price
+            );
+            return $product;
+        });
 
         return view('livewire.price-point.browser', compact('products'));
     }
