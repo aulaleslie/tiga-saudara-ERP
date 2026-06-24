@@ -10,7 +10,7 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, ref import, pelanggan, produk, nomor faktur pajak, tag..."
+                   placeholder="Cari referensi, ref import, pelanggan, produk (nama/kode), nomor faktur pajak, tag..."
                    wire:model.defer="searchText"
                    style="width: 300px;"
                    autocomplete="off"

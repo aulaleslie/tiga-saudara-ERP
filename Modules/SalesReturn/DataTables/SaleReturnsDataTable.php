@@ -15,6 +15,28 @@ class SaleReturnsDataTable extends DataTable
     public function dataTable($query) {
         return datatables()
             ->eloquent($query)
+            ->filter(function ($query) {
+                if ($search = $this->request()->get('search')['value'] ?? null) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where('reference', 'like', "%{$search}%")
+                            ->orWhere('sale_reference', 'like', "%{$search}%")
+                            ->orWhere('customer_name', 'like', "%{$search}%")
+                            ->orWhereHas('customer', function ($q2) use ($search) {
+                                $q2->where('customer_name', 'like', "%{$search}%")
+                                   ->orWhere('contact_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('sale', function ($q2) use ($search) {
+                                $q2->where('reference', 'like', "%{$search}%")
+                                   ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
+                                   ->orWhere('tax_ref_no', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('saleReturnDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            });
+                    });
+                }
+            }, false)
             ->editColumn('reference', function ($data) {
                 return '<a href="' . route('sale-returns.show', $data->id) . '">' . $data->reference . '</a>';
             })
@@ -30,7 +52,10 @@ class SaleReturnsDataTable extends DataTable
     }
 
     public function query(SaleReturn $model) {
-        return $model->newQuery();
+        $query = $model->newQuery()
+            ->with(['sale', 'customer', 'saleReturnDetails']);
+
+        return $query;
     }
 
     public function html() {

@@ -158,14 +158,16 @@ class PurchaseTable extends Component
                     $qq->where('reference', 'like', "%{$search}%")
                         ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
                         ->orWhere('tax_ref_no', 'like', "%{$search}%")
+                        ->orWhere('supplier_reference_no', 'like', "%{$search}%")
                         ->orWhereHas('supplier', function ($q2) use ($search) {
                             $q2->where('supplier_name', 'like', "%{$search}%");
                         })
                         ->orWhereHas('tags', function ($q2) use ($search) {
                             $q2->where('name->en', 'like', "%{$search}%");
                         })
-                        ->orWhereHas('purchaseDetails.product', function ($q2) use ($search) {
-                            $q2->where('product_name', 'like', "%{$search}%");
+                        ->orWhereHas('purchaseDetails', function ($q2) use ($search) {
+                            $q2->where('product_name', 'like', "%{$search}%")
+                               ->orWhere('product_code', 'like', "%{$search}%");
                         });
                 });
             })

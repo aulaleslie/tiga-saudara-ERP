@@ -155,7 +155,8 @@ class SaleTable extends Component
                                 ->orWhere('contact_name', 'like', "%{$search}%");
                         })
                         ->orWhereHas('saleDetails', function ($q2) use ($search) {
-                            $q2->where('product_name', 'like', "%{$search}%");
+                            $q2->where('product_name', 'like', "%{$search}%")
+                               ->orWhere('product_code', 'like', "%{$search}%");
                         })
                         ->orWhereHas('tags', function ($q2) use ($search) {
                             $q2->where('name->en', 'like', "%{$search}%");

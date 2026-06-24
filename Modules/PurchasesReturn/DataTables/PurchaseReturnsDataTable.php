@@ -23,6 +23,27 @@ class PurchaseReturnsDataTable extends DataTable
 
         $table = datatables()
             ->eloquent($query)
+            ->filter(function ($query) {
+                if ($search = $this->request()->get('search')['value'] ?? null) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where('reference', 'like', "%{$search}%")
+                            ->orWhere('supplier_name', 'like', "%{$search}%")
+                            ->orWhereHas('supplier', function ($q2) use ($search) {
+                                $q2->where('supplier_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('purchaseReturnDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('purchaseReturnDetails.purchase', function ($q2) use ($search) {
+                                $q2->where('reference', 'like', "%{$search}%")
+                                   ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
+                                   ->orWhere('supplier_reference_no', 'like', "%{$search}%")
+                                   ->orWhere('tax_ref_no', 'like', "%{$search}%");
+                            });
+                    });
+                }
+            }, false)
             ->editColumn('reference', function ($data) {
                 $details = $data->purchaseReturnDetails->map(function($detail) {
                     return $detail->product_name . ': ' . $detail->quantity;
@@ -59,8 +80,10 @@ class PurchaseReturnsDataTable extends DataTable
 
     public function query(PurchaseReturn $model): Builder
     {
-        return $model->newQuery()
+        $query = $model->newQuery()
             ->with(['supplier', 'location', 'purchaseReturnDetails', 'settlementItems']);
+
+        return $query;
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
