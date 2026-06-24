@@ -24,6 +24,11 @@
                                 <a href="{{ route('expenses.create') }}" class="btn btn-primary">
                                     Tambah Biaya <i class="bi bi-plus"></i>
                                 </a>
+                                @can('expenses.import')
+                                    <a href="{{ route('expenses.imports.index') }}" class="btn btn-success ms-2">
+                                        Upload CSV <i class="bi bi-file-earmark-arrow-up"></i>
+                                    </a>
+                                @endcan
                             </div>
                             <div class="col-md-6 text-right text-end">
                                 <form action="{{ route('expenses.index') }}" method="GET" class="form-inline d-flex justify-content-end gap-2">

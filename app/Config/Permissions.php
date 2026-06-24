@@ -104,6 +104,7 @@ return [
     'Pengeluaran' => [
         'expenses.access' => 'Hak Akses',
         'expenses.create' => 'Buat',
+        'expenses.import' => 'Impor',
         'expenses.edit' => 'Ubah',
         'expenses.delete' => 'Hapus',
         'expenses.approval' => 'Persetujuan',
