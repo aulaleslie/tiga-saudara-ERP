@@ -7,6 +7,22 @@
                         <div class="form-row">
                             <div class="col-lg-6">
                                 <div class="form-group">
+                                    <label>Perusahaan</label>
+                                    <div wire:ignore class="profit-loss-setting-select">
+                                        <select id="settingIds" multiple class="form-control" style="width: 100%;">
+                                            @forelse($availableSettings as $setting)
+                                                <option value="{{ $setting['id'] }}">{{ $setting['company_name'] }}</option>
+                                            @empty
+                                                <option disabled>Tidak ada perusahaan</option>
+                                            @endforelse
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="col-lg-6">
+                                <div class="form-group">
                                     <label>Tanggal awal</label>
                                     <input wire:model="start_date" type="date" class="form-control" name="start_date">
                                     @error('start_date')
@@ -49,6 +65,7 @@
                 <div class="card-body">
                     <div class="text-center mb-4">
                         <h3 class="font-weight-bold mb-1">Laporan Laba Rugi</h3>
+                        <p class="text-muted mb-1">{{ $scopeLabel }}</p>
                         <p class="text-muted mb-0">(dalam {{ $report->currencyCode }})</p>
                     </div>
 
@@ -116,5 +133,64 @@
         </div>
     </div>
     @endif
-</div>
 
+    <style>
+        .profit-loss-setting-select .select2-selection--multiple {
+            min-height: 38px;
+            height: auto !important;
+            padding: 2px 6px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .profit-loss-setting-select .select2-selection__rendered {
+            display: flex !important;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: auto !important;
+        }
+
+        .profit-loss-setting-select .select2-search--inline {
+            flex: 1 1 160px;
+            min-width: 160px;
+            line-height: 28px;
+        }
+
+        .profit-loss-setting-select .select2-search__field {
+            width: 100% !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            max-height: 28px !important;
+            line-height: 28px !important;
+            resize: none !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            text-align: left;
+        }
+    </style>
+
+    <script>
+        document.addEventListener('livewire:initialized', () => {
+            const $select = $('#settingIds');
+
+            if ($select.hasClass('select2-hidden-accessible')) {
+                $select.select2('destroy');
+            }
+
+            $select.select2({
+                placeholder: 'Pilih perusahaan...',
+                allowClear: true,
+                theme: 'coreui',
+                width: '100%'
+            }).on('change', function() {
+                const values = $(this).val() || [];
+                @this.set('selectedSettingIds', values);
+            });
+        });
+    </script>
+</div>

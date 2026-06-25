@@ -8,12 +8,14 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use Maatwebsite\Excel\Facades\Excel;
+use Modules\Setting\Entities\Setting;
 
 class ProfitLossReport extends Component
 {
     public $start_date;
     public $end_date;
-    
+    public array $selectedSettingIds = [];
+
     // We don't make $report a public property because Value Objects with complex types
     // don't hydrate back well in Livewire. We just pass it to the view.
 
@@ -27,28 +29,68 @@ class ProfitLossReport extends Component
 
         $this->start_date = '';
         $this->end_date = '';
+        $this->selectedSettingIds = [];
     }
 
     public function render(OperationalProfitLossReportService $reportService) {
-        $settingId = session('setting_id');
-        
+        $availableSettings = Setting::query()
+            ->orderBy('company_name')
+            ->select('id', 'company_name')
+            ->get()
+            ->toArray();
+
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $report = null;
         if ($this->start_date && $this->end_date) {
             $report = $reportService->generate(
-                $settingId, 
-                $this->start_date, 
+                $validatedSettingIds,
+                $this->start_date,
                 $this->end_date
             );
         } else {
-            // Provide a default empty report or calculate all time? 
-            // The original logic calculated all time if start_date/end_date were missing, 
-            // but the rules require them. We will calculate all time if not set.
-            $report = $reportService->generate($settingId, null, null);
+            $report = $reportService->generate($validatedSettingIds, null, null);
         }
 
         return view('livewire.reports.profit-loss-report', [
-            'report' => $report
+            'report' => $report,
+            'availableSettings' => $availableSettings,
+            'effectiveSettingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
+    }
+
+    private function getEffectiveSettingIds(): array {
+        if (empty($this->selectedSettingIds)) {
+            return [session('setting_id')];
+        }
+
+        return array_filter(
+            array_map('intval', $this->selectedSettingIds),
+            fn($id) => $id > 0
+        );
+    }
+
+    private function validateSettingIds(array $settingIds, array $availableSettings): array {
+        $validIds = collect($availableSettings)->pluck('id')->toArray();
+        return array_values(array_unique(array_intersect($settingIds, $validIds)));
+    }
+
+    private function getScopeLabel(array $availableSettings, array $effectiveSettingIds): string {
+        $count = count($effectiveSettingIds);
+        $totalCount = count($availableSettings);
+
+        if ($count === 1) {
+            $setting = collect($availableSettings)->firstWhere('id', $effectiveSettingIds[0]);
+            return $setting ? $setting['company_name'] : 'Unknown Company';
+        }
+
+        if ($count === $totalCount && $totalCount > 0) {
+            return 'Semua Perusahaan';
+        }
+
+        return 'Beberapa Perusahaan';
     }
 
     public function generateReport() {
@@ -68,7 +110,7 @@ class ProfitLossReport extends Component
         return [
             'startDate' => $this->start_date ?: null,
             'endDate' => $this->end_date ?: null,
-            'settingId' => session('setting_id')
+            'settingIds' => $this->getEffectiveSettingIds()
         ];
     }
 

@@ -12,9 +12,12 @@ use Modules\Setting\Entities\Setting;
 
 class OperationalProfitLossReportService
 {
-    public function generate(int $settingId, ?string $startDate, ?string $endDate): OperationalProfitLossReport
+    public function generate(array $settingIds, ?string $startDate, ?string $endDate): OperationalProfitLossReport
     {
-        $setting = Setting::with('currency')->find($settingId);
+        $normalizedSettingIds = $this->normalizeSettingIds($settingIds);
+
+        // Use the first setting for currency determination (all should be IDR)
+        $setting = Setting::with('currency')->find($normalizedSettingIds[0] ?? null);
         $currencyCode = $setting && $setting->currency ? ($setting->currency->code ?? $setting->currency->currency_name ?? 'IDR') : 'IDR';
 
         $periodLabel = $this->buildPeriodLabel($startDate, $endDate);
@@ -22,14 +25,14 @@ class OperationalProfitLossReportService
         // Sales (Completed: DISPATCHED, RETURNED_PARTIALLY, RETURNED)
         // Excludes DISPATCHED_PARTIALLY to avoid overstating revenue from incomplete shipments
         $salesTotal = Sale::whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('total_amount');
 
         // Sale Returns (Completed)
         $saleReturnsTotal = SaleReturn::whereIn('status', ['Completed', 'COMPLETED'])
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('total_amount');
@@ -37,14 +40,14 @@ class OperationalProfitLossReportService
         // Purchases (Completed: RECEIVED, RETURNED_PARTIALLY, RETURNED)
         // Excludes RECEIVED_PARTIALLY to avoid overstating cost from incomplete receipts
         $purchasesTotal = Purchase::whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('total_amount');
 
         // Purchase Returns (Completed)
         $purchaseReturnsTotal = PurchaseReturn::whereIn('status', ['Completed', 'COMPLETED'])
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('total_amount');
@@ -52,7 +55,7 @@ class OperationalProfitLossReportService
         // Expenses (Approved, not archived)
         // Note: amount is stored in cents, so sum('amount') returns cents, must divide by 100
         $expensesCentsTotal = Expense::activeApproved()
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('amount');
@@ -66,6 +69,13 @@ class OperationalProfitLossReportService
             (float) $purchasesTotal,
             (float) $purchaseReturnsTotal,
             (float) $expensesTotal
+        );
+    }
+
+    private function normalizeSettingIds(array $settingIds): array {
+        return array_filter(
+            array_map('intval', $settingIds),
+            fn($id) => $id > 0
         );
     }
 

@@ -37,15 +37,16 @@ class ProfitLossReportExport implements FromArray, WithEvents, WithTitle
 
     public function array(): array
     {
-        $settingId = $this->filters['settingId'] ?? session('setting_id');
+        $settingIds = $this->filters['settingIds'] ?? [session('setting_id')];
         $startDate = $this->filters['startDate'] ?? null;
         $endDate = $this->filters['endDate'] ?? null;
 
-        $reportService = app(OperationalProfitLossReportService::class);
-        $report = $reportService->generate($settingId, $startDate, $endDate);
+        $validatedSettingIds = $this->validateSettingIds($settingIds);
 
-        $setting = function_exists('settings') ? settings() : \Modules\Setting\Entities\Setting::find($settingId);
-        $companyName = $setting?->company_name ?? 'Company';
+        $reportService = app(OperationalProfitLossReportService::class);
+        $report = $reportService->generate($validatedSettingIds, $startDate, $endDate);
+
+        $companyName = $this->getCompanyHeader($validatedSettingIds);
 
         $rows = [];
 
@@ -148,5 +149,31 @@ class ProfitLossReportExport implements FromArray, WithEvents, WithTitle
     private function padRow(array $cells, int $length = 3): array
     {
         return array_pad($cells, $length, '');
+    }
+
+    private function validateSettingIds(array $settingIds): array {
+        $normalized = array_filter(
+            array_map('intval', $settingIds),
+            fn($id) => $id > 0
+        );
+
+        $validIds = \Modules\Setting\Entities\Setting::pluck('id')->toArray();
+        return array_values(array_unique(array_intersect($normalized, $validIds)));
+    }
+
+    private function getCompanyHeader(array $validatedSettingIds): string {
+        if (count($validatedSettingIds) === 1) {
+            $setting = \Modules\Setting\Entities\Setting::find($validatedSettingIds[0]);
+            return $setting?->company_name ?? 'Company';
+        }
+
+        $allSettings = \Modules\Setting\Entities\Setting::pluck('id')->toArray();
+        $availableCount = count($allSettings);
+
+        if (count($validatedSettingIds) === $availableCount && $availableCount > 0) {
+            return 'Semua Perusahaan';
+        }
+
+        return 'Beberapa Perusahaan';
     }
 }

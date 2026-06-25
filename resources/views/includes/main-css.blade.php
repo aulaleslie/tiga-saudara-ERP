@@ -1,5 +1,8 @@
 <!-- Dropezone CSS -->
 <link rel="stylesheet" href="{{ asset('css/dropzone.css') }}">
+<!-- Select2 CSS -->
+<link rel="stylesheet" href="{{ asset('css/select2.min.css') }}">
+<link rel="stylesheet" href="{{ asset('css/select2-coreui.min.css') }}">
 <!-- CoreUI CSS -->
 @vite('resources/sass/app.scss')
 @vite('resources/css/tw.css')
