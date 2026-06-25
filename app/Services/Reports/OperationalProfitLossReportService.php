@@ -42,36 +42,32 @@ class OperationalProfitLossReportService
         $saleReturnsTotal = SaleReturn::whereIn('id', $saleReturnsIds)->sum('total_amount');
 
         // Calculate Cost of Goods Sold (COGS) from Sales
+        // For finalized sales, use snapshots only (treat null as zero for stability, not fallback to current average)
         $salesCostTotal = 0;
         $saleDetails = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)->get();
         foreach ($saleDetails as $detail) {
-            if ($detail->cost_total_snapshot > 0) {
+            if ($detail->cost_total_snapshot !== null) {
                 $salesCostTotal += $detail->cost_total_snapshot;
             } else {
-                $product = $detail->product;
-                if ($product) {
-                    $settingId = $detail->sale->setting_id ?? $normalizedSettingIds[0] ?? null;
-                    $averagePrice = (float) $product->averagePurchasePrice($settingId);
-                    $salesCostTotal += $averagePrice * $detail->quantity;
-                }
+                // Null snapshot on finalized sale is treated as zero (not fallback to current average)
+                // This preserves historical stability and signals potential missing snapshot
+                $salesCostTotal += 0;
             }
         }
 
         // Calculate COGS Return from Sale Returns
+        // For finalized sale returns, use original sale snapshots only (treat null as zero for stability)
         $saleReturnCostTotal = 0;
         $saleReturnDetails = \Modules\SalesReturn\Entities\SaleReturnDetail::whereIn('sale_return_id', $saleReturnsIds)
             ->with(['saleDetail', 'product', 'saleReturn'])
             ->get();
         foreach ($saleReturnDetails as $detail) {
-            if ($detail->saleDetail && $detail->saleDetail->cost_unit_snapshot > 0) {
+            if ($detail->saleDetail && $detail->saleDetail->cost_unit_snapshot !== null) {
                 $saleReturnCostTotal += $detail->saleDetail->cost_unit_snapshot * $detail->quantity;
             } else {
-                $product = $detail->product;
-                if ($product) {
-                    $settingId = $detail->saleReturn->setting_id ?? $normalizedSettingIds[0] ?? null;
-                    $averagePrice = (float) $product->averagePurchasePrice($settingId);
-                    $saleReturnCostTotal += $averagePrice * $detail->quantity;
-                }
+                // Null snapshot on returned sale is treated as zero (not fallback to current average)
+                // This preserves historical stability of returned items
+                $saleReturnCostTotal += 0;
             }
         }
 

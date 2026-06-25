@@ -20,13 +20,15 @@ class CostCalculationServicesTest extends TestCase
 
     public function test_purchase_dpp_cost_helper_calculates_correctly()
     {
+        // sub_total is already discounted in cart/import flows, so only subtract tax from DPP
+        // DPP = 110000 (discounted sub_total) - 10000 (tax) = 100000, unit cost = 100000 / 2 = 50000
         $cost = PurchaseCostHelper::calculateUnitCost(110000, 10000, 5000, 2);
-        $this->assertEquals(47500.0, $cost);
-        
+        $this->assertEquals(50000.0, $cost);
+
         // Zero qty
         $cost = PurchaseCostHelper::calculateUnitCost(110000, 10000, 5000, 0);
         $this->assertEquals(0.0, $cost);
-        
+
         // Decimal qty
         $cost = PurchaseCostHelper::calculateUnitCost(1000, 0, 0, 0.5);
         $this->assertEquals(2000.0, $cost);
@@ -36,8 +38,9 @@ class CostCalculationServicesTest extends TestCase
     {
         $setting1 = Setting::factory()->create();
         $setting2 = Setting::factory()->create();
-        
+
         $productId = \Illuminate\Support\Facades\DB::table('products')->insertGetId([
+            'setting_id' => $setting1->id,
             'category_id' => null,
             'product_name' => 'Test',
             'product_quantity' => 0,
@@ -47,10 +50,10 @@ class CostCalculationServicesTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        
+
         $sync = new ProductAveragePriceSynchronizer();
         $sync->syncAveragePurchasePrice($productId, 12500.50);
-        
+
         $prices = ProductPrice::where('product_id', $productId)->get();
         $this->assertCount(2, $prices);
         $this->assertEquals(12500.50, $prices->firstWhere('setting_id', $setting1->id)->average_purchase_price);

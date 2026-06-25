@@ -74,9 +74,32 @@ php artisan queue:work --queue=default --tries=3 --timeout=7200
 php artisan product:normalize-purchase-prices
 php artisan product:normalize-purchase-prices --write
 
+# Backfill historical sale detail cost snapshots for Laporan Laba Rugi.
+# Run dry-run first, inspect warning counts, then run with --write.
+php artisan sales:backfill-cost-snapshots
+php artisan sales:backfill-cost-snapshots --write
+
+# Recompute existing backfilled snapshots when historical purchase/receiving data changed.
+php artisan sales:backfill-cost-snapshots --write --force
+
+# Optional filters for smaller/manual runs.
+php artisan sales:backfill-cost-snapshots --product=123
+php artisan sales:backfill-cost-snapshots --setting=1 --start=2026-01-01 --end=2026-06-30
+php artisan sales:backfill-cost-snapshots --write --setting=1 --start=2026-01-01 --end=2026-06-30
+
 # Repair and sync persisted notification rows for stock, approval, and revision states.
 php artisan notifications:sync
 
 # Manually prune old notifications. Notifications are retained unless this command is run.
 php artisan notifications:prune --days=30
 ```
+
+### Sales Cost Snapshot Backfill
+
+`sales:backfill-cost-snapshots` normalizes historical sale detail cost snapshots used by Laporan Laba Rugi. The command replays product purchases, approved receiving notes, purchase returns, and sales by effective date so profit/loss uses `sales - sales cost - expenses` instead of current mutable product average prices.
+
+- Dry-run is the default and does not write changes.
+- `--write` persists calculated `cost_unit_snapshot`, `cost_total_snapshot`, `cost_snapshot_source`, and `cost_snapshot_at` on `sale_details`.
+- `--force` recomputes existing backfilled snapshots; use it after correcting historical purchase or receiving data.
+- `--product`, `--setting`, `--start`, and `--end` can limit the replay scope for manual checks.
+- Review summary warnings before writing, especially `negative_stock`, `missing_receipt_data`, `future_purchase_fallback`, `no_purchase_fallback`, and `non_stock_zero`.

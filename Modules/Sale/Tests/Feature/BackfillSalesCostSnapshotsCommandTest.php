@@ -44,22 +44,31 @@ class BackfillSalesCostSnapshotsCommandTest extends TestCase
         $this->assertNull($saleDetail->fresh()->cost_unit_snapshot);
     }
 
-    public function test_write_fills_nulls_only()
+    public function test_write_updates_imported_snapshots()
     {
+        // Verify that backfill recalculates imported snapshots (without backfill source marker)
+        // using replayed historical averages, not the import-time current average
         $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
 
         $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
         PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
 
         $sale = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        // Simulating imported snapshot without source marker (imported sales don't have cost_snapshot_source set initially)
         $saleDetail1 = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
-        $saleDetail2 = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0, 'cost_unit_snapshot' => 8000]);
+        // Simulating manually set/imported snapshot without backfill source
+        $saleDetail2 = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0, 'cost_unit_snapshot' => 8000, 'cost_snapshot_source' => null]);
 
         $this->artisan('sales:backfill-cost-snapshots', ['--write' => true])
             ->assertExitCode(0);
 
+        // Both should be updated with replayed historical average (10000)
         $this->assertEquals(10000, $saleDetail1->fresh()->cost_unit_snapshot);
-        $this->assertEquals(8000, $saleDetail2->fresh()->cost_unit_snapshot); // Unchanged
+        $this->assertEquals(10000, $saleDetail2->fresh()->cost_unit_snapshot); // Updated from 8000
+        // saleDetail2 uses BACKFILL_FUTURE_PURCHASE because after sale 1, stock is depleted
+        // and it falls back to the earliest available purchase (still 10000)
+        $this->assertNotNull($saleDetail2->fresh()->cost_snapshot_source);
+        $this->assertTrue(str_starts_with($saleDetail2->fresh()->cost_snapshot_source, 'BACKFILL_'));
     }
 
     public function test_force_recomputes_existing_snapshots()

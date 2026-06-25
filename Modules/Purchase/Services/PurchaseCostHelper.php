@@ -20,9 +20,10 @@ class PurchaseCostHelper
             return 0.0;
         }
 
+        // DPP = sub_total (already discounted) - tax
+        // Do not subtract discount again; it's already applied to sub_total in cart/import flows
         $lineDpp = (float) $subTotal - (float) $productTaxAmount;
-        $lineCost = $lineDpp - (float) $productDiscountAmount;
 
-        return $lineCost / $qty;
+        return $lineDpp / $qty;
     }
 }
