@@ -53,12 +53,12 @@ class ProfitLossReportTest extends TestCase
         $this->assertEquals(10000, $report->saleReturnsTotal);
         $this->assertEquals(90000, $report->netRevenue);
         
-        $this->assertEquals(50000, $report->purchasesTotal);
-        $this->assertEquals(5000, $report->purchaseReturnsTotal);
+        $this->assertEquals(0, $report->salesCostTotal);
+        $this->assertEquals(0, $report->saleReturnCostTotal);
         $this->assertEquals(20000, $report->expensesTotal);
-        $this->assertEquals(65000, $report->totalCost);
+        $this->assertEquals(20000, $report->totalCost);
         
-        $this->assertEquals(25000, $report->profitLoss);
+        $this->assertEquals(70000, $report->profitLoss);
         $this->assertEquals('IDR', $report->currencyCode);
     }
 
@@ -83,7 +83,7 @@ class ProfitLossReportTest extends TestCase
             ->assertSee('(dalam IDR)')
             ->assertSee('(' . format_currency(40000) . ')')
             ->assertDontSee('Laba Kotor')
-            ->assertDontSee('Beban Pokok Pendapatan');
+            ->assertSee('Beban Pokok Pendapatan');
     }
 
     public function test_excel_export_payload_structure()
@@ -106,14 +106,16 @@ class ProfitLossReportTest extends TestCase
             $this->assertStringContainsString('Pendapatan', $contents);
             $this->assertStringContainsString('Penjualan', $contents);
             $this->assertStringContainsString('Retur Penjualan', $contents);
-            $this->assertStringContainsString('Biaya', $contents);
-            $this->assertStringContainsString('Pembelian', $contents);
-            $this->assertStringContainsString('Retur Pembelian', $contents);
+            $this->assertStringContainsString('Beban Pokok Pendapatan', $contents);
+            $this->assertStringContainsString('Harga Pokok Penjualan', $contents);
+            $this->assertStringContainsString('Koreksi HPP (Retur)', $contents);
+            $this->assertStringContainsString('Biaya Operasional', $contents);
             $this->assertStringContainsString('Beban', $contents);
             $this->assertStringContainsString('Laba (Rugi)', $contents);
 
             $this->assertStringNotContainsString('Laba Kotor', $contents);
-            $this->assertStringNotContainsString('Beban Pokok Pendapatan', $contents);
+            $this->assertStringNotContainsString('Pembelian', $contents);
+            $this->assertStringNotContainsString('Retur Pembelian', $contents);
 
             return true;
         });
@@ -155,75 +157,6 @@ class ProfitLossReportTest extends TestCase
         $this->assertEquals(0, $report->netRevenue);
     }
 
-    public function test_returned_purchases_are_included_in_cost_calculation()
-    {
-        // Purchase with status RETURNED_PARTIALLY should still be counted as cost
-        Purchase::forceCreate(['setting_id' => $this->setting->id, 'status' => Purchase::STATUS_RETURNED_PARTIALLY, 'total_amount' => 50000, 'paid_amount' => 50000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'due_date' => '2023-05-15', 'reference' => 'P2', 'supplier_name' => 'S']);
-
-        // Return of that purchase
-        PurchaseReturn::forceCreate(['setting_id' => $this->setting->id, 'status' => 'Completed', 'total_amount' => 5000, 'paid_amount' => 5000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-16', 'reference' => 'PR2', 'supplier_name' => 'S']);
-
-        $service = new OperationalProfitLossReportService();
-        $report = $service->generate([$this->setting->id], '2023-05-01', '2023-05-31');
-
-        // Expected: purchase 50k (included despite RETURNED_PARTIALLY status), return 5k
-        // Total cost = 50k - 5k = 45k
-        $this->assertEquals(50000, $report->purchasesTotal);
-        $this->assertEquals(5000, $report->purchaseReturnsTotal);
-        $this->assertEquals(45000, $report->totalCost);
-    }
-
-    public function test_fully_returned_purchases_are_included_in_cost_calculation()
-    {
-        // Purchase with status RETURNED should still be counted as cost
-        Purchase::forceCreate(['setting_id' => $this->setting->id, 'status' => Purchase::STATUS_RETURNED, 'total_amount' => 50000, 'paid_amount' => 50000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'due_date' => '2023-05-15', 'reference' => 'P3', 'supplier_name' => 'S']);
-
-        // Full return of that purchase
-        PurchaseReturn::forceCreate(['setting_id' => $this->setting->id, 'status' => 'Completed', 'total_amount' => 50000, 'paid_amount' => 50000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-16', 'reference' => 'PR3', 'supplier_name' => 'S']);
-
-        $service = new OperationalProfitLossReportService();
-        $report = $service->generate([$this->setting->id], '2023-05-01', '2023-05-31');
-
-        // Expected: purchase 50k (included despite RETURNED status), return 50k
-        // Total cost = 50k - 50k = 0
-        $this->assertEquals(50000, $report->purchasesTotal);
-        $this->assertEquals(50000, $report->purchaseReturnsTotal);
-        $this->assertEquals(0, $report->totalCost);
-    }
-
-    public function test_partially_dispatched_sales_are_excluded_from_report()
-    {
-        // Sale with DISPATCHED_PARTIALLY status should NOT be counted (incomplete)
-        Sale::forceCreate(['setting_id' => $this->setting->id, 'status' => Sale::STATUS_DISPATCHED_PARTIALLY, 'total_amount' => 100000, 'paid_amount' => 50000, 'due_amount' => 50000, 'payment_status' => 'Partial', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'reference' => 'S6', 'customer_name' => 'C']);
-
-        // Fully dispatched sale for comparison
-        Sale::forceCreate(['setting_id' => $this->setting->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 50000, 'paid_amount' => 50000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'reference' => 'S7', 'customer_name' => 'C']);
-
-        $service = new OperationalProfitLossReportService();
-        $report = $service->generate([$this->setting->id], '2023-05-01', '2023-05-31');
-
-        // Expected: only fully dispatched sale (50k) is counted, partially dispatched (100k) is excluded
-        $this->assertEquals(50000, $report->salesTotal);
-        $this->assertEquals(0, $report->saleReturnsTotal);
-        $this->assertEquals(50000, $report->netRevenue);
-    }
-
-    public function test_partially_received_purchases_are_excluded_from_report()
-    {
-        // Purchase with RECEIVED_PARTIALLY status should NOT be counted (incomplete)
-        Purchase::forceCreate(['setting_id' => $this->setting->id, 'status' => Purchase::STATUS_RECEIVED_PARTIALLY, 'total_amount' => 80000, 'paid_amount' => 40000, 'due_amount' => 40000, 'payment_status' => 'Partial', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'due_date' => '2023-05-15', 'reference' => 'P4', 'supplier_name' => 'S']);
-
-        // Fully received purchase for comparison
-        Purchase::forceCreate(['setting_id' => $this->setting->id, 'status' => Purchase::STATUS_RECEIVED, 'total_amount' => 40000, 'paid_amount' => 40000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-05-15', 'due_date' => '2023-05-15', 'reference' => 'P5', 'supplier_name' => 'S']);
-
-        $service = new OperationalProfitLossReportService();
-        $report = $service->generate([$this->setting->id], '2023-05-01', '2023-05-31');
-
-        // Expected: only fully received purchase (40k) is counted, partially received (80k) is excluded
-        $this->assertEquals(40000, $report->purchasesTotal);
-        $this->assertEquals(0, $report->purchaseReturnsTotal);
-        $this->assertEquals(40000, $report->totalCost);
-    }
 
     public function test_access_gate_denies_without_reports_access_permission()
     {

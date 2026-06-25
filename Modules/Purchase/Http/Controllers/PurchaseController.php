@@ -991,8 +991,16 @@ class PurchaseController extends Controller
                             // Update Last Purchase Price
                             $product->update(['last_purchase_price' => $purchaseDetail->price]);
 
-                            // Update Average Purchase Price
-                            $this->updateAveragePurchasePrice($product, $purchaseDetail->price, $receivedQuantity);
+                            // Calculate unit DPP cost for average price calculation
+                            $dppUnitCost = \Modules\Purchase\Services\PurchaseCostHelper::calculateUnitCost(
+                                $purchaseDetail->sub_total,
+                                $purchaseDetail->product_tax_amount,
+                                $purchaseDetail->product_discount_amount,
+                                $purchaseDetail->quantity
+                            );
+
+                            // Update legacy product price
+                            $this->updateAveragePurchasePrice($product, $dppUnitCost, $receivedQuantity);
 
                             // Update per-setting ProductPrice (last + average) on approval
                             $settingId = $purchase->setting_id ?? session('setting_id');
@@ -1012,17 +1020,20 @@ class PurchaseController extends Controller
                                 $previousQty = $previous_quantity;
                                 $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
                                 $currentTotalValue = $currentAvgPrice * $previousQty;
-                                $newTotalValue = $purchaseDetail->price * $receivedQuantity;
+                                $newTotalValue = $dppUnitCost * $receivedQuantity;
                                 $newTotalQuantity = $previousQty + $receivedQuantity;
 
                                 $newAveragePrice = $newTotalQuantity > 0
                                     ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
-                                    : $purchaseDetail->price;
+                                    : $dppUnitCost;
 
                                 $productPrice->update([
                                     'last_purchase_price' => $purchaseDetail->price,
                                     'average_purchase_price' => $newAveragePrice,
                                 ]);
+
+                                app(\Modules\Product\Services\ProductAveragePriceSynchronizer::class)
+                                    ->syncAveragePurchasePrice($product->id, $newAveragePrice);
                             }
 
                             // Insert Transaction Log

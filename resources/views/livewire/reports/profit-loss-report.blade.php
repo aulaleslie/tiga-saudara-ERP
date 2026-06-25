@@ -99,22 +99,31 @@
 
                                 {{-- Biaya --}}
                                 <tr>
-                                    <td colspan="2" class="font-weight-bold">Biaya</td>
+                                    <td colspan="2" class="font-weight-bold">Beban Pokok Pendapatan</td>
                                 </tr>
                                 <tr>
-                                    <td class="pl-4">Pembelian</td>
-                                    <td class="text-right">{{ $report->purchasesTotal < 0 ? '(' . format_currency(abs($report->purchasesTotal)) . ')' : format_currency($report->purchasesTotal) }}</td>
+                                    <td class="pl-4">Harga Pokok Penjualan</td>
+                                    <td class="text-right">{{ $report->salesCostTotal < 0 ? '(' . format_currency(abs($report->salesCostTotal)) . ')' : format_currency($report->salesCostTotal) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="pl-4">Retur Pembelian</td>
-                                    <td class="text-right">({{ format_currency($report->purchaseReturnsTotal) }})</td>
+                                    <td class="pl-4">Koreksi HPP (Retur)</td>
+                                    <td class="text-right">({{ format_currency($report->saleReturnCostTotal) }})</td>
                                 </tr>
                                 <tr>
-                                    <td class="pl-4">Beban</td>
+                                    <td class="font-weight-bold">Total HPP Bersih</td>
+                                    <td class="text-right font-weight-bold">{{ $report->netSalesCost < 0 ? '(' . format_currency(abs($report->netSalesCost)) . ')' : format_currency($report->netSalesCost) }}</td>
+                                </tr>
+                                <tr><td colspan="2"></td></tr>
+
+                                <tr>
+                                    <td colspan="2" class="font-weight-bold">Biaya Operasional</td>
+                                </tr>
+                                <tr>
+                                    <td class="pl-4">Beban & Pengeluaran</td>
                                     <td class="text-right">{{ $report->expensesTotal < 0 ? '(' . format_currency(abs($report->expensesTotal)) . ')' : format_currency($report->expensesTotal) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="font-weight-bold">Total Biaya</td>
+                                    <td class="font-weight-bold">Total Biaya & HPP</td>
                                     <td class="text-right font-weight-bold">{{ $report->totalCost < 0 ? '(' . format_currency(abs($report->totalCost)) . ')' : format_currency($report->totalCost) }}</td>
                                 </tr>
 

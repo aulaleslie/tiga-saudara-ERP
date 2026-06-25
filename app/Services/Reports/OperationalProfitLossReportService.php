@@ -24,33 +24,56 @@ class OperationalProfitLossReportService
 
         // Sales (Completed: DISPATCHED, RETURNED_PARTIALLY, RETURNED)
         // Excludes DISPATCHED_PARTIALLY to avoid overstating revenue from incomplete shipments
-        $salesTotal = Sale::whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
+        $salesIds = Sale::whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->sum('total_amount');
+            ->pluck('id');
+
+        $salesTotal = Sale::whereIn('id', $salesIds)->sum('total_amount');
 
         // Sale Returns (Completed)
-        $saleReturnsTotal = SaleReturn::whereIn('status', ['Completed', 'COMPLETED'])
+        $saleReturnsIds = SaleReturn::whereIn('status', ['Completed', 'COMPLETED'])
             ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->sum('total_amount');
+            ->pluck('id');
 
-        // Purchases (Completed: RECEIVED, RETURNED_PARTIALLY, RETURNED)
-        // Excludes RECEIVED_PARTIALLY to avoid overstating cost from incomplete receipts
-        $purchasesTotal = Purchase::whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
-            ->whereIn('setting_id', $normalizedSettingIds)
-            ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->sum('total_amount');
+        $saleReturnsTotal = SaleReturn::whereIn('id', $saleReturnsIds)->sum('total_amount');
 
-        // Purchase Returns (Completed)
-        $purchaseReturnsTotal = PurchaseReturn::whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereIn('setting_id', $normalizedSettingIds)
-            ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->sum('total_amount');
+        // Calculate Cost of Goods Sold (COGS) from Sales
+        $salesCostTotal = 0;
+        $saleDetails = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)->get();
+        foreach ($saleDetails as $detail) {
+            if ($detail->cost_total_snapshot > 0) {
+                $salesCostTotal += $detail->cost_total_snapshot;
+            } else {
+                $product = $detail->product;
+                if ($product) {
+                    $settingId = $detail->sale->setting_id ?? $normalizedSettingIds[0] ?? null;
+                    $averagePrice = (float) $product->averagePurchasePrice($settingId);
+                    $salesCostTotal += $averagePrice * $detail->quantity;
+                }
+            }
+        }
+
+        // Calculate COGS Return from Sale Returns
+        $saleReturnCostTotal = 0;
+        $saleReturnDetails = \Modules\SalesReturn\Entities\SaleReturnDetail::whereIn('sale_return_id', $saleReturnsIds)
+            ->with(['saleDetail', 'product', 'saleReturn'])
+            ->get();
+        foreach ($saleReturnDetails as $detail) {
+            if ($detail->saleDetail && $detail->saleDetail->cost_unit_snapshot > 0) {
+                $saleReturnCostTotal += $detail->saleDetail->cost_unit_snapshot * $detail->quantity;
+            } else {
+                $product = $detail->product;
+                if ($product) {
+                    $settingId = $detail->saleReturn->setting_id ?? $normalizedSettingIds[0] ?? null;
+                    $averagePrice = (float) $product->averagePurchasePrice($settingId);
+                    $saleReturnCostTotal += $averagePrice * $detail->quantity;
+                }
+            }
+        }
 
         // Expenses (Approved, not archived)
         // Note: amount is stored in cents, so sum('amount') returns cents, must divide by 100
@@ -66,8 +89,8 @@ class OperationalProfitLossReportService
             $periodLabel,
             (float) $salesTotal,
             (float) $saleReturnsTotal,
-            (float) $purchasesTotal,
-            (float) $purchaseReturnsTotal,
+            (float) $salesCostTotal,
+            (float) $saleReturnCostTotal,
             (float) $expensesTotal
         );
     }

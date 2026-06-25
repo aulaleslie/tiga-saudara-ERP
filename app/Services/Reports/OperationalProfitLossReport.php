@@ -11,8 +11,10 @@ class OperationalProfitLossReport
     public float $saleReturnsTotal;
     public float $netRevenue;
 
-    public float $purchasesTotal;
-    public float $purchaseReturnsTotal;
+    public float $salesCostTotal;
+    public float $saleReturnCostTotal;
+    public float $netSalesCost;
+
     public float $expensesTotal;
     public float $totalCost;
 
@@ -23,8 +25,8 @@ class OperationalProfitLossReport
         string $periodLabel,
         float $salesTotal,
         float $saleReturnsTotal,
-        float $purchasesTotal,
-        float $purchaseReturnsTotal,
+        float $salesCostTotal,
+        float $saleReturnCostTotal,
         float $expensesTotal
     ) {
         $this->currencyCode = $currencyCode;
@@ -34,10 +36,12 @@ class OperationalProfitLossReport
         $this->saleReturnsTotal = $saleReturnsTotal;
         $this->netRevenue = $salesTotal - $saleReturnsTotal;
 
-        $this->purchasesTotal = $purchasesTotal;
-        $this->purchaseReturnsTotal = $purchaseReturnsTotal;
+        $this->salesCostTotal = $salesCostTotal;
+        $this->saleReturnCostTotal = $saleReturnCostTotal;
+        $this->netSalesCost = $salesCostTotal - $saleReturnCostTotal;
+
         $this->expensesTotal = $expensesTotal;
-        $this->totalCost = $purchasesTotal - $purchaseReturnsTotal + $expensesTotal;
+        $this->totalCost = $this->netSalesCost + $expensesTotal;
 
         $this->profitLoss = $this->netRevenue - $this->totalCost;
     }

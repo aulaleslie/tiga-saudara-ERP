@@ -1378,7 +1378,7 @@ class SalesImportService
 
             // Create sale details and update ProductPrice with sale_price
             foreach ($details as $detail) {
-                SaleDetails::create([
+                $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
                     'product_id' => $detail['product']->id,
                     'product_name' => $detail['product']->product_name,
@@ -1392,6 +1392,9 @@ class SalesImportService
                     'product_tax_amount' => $detail['tax_amount'],
                     'tax_id' => $detail['tax_id'],
                 ]);
+
+                app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+                $saleDetail->save();
 
                 // Accumulate selling-price updates for invoice-level deduplication
                 $unitPriceFinal = $detail['unit_price_final'];

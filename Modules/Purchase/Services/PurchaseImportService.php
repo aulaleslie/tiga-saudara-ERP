@@ -1263,11 +1263,24 @@ class PurchaseImportService
      */
     public function flushPurchasePriceUpdatesAcrossSettings(array $chunkPriceUpdatesBySetting): void
     {
-        $records = [];
-        $now = now();
-
+        $productIds = [];
         foreach ($chunkPriceUpdatesBySetting as $settingId => $chunkPriceUpdates) {
             foreach ($chunkPriceUpdates as $productId => $prices) {
+                // Keep the latest prices for each product regardless of the setting it was imported for
+                $productIds[$productId] = $prices;
+            }
+        }
+
+        $currentAverages = \Modules\Product\Entities\ProductPrice::whereIn('product_id', array_keys($productIds))
+            ->whereNotNull('average_purchase_price')
+            ->pluck('average_purchase_price', 'product_id');
+
+        $records = [];
+        $now = now();
+        $allSettings = $this->getAllSettingIds();
+
+        foreach ($productIds as $productId => $prices) {
+            foreach ($allSettings as $settingId) {
                 $records[] = [
                     'product_id' => $productId,
                     'setting_id' => $settingId,
@@ -1275,7 +1288,7 @@ class PurchaseImportService
                     'tier_1_price' => 0,
                     'tier_2_price' => 0,
                     'last_purchase_price' => $prices['last_purchase_price'],
-                    'average_purchase_price' => $prices['average_purchase_price'],
+                    'average_purchase_price' => $currentAverages[$productId] ?? 0.0,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];

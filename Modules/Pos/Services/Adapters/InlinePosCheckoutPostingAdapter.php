@@ -302,6 +302,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     );
                 }
             }
+            
+            app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+            $saleDetail->save();
         }
 
         // Keep payable total aligned with gross cart totals; tax is extracted for reporting only.

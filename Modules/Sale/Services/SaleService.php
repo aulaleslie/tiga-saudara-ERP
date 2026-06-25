@@ -152,6 +152,9 @@ class SaleService
                         ]);
                     }
                 }
+                
+                app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+                $saleDetail->save();
             }
 
             return $sale;
@@ -275,6 +278,9 @@ class SaleService
                         ]);
                     }
                 }
+                
+                app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+                $saleDetail->save();
             }
 
             return $sale;

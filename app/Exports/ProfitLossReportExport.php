@@ -67,11 +67,16 @@ class ProfitLossReportExport implements FromArray, WithEvents, WithTitle
         $this->addRow($rows, [''], false);
 
         // Biaya
-        $this->addRow($rows, ['Biaya'], true);
-        $this->addRow($rows, ['  Pembelian', '', $report->purchasesTotal], false, true);
-        $this->addRow($rows, ['  Retur Pembelian', '', -$report->purchaseReturnsTotal], false, true);
-        $this->addRow($rows, ['  Beban', '', $report->expensesTotal], false, true);
-        $this->addRow($rows, ['Total Biaya', '', $report->totalCost], true, true);
+        $this->addRow($rows, ['Beban Pokok Pendapatan'], true);
+        $this->addRow($rows, ['  Harga Pokok Penjualan', '', $report->salesCostTotal], false, true);
+        $this->addRow($rows, ['  Koreksi HPP (Retur)', '', -$report->saleReturnCostTotal], false, true);
+        $this->addRow($rows, ['Total HPP Bersih', '', $report->netSalesCost], true, true);
+
+        $this->addRow($rows, [''], false);
+
+        $this->addRow($rows, ['Biaya Operasional'], true);
+        $this->addRow($rows, ['  Beban & Pengeluaran', '', $report->expensesTotal], false, true);
+        $this->addRow($rows, ['Total Biaya & HPP', '', $report->totalCost], true, true);
 
         $this->addRow($rows, [''], false);
 

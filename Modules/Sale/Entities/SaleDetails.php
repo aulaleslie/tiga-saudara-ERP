@@ -24,6 +24,10 @@ class SaleDetails extends BaseModel
         'product_discount_amount' => 'decimal:2',
         'product_tax_amount' => 'decimal:2',
         'serial_number_ids' => 'array',
+        'cost_unit_snapshot' => 'decimal:6',
+        'cost_total_snapshot' => 'decimal:2',
+        'cost_snapshot_source' => 'string',
+        'cost_snapshot_at' => 'datetime',
     ];
 
     protected $with = ['product'];
