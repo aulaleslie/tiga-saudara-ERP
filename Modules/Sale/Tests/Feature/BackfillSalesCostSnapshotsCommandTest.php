@@ -210,4 +210,213 @@ class BackfillSalesCostSnapshotsCommandTest extends TestCase
         $this->assertEquals(0, $fresh->cost_unit_snapshot);
         $this->assertEquals('NON_STOCK_ZERO', $fresh->cost_snapshot_source);
     }
+
+    public function test_negative_stock_followed_by_purchase_resets_average()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        $purchase1 = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase1->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Purchase return of 15 quantity! Negative stock of -5.
+        $pr = PurchaseReturn::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-01-02']);
+        PurchaseReturnDetail::forceCreate(['purchase_return_id' => $pr->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 15, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 150000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // A later purchase that should reseed the average from 0, ignoring the negative value
+        $purchase2 = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 200000, 'paid_amount' => 200000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase2->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 200000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Sale that should use the new average of 20000, not a poisoned value
+        $sale = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-04', 'due_date' => '2023-01-04', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 25000, 'unit_price' => 25000, 'sub_total' => 125000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+
+        $fresh = $saleDetail->fresh();
+        $this->assertEquals(20000, $fresh->cost_unit_snapshot);
+        $this->assertEquals('BACKFILL_RUNNING_AVERAGE', $fresh->cost_snapshot_source);
+    }
+
+    public function test_purchase_dpp_subtracts_discount_and_tax()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        // sub_total 100000, tax 5000, discount 10000 => line_cost = 85000, qty 10 => average 8500
+        $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 5000, 'product_discount_amount' => 10000]);
+
+        $sale = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+
+        $fresh = $saleDetail->fresh();
+        $this->assertEquals(8500, $fresh->cost_unit_snapshot);
+    }
+
+    public function test_receipt_prorated_purchase_uses_discounted_tax_exclusive_dpp()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'RECEIVED PARTIALLY', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        // sub_total 100000, tax 5000, discount 15000 => line_cost 80000, qty 10.
+        $pd = PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 5000, 'product_discount_amount' => 15000]);
+
+        $rn = \Modules\Purchase\Entities\ReceivedNote::forceCreate(['po_id' => $purchase->id, 'date' => '2023-01-01', 'status' => 'APPROVED', 'approved_at' => '2023-01-01']);
+        \Modules\Purchase\Entities\ReceivedNoteDetail::forceCreate(['received_note_id' => $rn->id, 'po_detail_id' => $pd->id, 'quantity_received' => 5]);
+
+        $sale = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 3, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+
+        // prorated cost = 80000 * (5/10) = 40000
+        // unit cost = 40000 / 5 = 8000
+        $this->assertEquals(8000, $saleDetail->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_suspicious_unit_cost_handling()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        // Suspicious purchase cost: total is huge for 1 item
+        $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 200000000, 'paid_amount' => 200000000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 1, 'price' => 200000000, 'unit_price' => 200000000, 'sub_total' => 200000000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $sale = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail = SaleDetails::forceCreate(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 1, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 15000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true])
+             ->expectsTable(
+                ['Metric', 'Count'],
+                [
+                    ['scanned', '1'],
+                    ['fillable', '1'],
+                    ['updated', '0'], // should not update due to guardrail
+                    ['unchanged', '0'],
+                    ['skipped', '0'],
+                    ['missing_product_price', '0'],
+                    ['negative_stock', '0'],
+                    ['archived_skipped', '0'],
+                    ['future_purchase_fallback', '0'],
+                    ['no_purchase_fallback', '0'],
+                    ['non_stock_zero', '0'],
+                    ['missing_receipt_data', '0'],
+                    ['suspicious_unit_cost', '1'],
+                ]
+            );
+
+        $this->assertNull($saleDetail->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_filtered_replay_semantics()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        // Purchase on Jan 1
+        $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Sale on Jan 2 - shouldn't be counted in updated but stock is consumed
+        $sale1 = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail1 = SaleDetails::forceCreate(['sale_id' => $sale1->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Sale on Jan 3 - filtered to be in scope
+        $sale2 = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail2 = SaleDetails::forceCreate(['sale_id' => $sale2->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 2, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 30000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Run with filter from Jan 3
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--start' => '2023-01-03'])
+             ->expectsTable(
+                ['Metric', 'Count'],
+                [
+                    ['scanned', '1'], // only the in-scope sale is "scanned"
+                    ['fillable', '1'], // only the in-scope sale is "fillable"
+                    ['updated', '1'], // only one updated
+                    ['unchanged', '0'],
+                    ['skipped', '0'],
+                    ['missing_product_price', '0'],
+                    ['negative_stock', '0'],
+                    ['archived_skipped', '0'],
+                    ['future_purchase_fallback', '0'],
+                    ['no_purchase_fallback', '0'],
+                    ['non_stock_zero', '0'],
+                    ['missing_receipt_data', '0'],
+                    ['suspicious_unit_cost', '0'],
+                ]
+            );
+
+        // saleDetail1 shouldn't have snapshot updated because it's out of scope
+        $this->assertNull($saleDetail1->fresh()->cost_unit_snapshot);
+        // saleDetail2 should have it updated
+        $this->assertEquals(10000, $saleDetail2->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_end_filtered_replay_ignores_future_events()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        // Purchase on Jan 1
+        $purchase = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchase->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Sale on Jan 2 - IN SCOPE
+        $sale1 = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        SaleDetails::forceCreate(['sale_id' => $sale1->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Future Purchase Return on Jan 4 (would cause negative stock warning if processed)
+        $pr = \Modules\PurchasesReturn\Entities\PurchaseReturn::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-01-04']);
+        \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::forceCreate(['purchase_return_id' => $pr->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 15, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 150000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Future Received Partially Purchase with NO receipts on Jan 5 (would cause missing receipt data warning if processed)
+        $purchaseFuture = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'RECEIVED PARTIALLY', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-05', 'due_date' => '2023-01-05', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseFuture->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Run with filter up to Jan 3
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--end' => '2023-01-03'])
+             ->expectsTable(
+                ['Metric', 'Count'],
+                [
+                    ['scanned', '1'], 
+                    ['fillable', '1'], 
+                    ['updated', '1'], 
+                    ['unchanged', '0'],
+                    ['skipped', '0'],
+                    ['missing_product_price', '0'],
+                    ['negative_stock', '0'], // Should be 0 because future return is ignored
+                    ['archived_skipped', '0'],
+                    ['future_purchase_fallback', '0'],
+                    ['no_purchase_fallback', '0'],
+                    ['non_stock_zero', '0'],
+                    ['missing_receipt_data', '0'], // Should be 0 because future purchase is ignored
+                    ['suspicious_unit_cost', '0'],
+                ]
+            );
+    }
+
+    public function test_end_filtered_replay_uses_valid_future_purchase_fallback()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);
+
+        // Sale on Jan 1 - IN SCOPE
+        $sale1 = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'Customer', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetail = SaleDetails::forceCreate(['sale_id' => $sale1->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 5, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 75000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Future Received Partially Purchase with NO receipts on Jan 5 (invalid fallback)
+        $purchaseFutureInvalid = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'RECEIVED PARTIALLY', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-05', 'due_date' => '2023-01-05', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseFutureInvalid->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 200000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Future Valid Purchase on Jan 6
+        $purchaseFutureValid = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Supplier', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-06', 'due_date' => '2023-01-06', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseFutureValid->id, 'product_id' => $product->id, 'product_name' => 'Test Product', 'product_code' => 'TEST01', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Run with filter up to Jan 3. 
+        // Jan 5 invalid purchase should be skipped for fallback.
+        // Jan 6 valid purchase should be used.
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--end' => '2023-01-03']);
+
+        $fresh = $saleDetail->fresh();
+        $this->assertEquals(10000, $fresh->cost_unit_snapshot);
+        $this->assertEquals('BACKFILL_FUTURE_PURCHASE', $fresh->cost_snapshot_source);
+    }
 }
