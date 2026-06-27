@@ -30,46 +30,17 @@ class OperationalProfitLossReportService
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->pluck('id');
 
-        $salesTotal = Sale::whereIn('id', $salesIds)->sum('total_amount');
+        $penjualan = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)
+            ->selectRaw('SUM(sub_total - COALESCE(product_tax_amount, 0)) as dpp')
+            ->value('dpp') ?? 0;
 
-        // Sale Returns (Completed)
-        $saleReturnsIds = SaleReturn::whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereIn('setting_id', $normalizedSettingIds)
-            ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->pluck('id');
-
-        $saleReturnsTotal = SaleReturn::whereIn('id', $saleReturnsIds)->sum('total_amount');
+        $diskonPenjualan = -Sale::whereIn('id', $salesIds)->sum('discount_amount');
 
         // Calculate Cost of Goods Sold (COGS) from Sales
-        // For finalized sales, use snapshots only (treat null as zero for stability, not fallback to current average)
-        $salesCostTotal = 0;
-        $saleDetails = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)->get();
-        foreach ($saleDetails as $detail) {
-            if ($detail->cost_total_snapshot !== null) {
-                $salesCostTotal += $detail->cost_total_snapshot;
-            } else {
-                // Null snapshot on finalized sale is treated as zero (not fallback to current average)
-                // This preserves historical stability and signals potential missing snapshot
-                $salesCostTotal += 0;
-            }
-        }
-
-        // Calculate COGS Return from Sale Returns
-        // For finalized sale returns, use original sale snapshots only (treat null as zero for stability)
-        $saleReturnCostTotal = 0;
-        $saleReturnDetails = \Modules\SalesReturn\Entities\SaleReturnDetail::whereIn('sale_return_id', $saleReturnsIds)
-            ->with(['saleDetail', 'product', 'saleReturn'])
-            ->get();
-        foreach ($saleReturnDetails as $detail) {
-            if ($detail->saleDetail && $detail->saleDetail->cost_unit_snapshot !== null) {
-                $saleReturnCostTotal += $detail->saleDetail->cost_unit_snapshot * $detail->quantity;
-            } else {
-                // Null snapshot on returned sale is treated as zero (not fallback to current average)
-                // This preserves historical stability of returned items
-                $saleReturnCostTotal += 0;
-            }
-        }
+        // Replace HPP aggregation with `COALESCE(cost_unit_snapshot, 0) * sale_details.quantity`
+        $bebanPokokPendapatan = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)
+            ->selectRaw('SUM(COALESCE(cost_unit_snapshot, 0) * quantity) as hpp')
+            ->value('hpp') ?? 0;
 
         // Expenses (Approved, not archived)
         // Note: amount is stored in cents, so sum('amount') returns cents, must divide by 100
@@ -78,16 +49,15 @@ class OperationalProfitLossReportService
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('amount');
-        $expensesTotal = $expensesCentsTotal / 100;
+        $bebanOperasional = $expensesCentsTotal / 100;
 
         return new OperationalProfitLossReport(
             $currencyCode,
             $periodLabel,
-            (float) $salesTotal,
-            (float) $saleReturnsTotal,
-            (float) $salesCostTotal,
-            (float) $saleReturnCostTotal,
-            (float) $expensesTotal
+            (float) $penjualan,
+            (float) $diskonPenjualan,
+            (float) $bebanPokokPendapatan,
+            (float) $bebanOperasional
         );
     }
 

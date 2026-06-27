@@ -58,30 +58,19 @@ class ProfitLossReportExport implements FromArray, WithEvents, WithTitle
         $this->addRow($rows, []);
         $this->addRow($rows, ['Keterangan', '', $report->periodLabel], true);
 
-        // Pendapatan
-        $this->addRow($rows, ['Pendapatan'], true);
-        $this->addRow($rows, ['  Penjualan', '', $report->salesTotal], false, true);
-        $this->addRow($rows, ['  Retur Penjualan', '', -$report->saleReturnsTotal], false, true);
-        $this->addRow($rows, ['Total Pendapatan Bersih', '', $report->netRevenue], true, true);
-
-        $this->addRow($rows, [''], false);
-
-        // Biaya
-        $this->addRow($rows, ['Beban Pokok Pendapatan'], true);
-        $this->addRow($rows, ['  Harga Pokok Penjualan', '', $report->salesCostTotal], false, true);
-        $this->addRow($rows, ['  Koreksi HPP (Retur)', '', -$report->saleReturnCostTotal], false, true);
-        $this->addRow($rows, ['Total HPP Bersih', '', $report->netSalesCost], true, true);
-
-        $this->addRow($rows, [''], false);
-
-        $this->addRow($rows, ['Biaya Operasional'], true);
-        $this->addRow($rows, ['  Beban & Pengeluaran', '', $report->expensesTotal], false, true);
-        $this->addRow($rows, ['Total Biaya & HPP', '', $report->totalCost], true, true);
-
-        $this->addRow($rows, [''], false);
-
-        // Laba (Rugi)
-        $this->addRow($rows, ['Laba (Rugi)', '', $report->profitLoss], true, true);
+        foreach ($report->getRows() as $row) {
+            if ($row['type'] === 'header') {
+                $this->addRow($rows, [$row['label']], true);
+            } elseif ($row['type'] === 'row') {
+                $this->addRow($rows, ['  ' . $row['label'], '', $row['value']], false, true);
+            } elseif ($row['type'] === 'subtotal') {
+                $this->addRow($rows, [$row['label'], '', $row['value']], true, true);
+            } elseif ($row['type'] === 'empty') {
+                $this->addRow($rows, [''], false);
+            } elseif ($row['type'] === 'total') {
+                $this->addRow($rows, [$row['label'], '', $row['value']], true, true);
+            }
+        }
 
         $this->rowMeta['lastRow'] = count($rows);
 

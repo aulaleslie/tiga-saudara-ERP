@@ -78,62 +78,30 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {{-- Pendapatan --}}
-                                <tr>
-                                    <td colspan="2" class="font-weight-bold">Pendapatan</td>
-                                </tr>
-                                <tr>
-                                    <td class="pl-4">Penjualan</td>
-                                    <td class="text-right">{{ $report->salesTotal < 0 ? '(' . format_currency(abs($report->salesTotal)) . ')' : format_currency($report->salesTotal) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="pl-4">Retur Penjualan</td>
-                                    <td class="text-right">({{ format_currency($report->saleReturnsTotal) }})</td>
-                                </tr>
-                                <tr>
-                                    <td class="font-weight-bold">Total Pendapatan Bersih</td>
-                                    <td class="text-right font-weight-bold">{{ $report->netRevenue < 0 ? '(' . format_currency(abs($report->netRevenue)) . ')' : format_currency($report->netRevenue) }}</td>
-                                </tr>
-                                
-                                <tr><td colspan="2"></td></tr>
-
-                                {{-- Biaya --}}
-                                <tr>
-                                    <td colspan="2" class="font-weight-bold">Beban Pokok Pendapatan</td>
-                                </tr>
-                                <tr>
-                                    <td class="pl-4">Harga Pokok Penjualan</td>
-                                    <td class="text-right">{{ $report->salesCostTotal < 0 ? '(' . format_currency(abs($report->salesCostTotal)) . ')' : format_currency($report->salesCostTotal) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="pl-4">Koreksi HPP (Retur)</td>
-                                    <td class="text-right">({{ format_currency($report->saleReturnCostTotal) }})</td>
-                                </tr>
-                                <tr>
-                                    <td class="font-weight-bold">Total HPP Bersih</td>
-                                    <td class="text-right font-weight-bold">{{ $report->netSalesCost < 0 ? '(' . format_currency(abs($report->netSalesCost)) . ')' : format_currency($report->netSalesCost) }}</td>
-                                </tr>
-                                <tr><td colspan="2"></td></tr>
-
-                                <tr>
-                                    <td colspan="2" class="font-weight-bold">Biaya Operasional</td>
-                                </tr>
-                                <tr>
-                                    <td class="pl-4">Beban & Pengeluaran</td>
-                                    <td class="text-right">{{ $report->expensesTotal < 0 ? '(' . format_currency(abs($report->expensesTotal)) . ')' : format_currency($report->expensesTotal) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="font-weight-bold">Total Biaya & HPP</td>
-                                    <td class="text-right font-weight-bold">{{ $report->totalCost < 0 ? '(' . format_currency(abs($report->totalCost)) . ')' : format_currency($report->totalCost) }}</td>
-                                </tr>
-
-                                <tr><td colspan="2"></td></tr>
-
-                                {{-- Laba (Rugi) --}}
-                                <tr>
-                                    <td class="font-weight-bold h5 mb-0">Laba (Rugi)</td>
-                                    <td class="text-right font-weight-bold h5 mb-0">{{ $report->profitLoss < 0 ? '(' . format_currency(abs($report->profitLoss)) . ')' : format_currency($report->profitLoss) }}</td>
-                                </tr>
+                                @foreach($report->getRows() as $row)
+                                    @if($row['type'] === 'header')
+                                        <tr>
+                                            <td colspan="2" class="font-weight-bold">{{ $row['label'] }}</td>
+                                        </tr>
+                                    @elseif($row['type'] === 'row')
+                                        <tr>
+                                            <td class="pl-4">{{ $row['label'] }}</td>
+                                            <td class="text-right">{{ $row['value'] < 0 ? '(' . format_currency(abs($row['value'])) . ')' : format_currency($row['value']) }}</td>
+                                        </tr>
+                                    @elseif($row['type'] === 'subtotal')
+                                        <tr>
+                                            <td class="font-weight-bold">{{ $row['label'] }}</td>
+                                            <td class="text-right font-weight-bold">{{ $row['value'] < 0 ? '(' . format_currency(abs($row['value'])) . ')' : format_currency($row['value']) }}</td>
+                                        </tr>
+                                    @elseif($row['type'] === 'empty')
+                                        <tr><td colspan="2"></td></tr>
+                                    @elseif($row['type'] === 'total')
+                                        <tr>
+                                            <td class="font-weight-bold h5 mb-0">{{ $row['label'] }}</td>
+                                            <td class="text-right font-weight-bold h5 mb-0">{{ $row['value'] < 0 ? '(' . format_currency(abs($row['value'])) . ')' : format_currency($row['value']) }}</td>
+                                        </tr>
+                                    @endif
+                                @endforeach
                             </tbody>
                         </table>
                     </div>
