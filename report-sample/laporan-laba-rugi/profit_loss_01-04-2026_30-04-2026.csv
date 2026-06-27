@@ -1,0 +1,12 @@
+Kategori,Label,Nomor Akun,Nama Akun,01/04/2026 - 30/04/2026,
+Pendapatan,"",4-40000,Pendapatan,3605887318.468484,""
+Pendapatan,"",4-40100,Diskon Penjualan,-1150000.0,""
+Beban Pokok Pendapatan,"",5-50000,Beban Pokok Pendapatan,3062667746.056243,""
+Beban Pokok Pendapatan,"",5-50300,Pengiriman & Pengangkutan,18500.0,""
+Laba Kotor,,,,542051072.412241,""
+Laba Operasional,,,,542051072.412241,""
+Pendapatan (Beban Lain-lain),Pendapatan Lain-Lain,7-70003,Rounding,1.0e-06,""
+Pendapatan (Beban Lain-lain),Beban Lain-Lain,8-80005,PLN,-263624.0,""
+Pendapatan (Beban Lain-lain),Beban Lain-Lain,8-80100,Penyesuaian Persediaan,13301531.2657,""
+Pendapatan (Beban Lain-lain),Beban Lain-Lain,9-90000,Beban Pajak - Kini,-9568281.0,""
+Laba (Rugi),,,,545520698.6779419,""
