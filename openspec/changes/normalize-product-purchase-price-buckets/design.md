@@ -35,7 +35,7 @@ The business rule for this change is intentionally narrower than a full costing-
 For each eligible purchase detail, normalization will calculate unit cost as:
 
 ```text
-(purchase_details.sub_total - purchase_details.product_tax_amount) / eligible_quantity
+(purchase_details.sub_total - purchase_details.product_tax_amount) / purchase_details.quantity
 ```
 
 This same DPP unit cost will feed both weighted average calculations and latest-event `last_purchase_price`.
@@ -89,7 +89,7 @@ Alternative considered: add configuration or database flags for cost-normalizati
 - [Risk] Company names may differ in production spelling or casing. -> Mitigation: use case-insensitive matching and add tests with the exact expected names.
 - [Risk] REST/global may have no eligible history for a product. -> Mitigation: preserve existing skip behavior for products without any eligible bucket result.
 - [Risk] Existing tests expect identical normalized costs across every setting. -> Mitigation: update coverage to distinguish special buckets, fallback behavior, and unchanged runtime global synchronization.
-- [Risk] DPP calculation using eligible received quantity can differ from purchase detail ordered quantity when tax/subtotal is line-level. -> Mitigation: allocate line DPP proportionally by dividing line DPP by the same eligible quantity used for the event, matching the normalization event quantity basis.
+- [Risk] DPP calculation using eligible received quantity can differ from purchase detail ordered quantity when tax/subtotal is line-level. -> Mitigation: allocate line DPP proportionally by dividing line DPP by the purchase detail quantity, matching approval-style unit-cost behavior.
 
 ## Migration Plan
 

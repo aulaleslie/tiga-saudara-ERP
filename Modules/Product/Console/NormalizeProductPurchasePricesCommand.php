@@ -59,6 +59,16 @@ class NormalizeProductPurchasePricesCommand extends Command
                 &$updatedRowsCount,
                 &$unchangedRowsCount
             ) {
+                $tigaNusaSettingIds = [];
+                $topItSettingIds = [];
+                foreach ($settings as $setting) {
+                    $name = strtolower(trim($setting->company_name ?? ''));
+                    if ($name === 'cv tiga nusa computer') {
+                        $tigaNusaSettingIds[] = $setting->id;
+                    } elseif ($name === 'cv top it internusa') {
+                        $topItSettingIds[] = $setting->id;
+                    }
+                }
                 $productIds = $products->pluck('id')->toArray();
 
                 $allPurchaseDetails = \Modules\Purchase\Entities\PurchaseDetail::whereIn('product_id', $productIds)
@@ -67,11 +77,11 @@ class NormalizeProductPurchasePricesCommand extends Command
                           ->whereNull('archived_at');
                     })
                     ->with([
-                        'purchase:id,date',
+                        'purchase:id,date,setting_id',
                         'receivedNoteDetails:id,po_detail_id,received_note_id,quantity_received',
                         'receivedNoteDetails.receivedNote:id,status,approved_at'
                     ])
-                    ->select('id', 'product_id', 'purchase_id', 'quantity', 'price', 'unit_price')
+                    ->select('id', 'product_id', 'purchase_id', 'quantity', 'price', 'unit_price', 'sub_total', 'product_tax_amount')
                     ->get()
                     ->groupBy('product_id');
 
@@ -84,9 +94,11 @@ class NormalizeProductPurchasePricesCommand extends Command
                     
                     $purchaseDetails = $allPurchaseDetails->get($product->id, collect());
 
-                    $totalEligibleQuantity = 0;
-                    $totalCost = 0;
-                    $latestEvent = null;
+                    $buckets = [
+                        'tiga_nusa' => ['eligible_quantity' => 0, 'cost' => 0, 'latest_event' => null],
+                        'top_it'    => ['eligible_quantity' => 0, 'cost' => 0, 'latest_event' => null],
+                        'rest'      => ['eligible_quantity' => 0, 'cost' => 0, 'latest_event' => null],
+                    ];
 
                     foreach ($purchaseDetails as $detail) {
                         $purchase = $detail->purchase;
@@ -110,12 +122,23 @@ class NormalizeProductPurchasePricesCommand extends Command
                         }
 
                         if ($eligibleQuantity > 0) {
-                            $unitCost = $detail->price ?? $detail->unit_price ?? 0;
-                            $totalEligibleQuantity += $eligibleQuantity;
-                            $totalCost += ($unitCost * $eligibleQuantity);
+                            $lineDpp = (float)$detail->sub_total - (float)$detail->product_tax_amount;
+                            $unitCost = $lineDpp / $detail->quantity;
+
+                            $settingId = $purchase->setting_id;
+                            $bucket = 'rest';
+                            if (in_array($settingId, $tigaNusaSettingIds)) {
+                                $bucket = 'tiga_nusa';
+                            } elseif (in_array($settingId, $topItSettingIds)) {
+                                $bucket = 'top_it';
+                            }
+
+                            $buckets[$bucket]['eligible_quantity'] += $eligibleQuantity;
+                            $buckets[$bucket]['cost'] += ($unitCost * $eligibleQuantity);
 
                             // Determine latest event
                             $isLatest = false;
+                            $latestEvent = $buckets[$bucket]['latest_event'];
                             if (!$latestEvent) {
                                 $isLatest = true;
                             } else {
@@ -137,7 +160,7 @@ class NormalizeProductPurchasePricesCommand extends Command
                             }
 
                             if ($isLatest) {
-                                $latestEvent = [
+                                $buckets[$bucket]['latest_event'] = [
                                     'date' => $eventDate,
                                     'purchase' => $purchase,
                                     'detail_id' => $detail->id,
@@ -147,13 +170,20 @@ class NormalizeProductPurchasePricesCommand extends Command
                         }
                     }
 
-                    if ($totalEligibleQuantity <= 0) {
+                    $bucketResults = [];
+                    foreach ($buckets as $b => $data) {
+                        if ($data['eligible_quantity'] > 0) {
+                            $bucketResults[$b] = [
+                                'average_purchase_price' => round($data['cost'] / $data['eligible_quantity'], 2),
+                                'last_purchase_price' => $data['latest_event'] ? round($data['latest_event']['unit_cost'], 2) : 0,
+                            ];
+                        }
+                    }
+
+                    if (empty($bucketResults)) {
                         $skippedCount++;
                         continue;
                     }
-
-                    $averagePurchasePrice = round($totalCost / $totalEligibleQuantity, 2);
-                    $lastPurchasePrice = $latestEvent ? round($latestEvent['unit_cost'], 2) : 0;
 
                     // Sync to all settings
                     $existingPrices = $allExistingPrices->get($product->id, collect())->keyBy('setting_id');
@@ -164,6 +194,27 @@ class NormalizeProductPurchasePricesCommand extends Command
                     })->sortBy('id')->first();
 
                     foreach ($settings as $setting) {
+                        $bucket = 'rest';
+                        if (in_array($setting->id, $tigaNusaSettingIds)) {
+                            $bucket = 'tiga_nusa';
+                        } elseif (in_array($setting->id, $topItSettingIds)) {
+                            $bucket = 'top_it';
+                        }
+
+                        $targetResult = null;
+                        if (isset($bucketResults[$bucket])) {
+                            $targetResult = $bucketResults[$bucket];
+                        } elseif (isset($bucketResults['rest'])) {
+                            $targetResult = $bucketResults['rest'];
+                        }
+
+                        if (!$targetResult) {
+                            continue;
+                        }
+
+                        $averagePurchasePrice = $targetResult['average_purchase_price'];
+                        $lastPurchasePrice = $targetResult['last_purchase_price'];
+
                         $existing = $existingPrices->get($setting->id);
 
                         if ($existing) {

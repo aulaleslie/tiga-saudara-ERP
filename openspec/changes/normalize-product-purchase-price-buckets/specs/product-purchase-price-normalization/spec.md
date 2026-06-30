@@ -6,13 +6,13 @@ The normalization command SHALL calculate product purchase costs from non-archiv
 #### Scenario: Approved received quantities determine normal purchase cost
 - **WHEN** a stock-managed product has purchase details with approved received-note detail quantities
 - **THEN** the command SHALL use the approved `quantity_received` values as the eligible quantities
-- **AND** the command SHALL calculate eligible unit purchase cost from purchase detail DPP by subtracting `product_tax_amount` from `sub_total` and dividing by the eligible quantity
+- **AND** the command SHALL calculate eligible unit purchase cost from purchase detail DPP by subtracting `product_tax_amount` from `sub_total` and dividing by the purchase detail `quantity`
 
 #### Scenario: Purchase detail quantity is used when no approved receipt exists
 - **WHEN** a stock-managed product has a purchase detail on a non-archived purchase with status `RECEIVED` or `RECEIVED PARTIALLY`
 - **AND** that purchase detail has no approved received-note detail quantities
 - **THEN** the command SHALL use the purchase detail `quantity` as the eligible quantity
-- **AND** the command SHALL calculate eligible unit purchase cost from purchase detail DPP by subtracting `product_tax_amount` from `sub_total` and dividing by the eligible quantity
+- **AND** the command SHALL calculate eligible unit purchase cost from purchase detail DPP by subtracting `product_tax_amount` from `sub_total` and dividing by the purchase detail `quantity`
 
 #### Scenario: Ineligible purchase documents are excluded
 - **WHEN** purchase details belong to archived purchases, draft purchases, waiting-approval purchases, approved-but-not-received purchases, or rejected purchases

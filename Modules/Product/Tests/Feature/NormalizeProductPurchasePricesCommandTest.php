@@ -166,7 +166,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
 
     private function createPurchase(array $attributes = [])
     {
-        return Purchase::create(array_merge([
+        $purchase = Purchase::create(array_merge([
             'date' => now()->subDay(),
             'due_date' => now(),
             'setting_id' => $this->primarySetting->id,
@@ -184,19 +184,30 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
             'payment_method' => 'Cash',
             'is_tax_included' => true,
         ], $attributes));
+
+        if (isset($attributes['setting_id'])) {
+            $purchase->setting_id = $attributes['setting_id'];
+            $purchase->saveQuietly();
+        }
+
+        return $purchase;
     }
 
     private function createPurchaseDetail($purchase, $product, array $attributes = [])
     {
+        $quantity = $attributes['quantity'] ?? 10;
+        $price = $attributes['price'] ?? 1000;
+        $subTotal = $attributes['sub_total'] ?? ($quantity * $price);
+
         return PurchaseDetail::create(array_merge([
             'purchase_id' => $purchase->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
             'product_code' => $product->product_code,
-            'quantity' => 10,
-            'price' => 1000,
-            'unit_price' => 1000,
-            'sub_total' => 10000,
+            'quantity' => $quantity,
+            'price' => $price,
+            'unit_price' => $price,
+            'sub_total' => $subTotal,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
         ], $attributes));
@@ -492,5 +503,109 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
             $this->assertNull($price->purchase_tax_id);
             $this->assertNull($price->sale_tax_id);
         }
+    }
+
+    public function test_normalization_calculates_dpp_from_subtotal_and_tax()
+    {
+        $product = $this->createProduct();
+        $purchase = $this->createPurchase();
+        
+        $this->createPurchaseDetail($purchase, $product, [
+            'quantity' => 10,
+            'price' => 11000,
+            'unit_price' => 11000,
+            'sub_total' => 110000,
+            'product_tax_amount' => 10000, // 100,000 DPP + 10,000 tax
+        ]);
+
+        $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
+
+        $price = ProductPrice::where('product_id', $product->id)->first();
+        // DPP = (110000 - 10000) / 10 = 10000
+        $this->assertEquals(10000, $price->average_purchase_price);
+        $this->assertEquals(10000, $price->last_purchase_price);
+    }
+
+    public function test_normalization_isolates_buckets_for_special_companies_and_rest()
+    {
+        $product = $this->createProduct();
+        
+        $tigaNusa = $this->createSetting('tiga_nusa');
+        $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
+        $tigaNusa->saveQuietly();
+        
+        $topIt = $this->createSetting('top_it');
+        $topIt->company_name = 'CV TOP IT INTERNUSA';
+        $topIt->saveQuietly();
+        
+        $other1 = $this->createSetting('other1'); // REST
+        $other2 = $this->createSetting('other2'); // REST
+        
+        $purchase1 = $this->createPurchase(['setting_id' => $tigaNusa->id]);
+        $this->createPurchaseDetail($purchase1, $product, ['quantity' => 10, 'price' => 100]);
+        
+        $purchase2 = $this->createPurchase(['setting_id' => $topIt->id]);
+        $this->createPurchaseDetail($purchase2, $product, ['quantity' => 10, 'price' => 200]);
+        
+        $purchase3 = $this->createPurchase(['setting_id' => $other1->id]);
+        $this->createPurchaseDetail($purchase3, $product, ['quantity' => 10, 'price' => 300]);
+        
+        $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
+        
+        $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
+        $this->assertEquals(100, $tigaNusaPrice->average_purchase_price);
+        
+        $topItPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $topIt->id)->first();
+        $this->assertEquals(200, $topItPrice->average_purchase_price);
+        
+        $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
+        $this->assertEquals(300, $other1Price->average_purchase_price);
+        
+        $other2Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other2->id)->first();
+        $this->assertEquals(300, $other2Price->average_purchase_price);
+    }
+    
+    public function test_special_companies_fall_back_to_rest_bucket_when_empty()
+    {
+        $product = $this->createProduct();
+        
+        $tigaNusa = $this->createSetting('tiga_nusa');
+        $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
+        $tigaNusa->saveQuietly();
+        
+        $other1 = $this->createSetting('other1');
+        
+        $purchase3 = $this->createPurchase(['setting_id' => $other1->id]);
+        $this->createPurchaseDetail($purchase3, $product, ['quantity' => 10, 'price' => 300]);
+        
+        $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
+        
+        $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
+        $this->assertEquals(300, $tigaNusaPrice->average_purchase_price);
+        
+        $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
+        $this->assertEquals(300, $other1Price->average_purchase_price);
+    }
+    
+    public function test_normalization_skips_row_creation_if_no_bucket_and_no_fallback()
+    {
+        $product = $this->createProduct();
+        
+        $tigaNusa = $this->createSetting('tiga_nusa');
+        $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
+        $tigaNusa->saveQuietly();
+        
+        $other1 = $this->createSetting('other1');
+        
+        $purchase = $this->createPurchase(['setting_id' => $tigaNusa->id]);
+        $this->createPurchaseDetail($purchase, $product, ['quantity' => 10, 'price' => 100]);
+        
+        $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
+        
+        $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
+        $this->assertEquals(100, $tigaNusaPrice->average_purchase_price);
+        
+        $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
+        $this->assertNull($other1Price);
     }
 }
