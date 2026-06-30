@@ -13,6 +13,7 @@ use Maatwebsite\Excel\Facades\Excel;
 use Modules\Expense\Entities\Expense;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Setting;
 use Modules\Currency\Entities\Currency;
 use Tests\TestCase;
@@ -34,13 +35,38 @@ class OperationalTrialBalanceReportTest extends TestCase
         session(['setting_id' => $this->setting->id]);
     }
 
+    private function createProduct()
+    {
+        $category = \Modules\Product\Entities\Category::create([
+            'category_code' => uniqid(),
+            'category_name' => 'Category ' . uniqid(),
+            'created_by' => 1,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        return \Modules\Product\Entities\Product::create([
+            'category_id' => $category->id,
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Test',
+            'product_code' => uniqid(),
+            'product_barcode_symbology' => 'C128',
+            'product_quantity' => 100,
+            'product_cost' => 600,
+            'product_price' => 1000,
+            'product_unit' => 'PCS',
+            'product_stock_alert' => 10,
+            'product_order_tax' => 0,
+            'product_tax_type' => 1,
+            'product_note' => '',
+        ]);
+    }
+
     public function test_operational_trial_balance_service_query_logic()
     {
         $category = \Modules\Expense\Entities\ExpenseCategory::forceCreate(['category_name' => 'Cat 1', 'category_description' => 'Test']);
+        $product = $this->createProduct();
         
-        // Opening balance event (before 2023-05-01)
-        // Sale revenue: normally credit
-        Sale::forceCreate([
+        $sale1 = Sale::forceCreate([
             'setting_id' => $this->setting->id, 
             'status' => Sale::STATUS_DISPATCHED, 
             'total_amount' => 100000, 
@@ -51,6 +77,21 @@ class OperationalTrialBalanceReportTest extends TestCase
             'date' => '2023-04-15', 
             'reference' => 'S1', 
             'customer_name' => 'C'
+        ]);
+        
+        // Add SaleDetail for revenue to be generated
+        SaleDetails::forceCreate([
+            'sale_id' => $sale1->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'price' => 100000,
+            'unit_price' => 100000,
+            'quantity' => 1,
+            'sub_total' => 100000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+            'cost_unit_snapshot' => 60000, // This will generate HPP
         ]);
         
         // Period event (May 2023)
@@ -80,7 +121,9 @@ class OperationalTrialBalanceReportTest extends TestCase
         ]);
 
         // Outside dates (June)
-        Sale::forceCreate([
+        $product2 = $this->createProduct();
+
+        $sale2 = Sale::forceCreate([
             'setting_id' => $this->setting->id, 
             'status' => Sale::STATUS_DISPATCHED, 
             'total_amount' => 99900000, 
@@ -91,6 +134,20 @@ class OperationalTrialBalanceReportTest extends TestCase
             'date' => '2023-06-15', 
             'reference' => 'S2', 
             'customer_name' => 'C'
+        ]);
+        
+        SaleDetails::forceCreate([
+            'sale_id' => $sale2->id,
+            'product_id' => $product2->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'price' => 99900000,
+            'unit_price' => 99900000,
+            'quantity' => 1,
+            'sub_total' => 99900000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+            'cost_unit_snapshot' => 60000,
         ]);
 
         $service = app(OperationalTrialBalanceReportService::class);
@@ -117,13 +174,33 @@ class OperationalTrialBalanceReportTest extends TestCase
         $expenseRow = collect($expenseCategory->rows)->firstWhere('code', 'OP-500');
         $this->assertNotNull($expenseRow);
 
-        // Period debit of 70000 (50000 Purchase + 20000 Expense)
-        $this->assertEquals(70000, $expenseRow->periodDebit);
+        // Period debit of 20000 Expense, plus 60000 HPP from Sale S1?
+        // Wait, S1 was in April, so its HPP is in opening balance.
+        // There are no sales in May, so OP-500 is just 20000 Expense.
+        $this->assertEquals(20000, $expenseRow->periodDebit);
         $this->assertEquals(0, $expenseRow->periodCredit);
 
-        // Ending balance is a debit of 70000
-        $this->assertEquals(70000, $expenseRow->endingDebit);
+        // Opening balance for OP-500 has S1's HPP (60000)
+        // Ending balance is 60000 + 20000 = 80000
+        $this->assertEquals(80000, $expenseRow->endingDebit);
         $this->assertEquals(0, $expenseRow->endingCredit);
+
+        // Check Inventory bucket (OP-120)
+        $assetCategory = collect($report->categories)->firstWhere('categoryName', OperationalTrialBalanceRowConfig::CATEGORY_ASSET);
+        $inventoryRow = collect($assetCategory->rows)->firstWhere('code', 'OP-120');
+        $this->assertNotNull($inventoryRow);
+
+        // S1 in April reduced inventory by 60000
+        $this->assertEquals(0, $inventoryRow->openingDebit);
+        $this->assertEquals(60000, $inventoryRow->openingCredit);
+
+        // May purchase increased inventory by 50000
+        $this->assertEquals(50000, $inventoryRow->periodDebit);
+        $this->assertEquals(0, $inventoryRow->periodCredit);
+
+        // Ending inventory is -10000 (credit)
+        $this->assertEquals(0, $inventoryRow->endingDebit);
+        $this->assertEquals(10000, $inventoryRow->endingCredit);
     }
 
     public function test_livewire_component_renders_correctly_and_shows_source_note()
@@ -186,7 +263,9 @@ class OperationalTrialBalanceReportTest extends TestCase
         $user = \App\Models\User::factory()->create();
         $user->givePermissionTo('reports.access');
         
-        Sale::forceCreate([
+        $product3 = $this->createProduct();
+        
+        $sale3 = Sale::forceCreate([
             'setting_id' => $this->setting->id, 
             'status' => Sale::STATUS_DISPATCHED, 
             'total_amount' => 100000, 
@@ -197,6 +276,20 @@ class OperationalTrialBalanceReportTest extends TestCase
             'date' => '2023-05-15', 
             'reference' => 'S1', 
             'customer_name' => 'C'
+        ]);
+
+        SaleDetails::forceCreate([
+            'sale_id' => $sale3->id,
+            'product_id' => $product3->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'price' => 100000,
+            'unit_price' => 100000,
+            'quantity' => 1,
+            'sub_total' => 100000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+            'cost_unit_snapshot' => 60000,
         ]);
 
         Excel::fake();
@@ -229,7 +322,9 @@ class OperationalTrialBalanceReportTest extends TestCase
         $user = \App\Models\User::factory()->create();
         $user->givePermissionTo('reports.access');
         
-        Sale::forceCreate([
+        $product4 = $this->createProduct();
+
+        $sale4 = Sale::forceCreate([
             'setting_id' => $this->setting->id, 
             'status' => Sale::STATUS_DISPATCHED, 
             'total_amount' => 100000, 
@@ -240,6 +335,20 @@ class OperationalTrialBalanceReportTest extends TestCase
             'date' => '2023-05-15', 
             'reference' => 'S1', 
             'customer_name' => 'C'
+        ]);
+
+        SaleDetails::forceCreate([
+            'sale_id' => $sale4->id,
+            'product_id' => $product4->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'price' => 100000,
+            'unit_price' => 100000,
+            'quantity' => 1,
+            'sub_total' => 100000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+            'cost_unit_snapshot' => 60000,
         ]);
 
         Excel::fake();

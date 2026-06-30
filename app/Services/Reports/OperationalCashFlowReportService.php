@@ -84,7 +84,7 @@ class OperationalCashFlowReportService
         $endingCashAmount = $openingCashAmount + $netCashIncreaseAmount + $bankRevaluation->amount;
         $endingCash = new OperationalCashFlowSummaryRow('Saldo kas akhir', $endingCashAmount);
 
-        $sourceNote = '* Laporan ini dihitung dari transaksi operasional (pembayaran penjualan, pembayaran pembelian, retur, beban) dan belum mencakup jurnal akuntansi lengkap, saldo buku besar bank, penyetoran modal, atau revaluasi bank sebenarnya.';
+        $sourceNote = '* Laporan ini dihitung dari transaksi operasional (pembayaran penjualan, pembayaran pembelian, retur, beban) menggunakan basis kas (cash-basis). Laporan ini tidak mencakup pergerakan non-kas seperti pendapatan DPP atau Harga Pokok Penjualan (HPP), dan belum mencakup jurnal akuntansi lengkap, saldo buku besar bank, penyetoran modal, atau revaluasi bank sebenarnya.';
 
         return new OperationalCashFlowReport(
             $currencyCode,

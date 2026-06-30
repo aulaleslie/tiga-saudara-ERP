@@ -115,13 +115,12 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
             
-        $completedSaleReturns = SaleReturn::where('setting_id', $settingId)
-            ->whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereDate('date', '<=', $asOfDate)
-            ->sum('total_amount');
-            
         // Note: paid_amount on sale might include future payments, so we calculate paid up to asOfDate
-        $receivables = max(0, $salesTotal - $completedSaleReturns - $salePayments);
+        // As per new operational reporting rules, we do not subtract sale returns from Receivables here
+        // to avoid double-reducing when the source sale document is already corrected to its final amount.
+        $netReceivableCalc = $salesTotal - ($salePayments - $saleReturnPayments);
+        $receivables = max(0, $netReceivableCalc);
+        $customerRefundLiability = max(0, -$netReceivableCalc);
         
         // 3. Calculate Inventory Value
         $inventoryValue = $this->calculateInventoryValue($settingId, $asOfDate);
@@ -152,6 +151,11 @@ class OperationalBalanceSheetReportService
             return (float) $pr->total_amount;
         });
             
+        $taxPayable = Sale::where('setting_id', $settingId)
+            ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
+            ->whereDate('date', '<=', $asOfDate)
+            ->sum('tax_amount');
+
         $payables = max(0, $purchasesTotal - $completedPurchaseReturns - $purchasePayments);
         
         // 5. Setup Report Rows & Sections
@@ -165,6 +169,15 @@ class OperationalBalanceSheetReportService
         $liabilityRows = [
             new OperationalBalanceSheetRow('Hutang Usaha', (float) $payables),
         ];
+
+        if ($taxPayable > 0) {
+            $liabilityRows[] = new OperationalBalanceSheetRow('Hutang Pajak', (float) $taxPayable);
+        }
+
+        if ($customerRefundLiability > 0) {
+            $liabilityRows[] = new OperationalBalanceSheetRow('Hutang Retur Pelanggan', (float) $customerRefundLiability);
+        }
+
         $liabilitiesSection = new OperationalBalanceSheetSection('Liabilitas', $liabilityRows);
         
         $equityTotal = $assetsSection->total - $liabilitiesSection->total;

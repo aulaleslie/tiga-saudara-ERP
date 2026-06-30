@@ -26,22 +26,57 @@ class OperationalMovementEventService
     {
         $events = [];
 
-        // 1. Sales -> Revenue (Cr) & AR (Dr)
-        $sales = Sale::where('setting_id', $settingId)
+        // 1. Sales -> Revenue (Cr) & AR (Dr), plus Discount (Dr), plus HPP (Dr) & Inventory (Cr)
+        $sales = Sale::with('saleDetails')
+            ->where('setting_id', $settingId)
             ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereDate('date', '<=', $endDate)
-            ->get(['date', 'reference', 'total_amount', 'customer_name', 'created_at']);
+            ->get(['id', 'date', 'reference', 'total_amount', 'discount_amount', 'tax_amount', 'shipping_amount', 'customer_name', 'created_at']);
         
         foreach ($sales as $sale) {
             $amount = (float) $sale->total_amount;
             $date = Carbon::parse($sale->getRawOriginal('date'))->format('Y-m-d');
             $time = $sale->created_at->format('H:i:s');
             $dt = $date . ' ' . $time;
+
+            $dppRevenue = 0;
+            $hppCost = 0;
+
+            foreach ($sale->saleDetails as $detail) {
+                $dppRevenue += ((float) $detail->sub_total - (float) $detail->product_tax_amount);
+                $hppCost += ((float) ($detail->cost_unit_snapshot ?? 0) * (float) $detail->quantity);
+            }
+
+            $discount = (float) $sale->discount_amount;
+            $tax = (float) $sale->tax_amount;
+            $shipping = (float) $sale->shipping_amount;
             
             // Debit AR
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Penjualan', $sale->reference, 'Faktur Penjualan', $amount, 0, $sale->customer_name);
-            // Credit Revenue
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_REVENUE, $dt, 'Penjualan', $sale->reference, 'Pendapatan Penjualan', 0, $amount, $sale->customer_name);
+            
+            // Credit Revenue (DPP)
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_REVENUE, $dt, 'Penjualan', $sale->reference, 'Pendapatan Penjualan', 0, $dppRevenue, $sale->customer_name);
+
+            // Debit Revenue (Discount reduction)
+            if ($discount > 0) {
+                $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_REVENUE, $dt, 'Penjualan', $sale->reference, 'Diskon Penjualan', $discount, 0, $sale->customer_name);
+            }
+
+            // Credit Tax Payable
+            if ($tax > 0) {
+                $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::TAX_PAYABLE, $dt, 'Penjualan', $sale->reference, 'Pajak Penjualan', 0, $tax, $sale->customer_name);
+            }
+
+            // Credit Shipping Revenue
+            if ($shipping > 0) {
+                $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::SHIPPING_REVENUE, $dt, 'Penjualan', $sale->reference, 'Pendapatan Pengiriman', 0, $shipping, $sale->customer_name);
+            }
+
+            // Debit Cost (HPP) & Credit Inventory
+            if ($hppCost > 0) {
+                $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, $dt, 'Penjualan', $sale->reference, 'Beban Pokok Penjualan', $hppCost, 0, $sale->customer_name);
+                $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::INVENTORY, $dt, 'Penjualan', $sale->reference, 'Persediaan Terjual', 0, $hppCost, $sale->customer_name);
+            }
         }
 
         // 2. Sale Payments -> Cash (Dr) & AR (Cr)
@@ -68,24 +103,8 @@ class OperationalMovementEventService
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Pembayaran Penjualan', $payment->reference, 'Pembayaran Piutang', 0, $amount, $tag);
         }
 
-        // 3. Sale Returns -> AR (Cr) & Returns (Dr)
-        $saleReturns = SaleReturn::where('setting_id', $settingId)
-            ->whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereDate('date', '<=', $endDate)
-            ->get(['date', 'reference', 'total_amount', 'customer_name', 'created_at']);
-            
-        foreach ($saleReturns as $sr) {
-            $amount = (float) $sr->total_amount;
-            $date = Carbon::parse($sr->getRawOriginal('date'))->format('Y-m-d');
-            $time = $sr->created_at->format('H:i:s');
-            $dt = $date . ' ' . $time;
-            
-            // Debit Returns
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::RETURNS_AND_ADJUSTMENTS, $dt, 'Retur Penjualan', $sr->reference, 'Retur Penjualan', $amount, 0, $sr->customer_name);
-            // Credit AR
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Retur Penjualan', $sr->reference, 'Pengurangan Piutang', 0, $amount, $sr->customer_name);
-        }
-
+        // 3. Sale Returns -> (Removed: No longer subtracting from AR or Returns bucket here to match Laba Rugi)
+        
         // 4. Sale Return Payments -> Cash (Cr) & AR (Dr)
         $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId)
@@ -123,8 +142,8 @@ class OperationalMovementEventService
             $dt = $date . ' ' . $time;
             $tag = $purchase->supplier->supplier_name ?? null;
             
-            // Debit Cost
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, $dt, 'Pembelian', $purchase->reference, 'Faktur Pembelian', $amount, 0, $tag);
+            // Debit Inventory
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::INVENTORY, $dt, 'Pembelian', $purchase->reference, 'Faktur Pembelian', $amount, 0, $tag);
             // Credit AP
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Pembelian', $purchase->reference, 'Hutang Pembelian', 0, $amount, $tag);
         }
@@ -171,8 +190,8 @@ class OperationalMovementEventService
             
             // Debit AP
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Retur Pembelian', $pr->reference, 'Pengurangan Hutang', $amount, 0, $pr->supplier_name);
-            // Credit Returns
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::RETURNS_AND_ADJUSTMENTS, $dt, 'Retur Pembelian', $pr->reference, 'Retur Pembelian', 0, $amount, $pr->supplier_name);
+            // Credit Inventory
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::INVENTORY, $dt, 'Retur Pembelian', $pr->reference, 'Retur Pembelian', 0, $amount, $pr->supplier_name);
         }
 
         // 8. Purchase Return Payments -> Cash (Dr) & AP (Cr)

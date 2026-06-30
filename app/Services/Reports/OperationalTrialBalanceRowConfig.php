@@ -48,9 +48,27 @@ class OperationalTrialBalanceRowConfig
             ],
             OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST => [
                 'category' => self::CATEGORY_EXPENSE,
-                'label' => 'Pembelian / Biaya Operasional',
+                'label' => 'Beban Pokok & Biaya Operasional',
                 'normal_balance' => self::NORMAL_DEBIT,
                 'code' => 'OP-500',
+            ],
+            OperationalGeneralLedgerBucketConfig::INVENTORY => [
+                'category' => self::CATEGORY_ASSET,
+                'label' => 'Persediaan (Estimasi)',
+                'normal_balance' => self::NORMAL_DEBIT,
+                'code' => 'OP-120',
+            ],
+            OperationalGeneralLedgerBucketConfig::TAX_PAYABLE => [
+                'category' => self::CATEGORY_LIABILITY,
+                'label' => 'Hutang Pajak',
+                'normal_balance' => self::NORMAL_CREDIT,
+                'code' => 'OP-210',
+            ],
+            OperationalGeneralLedgerBucketConfig::SHIPPING_REVENUE => [
+                'category' => self::CATEGORY_INCOME,
+                'label' => 'Pendapatan Pengiriman',
+                'normal_balance' => self::NORMAL_CREDIT,
+                'code' => 'OP-420',
             ],
             'virtual_sales_returns' => [
                 'category' => self::CATEGORY_INCOME,

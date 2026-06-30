@@ -31,6 +31,16 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
         \App\Models\User::factory()->create(['id' => 1]);
         \Modules\People\Entities\Customer::factory()->create(['id' => 1, 'setting_id' => $this->setting->id]);
         \Modules\People\Entities\Supplier::factory()->create(['id' => 1, 'setting_id' => $this->setting->id]);
+        \Modules\Product\Entities\Product::create([
+            'id' => 1,
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST1',
+            'product_price' => 1000,
+            'product_cost' => 600,
+            'product_quantity' => 100,
+            'product_stock_alert' => 10,
+        ]);
     }
 
     public function test_it_generates_sales_and_payments_correctly()
@@ -53,6 +63,20 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
             'date' => now()->format('Y-m-d')
         ]);
 
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 600, // For HPP
+        ]);
+
         SalePayment::create([
             'sale_id' => $sale->id,
             'amount' => 500,
@@ -72,14 +96,20 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
         $arBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE);
         $cashBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::CASH_BANK);
         $revBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::OPERATIONAL_REVENUE);
+        $costBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST);
+        $invBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::INVENTORY);
 
         $this->assertNotNull($arBucket);
         $this->assertNotNull($cashBucket);
         $this->assertNotNull($revBucket);
+        $this->assertNotNull($costBucket);
+        $this->assertNotNull($invBucket);
 
-        $this->assertEquals(500, $arBucket->endingBalance);
-        $this->assertEquals(500, $cashBucket->endingBalance);
-        $this->assertEquals(1000, $revBucket->endingBalance);
+        $this->assertEquals(500, $arBucket->endingBalance); // 1000 Dr from sale, 500 Cr from payment
+        $this->assertEquals(500, $cashBucket->endingBalance); // 500 Dr from payment
+        $this->assertEquals(1000, $revBucket->endingBalance); // 1000 Cr from sale DPP
+        $this->assertEquals(600, $costBucket->endingBalance); // 600 Dr from sale HPP
+        $this->assertEquals(-600, $invBucket->endingBalance); // 600 Cr from sale HPP
     }
     
     public function test_it_generates_purchases_and_payments_correctly()
@@ -119,15 +149,17 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
 
         $apBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE);
         $cashBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::CASH_BANK);
+        $invBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::INVENTORY);
         $costBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST);
 
         $this->assertNotNull($apBucket);
         $this->assertNotNull($cashBucket);
-        $this->assertNotNull($costBucket);
+        $this->assertNotNull($invBucket);
+        $this->assertNull($costBucket, 'Purchases should not hit Operational Cost');
 
         $this->assertEquals(1200, $apBucket->endingBalance);
         $this->assertEquals(-800, $cashBucket->endingBalance);
-        $this->assertEquals(2000, $costBucket->endingBalance);
+        $this->assertEquals(2000, $invBucket->endingBalance);
     }
     
     public function test_it_generates_expenses_correctly()
@@ -199,14 +231,12 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
 
         $this->assertNotNull($arBucket);
         $this->assertNotNull($cashBucket);
-        $this->assertNotNull($returnBucket);
+        $this->assertNull($returnBucket, 'Sale Return revenue reversal is no longer tracked in GL');
 
-        // SR: AR Cr 400, Returns Dr 400
         // SRP: Cash Cr 100, AR Dr 100
-        // Net AR = (Cr 400 - Dr 100) = Cr 300 = -300 balance
-        $this->assertEquals(-300, $arBucket->endingBalance);
+        // Net AR = (Dr 100) = 100 balance
+        $this->assertEquals(100, $arBucket->endingBalance); // Debit 100
         $this->assertEquals(-100, $cashBucket->endingBalance); // Credit 100
-        $this->assertEquals(-400, $returnBucket->endingBalance); // Debit 400 = -400 balance
     }
     
     public function test_it_generates_purchase_returns_correctly()
@@ -245,18 +275,18 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
 
         $apBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE);
         $cashBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::CASH_BANK);
-        $returnBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::RETURNS_AND_ADJUSTMENTS);
+        $inventoryBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::INVENTORY);
 
         $this->assertNotNull($apBucket);
         $this->assertNotNull($cashBucket);
-        $this->assertNotNull($returnBucket);
+        $this->assertNotNull($inventoryBucket);
 
-        // PR: AP Dr 600, Returns Cr 600
+        // PR: AP Dr 600, Inventory Cr 600
         // PRP: Cash Dr 200, AP Cr 200
         // Net AP = Dr 600 - Cr 200 = Dr 400 = -400 balance (AP is Credit Normal)
         $this->assertEquals(-400, $apBucket->endingBalance);
         $this->assertEquals(200, $cashBucket->endingBalance); // Cash Debit 200
-        $this->assertEquals(600, $returnBucket->endingBalance); // Returns Credit 600 = +600 balance (Returns is Credit Normal)
+        $this->assertEquals(-600, $inventoryBucket->endingBalance); // Inventory Credit 600 = -600 balance (Inventory is Debit Normal)
     }
 
     public function test_it_filters_buckets_correctly()
@@ -295,7 +325,7 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
         $today = now()->format('Y-m-d');
         
         // 1. Transaction yesterday (beginning balance)
-        Sale::create([
+        $sale1 = Sale::create([
             'setting_id' => $this->setting->id,
             'customer_id' => 1,
             'customer_name' => 'Test',
@@ -314,8 +344,22 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
             'created_at' => now()->subDay()
         ]);
         
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale1->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 600,
+        ]);
+        
         // 2. Transaction today (period movement)
-        Sale::create([
+        $sale2 = Sale::create([
             'setting_id' => $this->setting->id,
             'customer_id' => 1,
             'customer_name' => 'Test',
@@ -332,6 +376,20 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
             'due_amount' => 500,
             'date' => $today,
             'created_at' => now()
+        ]);
+
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale2->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 300,
         ]);
 
         $service = new OperationalGeneralLedgerReportService();

@@ -29,6 +29,16 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         \App\Models\User::factory()->create(['id' => 1]);
         \Modules\People\Entities\Customer::factory()->create(['id' => 1, 'setting_id' => $this->setting->id]);
         \Modules\People\Entities\Supplier::factory()->create(['id' => 1, 'setting_id' => $this->setting->id]);
+        \Modules\Product\Entities\Product::create([
+            'id' => 1,
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST1',
+            'product_price' => 1000,
+            'product_cost' => 600,
+            'product_quantity' => 100,
+            'product_stock_alert' => 10,
+        ]);
     }
 
     public function test_it_generates_sales_and_payments_correctly()
@@ -51,6 +61,20 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
             'date' => now()->format('Y-m-d')
         ]);
 
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 600,
+        ]);
+
         SalePayment::create([
             'sale_id' => $sale->id,
             'amount' => 500,
@@ -70,14 +94,20 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         
         $arRow = collect($assetCat->rows)->firstWhere('code', 'OP-110'); // Piutang Usaha
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100'); // Kas & Bank
+        $invRow = collect($assetCat->rows)->firstWhere('code', 'OP-120'); // Persediaan
         $revRow = collect($incomeCat->rows)->firstWhere('code', 'OP-400'); // Pendapatan Operasional
+        
+        $expCat = collect($report->categories)->firstWhere('categoryName', OperationalTrialBalanceRowConfig::CATEGORY_EXPENSE);
+        $costRow = collect($expCat->rows)->firstWhere('code', 'OP-500'); // Beban Pokok
 
         $this->assertNotNull($arRow);
         $this->assertNotNull($cashRow);
         $this->assertNotNull($revRow);
+        $this->assertNotNull($invRow);
+        $this->assertNotNull($costRow);
 
         // Period Dr/Cr
-        // Sale: AR Dr 1000, Rev Cr 1000
+        // Sale: AR Dr 1000, Rev Cr 1000, Cost Dr 600, Inv Cr 600
         // SalePayment: Cash Dr 500, AR Cr 500
         // Total AR: Dr 1000, Cr 500 => Net Dr 500 (Dr normal)
         $this->assertEquals(1000, $arRow->periodDebit);
@@ -96,6 +126,18 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         $this->assertEquals(1000, $revRow->periodCredit);
         $this->assertEquals(0, $revRow->endingDebit);
         $this->assertEquals(1000, $revRow->endingCredit);
+        
+        // Inv: Cr 600 (Dr normal)
+        $this->assertEquals(0, $invRow->periodDebit);
+        $this->assertEquals(600, $invRow->periodCredit);
+        $this->assertEquals(0, $invRow->endingDebit);
+        $this->assertEquals(600, $invRow->endingCredit); // negative balance is credit
+        
+        // Cost: Dr 600 (Dr normal)
+        $this->assertEquals(600, $costRow->periodDebit);
+        $this->assertEquals(0, $costRow->periodCredit);
+        $this->assertEquals(600, $costRow->endingDebit);
+        $this->assertEquals(0, $costRow->endingCredit);
     }
     
     public function test_it_generates_purchases_and_payments_correctly()
@@ -137,13 +179,15 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
 
         $apRow = collect($liabCat->rows)->firstWhere('code', 'OP-200'); // Hutang Usaha
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100'); // Kas & Bank
-        $costRow = collect($expCat->rows)->firstWhere('code', 'OP-500'); // Beban Pokok
+        $invRow = collect($assetCat->rows)->firstWhere('code', 'OP-120'); // Persediaan (Estimasi)
+        $costRow = $expCat ? collect($expCat->rows)->firstWhere('code', 'OP-500') : null;
 
         $this->assertNotNull($apRow);
         $this->assertNotNull($cashRow);
-        $this->assertNotNull($costRow);
+        $this->assertNotNull($invRow);
+        $this->assertNull($costRow, 'Purchases should not hit Beban Pokok');
 
-        // Purchase: Cost Dr 2000, AP Cr 2000
+        // Purchase: Inv Dr 2000, AP Cr 2000
         // PurchasePayment: AP Dr 800, Cash Cr 800
         // Net AP = Cr 2000 - Dr 800 = Cr 1200 (Cr normal)
         $this->assertEquals(800, $apRow->periodDebit);
@@ -157,11 +201,11 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         $this->assertEquals(0, $cashRow->endingDebit);
         $this->assertEquals(800, $cashRow->endingCredit); // Negative balance is Credit
 
-        // Cost: Dr 2000 (Dr normal)
-        $this->assertEquals(2000, $costRow->periodDebit);
-        $this->assertEquals(0, $costRow->periodCredit);
-        $this->assertEquals(2000, $costRow->endingDebit);
-        $this->assertEquals(0, $costRow->endingCredit);
+        // Inv: Dr 2000 (Dr normal)
+        $this->assertEquals(2000, $invRow->periodDebit);
+        $this->assertEquals(0, $invRow->periodCredit);
+        $this->assertEquals(2000, $invRow->endingDebit);
+        $this->assertEquals(0, $invRow->endingCredit);
     }
     
     public function test_it_generates_expenses_correctly()
@@ -234,22 +278,18 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
 
         $arRow = collect($assetCat->rows)->firstWhere('code', 'OP-110');
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100');
-        $returnRow = collect($incomeCat->rows)->firstWhere('code', 'OP-410'); // Retur Penjualan
+        $returnRow = $incomeCat ? collect($incomeCat->rows)->firstWhere('code', 'OP-410') : null; // Retur Penjualan
 
         $this->assertNotNull($arRow);
         $this->assertNotNull($cashRow);
-        $this->assertNotNull($returnRow);
+        $this->assertNull($returnRow, 'Sale return revenue reversal is ignored in GL');
 
-        // SR: Returns Dr 400, AR Cr 400
         // SRP: AR Dr 100, Cash Cr 100
-        $this->assertEquals(0, $arRow->endingDebit);
-        $this->assertEquals(300, $arRow->endingCredit);
+        $this->assertEquals(100, $arRow->endingDebit);
+        $this->assertEquals(0, $arRow->endingCredit);
 
         $this->assertEquals(0, $cashRow->endingDebit);
         $this->assertEquals(100, $cashRow->endingCredit);
-
-        $this->assertEquals(400, $returnRow->endingDebit);
-        $this->assertEquals(0, $returnRow->endingCredit);
     }
     
     public function test_it_generates_purchase_returns_correctly()
@@ -290,13 +330,13 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
 
         $apRow = collect($liabCat->rows)->firstWhere('code', 'OP-200');
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100');
-        $returnRow = collect($expCat->rows)->firstWhere('code', 'OP-510'); // Retur Pembelian
+        $returnRow = collect($assetCat->rows)->firstWhere('code', 'OP-120'); // Inventory
 
         $this->assertNotNull($apRow);
         $this->assertNotNull($cashRow);
         $this->assertNotNull($returnRow);
 
-        // PR: AP Dr 600, Returns Cr 600
+        // PR: AP Dr 600, Inventory Cr 600
         // PRP: Cash Dr 200, AP Cr 200
         $this->assertEquals(400, $apRow->endingDebit);
         $this->assertEquals(0, $apRow->endingCredit);
@@ -360,9 +400,9 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
 
         $apRow = collect($liabCat->rows)->firstWhere('code', 'OP-200');
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100');
-        $returnRow = collect($expCat->rows)->firstWhere('code', 'OP-510');
+        $returnRow = collect($assetCat->rows)->firstWhere('code', 'OP-120');
 
-        // PR: AP Dr 600, Returns Cr 600 (not scaled because it has location_id)
+        // PR: AP Dr 600, Inventory Cr 600 (not scaled because it has location_id)
         // PRP: Cash Dr 200, AP Cr 200
         $this->assertEquals(400, $apRow->endingDebit);
         $this->assertEquals(0, $apRow->endingCredit);
@@ -439,7 +479,7 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         $today = now()->format('Y-m-d');
         
         // 1. Transaction yesterday (beginning balance)
-        Sale::create([
+        $sale1 = Sale::create([
             'setting_id' => $this->setting->id,
             'customer_id' => 1,
             'customer_name' => 'Test',
@@ -458,8 +498,22 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
             'created_at' => now()->subDay()
         ]);
         
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale1->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 600,
+        ]);
+        
         // 2. Transaction today (period movement)
-        Sale::create([
+        $sale2 = Sale::create([
             'setting_id' => $this->setting->id,
             'customer_id' => 1,
             'customer_name' => 'Test',
@@ -476,6 +530,20 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
             'due_amount' => 500,
             'date' => $today,
             'created_at' => now()
+        ]);
+
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale2->id,
+            'product_id' => 1,
+            'product_name' => 'Product 1',
+            'product_code' => 'P1',
+            'quantity' => 1,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 300,
         ]);
 
         $service = app(OperationalTrialBalanceReportService::class);
@@ -495,12 +563,15 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         $this->assertEquals(0, $arRow->endingCredit);
 
         // Verify grand totals
-        $this->assertEquals(1000, $report->grandTotalOpeningDebit);
-        $this->assertEquals(1000, $report->grandTotalOpeningCredit);
-        $this->assertEquals(500, $report->grandTotalPeriodDebit);
-        $this->assertEquals(500, $report->grandTotalPeriodCredit);
-        $this->assertEquals(1500, $report->grandTotalEndingDebit);
-        $this->assertEquals(1500, $report->grandTotalEndingCredit);
+        // Yesterday: AR Dr 1000, Rev Cr 1000, Cost Dr 600, Inv Cr 600. Total Dr = 1600, Total Cr = 1600
+        $this->assertEquals(1600, $report->grandTotalOpeningDebit);
+        $this->assertEquals(1600, $report->grandTotalOpeningCredit);
+        // Today: AR Dr 500, Rev Cr 500, Cost Dr 300, Inv Cr 300. Total Dr = 800, Total Cr = 800
+        $this->assertEquals(800, $report->grandTotalPeriodDebit);
+        $this->assertEquals(800, $report->grandTotalPeriodCredit);
+        // End: AR Dr 1500, Rev Cr 1500, Cost Dr 900, Inv Cr 900. Total Dr = 2400, Total Cr = 2400
+        $this->assertEquals(2400, $report->grandTotalEndingDebit);
+        $this->assertEquals(2400, $report->grandTotalEndingCredit);
     }
 
     public function test_empty_state_returns_empty_categories()

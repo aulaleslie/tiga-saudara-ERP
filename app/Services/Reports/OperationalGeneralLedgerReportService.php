@@ -136,6 +136,7 @@ class OperationalGeneralLedgerReportService
             OperationalGeneralLedgerBucketConfig::CASH_BANK,
             OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE,
             OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST,
+            OperationalGeneralLedgerBucketConfig::INVENTORY,
         ];
         
         if (in_array($bucket, $debitNormal)) {
