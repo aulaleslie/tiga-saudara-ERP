@@ -68,9 +68,11 @@ class BackfillSalesCostSnapshotsCommand extends Command
         $bar = $this->output->createProgressBar($count);
         $bar->start();
 
-        $query->chunk(100, function ($products) use ($bar, $settingId, $isDryRun, $startDate, $endDate, $force) {
+        $settings = \Modules\Setting\Entities\Setting::all()->keyBy('id');
+
+        $query->chunk(100, function ($products) use ($bar, $settingId, $isDryRun, $startDate, $endDate, $force, $settings) {
             foreach ($products as $product) {
-                $this->processProduct($product, $settingId, $startDate, $endDate, $isDryRun, $force);
+                $this->processProduct($product, $settingId, $startDate, $endDate, $isDryRun, $force, $settings);
                 $bar->advance();
             }
         });
@@ -95,21 +97,14 @@ class BackfillSalesCostSnapshotsCommand extends Command
         }
     }
 
-    protected function processProduct(Product $product, $settingId, $startDate, $endDate, $isDryRun, $force)
+    protected function processProduct(Product $product, $settingId, $startDate, $endDate, $isDryRun, $force, $settings)
     {
-        // For each product, we get all timeline events: Purchases, PurchaseReturns, Sales
-        // Group them by setting because purchases usually happen per setting, though average is global.
-        // Wait, D2 says "product_prices.average_purchase_price values for the same product_id must be synchronized to the same value"
-        // And D3 says "The backfill command builds a global product timeline from eligible purchase and sale events."
-        // Let's build a global timeline.
-
         $events = collect();
 
         // 1. Purchase Details
         $purchases = PurchaseDetail::withoutEagerLoads()
-            ->with(['purchase' => function ($q) use ($settingId) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status');
-                if ($settingId) $q->where('setting_id', $settingId);
+            ->with(['purchase' => function ($q) {
+                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
             }, 'receivedNoteDetails' => function ($q) {
                 $q->withoutEagerLoads()->select('id', 'po_detail_id', 'received_note_id', 'quantity_received');
             }, 'receivedNoteDetails.receivedNote' => function ($q) {
@@ -117,32 +112,32 @@ class BackfillSalesCostSnapshotsCommand extends Command
             }])
             ->select('id', 'purchase_id', 'product_id', 'quantity', 'sub_total', 'product_tax_amount', 'product_discount_amount')
             ->where('product_id', $product->id)
-            ->whereHas('purchase', function ($q) use ($settingId, $endDate) {
+            ->whereHas('purchase', function ($q) use ($endDate) {
                 $q->whereIn('status', ['Completed', 'COMPLETED', 'RECEIVED', 'RECEIVED PARTIALLY', 'RETURNED PARTIALLY', 'RETURNED']);
-                if ($settingId) $q->where('setting_id', $settingId);
                 if ($endDate) $q->whereDate('date', '<=', $endDate);
             })->get();
 
         $purchaseEvents = $this->buildPurchaseEvents($purchases, true);
         foreach ($purchaseEvents as $event) {
+            $companyName = optional($settings->get($event['model']->purchase->setting_id))->company_name;
+            $event['bucket'] = BackfillCostCalculator::classifyBucket($companyName);
             $events->push($event);
         }
 
         // 2. Purchase Return Details
         $purchaseReturns = PurchaseReturnDetail::withoutEagerLoads()
-            ->with(['purchaseReturn' => function ($q) use ($settingId) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status');
-                if ($settingId) $q->where('setting_id', $settingId);
+            ->with(['purchaseReturn' => function ($q) {
+                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
             }])
             ->select('id', 'purchase_return_id', 'product_id', 'quantity')
             ->where('product_id', $product->id)
-            ->whereHas('purchaseReturn', function ($q) use ($settingId, $endDate) {
+            ->whereHas('purchaseReturn', function ($q) use ($endDate) {
                 $q->whereIn('status', ['Completed', 'COMPLETED']);
-                if ($settingId) $q->where('setting_id', $settingId);
                 if ($endDate) $q->whereDate('date', '<=', $endDate);
             })->get();
 
         foreach ($purchaseReturns as $prd) {
+            $companyName = optional($settings->get($prd->purchaseReturn->setting_id))->company_name;
             $date = Carbon::parse($prd->purchaseReturn->date)->format('Y-m-d H:i:s');
             $events->push([
                 'type' => 'purchase_return',
@@ -151,26 +146,26 @@ class BackfillSalesCostSnapshotsCommand extends Command
                 'date' => $date,
                 'quantity' => (float) $prd->quantity,
                 'model' => $prd,
+                'bucket' => BackfillCostCalculator::classifyBucket($companyName),
             ]);
         }
 
         // 3. Sale Details
         // Date filters for writes are checked later during processing, not in the query, to ensure opening state is built correctly
         $salesQuery = SaleDetails::withoutEagerLoads()
-            ->with(['sale' => function ($q) use ($settingId) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status');
-                if ($settingId) $q->where('setting_id', $settingId);
+            ->with(['sale' => function ($q) {
+                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
             }])
             ->select('id', 'sale_id', 'product_id', 'quantity', 'cost_snapshot_source', 'cost_unit_snapshot', 'cost_total_snapshot', 'cost_snapshot_at')
             ->where('product_id', $product->id)
-            ->whereHas('sale', function ($q) use ($settingId, $endDate) {
+            ->whereHas('sale', function ($q) use ($endDate) {
                 $q->whereIn('status', ['Completed', 'COMPLETED', 'DISPATCHED', 'RETURNED PARTIALLY', 'RETURNED']);
-                if ($settingId) $q->where('setting_id', $settingId);
                 if ($endDate) $q->whereDate('date', '<=', $endDate);
             });
 
         $sales = $salesQuery->get();
         foreach ($sales as $sd) {
+            $companyName = optional($settings->get($sd->sale->setting_id))->company_name;
             $date = Carbon::parse($sd->sale->date)->format('Y-m-d H:i:s');
             $events->push([
                 'type' => 'sale',
@@ -179,6 +174,7 @@ class BackfillSalesCostSnapshotsCommand extends Command
                 'date' => $date,
                 'quantity' => (float) $sd->quantity,
                 'model' => $sd,
+                'bucket' => BackfillCostCalculator::classifyBucket($companyName),
             ]);
         }
 
@@ -192,25 +188,30 @@ class BackfillSalesCostSnapshotsCommand extends Command
             return $a['date'] <=> $b['date'];
         })->values();
 
-        // Compute running average
-        $runningQty = 0;
-        $runningValue = 0;
-        $currentAverage = 0;
+        // Track state per bucket
+        $states = [
+            'tiga_nusa' => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
+            'top_it'    => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
+            'rest'      => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
+        ];
 
-        // Determine earliest future purchase average for fallback
-        $earliestPurchaseAverage = null;
+        // Pre-scan to determine fallback conditions and earliest averages
         foreach ($events as $event) {
             if ($event['type'] === 'purchase' && $event['quantity'] > 0) {
-                $earliestPurchaseAverage = $event['cost'] / $event['quantity'];
-                break;
+                $bucket = $event['bucket'];
+                $states[$bucket]['hasPurchases'] = true;
+                if ($states[$bucket]['earliestPurchaseAverage'] === null) {
+                    $states[$bucket]['earliestPurchaseAverage'] = $event['cost'] / $event['quantity'];
+                }
             }
         }
 
-        if ($earliestPurchaseAverage === null && $endDate) {
+        // Fetch future purchases for fallback if any bucket is missing it
+        $needsFuture = collect($states)->contains(fn($s) => $s['earliestPurchaseAverage'] === null);
+        if ($needsFuture && $endDate) {
             $futurePurchases = PurchaseDetail::withoutEagerLoads()
-                ->with(['purchase' => function ($q) use ($settingId) {
-                    $q->withoutEagerLoads()->select('id', 'date', 'status');
-                    if ($settingId) $q->where('setting_id', $settingId);
+                ->with(['purchase' => function ($q) {
+                    $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
                 }, 'receivedNoteDetails' => function ($q) {
                     $q->withoutEagerLoads()->select('id', 'po_detail_id', 'received_note_id', 'quantity_received');
                 }, 'receivedNoteDetails.receivedNote' => function ($q) {
@@ -220,9 +221,6 @@ class BackfillSalesCostSnapshotsCommand extends Command
                 ->join('purchases', 'purchase_details.purchase_id', '=', 'purchases.id')
                 ->where('purchase_details.product_id', $product->id)
                 ->whereIn('purchases.status', ['Completed', 'COMPLETED', 'RECEIVED', 'RECEIVED PARTIALLY', 'RETURNED PARTIALLY', 'RETURNED'])
-                ->when($settingId, function ($q) use ($settingId) {
-                    $q->where('purchases.setting_id', $settingId);
-                })
                 ->whereDate('purchases.date', '>', $endDate)
                 ->orderBy('purchases.date', 'asc')
                 ->orderBy('purchase_details.id', 'asc')
@@ -238,24 +236,32 @@ class BackfillSalesCostSnapshotsCommand extends Command
 
             foreach ($futureEvents as $event) {
                 if ($event['quantity'] > 0) {
-                    $earliestPurchaseAverage = $event['cost'] / $event['quantity'];
-                    break;
+                    $companyName = optional($settings->get($event['model']->purchase->setting_id))->company_name;
+                    $bucket = BackfillCostCalculator::classifyBucket($companyName);
+                    
+                    if ($states[$bucket]['earliestPurchaseAverage'] === null) {
+                        $states[$bucket]['earliestPurchaseAverage'] = $event['cost'] / $event['quantity'];
+                        // A future purchase counts as having a purchase history for fallback logic
+                        $states[$bucket]['hasPurchases'] = true;
+                    }
                 }
             }
         }
 
         foreach ($events as $event) {
+            $b = $event['bucket'];
+            
             if ($event['type'] === 'purchase') {
-                $state = BackfillCostCalculator::applyPurchase($event['quantity'], $event['cost'], $runningQty, $runningValue, $currentAverage);
-                $runningQty = $state['runningQty'];
-                $runningValue = $state['runningValue'];
-                $currentAverage = $state['currentAverage'];
+                $state = BackfillCostCalculator::applyPurchase($event['quantity'], $event['cost'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
+                $states[$b]['runningQty'] = $state['runningQty'];
+                $states[$b]['runningValue'] = $state['runningValue'];
+                $states[$b]['currentAverage'] = $state['currentAverage'];
             } elseif ($event['type'] === 'purchase_return') {
-                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $runningQty, $runningValue, $currentAverage);
-                $runningQty = $state['runningQty'];
-                $runningValue = $state['runningValue'];
-                $currentAverage = $state['currentAverage'];
-                if ($runningQty < 0) {
+                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
+                $states[$b]['runningQty'] = $state['runningQty'];
+                $states[$b]['runningValue'] = $state['runningValue'];
+                $states[$b]['currentAverage'] = $state['currentAverage'];
+                if ($states[$b]['runningQty'] < 0) {
                     $this->summary['negative_stock']++;
                 }
             } elseif ($event['type'] === 'sale') {
@@ -267,6 +273,9 @@ class BackfillSalesCostSnapshotsCommand extends Command
                     $inScope = false;
                 }
                 if ($endDate && $eventDate->gt(Carbon::parse($endDate)->startOfDay())) {
+                    $inScope = false;
+                }
+                if ($settingId && $sd->sale->setting_id != $settingId) {
                     $inScope = false;
                 }
 
@@ -283,6 +292,12 @@ class BackfillSalesCostSnapshotsCommand extends Command
                 } elseif ($inScope) {
                     $this->summary['fillable']++;
 
+                    // Determine fallback
+                    $evalBucket = $b;
+                    if ($b !== 'rest' && !$states[$b]['hasPurchases']) {
+                        $evalBucket = 'rest';
+                    }
+
                     // Calculate snapshot BEFORE consuming stock, using pre-sale moving average
                     $unitCost = 0;
                     $source = '';
@@ -292,11 +307,11 @@ class BackfillSalesCostSnapshotsCommand extends Command
                         $source = 'NON_STOCK_ZERO';
                         $this->summary['non_stock_zero']++;
                     } else {
-                        if ($runningQty > 0 || $currentAverage > 0) {
-                            $unitCost = $currentAverage;
+                        if ($states[$evalBucket]['runningQty'] > 0 || $states[$evalBucket]['currentAverage'] > 0) {
+                            $unitCost = $states[$evalBucket]['currentAverage'];
                             $source = 'BACKFILL_RUNNING_AVERAGE';
-                        } elseif ($earliestPurchaseAverage !== null) {
-                            $unitCost = $earliestPurchaseAverage;
+                        } elseif ($states[$evalBucket]['earliestPurchaseAverage'] !== null) {
+                            $unitCost = $states[$evalBucket]['earliestPurchaseAverage'];
                             $source = 'BACKFILL_FUTURE_PURCHASE';
                             $this->summary['future_purchase_fallback']++;
                         } else {
@@ -316,8 +331,8 @@ class BackfillSalesCostSnapshotsCommand extends Command
                             $product->product_code,
                             $sd->id,
                             $sd->sale->date,
-                            $runningQty,
-                            $runningValue,
+                            $states[$evalBucket]['runningQty'],
+                            $states[$evalBucket]['runningValue'],
                             $unitCost,
                         ];
                     } else {
@@ -342,11 +357,11 @@ class BackfillSalesCostSnapshotsCommand extends Command
 
                 // NOW consume stock from running inventory after snapshot is taken
                 // Always reduce value at current average, even if negative stock results
-                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $runningQty, $runningValue, $currentAverage);
-                $runningQty = $state['runningQty'];
-                $runningValue = $state['runningValue'];
-                $currentAverage = $state['currentAverage'];
-                if ($runningQty < 0) {
+                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
+                $states[$b]['runningQty'] = $state['runningQty'];
+                $states[$b]['runningValue'] = $state['runningValue'];
+                $states[$b]['currentAverage'] = $state['currentAverage'];
+                if ($states[$b]['runningQty'] < 0) {
                     $this->summary['negative_stock']++;
                 }
             }

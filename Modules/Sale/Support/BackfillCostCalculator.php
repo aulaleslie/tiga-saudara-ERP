@@ -77,4 +77,18 @@ class BackfillCostCalculator
             'currentAverage' => $currentAverage,
         ];
     }
+
+    /**
+     * Classify a company name into its costing bucket.
+     */
+    public static function classifyBucket(?string $companyName): string
+    {
+        $name = strtolower(trim($companyName ?? ''));
+        if ($name === 'cv tiga nusa computer') {
+            return 'tiga_nusa';
+        } elseif ($name === 'cv top it internusa') {
+            return 'top_it';
+        }
+        return 'rest';
+    }
 }

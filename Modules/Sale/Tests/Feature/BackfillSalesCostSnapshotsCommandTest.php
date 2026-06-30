@@ -419,4 +419,166 @@ class BackfillSalesCostSnapshotsCommandTest extends TestCase
         $this->assertEquals(10000, $fresh->cost_unit_snapshot);
         $this->assertEquals('BACKFILL_FUTURE_PURCHASE', $fresh->cost_snapshot_source);
     }
+
+    public function test_tiga_nusa_isolated_bucket()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        $purchaseTN = Purchase::forceCreate(['setting_id' => $tigaNusa->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S2', 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 150000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $saleTN = Sale::forceCreate(['setting_id' => $tigaNusa->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailTN = SaleDetails::forceCreate(['sale_id' => $saleTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+        $this->assertEquals(15000, $saleDetailTN->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_top_it_isolated_bucket()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $topIt = Setting::factory()->create(['company_name' => 'CV TOP IT INTERNUSA']);
+        $purchaseTI = Purchase::forceCreate(['setting_id' => $topIt->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S2', 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseTI->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 150000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $saleTI = Sale::forceCreate(['setting_id' => $topIt->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailTI = SaleDetails::forceCreate(['sale_id' => $saleTI->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+        $this->assertEquals(15000, $saleDetailTI->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_rest_isolated_bucket_from_specials()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        // TN Purchase 15k
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        $purchaseTN = Purchase::forceCreate(['setting_id' => $tigaNusa->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S2', 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 15000, 'unit_price' => 15000, 'sub_total' => 150000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Rest Purchase 10k
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Rest Sale
+        $saleRest = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailRest = SaleDetails::forceCreate(['sale_id' => $saleRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+        // Rest should ignore TN's 15k purchase
+        $this->assertEquals(10000, $saleDetailRest->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_purchase_return_isolated()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        $purchaseTN = Purchase::forceCreate(['setting_id' => $tigaNusa->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S2', 'status' => 'Completed', 'total_amount' => 200000, 'paid_amount' => 200000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 200000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Purchase return on TN bucket. This drains 10 qty from TN bucket.
+        $prTN = PurchaseReturn::forceCreate(['setting_id' => $tigaNusa->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S2', 'status' => 'Completed', 'total_amount' => 200000, 'paid_amount' => 200000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => '2023-01-03']);
+        PurchaseReturnDetail::forceCreate(['purchase_return_id' => $prTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 200000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true])
+            ->expectsTable(
+                ['Metric', 'Count'],
+                [
+                    ['scanned', '0'],
+                    ['fillable', '0'],
+                    ['updated', '0'],
+                    ['unchanged', '0'],
+                    ['skipped', '0'],
+                    ['missing_product_price', '0'],
+                    ['negative_stock', '0'], // Rest bucket is not negative! TN bucket is 0.
+                    ['archived_skipped', '0'],
+                    ['future_purchase_fallback', '0'],
+                    ['no_purchase_fallback', '0'],
+                    ['non_stock_zero', '0'],
+                    ['missing_receipt_data', '0'],
+                    ['suspicious_unit_cost', '0'],
+                ]
+            );
+    }
+
+    public function test_special_fallback_to_rest()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        // Rest Purchase 10k
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Tiga Nusa Sale (TN has no purchases)
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        $saleTN = Sale::forceCreate(['setting_id' => $tigaNusa->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailTN = SaleDetails::forceCreate(['sale_id' => $saleTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true]);
+        
+        // TN falls back to Rest average
+        $this->assertEquals(10000, $saleDetailTN->fresh()->cost_unit_snapshot);
+        $this->assertEquals('BACKFILL_RUNNING_AVERAGE', $saleDetailTN->fresh()->cost_snapshot_source);
+    }
+
+    public function test_setting_write_filter_special()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        
+        // Rest Purchase 10k
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $this->setting->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 100000, 'paid_amount' => 100000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 10000, 'unit_price' => 10000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $saleRest = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailRest = SaleDetails::forceCreate(['sale_id' => $saleRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // TN Sale (Falls back to Rest)
+        $saleTN = Sale::forceCreate(['setting_id' => $tigaNusa->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailTN = SaleDetails::forceCreate(['sale_id' => $saleTN->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Run with setting=tigaNusa
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--setting' => $tigaNusa->id]);
+        
+        $this->assertNull($saleDetailRest->fresh()->cost_unit_snapshot);
+        $this->assertEquals(10000, $saleDetailTN->fresh()->cost_unit_snapshot);
+    }
+
+    public function test_setting_write_filter_non_special()
+    {
+        $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'stock_managed' => true]);
+
+        $tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
+        $otherRest = Setting::factory()->create(['company_name' => 'Another Rest']);
+        
+        // Rest Purchase on otherRest: 12000
+        $purchaseRest = Purchase::forceCreate(['setting_id' => $otherRest->id, 'supplier_id' => $this->supplier->id, 'supplier_name' => 'S1', 'status' => 'Completed', 'total_amount' => 120000, 'paid_amount' => 120000, 'due_amount' => 0, 'date' => '2023-01-01', 'due_date' => '2023-01-01', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        PurchaseDetail::forceCreate(['purchase_id' => $purchaseRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 10, 'price' => 12000, 'unit_price' => 12000, 'sub_total' => 120000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $saleRest = Sale::forceCreate(['setting_id' => $this->setting->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-02', 'due_date' => '2023-01-02', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailRest = SaleDetails::forceCreate(['sale_id' => $saleRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        $saleOtherRest = Sale::forceCreate(['setting_id' => $otherRest->id, 'customer_name' => 'C', 'customer_id' => $this->customer->id, 'status' => 'Completed', 'total_amount' => 150000, 'paid_amount' => 150000, 'due_amount' => 0, 'date' => '2023-01-03', 'due_date' => '2023-01-03', 'payment_status' => 'Paid', 'payment_method' => 'Cash']);
+        $saleDetailOtherRest = SaleDetails::forceCreate(['sale_id' => $saleOtherRest->id, 'product_id' => $product->id, 'product_name' => 'Test', 'product_code' => 'T', 'quantity' => 5, 'price' => 20000, 'unit_price' => 20000, 'sub_total' => 100000, 'product_tax_amount' => 0, 'product_discount_amount' => 0]);
+
+        // Run with setting=this->setting
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--setting' => $this->setting->id]);
+        
+        $this->assertEquals(12000, $saleDetailRest->fresh()->cost_unit_snapshot);
+        $this->assertNull($saleDetailOtherRest->fresh()->cost_unit_snapshot);
+    }
 }
