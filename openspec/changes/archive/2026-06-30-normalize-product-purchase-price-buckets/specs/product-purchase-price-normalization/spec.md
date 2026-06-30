@@ -22,7 +22,7 @@ The normalization command SHALL calculate product purchase costs from non-archiv
 - **WHEN** a product has purchase return records
 - **THEN** the command MUST NOT subtract or otherwise adjust eligible purchase quantities or costs using purchase return data
 
-### Requirement: Normalization calculates bucketed product purchase cost snapshots
+### MODIFIED Requirement: Normalization calculates bucketed product purchase cost snapshots
 The normalization command SHALL calculate historical product purchase costs in setting buckets for stock-managed products, isolating `CV TIGA NUSA COMPUTER` and `CV TOP IT INTERNUSA` from the REST/global bucket.
 
 #### Scenario: Weighted average is calculated from eligible DPP cost events
@@ -57,7 +57,7 @@ The normalization command SHALL calculate historical product purchase costs in s
 - **WHEN** a product is not stock managed
 - **THEN** the command MUST NOT create or update `product_prices` rows for that product
 
-### Requirement: Normalization synchronizes purchase costs using bucket targets
+### MODIFIED Requirement: Normalization synchronizes purchase costs using bucket targets
 When executed with `--write`, the normalization command SHALL write each eligible product's calculated purchase cost snapshots to every setting's `product_prices` row using the target bucket for that setting.
 
 #### Scenario: Tiga Nusa setting receives isolated bucket result
