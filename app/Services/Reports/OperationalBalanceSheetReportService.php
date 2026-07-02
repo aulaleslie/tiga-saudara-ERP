@@ -228,20 +228,8 @@ class OperationalBalanceSheetReportService
     
     protected function calculateInventoryValue(int|array $settingScope, string $asOfDate): float
     {
-        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
-        
-        $totalValue = 0.0;
         $valuationService = app(\App\Services\Reports\WarehouseStockValuationReportQueryService::class);
         
-        foreach ($settingIds as $settingId) {
-            $filter = new \App\Services\Reports\WarehouseStockValuationReportFilterData(
-                asOfDate: $asOfDate,
-                scopeSettingId: $settingId
-            );
-            $results = $valuationService->build($filter);
-            $totalValue += $results->sum('stock_value');
-        }
-            
-        return $totalValue;
+        return $valuationService->sumInventoryValueAsOf($settingScope, $asOfDate);
     }
 }

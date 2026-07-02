@@ -71,6 +71,10 @@ class WarehouseStockValuationReportQueryService
             ->where('setting_id', $settingId)
             ->whereIn('product_id', $productIds)
             ->whereIn('location_id', $warehouseIds)
+            ->where(function ($q) use ($asOfDate) {
+                $q->where('created_at', '<=', $asOfDate)
+                  ->orWhereIn('type', ['BUY', 'DISPATCH', 'SELL', 'TRF']);
+            })
             ->get();
 
         $purchaseRefs = [];
@@ -195,5 +199,111 @@ class WarehouseStockValuationReportQueryService
             $perPage,
             $page
         );
+    }
+
+    public function sumInventoryValueAsOf(int|array $settingScope, string $asOfDate): float
+    {
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $asOfDateCarbon = Carbon::parse($asOfDate)->endOfDay();
+        $totalValue = 0.0;
+
+        foreach ($settingIds as $settingId) {
+            $warehouseIds = Location::where('setting_id', $settingId)->pluck('id')->toArray();
+            if (empty($warehouseIds)) {
+                continue;
+            }
+
+            // Only need products that are stock managed
+            $products = Product::query()
+                ->where('setting_id', $settingId)
+                ->where('stock_managed', 1)
+                ->get(['id', 'average_purchase_price']);
+
+            if ($products->isEmpty()) {
+                continue;
+            }
+
+            $productIds = $products->pluck('id');
+            $priceMap = $this->loadProductPriceMap($productIds, $settingId);
+
+            $averageCostMap = [];
+            foreach ($products as $product) {
+                $averageCostMap[$product->id] = $priceMap[$product->id]['average'] ?? (float) ($product->average_purchase_price ?? 0);
+            }
+
+            $productQtyMap = [];
+
+            Transaction::query()
+                ->where('setting_id', $settingId)
+                ->whereIn('product_id', $productIds)
+                ->whereIn('location_id', $warehouseIds)
+                ->where(function ($q) use ($asOfDateCarbon) {
+                    $q->where('created_at', '<=', $asOfDateCarbon)
+                      ->orWhereIn('type', ['BUY', 'DISPATCH', 'SELL', 'TRF']);
+                })
+                ->orderBy('id')
+                ->chunkById(1000, function ($transactions) use (&$productQtyMap, $asOfDateCarbon, $settingId) {
+                    $purchaseRefs = [];
+                    $saleRefs = [];
+
+                    foreach ($transactions as $transaction) {
+                        $type = strtoupper((string) $transaction->type);
+
+                        // Ignore zero-delta snapshot rows early
+                        if ($type === 'ADJ') {
+                            $diff = (float) ($transaction->after_quantity ?? 0) - (float) ($transaction->previous_quantity ?? 0);
+                            if ($diff == 0.0) {
+                                continue;
+                            }
+                        }
+
+                        $reference = $this->extractReference($transaction->reason);
+                        if ($reference) {
+                            if ($type === 'BUY') {
+                                $purchaseRefs[$reference] = true;
+                            }
+
+                            if (in_array($type, ['DISPATCH', 'SELL'], true)) {
+                                $saleRefs[$reference] = true;
+                            }
+                        }
+                    }
+
+                    $purchaseDateMap = $this->buildPurchaseDateMap(array_keys($purchaseRefs), $settingId);
+                    $saleDateMap = $this->buildSaleDateMap(array_keys($saleRefs), $settingId);
+                    $transferMeta = $this->loadTransferMeta($transactions);
+
+                    foreach ($transactions as $transaction) {
+                        $delta = $this->resolveDelta($transaction);
+                        if ($delta == 0.0) {
+                            continue;
+                        }
+
+                        $reference = $this->extractReference($transaction->reason);
+                        $transactionDate = $this->resolveTransactionDate(
+                            $transaction,
+                            $delta,
+                            $reference,
+                            $purchaseDateMap,
+                            $saleDateMap,
+                            $transferMeta
+                        );
+
+                        if ($transactionDate === null || $transactionDate->gt($asOfDateCarbon)) {
+                            continue;
+                        }
+
+                        $productId = $transaction->product_id;
+                        $productQtyMap[$productId] = ($productQtyMap[$productId] ?? 0.0) + $delta;
+                    }
+                });
+
+            foreach ($productQtyMap as $productId => $qty) {
+                $avgCost = $averageCostMap[$productId] ?? 0.0;
+                $totalValue += ($qty * $avgCost);
+            }
+        }
+
+        return $totalValue;
     }
 }

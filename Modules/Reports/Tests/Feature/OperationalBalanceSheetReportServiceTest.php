@@ -255,6 +255,74 @@ class OperationalBalanceSheetReportServiceTest extends TestCase
         $this->assertEquals(50, collect($report->assets->rows)->firstWhere('name', 'Persediaan Barang')->amount);
     }
 
+    public function test_inventory_value_respects_stock_snapshot_effective_date()
+    {
+        $category = Category::create([
+            'setting_id' => $this->setting->id,
+            'category_code' => 'C_SNAP',
+            'category_name' => 'Snap Cat',
+            'created_by' => 1
+        ]);
+
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Snap Test',
+            'product_code' => 'T_SNAP',
+            'product_barcode_symbology' => 'C128',
+            'product_quantity' => 10,
+            'product_cost' => 500, // 5
+            'product_price' => 1000,
+            'product_unit' => 'PC',
+            'product_stock_alert' => 1,
+            'product_order_tax' => 0,
+            'product_tax_type' => 1,
+            'stock_managed' => true,
+        ]);
+
+        \Modules\Product\Entities\ProductPrice::create([
+            'setting_id' => $this->setting->id,
+            'product_id' => $product->id,
+            'average_purchase_price' => 5
+        ]);
+
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->setting->id]);
+
+        // A snapshot import transaction uploaded 5 days ago
+        $transaction = \Modules\Product\Entities\Transaction::create([
+            'setting_id' => $this->setting->id,
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'type' => 'ADJ',
+            'quantity' => 20, // difference of 20
+            'current_quantity' => 20,
+            'previous_quantity' => 0,
+            'previous_quantity_at_location' => 0,
+            'after_quantity' => 20,
+            'after_quantity_at_location' => 20,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 20,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'reason' => 'STOCK SNAPSHOT IMPORT OVERWRITE',
+        ]);
+        
+        $transaction->created_at = Carbon::now()->subDays(5);
+        $transaction->save(['timestamps' => false]);
+
+        // Report generated 10 days ago (BEFORE snapshot):
+        // Snapshot should be EXCLUDED. Stock value is 0.
+        $asOfDateBefore = Carbon::now()->subDays(10)->format('Y-m-d');
+        $reportBefore = $this->service->generate($this->setting->id, $asOfDateBefore);
+        $this->assertEquals(0, collect($reportBefore->assets->rows)->firstWhere('name', 'Persediaan Barang')->amount);
+
+        // Report generated 2 days ago (AFTER snapshot):
+        // Snapshot should be INCLUDED. 20 qty * 5 cost = 100.
+        $asOfDateAfter = Carbon::now()->subDays(2)->format('Y-m-d');
+        $reportAfter = $this->service->generate($this->setting->id, $asOfDateAfter);
+        $this->assertEquals(100, collect($reportAfter->assets->rows)->firstWhere('name', 'Persediaan Barang')->amount);
+    }
+
     public function test_inventory_multi_setting_is_scoped()
     {
         $setting2 = Setting::factory()->create();
