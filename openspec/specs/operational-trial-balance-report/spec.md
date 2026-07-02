@@ -1,5 +1,9 @@
-## ADDED Requirements
+# Operational Trial Balance Report Specification
 
+## Purpose
+
+Generate Neraca Saldo (trial balance) reports showing debit and credit movement for operational transaction categories in trial-balance format (opening, period movement, and ending debit/credit columns). The report supports date range filtering and is sourced from the same operational movement events as Buku Besar, scoped to the active tenant setting, and exports to XLSX and CSV.
+## Requirements
 ### Requirement: Reports expose operational Neraca Saldo
 The system SHALL provide a `Neraca saldo` report page for users with `reports.access`.
 
@@ -70,20 +74,43 @@ The system SHALL render trial-balance-style rows grouped by operational category
 - **WHEN** Neraca saldo is rendered
 - **THEN** the report does not provide chart-of-account drill-down links or claim rows are real COA balances.
 
-### Requirement: Neraca Saldo normalizes eligible operational movement
-The system SHALL normalize eligible sales, purchases, payments, returns, and expenses into debit and credit movement used by the report.
+#### Scenario: Sales cost is not purchase total
+- **WHEN** Neraca saldo renders expense-category rows for a period containing both sales and purchases
+- **THEN** Beban Pokok Penjualan or equivalent sales-cost rows are based on sale detail cost snapshots
+- **AND** purchase header totals are not shown as sales cost/HPP rows.
 
-#### Scenario: Eligible sale creates revenue and receivable movement
+### Requirement: Neraca Saldo normalizes eligible operational movement
+The system SHALL normalize eligible sales, sale cost snapshots, payments, purchase payable movement, return payments, and expenses into debit and credit movement used by the report.
+
+#### Scenario: Eligible sale creates DPP revenue and receivable movement
 - **WHEN** an eligible sale is dated within or before the selected report range
-- **THEN** Neraca saldo reflects the sale in the supported operational revenue and receivable rows.
+- **THEN** Neraca saldo reflects operational revenue using the sum of `sale_details.sub_total - COALESCE(sale_details.product_tax_amount, 0)` for that sale
+- **AND** sale header `tax_amount` and `shipping_amount` do not increase operational revenue
+- **AND** the sale creates receivable movement from the authoritative current sale document amount used by the report.
+
+#### Scenario: Header sales discount reduces revenue separately
+- **WHEN** an eligible sale has a header or global `discount_amount`
+- **THEN** Neraca saldo reflects that discount as a reduction of operational revenue
+- **AND** line-level product discounts already reflected in sale detail `sub_total` are not subtracted again.
+
+#### Scenario: Eligible sale creates HPP movement from cost snapshots
+- **WHEN** eligible sale details have `cost_unit_snapshot` and current `quantity`
+- **THEN** Neraca saldo reflects Beban Pokok Penjualan using the sum of `COALESCE(cost_unit_snapshot, 0) * quantity`
+- **AND** `cost_total_snapshot`, purchase header totals, and current product cost are not authoritative HPP sources for this report.
+
+#### Scenario: Missing cost snapshot contributes zero HPP
+- **WHEN** an eligible sale detail has a null `cost_unit_snapshot`
+- **THEN** that detail contributes zero to Beban Pokok Penjualan movement
+- **AND** the report does not recalculate HPP from the product's current average purchase price.
 
 #### Scenario: Active sale payment creates cash and receivable movement
 - **WHEN** an active sale payment is dated within or before the selected report range
 - **THEN** Neraca saldo reflects the payment as cash/bank inflow and receivable reduction.
 
-#### Scenario: Eligible purchase creates cost and payable movement
+#### Scenario: Eligible purchase creates payable movement without HPP
 - **WHEN** an eligible purchase is dated within or before the selected report range
-- **THEN** Neraca saldo reflects the purchase in the supported purchase/cost and payable rows.
+- **THEN** Neraca saldo reflects payable movement supported by that purchase where payable rows are shown
+- **AND** the purchase header total does not create Beban Pokok Penjualan or operational HPP movement.
 
 #### Scenario: Active purchase payment creates cash and payable movement
 - **WHEN** an active purchase payment is dated within or before the selected report range
@@ -91,11 +118,17 @@ The system SHALL normalize eligible sales, purchases, payments, returns, and exp
 
 #### Scenario: Approved expense creates cash and expense movement
 - **WHEN** an approved, non-archived expense is dated within or before the selected report range
-- **THEN** Neraca saldo reflects the expense as cash/bank outflow and operational expense movement.
+- **THEN** Neraca saldo reflects the expense as cash/bank outflow and gross operational expense movement.
 
-#### Scenario: Completed returns create reversal movement
-- **WHEN** a completed sale return or purchase return is dated within or before the selected report range
-- **THEN** Neraca saldo reflects the return as reversal movement in the supported operational rows.
+#### Scenario: Completed sale returns do not reverse DPP revenue or HPP
+- **WHEN** a completed sale return exists for a sale whose current sale document is included in the report
+- **THEN** Neraca saldo does not create separate revenue reversal or HPP reversal movement from the sale return header or details
+- **AND** sale return payment records still create supported cash and receivable movement when refunds are paid.
+
+#### Scenario: Purchase return payments remain cash movement
+- **WHEN** completed purchase return payment records are dated within or before the selected report range
+- **THEN** Neraca saldo reflects supported purchase return payment movement in cash/bank and payable rows
+- **AND** purchase return headers do not create Beban Pokok Penjualan movement.
 
 #### Scenario: Ineligible records are excluded
 - **WHEN** draft, rejected, archived, inactive payment, or incomplete lifecycle records exist
@@ -153,3 +186,4 @@ The system SHALL show a clear empty state when no supported operational movement
 #### Scenario: No supported movement exists
 - **WHEN** the selected date range and active setting have no supported operational movement before or during the period
 - **THEN** Neraca saldo displays an empty state explaining that no operational transactions are available for the selected period.
+

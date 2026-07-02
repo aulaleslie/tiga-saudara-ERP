@@ -1,5 +1,9 @@
-## ADDED Requirements
+# Operational Cash Flow Report Specification
 
+## Purpose
+
+Generate Arus Kas (cash flow) reports using the direct method to show cash sources and uses from operational, investing, and financing activity, calculated from supported operational cash movement records within a selected date range. The report is cash-basis only and does not include non-cash revenue or cost movements.
+## Requirements
 ### Requirement: Reports expose operational Arus Kas
 The system SHALL provide an `Arus Kas` report page for users with `reports.access`.
 
@@ -14,12 +18,12 @@ The system SHALL provide an `Arus Kas` report page for users with `reports.acces
 - **THEN** the system returns a forbidden response.
 
 ### Requirement: Arus Kas uses operational cash movement sources
-The system SHALL calculate Arus Kas from supported operational cash movement records instead of complete accounting journal, chart-of-account, bank ledger, or opening capital balances.
+The system SHALL calculate Arus Kas from supported operational cash movement records instead of complete accounting journal, chart-of-account, bank ledger, opening capital balances, sales DPP revenue, or non-cash HPP values.
 
 #### Scenario: Report explains operational source
 - **WHEN** Arus Kas is rendered or exported
 - **THEN** the output includes a note explaining that the report is calculated from supported operational cash movements
-- **AND** the note states that it does not yet use complete accounting journals, chart-of-account posting, bank ledger balances, opening capital, or bank revaluation data.
+- **AND** the note states that it does not yet use complete accounting journals, chart-of-account posting, bank ledger balances, opening capital, bank revaluation data, non-cash sales DPP revenue, or non-cash HPP values.
 
 #### Scenario: Report is scoped to active setting
 - **WHEN** operational cash movement records exist for multiple settings
@@ -156,3 +160,4 @@ The system SHALL render a complete zero-valued cash-flow structure when no suppo
 - **WHEN** the selected date range and active setting have no supported cash movement before or during the period
 - **THEN** Arus Kas displays all direct-method rows with zero amounts
 - **AND** `Saldo kas awal`, `Kenaikan (penurunan) kas`, and `Saldo kas akhir` are zero.
+

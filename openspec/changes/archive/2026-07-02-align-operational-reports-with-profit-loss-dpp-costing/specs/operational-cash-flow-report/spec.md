@@ -13,7 +13,7 @@ The system SHALL calculate Arus Kas from supported operational cash movement rec
 - **THEN** Arus Kas includes only records for the active `setting_id`.
 
 ### Requirement: Arus Kas classifies operating cash movement
-The system SHALL classify supported payment and expense records into operating cash-flow rows without adding non-cash sales DPP revenue or HPP movement.
+The system SHALL classify supported payment and expense records into operating cash-flow rows.
 
 #### Scenario: Sale payments increase customer receipts
 - **WHEN** active sale payments exist within the selected period for eligible sales in the active setting
@@ -34,10 +34,6 @@ The system SHALL classify supported payment and expense records into operating c
 #### Scenario: Approved expenses reduce operating cash
 - **WHEN** approved, non-archived expenses exist within the selected period in the active setting
 - **THEN** their amounts decrease `Pengeluaran operasional`.
-
-#### Scenario: Sales DPP and HPP do not create cash-flow rows
-- **WHEN** eligible sale details have DPP revenue or sale cost snapshot HPP in the selected period
-- **THEN** those non-cash values do not create Arus Kas rows unless an associated supported payment or refund cash movement exists.
 
 #### Scenario: Ineligible records are excluded
 - **WHEN** draft, rejected, archived, inactive payment, or incomplete lifecycle records exist
