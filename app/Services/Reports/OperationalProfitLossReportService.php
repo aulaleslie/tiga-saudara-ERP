@@ -24,23 +24,23 @@ class OperationalProfitLossReportService
 
         // Sales (Completed: DISPATCHED, RETURNED_PARTIALLY, RETURNED)
         // Excludes DISPATCHED_PARTIALLY to avoid overstating revenue from incomplete shipments
-        $salesIds = Sale::whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
+        $salesAggregates = \Modules\Sale\Entities\SaleDetails::join('sales', 'sale_details.sale_id', '=', 'sales.id')
+            ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
+            ->whereIn('sales.setting_id', $normalizedSettingIds)
+            ->when($startDate, fn($q) => $q->whereDate('sales.date', '>=', $startDate))
+            ->when($endDate, fn($q) => $q->whereDate('sales.date', '<=', $endDate))
+            ->selectRaw('SUM(sale_details.sub_total - COALESCE(sale_details.product_tax_amount, 0)) as dpp')
+            ->selectRaw('SUM(COALESCE(sale_details.cost_unit_snapshot, 0) * sale_details.quantity) as hpp')
+            ->first();
+
+        $penjualan = $salesAggregates->dpp ?? 0;
+        $bebanPokokPendapatan = $salesAggregates->hpp ?? 0;
+
+        $diskonPenjualan = -Sale::whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
-            ->pluck('id');
-
-        $penjualan = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)
-            ->selectRaw('SUM(sub_total - COALESCE(product_tax_amount, 0)) as dpp')
-            ->value('dpp') ?? 0;
-
-        $diskonPenjualan = -Sale::whereIn('id', $salesIds)->sum('discount_amount');
-
-        // Calculate Cost of Goods Sold (COGS) from Sales
-        // Replace HPP aggregation with `COALESCE(cost_unit_snapshot, 0) * sale_details.quantity`
-        $bebanPokokPendapatan = \Modules\Sale\Entities\SaleDetails::whereIn('sale_id', $salesIds)
-            ->selectRaw('SUM(COALESCE(cost_unit_snapshot, 0) * quantity) as hpp')
-            ->value('hpp') ?? 0;
+            ->sum('discount_amount');
 
         // Expenses (Approved, not archived)
         // Note: amount is stored in cents, so sum('amount') returns cents, must divide by 100
