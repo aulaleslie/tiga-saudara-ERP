@@ -14,9 +14,11 @@ class OperationalTrialBalanceReportService
         $this->movementService = $movementService;
     }
 
-    public function generate(int $settingId, string $startDate, string $endDate): OperationalTrialBalanceReport
+    public function generate(int|array $settingScope, string $startDate, string $endDate): OperationalTrialBalanceReport
     {
-        $setting = Setting::with('currency')->find($settingId);
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::with('currency')->find($firstSettingId);
         $currencyCode = $setting && $setting->currency ? ($setting->currency->code ?? $setting->currency->currency_name ?? 'IDR') : 'IDR';
         
         $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran, retur, pengeluaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda.';
@@ -35,7 +37,7 @@ class OperationalTrialBalanceReportService
             );
         }
 
-        $events = $this->movementService->getMovementEvents($settingId, $end);
+        $events = $this->movementService->getMovementEvents($settingScope, $end);
         $metadata = OperationalTrialBalanceRowConfig::getRowMetadata();
 
         $rowsByBucket = [];

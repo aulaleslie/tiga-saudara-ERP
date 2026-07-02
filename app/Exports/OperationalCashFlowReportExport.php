@@ -39,7 +39,7 @@ class OperationalCashFlowReportExport implements FromArray, WithEvents, WithTitl
 
     public function array(): array
     {
-        $settingId = $this->filters['settingId'] ?? session('setting_id');
+        $settingIds = $this->filters['settingIds'] ?? [session('setting_id')];
         $isCsv = $this->filters['isCsv'] ?? false;
         
         $filterData = new OperationalCashFlowReportFilterData(
@@ -48,13 +48,13 @@ class OperationalCashFlowReportExport implements FromArray, WithEvents, WithTitl
         );
 
         $reportService = app(OperationalCashFlowReportService::class);
-        $report = $reportService->generate($settingId, $filterData);
+        $report = $reportService->generate($settingIds, $filterData);
 
         if ($isCsv) {
             return $this->generateCsvArray($report);
         }
         
-        return $this->generateXlsxArray($report, $settingId);
+        return $this->generateXlsxArray($report, $settingIds);
     }
     
     protected function generateCsvArray($report): array
@@ -88,15 +88,20 @@ class OperationalCashFlowReportExport implements FromArray, WithEvents, WithTitl
         return $rows;
     }
     
-    protected function generateXlsxArray($report, $settingId): array
+    protected function generateXlsxArray($report, $settingIds): array
     {
-        $setting = function_exists('settings') ? settings() : Setting::find($settingId);
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::find($firstSettingId);
         $companyName = $setting?->company_name ?? 'Company';
+        $scopeLabel = $this->filters['scopeLabel'] ?? '';
 
         $rows = [];
 
         $this->addRow($rows, [$companyName], true);
         $this->addRow($rows, ['Arus Kas (Operasional)'], true);
+        if ($scopeLabel) {
+            $this->addRow($rows, [$scopeLabel], true);
+        }
         $this->addRow($rows, ['Periode: ' . $report->periodLabel], true);
         $this->addRow($rows, ['(dalam ' . $report->currencyCode . ')'], true);
         $this->addRow($rows, [''], true);
@@ -168,7 +173,8 @@ class OperationalCashFlowReportExport implements FromArray, WithEvents, WithTitl
                 $sheet->mergeCells('A3:C3');
                 $sheet->mergeCells('A4:C4');
                 $sheet->mergeCells('A5:C5');
-                $sheet->getStyle('A1:C5')->getAlignment()->setHorizontal('center');
+                $sheet->mergeCells('A6:C6');
+                $sheet->getStyle('A1:C6')->getAlignment()->setHorizontal('center');
 
                 foreach ($this->rowMeta['boldRows'] as $row) {
                     $sheet->getStyle("A{$row}:C{$row}")->getFont()->setBold(true);

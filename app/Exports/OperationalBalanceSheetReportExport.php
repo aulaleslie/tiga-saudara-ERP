@@ -37,19 +37,24 @@ class OperationalBalanceSheetReportExport implements FromArray, WithEvents, With
 
     public function array(): array
     {
-        $settingId = $this->filters['settingId'] ?? session('setting_id');
+        $settingIds = $this->filters['settingIds'] ?? [session('setting_id')];
+        $scopeLabel = $this->filters['scopeLabel'] ?? '';
         $asOfDate = $this->filters['asOfDate'] ?? null;
 
         $reportService = app(OperationalBalanceSheetReportService::class);
-        $report = $reportService->generate($settingId, $asOfDate);
+        $report = $reportService->generate($settingIds, $asOfDate);
 
-        $setting = function_exists('settings') ? settings() : Setting::find($settingId);
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::find($firstSettingId);
         $companyName = $setting?->company_name ?? 'Company';
 
         $rows = [];
 
         $this->addRow($rows, [$companyName], true);
         $this->addRow($rows, ['Neraca (Operasional)'], true);
+        if ($scopeLabel) {
+            $this->addRow($rows, [$scopeLabel], true);
+        }
         $this->addRow($rows, ['Per ' . Carbon::parse($report->asOfDate)->format('d M Y')], true);
         $this->addRow($rows, ['(dalam ' . $report->currencyCode . ')'], true);
         $this->addRow($rows, [''], true);
@@ -115,7 +120,8 @@ class OperationalBalanceSheetReportExport implements FromArray, WithEvents, With
                 $sheet->mergeCells('A3:C3');
                 $sheet->mergeCells('A4:C4');
                 $sheet->mergeCells('A5:C5');
-                $sheet->getStyle('A1:C5')->getAlignment()->setHorizontal('center');
+                $sheet->mergeCells('A6:C6');
+                $sheet->getStyle('A1:C6')->getAlignment()->setHorizontal('center');
 
                 foreach ($this->rowMeta['boldRows'] as $row) {
                     $sheet->getStyle("A{$row}:C{$row}")->getFont()->setBold(true);

@@ -11,6 +11,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class OperationalBalanceSheetReport extends Component
 {
+    use HasReportSettingScope;
+
     public $as_of_date;
 
     protected $rules = [
@@ -24,15 +26,19 @@ class OperationalBalanceSheetReport extends Component
     }
 
     public function render(OperationalBalanceSheetReportService $reportService) {
-        $settingId = session('setting_id');
-        
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $report = $reportService->generate(
-            $settingId, 
+            $validatedSettingIds, 
             $this->as_of_date ?: now()->format('Y-m-d')
         );
 
         return view('livewire.reports.operational-balance-sheet-report', [
-            'report' => $report
+            'report' => $report,
+            'availableSettings' => $availableSettings,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
     }
 
@@ -43,9 +49,14 @@ class OperationalBalanceSheetReport extends Component
     public function exportExcel() {
         $this->validate();
 
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'asOfDate' => $this->as_of_date ?: now()->format('Y-m-d'),
-            'settingId' => session('setting_id')
+            'settingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('neraca_%s.xlsx', Carbon::parse($filters['asOfDate'])->format('d-m-Y'));

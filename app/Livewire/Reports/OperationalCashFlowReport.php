@@ -12,6 +12,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class OperationalCashFlowReport extends Component
 {
+    use HasReportSettingScope;
+
     public $start_date;
     public $end_date;
 
@@ -60,17 +62,21 @@ class OperationalCashFlowReport extends Component
     }
 
     public function render(OperationalCashFlowReportService $reportService) {
-        $settingId = session('setting_id');
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
         
         $filterData = new OperationalCashFlowReportFilterData(
             $this->applied_start_date,
             $this->applied_end_date
         );
 
-        $report = $reportService->generate($settingId, $filterData);
+        $report = $reportService->generate($validatedSettingIds, $filterData);
 
         return view('livewire.reports.operational-cash-flow-report', [
-            'report' => $report
+            'report' => $report,
+            'availableSettings' => $availableSettings,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
     }
 
@@ -93,10 +99,15 @@ class OperationalCashFlowReport extends Component
     public function exportExcel() {
         $this->generateReport();
 
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'startDate' => $this->applied_start_date,
             'endDate' => $this->applied_end_date,
-            'settingId' => session('setting_id')
+            'settingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('arus_kas_%s_sd_%s.xlsx', 
@@ -110,11 +121,16 @@ class OperationalCashFlowReport extends Component
     public function exportCsv() {
         $this->generateReport();
 
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'startDate' => $this->applied_start_date,
             'endDate' => $this->applied_end_date,
-            'settingId' => session('setting_id'),
-            'isCsv' => true
+            'settingIds' => $validatedSettingIds,
+            'isCsv' => true,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('arus_kas_%s_sd_%s.csv', 

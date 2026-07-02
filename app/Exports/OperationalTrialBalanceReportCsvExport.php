@@ -19,8 +19,9 @@ class OperationalTrialBalanceReportCsvExport implements FromArray, WithHeadings
     {
         $reportService = app(OperationalTrialBalanceReportService::class);
         
+        $settingIds = $this->filters['settingIds'] ?? [session('setting_id')];
         $report = $reportService->generate(
-            $this->filters['settingId'], 
+            $settingIds, 
             $this->filters['startDate'] ?? null,
             $this->filters['endDate'] ?? null
         );

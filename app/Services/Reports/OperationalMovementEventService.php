@@ -22,13 +22,14 @@ class OperationalMovementEventService
      *
      * @return array<array{bucket: string, dt: string, sourceType: string, reference: string, description: string, debit: float, credit: float, tag: ?string}>
      */
-    public function getMovementEvents(int $settingId, string $endDate): array
+    public function getMovementEvents(int|array $settingScope, string $endDate): array
     {
+        $settingIds = $this->normalizeSettingIds($settingScope);
         $events = [];
 
         // 1. Sales -> Revenue (Cr) & AR (Dr), plus Discount (Dr), plus HPP (Dr) & Inventory (Cr)
         $sales = Sale::with('saleDetails')
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $settingIds)
             ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereDate('date', '<=', $endDate)
             ->get(['id', 'date', 'reference', 'total_amount', 'discount_amount', 'tax_amount', 'shipping_amount', 'customer_name', 'created_at']);
@@ -82,8 +83,8 @@ class OperationalMovementEventService
         // 2. Sale Payments -> Cash (Dr) & AR (Cr)
         $salePayments = SalePayment::active()
             ->whereDate('date', '<=', $endDate)
-            ->whereHas('sale', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('sale', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED]);
             })
             ->with('sale:id,customer_name')
@@ -106,8 +107,8 @@ class OperationalMovementEventService
         // 3. Sale Returns -> (Removed: No longer subtracting from AR or Returns bucket here to match Laba Rugi)
         
         // 4. Sale Return Payments -> Cash (Cr) & AR (Dr)
-        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<=', $endDate)
@@ -129,7 +130,7 @@ class OperationalMovementEventService
         }
 
         // 5. Purchases -> AP (Cr) & Cost (Dr)
-        $purchases = Purchase::where('setting_id', $settingId)
+        $purchases = Purchase::whereIn('setting_id', $settingIds)
             ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
             ->whereDate('date', '<=', $endDate)
             ->with('supplier:id,supplier_name')
@@ -151,8 +152,8 @@ class OperationalMovementEventService
         // 6. Purchase Payments -> Cash (Cr) & AP (Dr)
         $purchasePayments = PurchasePayment::active()
             ->whereDate('date', '<=', $endDate)
-            ->whereHas('purchase', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchase', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             })
             ->with(['purchase:id,supplier_id', 'purchase.supplier:id,supplier_name'])
@@ -173,7 +174,7 @@ class OperationalMovementEventService
         }
 
         // 7. Purchase Returns -> AP (Dr) & Returns (Cr)
-        $purchaseReturns = PurchaseReturn::where('setting_id', $settingId)
+        $purchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
             ->whereIn('status', ['Completed', 'COMPLETED'])
             ->whereDate('date', '<=', $endDate)
             ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
@@ -196,8 +197,8 @@ class OperationalMovementEventService
 
         // 8. Purchase Return Payments -> Cash (Dr) & AP (Cr)
         $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,supplier_name,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -229,8 +230,8 @@ class OperationalMovementEventService
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Penerimaan Dana', $payment->reference, 'Penerimaan Dana Retur', 0, $amount, $tag);
         }
 
-        $livewirePayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+        $livewirePayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereHas('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -256,7 +257,7 @@ class OperationalMovementEventService
 
         // 9. Expenses -> Cost (Dr) & Cash (Cr)
         $expenses = Expense::activeApproved()
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $settingIds)
             ->whereDate('date', '<=', $endDate)
             ->with('category:id,category_name')
             ->get(['date', 'reference', 'amount', 'details', 'created_at', 'category_id']);
@@ -275,6 +276,11 @@ class OperationalMovementEventService
         }
 
         return $events;
+    }
+    
+    private function normalizeSettingIds(int|array $settingScope): array
+    {
+        return is_array($settingScope) ? $settingScope : [$settingScope];
     }
     
     private function makeEvent(string $bucket, string $dt, string $sourceType, string $reference, string $description, float $debit, float $credit, ?string $tag): array

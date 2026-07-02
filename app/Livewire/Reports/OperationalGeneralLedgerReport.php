@@ -13,6 +13,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class OperationalGeneralLedgerReport extends Component
 {
+    use HasReportSettingScope;
+
     public $start_date;
     public $end_date;
     public $selected_buckets = [];
@@ -40,7 +42,9 @@ class OperationalGeneralLedgerReport extends Component
     }
 
     public function render(OperationalGeneralLedgerReportService $reportService) {
-        $settingId = session('setting_id');
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
         
         $filterData = new OperationalGeneralLedgerReportFilterData(
             $this->applied_start_date ?: now()->format('Y-m-d'),
@@ -48,12 +52,14 @@ class OperationalGeneralLedgerReport extends Component
             $this->applied_selected_buckets
         );
 
-        $report = $reportService->generate($settingId, $filterData);
+        $report = $reportService->generate($validatedSettingIds, $filterData);
         $bucketLabels = OperationalGeneralLedgerBucketConfig::getLabels();
 
         return view('livewire.reports.operational-general-ledger-report', [
             'report' => $report,
-            'bucketLabels' => $bucketLabels
+            'bucketLabels' => $bucketLabels,
+            'availableSettings' => $availableSettings,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
     }
 
@@ -78,11 +84,16 @@ class OperationalGeneralLedgerReport extends Component
     public function exportExcel() {
         $this->generateReport();
 
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'startDate' => $this->applied_start_date ?: now()->format('Y-m-d'),
             'endDate' => $this->applied_end_date ?: now()->format('Y-m-d'),
-            'settingId' => session('setting_id'),
-            'bucketKeys' => $this->applied_selected_buckets
+            'settingIds' => $validatedSettingIds,
+            'bucketKeys' => $this->applied_selected_buckets,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('buku_besar_%s_sd_%s.xlsx', 

@@ -3,6 +3,11 @@
         <tr>
             <th colspan="8" style="font-size: 16px; font-weight: bold;">Buku Besar</th>
         </tr>
+        @if(!empty($scopeLabel))
+        <tr>
+            <th colspan="8" style="font-size: 12px;">{{ $scopeLabel }}</th>
+        </tr>
+        @endif
         <tr>
             <th colspan="8">Periode: {{ \Carbon\Carbon::parse($report->startDate)->format('d M Y') }} - {{ \Carbon\Carbon::parse($report->endDate)->format('d M Y') }}</th>
         </tr>

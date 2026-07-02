@@ -10,6 +10,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class OperationalTrialBalanceReport extends Component
 {
+    use HasReportSettingScope;
+
     public $start_date;
     public $end_date;
 
@@ -58,16 +60,20 @@ class OperationalTrialBalanceReport extends Component
     }
 
     public function render(OperationalTrialBalanceReportService $reportService) {
-        $settingId = session('setting_id');
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
         
         $report = $reportService->generate(
-            $settingId, 
+            $validatedSettingIds, 
             $this->applied_start_date ?: now()->format('Y-m-d'), 
             $this->applied_end_date ?: now()->format('Y-m-d')
         );
 
         return view('livewire.reports.operational-trial-balance-report', [
-            'report' => $report
+            'report' => $report,
+            'availableSettings' => $availableSettings,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
     }
 
@@ -89,11 +95,15 @@ class OperationalTrialBalanceReport extends Component
 
     public function exportExcel() {
         $this->generateReport();
-        
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'startDate' => $this->applied_start_date ?: now()->format('Y-m-d'),
             'endDate' => $this->applied_end_date ?: now()->format('Y-m-d'),
-            'settingId' => session('setting_id'),
+            'settingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('neraca_saldo_%s_sd_%s.xlsx', 
@@ -106,11 +116,15 @@ class OperationalTrialBalanceReport extends Component
 
     public function exportCsv() {
         $this->generateReport();
-        
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
         $filters = [
             'startDate' => $this->applied_start_date ?: now()->format('Y-m-d'),
             'endDate' => $this->applied_end_date ?: now()->format('Y-m-d'),
-            'settingId' => session('setting_id'),
+            'settingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ];
         
         $filename = sprintf('neraca_saldo_%s_sd_%s.csv', 

@@ -20,15 +20,18 @@ class OperationalTrialBalanceReportExport implements FromView, ShouldAutoSize
     {
         $reportService = app(OperationalTrialBalanceReportService::class);
         
+        $settingIds = $this->filters['settingIds'] ?? [session('setting_id')];
         $report = $reportService->generate(
-            $this->filters['settingId'], 
+            $settingIds, 
             $this->filters['startDate'] ?? null,
             $this->filters['endDate'] ?? null
         );
 
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
         return view('exports.operational-trial-balance-report', [
             'report' => $report,
-            'setting' => \Modules\Setting\Entities\Setting::find($this->filters['settingId'])
+            'setting' => \Modules\Setting\Entities\Setting::find($firstSettingId),
+            'scopeLabel' => $this->filters['scopeLabel'] ?? ''
         ]);
     }
 }

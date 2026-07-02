@@ -1,0 +1,121 @@
+## MODIFIED Requirements
+
+### Requirement: Arus Kas uses operational cash movement sources
+The system SHALL calculate Arus Kas from supported operational cash movement records in the selected business source scope instead of complete accounting journal, chart-of-account, bank ledger, opening capital balances, sales DPP revenue, or non-cash HPP values.
+
+#### Scenario: Report explains operational source
+- **WHEN** Arus Kas is rendered or exported
+- **THEN** the output includes a note explaining that the report is calculated from supported operational cash movements
+- **AND** the note states that it does not yet use complete accounting journals, chart-of-account posting, bank ledger balances, opening capital, bank revaluation data, non-cash sales DPP revenue, or non-cash HPP values.
+
+#### Scenario: Default business scope uses current setting
+- **WHEN** the user opens Arus Kas without selecting any business source
+- **THEN** Arus Kas includes only records for the current `session('setting_id')`.
+
+#### Scenario: User selects multiple business sources
+- **WHEN** operational cash movement records exist for multiple settings and the user selects two or more business sources
+- **THEN** Arus Kas includes supported records whose source document or payment parent belongs to one of the selected settings
+- **AND** records from unselected settings do not affect opening cash, period movement, net cash movement, or ending cash.
+
+#### Scenario: Scope label is visible
+- **WHEN** Arus Kas is rendered
+- **THEN** the report header identifies the effective business source scope as the selected company name, `Semua Perusahaan`, or `Beberapa Perusahaan`
+
+### Requirement: Arus Kas supports date range filtering
+The system SHALL calculate Arus Kas for a selected date range and selected business source scope.
+
+#### Scenario: Default period is current date
+- **WHEN** the user opens Arus Kas without applying a filter
+- **THEN** the report uses the current date as both the start date and end date.
+
+#### Scenario: User applies date range
+- **WHEN** the user selects a start date and end date and applies the filter
+- **THEN** the report includes supported cash movement dated within the selected range and selected business source scope
+- **AND** opening cash is calculated from supported cash movement before the start date within the selected business source scope.
+
+#### Scenario: Invalid date range is rejected
+- **WHEN** the user selects an end date before the start date
+- **THEN** the system rejects the filter
+- **AND** the report does not export using the invalid range.
+
+#### Scenario: Period preset updates dates
+- **WHEN** the user selects a supported period preset such as today, this week, this month, or this year
+- **THEN** the start date and end date are updated to the matching period boundaries.
+
+### Requirement: Arus Kas classifies operating cash movement
+The system SHALL classify supported payment and expense records from the selected business source scope into operating cash-flow rows.
+
+#### Scenario: Sale payments increase customer receipts
+- **WHEN** active sale payments exist within the selected period for eligible sales in the selected business source scope
+- **THEN** their amounts increase `Penerimaan dari pelanggan`.
+
+#### Scenario: Purchase payments increase supplier payments
+- **WHEN** active purchase payments exist within the selected period for eligible purchases in the selected business source scope
+- **THEN** their amounts decrease `Pembayaran ke pemasok`.
+
+#### Scenario: Sale return refunds reduce operating cash
+- **WHEN** sale return payment records exist within the selected period for completed sale returns in the selected business source scope
+- **THEN** their amounts reduce operating cash in an appropriate operating row.
+
+#### Scenario: Purchase return refunds increase operating cash
+- **WHEN** purchase return payment records exist within the selected period for completed purchase returns in the selected business source scope
+- **THEN** their amounts increase operating cash in an appropriate operating row.
+
+#### Scenario: Approved expenses reduce operating cash
+- **WHEN** approved, non-archived expenses exist within the selected period in the selected business source scope
+- **THEN** their amounts decrease `Pengeluaran operasional`.
+
+#### Scenario: Ineligible records are excluded
+- **WHEN** draft, rejected, archived, inactive payment, incomplete lifecycle records, or records from unselected settings exist
+- **THEN** their amounts do not contribute to Arus Kas.
+
+### Requirement: Arus Kas calculates summary cash rows
+The system SHALL calculate net cash movement, bank revaluation, opening cash, and ending cash from supported cash-flow rows in the selected business source scope.
+
+#### Scenario: Opening cash uses prior supported movement
+- **WHEN** supported cash movement exists before the selected start date within the selected business source scope
+- **THEN** the report sums that movement as `Saldo kas awal`.
+
+#### Scenario: Net cash movement is section total
+- **WHEN** the report has operating, investing, and financing section subtotals
+- **THEN** `Kenaikan (penurunan) kas` equals the sum of those section subtotals.
+
+#### Scenario: Bank revaluation is explicit placeholder
+- **WHEN** the first operational version renders Arus Kas
+- **THEN** `Total revaluasi bank` is shown as zero
+- **AND** the report note explains that bank revaluation is not yet sourced from a bank ledger.
+
+#### Scenario: Ending cash reconciles with supported movement
+- **WHEN** Arus Kas is rendered
+- **THEN** `Saldo kas akhir` equals `Saldo kas awal` plus `Kenaikan (penurunan) kas` plus `Total revaluasi bank`.
+
+### Requirement: Arus Kas exports XLSX
+The system SHALL allow authorized users to export Arus Kas to XLSX using the same filters, selected business source scope, and calculation output as the screen.
+
+#### Scenario: XLSX export uses current filters
+- **WHEN** the user exports Arus Kas to XLSX after applying a date range and business source scope
+- **THEN** the downloaded file uses the same date range, selected business source scope, rows, subtotals, and summary values as the on-screen report.
+
+#### Scenario: XLSX export includes report header
+- **WHEN** the XLSX file is generated
+- **THEN** it includes the effective business source scope label, `Arus Kas` title, period label, currency label, and direct-method rows.
+
+### Requirement: Arus Kas exports CSV
+The system SHALL allow authorized users to export Arus Kas to CSV using the same filters, selected business source scope, and calculation output as the screen.
+
+#### Scenario: CSV export uses sample-compatible columns
+- **WHEN** the user exports Arus Kas to CSV
+- **THEN** the CSV includes columns for activity type, row label, and the selected period label
+- **AND** the data rows match the on-screen report values for the selected business source scope.
+
+#### Scenario: CSV export includes summary rows
+- **WHEN** the CSV file is generated
+- **THEN** it includes `Kenaikan (penurunan) kas`, `Total revaluasi bank`, `Saldo kas awal`, and `Saldo kas akhir` rows.
+
+### Requirement: Arus Kas handles empty movement
+The system SHALL render a complete zero-valued cash-flow structure when no supported movement exists for the selected filters.
+
+#### Scenario: No supported movement exists
+- **WHEN** the selected date range and selected business source scope have no supported cash movement before or during the period
+- **THEN** Arus Kas displays all direct-method rows with zero amounts
+- **AND** `Saldo kas awal`, `Kenaikan (penurunan) kas`, and `Saldo kas akhir` are zero.

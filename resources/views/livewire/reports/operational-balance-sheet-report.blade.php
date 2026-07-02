@@ -6,6 +6,12 @@
                     <form wire:submit="generateReport">
                         <div class="form-row">
                             <div class="col-lg-6">
+                                @include('livewire.reports.business-source-selector', [
+                                    'selectId' => 'balanceSheetSettingIds',
+                                    'availableSettings' => $availableSettings
+                                ])
+                            </div>
+                            <div class="col-lg-6">
                                 <div class="form-group">
                                     <label>Per Tanggal (As of Date)</label>
                                     <input wire:model.live="as_of_date" type="date" class="form-control" name="as_of_date">
@@ -40,6 +46,7 @@
                 <div class="card-body">
                     <div class="text-center mb-4">
                         <h3 class="font-weight-bold mb-1">Neraca (Operasional)</h3>
+                        <p class="text-muted mb-1">{{ $scopeLabel }}</p>
                         <p class="text-muted mb-0">Per {{ \Carbon\Carbon::parse($report->asOfDate)->format('d M Y') }}</p>
                         <p class="text-muted mb-0">(dalam {{ $report->currencyCode }})</p>
                     </div>

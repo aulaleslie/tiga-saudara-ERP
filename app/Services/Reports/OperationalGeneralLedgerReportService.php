@@ -17,9 +17,11 @@ use Carbon\Carbon;
 
 class OperationalGeneralLedgerReportService
 {
-    public function generate(int $settingId, OperationalGeneralLedgerReportFilterData $filter): OperationalGeneralLedgerReport
+    public function generate(int|array $settingScope, OperationalGeneralLedgerReportFilterData $filter): OperationalGeneralLedgerReport
     {
-        $setting = Setting::with('currency')->find($settingId);
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::with('currency')->find($firstSettingId);
         $currencyCode = $setting && $setting->currency ? ($setting->currency->code ?? $setting->currency->currency_name ?? 'IDR') : 'IDR';
 
         $startDate = $filter->startDate;
@@ -39,7 +41,7 @@ class OperationalGeneralLedgerReportService
         }
 
         $movementService = app(OperationalMovementEventService::class);
-        $events = $movementService->getMovementEvents($settingId, $endDate instanceof \DateTimeInterface ? $endDate->format('Y-m-d') : (string)$endDate);
+        $events = $movementService->getMovementEvents($settingScope, $endDate instanceof \DateTimeInterface ? $endDate->format('Y-m-d') : (string)$endDate);
 
         // --- Process Events into Buckets ---
         $bucketLabels = OperationalGeneralLedgerBucketConfig::getLabels();

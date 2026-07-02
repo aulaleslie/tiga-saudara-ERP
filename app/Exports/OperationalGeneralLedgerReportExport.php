@@ -28,12 +28,13 @@ class OperationalGeneralLedgerReportExport implements FromView, ShouldAutoSize
         );
 
         $report = $reportService->generate(
-            $this->filters['settingId'], 
+            $this->filters['settingIds'] ?? [session('setting_id')], 
             $filterData
         );
 
         return view('exports.operational-general-ledger-report', [
-            'report' => $report
+            'report' => $report,
+            'scopeLabel' => $this->filters['scopeLabel'] ?? ''
         ]);
     }
 }

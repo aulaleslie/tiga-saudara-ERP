@@ -5,7 +5,13 @@
                 <div class="card-body">
                     <form wire:submit="generateReport">
                         <div class="form-row">
-                            <div class="col-lg-4">
+                            <div class="col-lg-3">
+                                @include('livewire.reports.business-source-selector', [
+                                    'selectId' => 'trialBalanceSettingIds',
+                                    'availableSettings' => $availableSettings
+                                ])
+                            </div>
+                            <div class="col-lg-3">
                                 <div class="form-group">
                                     <label>Periode</label>
                                     <select wire:model.live="period_preset" class="form-control">
@@ -17,7 +23,7 @@
                                     </select>
                                 </div>
                             </div>
-                            <div class="col-lg-4">
+                            <div class="col-lg-3">
                                 <div class="form-group">
                                     <label>Dari Tanggal (Start Date)</label>
                                     <input wire:model.live="start_date" type="date" class="form-control" name="start_date">
@@ -26,7 +32,7 @@
                                     @enderror
                                 </div>
                             </div>
-                            <div class="col-lg-4">
+                            <div class="col-lg-3">
                                 <div class="form-group">
                                     <label>Sampai Tanggal (End Date)</label>
                                     <input wire:model.live="end_date" type="date" class="form-control" name="end_date">
@@ -70,6 +76,7 @@
                 <div class="card-body">
                     <div class="text-center mb-4">
                         <h3 class="font-weight-bold mb-1">Neraca Saldo</h3>
+                        <p class="text-muted mb-1">{{ $scopeLabel }}</p>
                         <p class="text-muted mb-0">Periode {{ \Carbon\Carbon::parse($report->startDate)->format('d M Y') }} - {{ \Carbon\Carbon::parse($report->endDate)->format('d M Y') }}</p>
                         <p class="text-muted mb-0">(dalam {{ $report->currencyCode }})</p>
                     </div>

@@ -15,9 +15,11 @@ use Modules\Setting\Entities\Setting;
 
 class OperationalCashFlowReportService
 {
-    public function generate(int $settingId, OperationalCashFlowReportFilterData $filter): OperationalCashFlowReport
+    public function generate(int|array $settingScope, OperationalCashFlowReportFilterData $filter): OperationalCashFlowReport
     {
-        $setting = Setting::with('currency')->find($settingId);
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::with('currency')->find($firstSettingId);
         $currencyCode = $setting && $setting->currency ? ($setting->currency->code ?? $setting->currency->currency_name ?? 'IDR') : 'IDR';
         
         $startDate = $filter->startDate;
@@ -27,11 +29,11 @@ class OperationalCashFlowReportService
         $periodLabel = "{$startDateStr} - {$endDateStr}";
 
         // Calculate period movements (between startDate and endDate)
-        $periodSalePayments = $this->getSalePayments($settingId, $startDate, $endDate);
-        $periodPurchasePayments = $this->getPurchasePayments($settingId, $startDate, $endDate);
-        $periodSaleReturnPayments = $this->getSaleReturnPayments($settingId, $startDate, $endDate);
-        $periodPurchaseReturnPayments = $this->getPurchaseReturnPayments($settingId, $startDate, $endDate);
-        $periodExpenses = $this->getExpenses($settingId, $startDate, $endDate);
+        $periodSalePayments = $this->getSalePayments($settingScope, $startDate, $endDate);
+        $periodPurchasePayments = $this->getPurchasePayments($settingScope, $startDate, $endDate);
+        $periodSaleReturnPayments = $this->getSaleReturnPayments($settingScope, $startDate, $endDate);
+        $periodPurchaseReturnPayments = $this->getPurchaseReturnPayments($settingScope, $startDate, $endDate);
+        $periodExpenses = $this->getExpenses($settingScope, $startDate, $endDate);
 
         // Operating activities section
         $operatingRows = [
@@ -63,11 +65,11 @@ class OperationalCashFlowReportService
         $netCashIncrease = new OperationalCashFlowSummaryRow('Kenaikan (penurunan) kas', $netCashIncreaseAmount);
 
         // Calculate opening cash (strictly before startDate)
-        $openingSalePayments = $this->getSalePayments($settingId, null, $startDate);
-        $openingPurchasePayments = $this->getPurchasePayments($settingId, null, $startDate);
-        $openingSaleReturnPayments = $this->getSaleReturnPayments($settingId, null, $startDate);
-        $openingPurchaseReturnPayments = $this->getPurchaseReturnPayments($settingId, null, $startDate);
-        $openingExpenses = $this->getExpenses($settingId, null, $startDate);
+        $openingSalePayments = $this->getSalePayments($settingScope, null, $startDate);
+        $openingPurchasePayments = $this->getPurchasePayments($settingScope, null, $startDate);
+        $openingSaleReturnPayments = $this->getSaleReturnPayments($settingScope, null, $startDate);
+        $openingPurchaseReturnPayments = $this->getPurchaseReturnPayments($settingScope, null, $startDate);
+        $openingExpenses = $this->getExpenses($settingScope, null, $startDate);
 
         $openingCashAmount = $openingSalePayments 
             + $openingPurchaseReturnPayments 
@@ -110,43 +112,47 @@ class OperationalCashFlowReportService
         return $query;
     }
 
-    protected function getSalePayments(int $settingId, ?string $startDate, ?string $endDate): float
+    protected function getSalePayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $query = SalePayment::active()
-            ->whereHas('sale', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('sale', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED]);
             });
             
         return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }
 
-    protected function getPurchasePayments(int $settingId, ?string $startDate, ?string $endDate): float
+    protected function getPurchasePayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $query = PurchasePayment::active()
-            ->whereHas('purchase', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchase', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             });
             
         return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
     }
 
-    protected function getSaleReturnPayments(int $settingId, ?string $startDate, ?string $endDate): float
+    protected function getSaleReturnPayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
-        $query = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
-            $q->where('setting_id', $settingId)
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $query = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
+            $q->whereIn('setting_id', $settingIds)
               ->whereIn('status', ['Completed', 'COMPLETED']);
         });
         
         return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
     }
 
-    protected function getPurchaseReturnPayments(int $settingId, ?string $startDate, ?string $endDate): float
+    protected function getPurchaseReturnPayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $legacyQuery = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -173,8 +179,8 @@ class OperationalCashFlowReportService
         
         $purchaseReturnPaymentsLegacyScaled = ($legacyCentsSum / 100) + $legacyDecimalSum;
             
-        $livewireQuery = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+        $livewireQuery = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereHas('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -186,10 +192,11 @@ class OperationalCashFlowReportService
         return $purchaseReturnPaymentsLegacyScaled + $purchaseReturnPaymentsLivewire;
     }
 
-    protected function getExpenses(int $settingId, ?string $startDate, ?string $endDate): float
+    protected function getExpenses(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $query = Expense::activeApproved()
-            ->where('setting_id', $settingId);
+            ->whereIn('setting_id', $settingIds);
             
         return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
     }

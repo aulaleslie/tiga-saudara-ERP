@@ -17,9 +17,11 @@ use Modules\Product\Entities\Product;
 
 class OperationalBalanceSheetReportService
 {
-    public function generate(int $settingId, ?string $asOfDate = null): OperationalBalanceSheetReport
+    public function generate(int|array $settingScope, ?string $asOfDate = null): OperationalBalanceSheetReport
     {
-        $setting = Setting::with('currency')->find($settingId);
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $firstSettingId = $settingIds[0] ?? session('setting_id');
+        $setting = Setting::with('currency')->find($firstSettingId);
         $currencyCode = $setting && $setting->currency ? ($setting->currency->code ?? $setting->currency->currency_name ?? 'IDR') : 'IDR';
         
         $asOfDate = $asOfDate ?? now()->format('Y-m-d');
@@ -27,16 +29,16 @@ class OperationalBalanceSheetReportService
         // 1. Calculate Cash/Bank (derived from payments)
         // Inflows: Sale payments, Purchase return payments (refunds from supplier)
         $salePayments = SalePayment::active()
-            ->whereHas('sale', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('sale', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED]);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
         $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -71,8 +73,8 @@ class OperationalBalanceSheetReportService
         
         $purchaseReturnPaymentsLegacyScaled = ($legacyCentsSum / 100) + $legacyDecimalSum;
             
-        $purchaseReturnPaymentsLivewire = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+        $purchaseReturnPaymentsLivewire = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED'])
                   ->whereHas('purchaseReturnDetails', function ($q2) {
                       $q2->whereNotNull('location_id');
@@ -85,16 +87,16 @@ class OperationalBalanceSheetReportService
             
         // Outflows: Purchase payments, Sale return payments (refunds to customer), Expenses
         $purchasePaymentsCents = PurchasePayment::active()
-            ->whereHas('purchase', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+            ->whereHas('purchase', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
         $purchasePayments = $purchasePaymentsCents / 100;
             
-        $saleReturnPaymentsCents = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId)
+        $saleReturnPaymentsCents = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<=', $asOfDate)
@@ -102,7 +104,7 @@ class OperationalBalanceSheetReportService
         $saleReturnPayments = $saleReturnPaymentsCents / 100;
             
         $expensesCentsTotal = Expense::activeApproved()
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $settingIds)
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
         $expensesTotal = $expensesCentsTotal / 100;
@@ -110,7 +112,7 @@ class OperationalBalanceSheetReportService
         $cashAndBank = $salePayments + $purchaseReturnPayments - $purchasePayments - $saleReturnPayments - $expensesTotal;
 
         // 2. Calculate Receivables
-        $salesTotal = Sale::where('setting_id', $settingId)
+        $salesTotal = Sale::whereIn('setting_id', $settingIds)
             ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
@@ -123,15 +125,15 @@ class OperationalBalanceSheetReportService
         $customerRefundLiability = max(0, -$netReceivableCalc);
         
         // 3. Calculate Inventory Value
-        $inventoryValue = $this->calculateInventoryValue($settingId, $asOfDate);
+        $inventoryValue = $this->calculateInventoryValue($settingScope, $asOfDate);
         
         // 4. Calculate Payables
-        $purchasesTotal = Purchase::where('setting_id', $settingId)
+        $purchasesTotal = Purchase::whereIn('setting_id', $settingIds)
             ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
             
-        $completedPurchaseReturnsRecords = PurchaseReturn::where('setting_id', $settingId)
+        $completedPurchaseReturnsRecords = PurchaseReturn::whereIn('setting_id', $settingIds)
             ->whereIn('status', ['Completed', 'COMPLETED'])
             ->whereDate('date', '<=', $asOfDate)
             ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
@@ -151,7 +153,7 @@ class OperationalBalanceSheetReportService
             return (float) $pr->total_amount;
         });
             
-        $taxPayable = Sale::where('setting_id', $settingId)
+        $taxPayable = Sale::whereIn('setting_id', $settingIds)
             ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereDate('date', '<=', $asOfDate)
             ->sum('tax_amount');
@@ -198,13 +200,15 @@ class OperationalBalanceSheetReportService
         );
     }
     
-    protected function calculateInventoryValue(int $settingId, string $asOfDate): float
+    protected function calculateInventoryValue(int|array $settingScope, string $asOfDate): float
     {
         // For accurate historical inventory valuation, we would need to trace ProductMovements
         // backwards from current stock. For now, since the app only supports current product_quantity,
         // we use current stock but annotate the limitation.
         
-        $valueCents = Product::where('setting_id', $settingId)
+        $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        
+        $valueCents = Product::whereIn('setting_id', $settingIds)
             ->where('stock_managed', true)
             ->sum(DB::raw('product_quantity * product_cost'));
             
