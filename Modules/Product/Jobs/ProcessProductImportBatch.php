@@ -670,14 +670,24 @@ class ProcessProductImportBatch implements ShouldQueue
             $ownerSetting = \Modules\Setting\Entities\Setting::find($ownerId);
             $isPkp = $ownerSetting ? $ownerSetting->is_pkp : false;
 
-            $prevQty = $stock->quantity;
+            $prevStockQty = $stock->quantity;
             $prevQtyTax = $stock->quantity_tax;
             $prevQtyNonTax = $stock->quantity_non_tax;
+
+            $latestTxn = \Modules\Product\Entities\Transaction::where('product_id', $product->id)
+                ->where('setting_id', $ownerId ?: $this->defaultSettingId)
+                ->where('location_id', $locationId)
+                ->latest('id')
+                ->first();
+            
+            $prevLedgerQtyLoc = $latestTxn ? (float)$latestTxn->after_quantity_at_location : 0.0;
 
             $newQtyTax = $isPkp ? $stockVal : 0;
             $newQtyNonTax = $isPkp ? 0 : $stockVal;
 
-            $difference = $stockVal - $prevQty;
+            $stockDifference = $stockVal - $prevStockQty;
+            $adjDifference = $stockVal - $prevLedgerQtyLoc;
+
             $diffQtyTax = $newQtyTax - $prevQtyTax;
             $diffQtyNonTax = $newQtyNonTax - $prevQtyNonTax;
 
@@ -686,8 +696,8 @@ class ProcessProductImportBatch implements ShouldQueue
             $stock->quantity_non_tax = $newQtyNonTax;
             $stock->save();
 
-            if ($difference != 0) {
-                $product->product_quantity += $difference;
+            if ($stockDifference != 0) {
+                $product->product_quantity += $stockDifference;
                 $product->save();
             }
 
@@ -698,11 +708,11 @@ class ProcessProductImportBatch implements ShouldQueue
                 'setting_id' => $ownerId ?: $this->defaultSettingId,
                 'location_id' => $locationId,
                 'type' => 'ADJ',
-                'quantity' => $difference,
+                'quantity' => $adjDifference,
                 'current_quantity' => $stockVal,
-                'previous_quantity' => $prevQty,
+                'previous_quantity' => $prevLedgerQtyLoc,
                 'after_quantity' => $stockVal,
-                'previous_quantity_at_location' => $prevQty,
+                'previous_quantity_at_location' => $prevLedgerQtyLoc,
                 'after_quantity_at_location' => $stockVal,
                 'quantity_tax' => $diffQtyTax,
                 'quantity_non_tax' => $diffQtyNonTax,
@@ -722,13 +732,13 @@ class ProcessProductImportBatch implements ShouldQueue
                 'target_location_id'  => $locationId,
                 'target_location_name'=> $location ? $location->name : null,
                 'total_quantity'      => $stockVal,
-                'previous_quantity'   => $prevQty,
+                'previous_quantity'   => $prevLedgerQtyLoc,
                 'after_quantity'      => $stockVal,
                 'prev_quantity_tax'   => $prevQtyTax,
                 'prev_quantity_non_tax' => $prevQtyNonTax,
                 'after_quantity_tax'  => $newQtyTax,
                 'after_quantity_non_tax' => $newQtyNonTax,
-                'delta_quantity'      => $difference,
+                'delta_quantity'      => $adjDifference,
                 'delta_quantity_tax'  => $diffQtyTax,
                 'delta_quantity_non_tax' => $diffQtyNonTax,
             ];

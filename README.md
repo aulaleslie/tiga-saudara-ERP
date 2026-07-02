@@ -74,6 +74,11 @@ php artisan queue:work --queue=default --tries=3 --timeout=7200
 php artisan product:normalize-purchase-prices
 php artisan product:normalize-purchase-prices --write
 
+# Initialization only: rebuild imported purchase/sales transaction history.
+# Dry-run first, then run with both flags when ready. The write command truncates transactions.
+php artisan inventory:normalize-import-transactions
+php artisan inventory:normalize-import-transactions --initialize --write
+
 # Backfill historical sale detail cost snapshots for Laporan Laba Rugi.
 # Run dry-run first, inspect warning counts, then run with --write.
 php artisan sales:backfill-cost-snapshots
@@ -103,3 +108,26 @@ php artisan notifications:prune --days=30
 - `--force` recomputes existing backfilled snapshots; use it after correcting historical purchase or receiving data.
 - `--product`, `--setting`, `--start`, and `--end` can limit the replay scope for manual checks.
 - Review summary warnings before writing, especially `negative_stock`, `missing_receipt_data`, `future_purchase_fallback`, `no_purchase_fallback`, and `non_stock_zero`.
+
+### Import Transaction Normalization
+
+`inventory:normalize-import-transactions` is an initialization-only command for rebuilding the stock transaction ledger from imported purchase and sales documents.
+
+- Dry-run is the default and does not write changes.
+- `--initialize --write` truncates `transactions` and recreates normalized import movements.
+- Imported purchases create `BUY` transactions with positive quantities.
+- Imported sales create `SELL` transactions with negative quantities.
+- The command does not update `product_stocks`; product stock snapshot import remains the only import path that hardens current stock quantities.
+- Run this before product stock snapshot import. Stock snapshot import then updates `product_stocks` and creates `ADJ` transactions from the latest normalized ledger balance to the snapshot quantity.
+
+Recommended initialization order:
+
+```bash
+# 1. Import purchase and sales documents through the import screens.
+
+# 2. Rebuild historical BUY/SELL transaction ledger.
+php artisan inventory:normalize-import-transactions
+php artisan inventory:normalize-import-transactions --initialize --write
+
+# 3. Import product stock snapshot through the product stock import screen.
+```
