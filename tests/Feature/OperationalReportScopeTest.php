@@ -51,11 +51,11 @@ class OperationalReportScopeTest extends TestCase
     {
         // Business A has a sale of 1000
         $saleA = Sale::forceCreate(['setting_id' => $this->setting1->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 1000, 'paid_amount' => 1000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SA', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
         
         // Business B has a sale of 2000
         $saleB = Sale::forceCreate(['setting_id' => $this->setting2->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 2000, 'paid_amount' => 2000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SB', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
 
         $service = new OperationalBalanceSheetReportService();
         
@@ -98,10 +98,10 @@ class OperationalReportScopeTest extends TestCase
     public function test_general_ledger_service_cross_business()
     {
         $saleA = Sale::forceCreate(['setting_id' => $this->setting1->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 1000, 'paid_amount' => 1000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SA_GL', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_GL', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_GL', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
         
         $saleB = Sale::forceCreate(['setting_id' => $this->setting2->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 2000, 'paid_amount' => 2000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SB_GL', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_GL', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_GL', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
 
         $service = app(\App\Services\Reports\OperationalGeneralLedgerReportService::class);
         $filter = new \App\Services\Reports\OperationalGeneralLedgerReportFilterData(now()->format('Y-m-d'), now()->format('Y-m-d'), [\App\Services\Reports\OperationalGeneralLedgerBucketConfig::CASH_BANK]);
@@ -119,10 +119,10 @@ class OperationalReportScopeTest extends TestCase
     public function test_trial_balance_service_cross_business()
     {
         $saleA = Sale::forceCreate(['setting_id' => $this->setting1->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 1000, 'paid_amount' => 1000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SA_TB', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_TB', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_TB', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
         
         $saleB = Sale::forceCreate(['setting_id' => $this->setting2->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 2000, 'paid_amount' => 2000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SB_TB', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_TB', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_TB', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
 
         $service = app(\App\Services\Reports\OperationalTrialBalanceReportService::class);
         
@@ -139,10 +139,10 @@ class OperationalReportScopeTest extends TestCase
     public function test_cash_flow_service_cross_business()
     {
         $saleA = Sale::forceCreate(['setting_id' => $this->setting1->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 1000, 'paid_amount' => 1000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SA_CF', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_CF', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleA->id, 'amount' => 1000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPA_CF', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
         
         $saleB = Sale::forceCreate(['setting_id' => $this->setting2->id, 'status' => Sale::STATUS_DISPATCHED, 'total_amount' => 2000, 'paid_amount' => 2000, 'due_amount' => 0, 'payment_status' => 'Paid', 'payment_method' => 'Cash', 'date' => now()->format('Y-m-d'), 'reference' => 'SB_CF', 'customer_name' => 'C']);
-        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_CF', 'payment_method' => 'Cash']);
+        SalePayment::forceCreate(['sale_id' => $saleB->id, 'amount' => 2000, 'date' => now()->format('Y-m-d'), 'reference' => 'SPB_CF', 'payment_method' => 'Cash', 'status' => 'ACTIVE']);
 
         $service = app(\App\Services\Reports\OperationalCashFlowReportService::class);
         $filter = new \App\Services\Reports\OperationalCashFlowReportFilterData(now()->format('Y-m-d'), now()->format('Y-m-d'));

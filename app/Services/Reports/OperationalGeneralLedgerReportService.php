@@ -40,8 +40,12 @@ class OperationalGeneralLedgerReportService
             );
         }
 
+        $startDateStr = $startDate instanceof \DateTimeInterface ? $startDate->format('Y-m-d') : (string)$startDate;
+        $endDateStr = $endDate instanceof \DateTimeInterface ? $endDate->format('Y-m-d') : (string)$endDate;
+
         $movementService = app(OperationalMovementEventService::class);
-        $events = $movementService->getMovementEvents($settingScope, $endDate instanceof \DateTimeInterface ? $endDate->format('Y-m-d') : (string)$endDate);
+        $openingBalances = $movementService->getOpeningBalances($settingScope, $startDateStr);
+        $events = $movementService->getPeriodMovements($settingScope, $startDateStr, $endDateStr);
 
         // --- Process Events into Buckets ---
         $bucketLabels = OperationalGeneralLedgerBucketConfig::getLabels();
@@ -51,6 +55,10 @@ class OperationalGeneralLedgerReportService
             if (!isset($bucketLabels[$key])) {
                 continue;
             }
+            
+            $beginningDebit = $openingBalances[$key]['debit'] ?? 0.0;
+            $beginningCredit = $openingBalances[$key]['credit'] ?? 0.0;
+            $beginningBalance = $this->getNetEffect($key, $beginningDebit, $beginningCredit);
             
             // Filter events for this bucket
             $bucketEvents = array_filter($events, fn($e) => $e['bucket'] === $key);
@@ -63,45 +71,28 @@ class OperationalGeneralLedgerReportService
                 return $a['dt'] <=> $b['dt'];
             });
             
-            $beginningBalance = 0;
             $periodDebit = 0;
             $periodCredit = 0;
-            $runningBalance = 0;
+            $runningBalance = $beginningBalance;
             $rows = [];
             
             foreach ($bucketEvents as $e) {
-                $isBefore = substr($e['dt'], 0, 10) < $startDate;
-                $isInside = substr($e['dt'], 0, 10) >= $startDate && substr($e['dt'], 0, 10) <= $endDate;
+                $periodDebit += $e['debit'];
+                $periodCredit += $e['credit'];
                 
                 $netEffect = $this->getNetEffect($key, $e['debit'], $e['credit']);
+                $runningBalance += $netEffect;
                 
-                if ($isBefore) {
-                    $beginningBalance += $netEffect;
-                } elseif ($isInside) {
-                    $periodDebit += $e['debit'];
-                    $periodCredit += $e['credit'];
-                }
-            }
-            
-            $runningBalance = $beginningBalance;
-            
-            foreach ($bucketEvents as $e) {
-                $isInside = substr($e['dt'], 0, 10) >= $startDate && substr($e['dt'], 0, 10) <= $endDate;
-                if ($isInside) {
-                    $netEffect = $this->getNetEffect($key, $e['debit'], $e['credit']);
-                    $runningBalance += $netEffect;
-                    
-                    $rows[] = new OperationalGeneralLedgerMovementRow(
-                        substr($e['dt'], 0, 10),
-                        $e['sourceType'],
-                        $e['reference'],
-                        $e['description'],
-                        $e['debit'],
-                        $e['credit'],
-                        $runningBalance,
-                        $e['tag']
-                    );
-                }
+                $rows[] = new OperationalGeneralLedgerMovementRow(
+                    substr($e['dt'], 0, 10),
+                    $e['sourceType'],
+                    $e['reference'],
+                    $e['description'],
+                    $e['debit'],
+                    $e['credit'],
+                    $runningBalance,
+                    $e['tag']
+                );
             }
             
             $endingBalance = $beginningBalance + $this->getNetEffect($key, $periodDebit, $periodCredit);
