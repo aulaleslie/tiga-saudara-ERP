@@ -32,6 +32,11 @@
                                 <i wire:target="exportExcel" wire:loading.remove class="bi bi-file-earmark-excel"></i>
                                 Export Excel
                             </button>
+                            <button type="button" wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary ml-2">
+                                <span wire:target="exportCsv" wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <i wire:target="exportCsv" wire:loading.remove class="bi bi-filetype-csv"></i>
+                                Export CSV
+                            </button>
                         </div>
                     </form>
                 </div>

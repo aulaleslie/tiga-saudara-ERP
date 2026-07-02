@@ -3,6 +3,7 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\OperationalBalanceSheetReportExport;
+use App\Exports\OperationalBalanceSheetReportCsvExport;
 use App\Services\Reports\OperationalBalanceSheetReportService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -62,5 +63,23 @@ class OperationalBalanceSheetReport extends Component
         $filename = sprintf('neraca_%s.xlsx', Carbon::parse($filters['asOfDate'])->format('d-m-Y'));
 
         return Excel::download(new OperationalBalanceSheetReportExport($filters), $filename);
+    }
+
+    public function exportCsv() {
+        $this->validate();
+
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->getEffectiveSettingIds();
+        $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+
+        $filters = [
+            'asOfDate' => $this->as_of_date ?: now()->format('Y-m-d'),
+            'settingIds' => $validatedSettingIds,
+            'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
+        ];
+        
+        $filename = sprintf('neraca_%s.csv', Carbon::parse($filters['asOfDate'])->format('d-m-Y'));
+
+        return Excel::download(new OperationalBalanceSheetReportCsvExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
     }
 }

@@ -158,6 +158,11 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('tax_amount');
 
+        $taxReceivable = Purchase::whereIn('setting_id', $settingIds)
+            ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
+            ->whereDate('date', '<=', $asOfDate)
+            ->sum('tax_amount');
+
         $payables = max(0, $purchasesTotal - $completedPurchaseReturns - $purchasePayments);
         
         // 5. Setup Report Rows & Sections
@@ -166,6 +171,11 @@ class OperationalBalanceSheetReportService
             new OperationalBalanceSheetRow('Piutang Usaha', (float) $receivables),
             new OperationalBalanceSheetRow('Persediaan Barang', (float) $inventoryValue),
         ];
+        
+        if ($taxReceivable > 0) {
+            $assetRows[] = new OperationalBalanceSheetRow('PPN Masukan', (float) $taxReceivable);
+        }
+        
         $assetsSection = new OperationalBalanceSheetSection('Aset', $assetRows);
         
         $liabilityRows = [
@@ -173,7 +183,7 @@ class OperationalBalanceSheetReportService
         ];
 
         if ($taxPayable > 0) {
-            $liabilityRows[] = new OperationalBalanceSheetRow('Hutang Pajak', (float) $taxPayable);
+            $liabilityRows[] = new OperationalBalanceSheetRow('PPN Keluaran', (float) $taxPayable);
         }
 
         if ($customerRefundLiability > 0) {
@@ -182,13 +192,29 @@ class OperationalBalanceSheetReportService
 
         $liabilitiesSection = new OperationalBalanceSheetSection('Liabilitas', $liabilityRows);
         
+        // 6. Calculate Earnings for Equity
+        $profitService = app(\App\Services\Reports\OperationalProfitLossReportService::class);
+        $asOfDateCarbon = \Carbon\Carbon::parse($asOfDate);
+        
+        $endOfLastYear = $asOfDateCarbon->copy()->subYear()->endOfYear()->format('Y-m-d');
+        $lastYearReport = $profitService->generate($settingIds, null, $endOfLastYear);
+        $pendapatanTahunLalu = $lastYearReport->labaRugi;
+        
+        $startOfThisYear = $asOfDateCarbon->copy()->startOfYear()->format('Y-m-d');
+        $thisYearReport = $profitService->generate($settingIds, $startOfThisYear, $asOfDate);
+        $pendapatanPeriodeIni = $thisYearReport->labaRugi;
+        
         $equityTotal = $assetsSection->total - $liabilitiesSection->total;
+        $modalEkuitas = $equityTotal - $pendapatanTahunLalu - $pendapatanPeriodeIni;
+        
         $equityRows = [
-            new OperationalBalanceSheetRow('Modal / Ekuitas', (float) $equityTotal),
+            new OperationalBalanceSheetRow('Modal / Ekuitas', (float) $modalEkuitas),
+            new OperationalBalanceSheetRow('Pendapatan sampai Tahun lalu', (float) $pendapatanTahunLalu),
+            new OperationalBalanceSheetRow('Pendapatan Periode ini', (float) $pendapatanPeriodeIni),
         ];
         $equitySection = new OperationalBalanceSheetSection('Modal', $equityRows);
         
-        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda. Perlu diketahui bahwa nilai persediaan barang menggunakan kuantitas dan harga pokok saat ini (current stock valuation), bukan nilai historis pada tanggal as-of.';
+        $sourceNote = '* Laporan ini dihitung dari nilai dokumen operasional (penjualan, pembelian, pembayaran) dan tidak menggunakan pencatatan jurnal akuntansi ganda. Perlu diketahui bahwa nilai persediaan barang dihitung dari reka ulang transaksi stok historis dengan menggunakan rata-rata harga pokok saat ini (average-cost transaction replay), bukan penilaian akuntansi penuh pada tanggal as-of.';
         
         return new OperationalBalanceSheetReport(
             $currencyCode,
@@ -202,16 +228,20 @@ class OperationalBalanceSheetReportService
     
     protected function calculateInventoryValue(int|array $settingScope, string $asOfDate): float
     {
-        // For accurate historical inventory valuation, we would need to trace ProductMovements
-        // backwards from current stock. For now, since the app only supports current product_quantity,
-        // we use current stock but annotate the limitation.
-        
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         
-        $valueCents = Product::whereIn('setting_id', $settingIds)
-            ->where('stock_managed', true)
-            ->sum(DB::raw('product_quantity * product_cost'));
+        $totalValue = 0.0;
+        $valuationService = app(\App\Services\Reports\WarehouseStockValuationReportQueryService::class);
+        
+        foreach ($settingIds as $settingId) {
+            $filter = new \App\Services\Reports\WarehouseStockValuationReportFilterData(
+                asOfDate: $asOfDate,
+                scopeSettingId: $settingId
+            );
+            $results = $valuationService->build($filter);
+            $totalValue += $results->sum('stock_value');
+        }
             
-        return (float) ($valueCents / 100);
+        return $totalValue;
     }
 }

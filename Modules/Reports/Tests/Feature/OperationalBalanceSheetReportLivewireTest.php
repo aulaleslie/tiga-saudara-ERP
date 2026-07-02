@@ -71,13 +71,17 @@ class OperationalBalanceSheetReportLivewireTest extends TestCase
             ->assertSee('Per ' . Carbon::parse($pastDate)->format('d M Y'));
     }
 
-    public function test_source_note_visibility_and_no_account_column()
+    public function test_source_note_visibility_new_rows_and_no_account_column()
     {
         $this->actingAs($this->user);
         $this->user->givePermissionTo('reports.access');
 
         Livewire::test(OperationalBalanceSheetReport::class)
             ->assertSee('Laporan ini dihitung dari nilai dokumen operasional')
+            ->assertSee('reka ulang transaksi stok historis')
+            ->assertSee('Modal / Ekuitas')
+            ->assertSee('Pendapatan sampai Tahun lalu')
+            ->assertSee('Pendapatan Periode ini')
             ->assertDontSee('Nomor Akun'); // Should not have account number column
     }
 
@@ -92,5 +96,18 @@ class OperationalBalanceSheetReportLivewireTest extends TestCase
             ->set('as_of_date', $testDate)
             ->call('exportExcel')
             ->assertFileDownloaded('neraca_' . Carbon::parse($testDate)->format('d-m-Y') . '.xlsx');
+    }
+
+    public function test_csv_export_uses_filter_and_returns_download()
+    {
+        $this->actingAs($this->user);
+        $this->user->givePermissionTo('reports.access');
+
+        $testDate = now()->subDays(2)->format('Y-m-d');
+
+        Livewire::test(OperationalBalanceSheetReport::class)
+            ->set('as_of_date', $testDate)
+            ->call('exportCsv')
+            ->assertFileDownloaded('neraca_' . Carbon::parse($testDate)->format('d-m-Y') . '.csv');
     }
 }
