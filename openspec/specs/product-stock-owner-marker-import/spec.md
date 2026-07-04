@@ -117,8 +117,16 @@ The system SHALL preserve batch-level and row-level visibility for stock snapsho
 - **THEN** the system SHALL show the clean product name, resolved owner, target location, imported total quantity, previous quantity, after quantity, tax/non-tax bucket effect, and stock transaction reference where supported by the schema.
 
 #### Scenario: Stock transaction recorded
-- **WHEN** the system overwrites stock for a row
-- **THEN** the system SHALL create a stock transaction or equivalent audit record that captures the product, owner setting, target location, previous quantity, after quantity, user, and import reason.
+- **WHEN** the system overwrites stock for a row after import transaction normalization has been run
+- **THEN** the system SHALL create a stock transaction or equivalent audit record that captures the product, owner setting, target location, latest normalized ledger quantity as previous quantity, snapshot total quantity as after quantity, user, and import reason.
+
+#### Scenario: Stock transaction adjustment quantity
+- **WHEN** the latest normalized ledger quantity differs from the stock snapshot total quantity
+- **THEN** the stock transaction quantity SHALL equal the stock snapshot total quantity minus the latest normalized ledger quantity.
+
+#### Scenario: Stock transaction with no prior ledger
+- **WHEN** the system overwrites stock for a product/location that has no prior normalized transaction ledger
+- **THEN** the stock transaction previous quantity SHALL be `0`, after quantity SHALL be the stock snapshot total quantity, and quantity SHALL equal the stock snapshot total quantity.
 
 #### Scenario: Failed row audit
 - **WHEN** a row cannot be processed due to invalid data, missing owner setting, missing location, or product conflict
