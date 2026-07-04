@@ -29,6 +29,9 @@ class InventoryDetailReport extends Component
     public $settingId;
     public $appliedFilters = [];
     
+    public $expandedProducts = [];
+    public $loadedProductDetails = [];
+    
     // UI state
     public $categorySearch = '';
     public $categoryOptions = [];
@@ -212,6 +215,9 @@ class InventoryDetailReport extends Component
         $this->categoryOptions = [];
         $this->productSearch = '';
         $this->productOptions = [];
+        
+        $this->expandedProducts = [];
+        $this->loadedProductDetails = [];
     }
 
     public function resetFilters(): void
@@ -228,6 +234,9 @@ class InventoryDetailReport extends Component
         $this->categoryOptions = [];
         $this->productSearch = '';
         $this->productOptions = [];
+        
+        $this->expandedProducts = [];
+        $this->loadedProductDetails = [];
     }
 
     public function applyFilters(): void
@@ -239,6 +248,10 @@ class InventoryDetailReport extends Component
 
         $this->appliedFilters = $this->exportFilters();
         $this->filterTriggered = true;
+        
+        $this->expandedProducts = [];
+        $this->loadedProductDetails = [];
+        
         $this->resetPage();
     }
 
@@ -302,6 +315,21 @@ class InventoryDetailReport extends Component
             \Maatwebsite\Excel\Excel::CSV
         );
     }
+    
+    public function toggleProduct($productId): void
+    {
+        if (in_array($productId, $this->expandedProducts)) {
+            $this->expandedProducts = array_diff($this->expandedProducts, [$productId]);
+        } else {
+            $this->expandedProducts[] = $productId;
+            
+            if (!isset($this->loadedProductDetails[$productId])) {
+                $queryService = app(InventoryDetailReportQueryService::class);
+                $filterData = InventoryDetailReportFilterData::fromArray($this->appliedFilters);
+                $this->loadedProductDetails[$productId] = $queryService->getProductDetail($filterData, $this->settingId, $productId);
+            }
+        }
+    }
 
     public function render(InventoryDetailReportQueryService $queryService)
     {
@@ -309,7 +337,7 @@ class InventoryDetailReport extends Component
 
         if ($this->filterTriggered) {
             $filterData = InventoryDetailReportFilterData::fromArray($this->appliedFilters);
-            $result = $queryService->getDetail($filterData, $this->settingId, 15, $this->getPage());
+            $result = $queryService->getSummary($filterData, $this->settingId, 15, $this->getPage());
             $paginator = $result['paginator'];
         }
 

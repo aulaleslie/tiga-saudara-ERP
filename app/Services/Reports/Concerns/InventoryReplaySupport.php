@@ -227,7 +227,7 @@ trait InventoryReplaySupport
         $purchaseIds = array_keys($referenceById);
 
         $details = PurchaseDetail::query()
-            ->select(['purchase_id', 'product_id', 'quantity', 'price', 'unit_price'])
+            ->select(['purchase_id', 'product_id', 'quantity', 'price', 'unit_price', 'sub_total', 'product_tax_amount'])
             ->whereIn('purchase_id', $purchaseIds)
             ->whereIn('product_id', $productIds)
             ->get();
@@ -244,9 +244,18 @@ trait InventoryReplaySupport
                 continue;
             }
 
-            $price = (float) ($detail->price ?? $detail->unit_price ?? 0);
+            $subTotal = $detail->sub_total !== null ? (float) $detail->sub_total : null;
+            
+            if ($subTotal !== null) {
+                $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+                $lineDpp = max(0, $subTotal - $taxAmount);
+                $totals[$reference][$detail->product_id]['total'] = ($totals[$reference][$detail->product_id]['total'] ?? 0) + $lineDpp;
+            } else {
+                $price = (float) ($detail->price ?? $detail->unit_price ?? 0);
+                $totals[$reference][$detail->product_id]['total'] = ($totals[$reference][$detail->product_id]['total'] ?? 0) + ($price * $qty);
+            }
+            
             $totals[$reference][$detail->product_id]['qty'] = ($totals[$reference][$detail->product_id]['qty'] ?? 0) + $qty;
-            $totals[$reference][$detail->product_id]['total'] = ($totals[$reference][$detail->product_id]['total'] ?? 0) + ($price * $qty);
         }
 
         $map = [];

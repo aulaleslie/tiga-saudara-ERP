@@ -113,29 +113,47 @@
                                     <tbody>
                                         {{-- Bucket Header & Beginning Balance --}}
                                         <tr class="table-secondary">
-                                            <td colspan="6" class="font-weight-bold">{{ $bucket->label }}</td>
+                                            <td colspan="6" class="font-weight-bold">
+                                                {{ $bucket->label }}
+                                                <button wire:click="toggleBucket('{{ $bucket->key }}')" class="btn btn-sm btn-link p-0 ml-2">
+                                                    <i class="bi {{ in_array($bucket->key, $expandedBuckets) ? 'bi-chevron-up' : 'bi-chevron-down' }}"></i>
+                                                </button>
+                                            </td>
                                             <td class="text-right font-weight-bold">{{ $bucket->beginningBalance < 0 ? '(' . format_currency(abs($bucket->beginningBalance)) . ')' : format_currency($bucket->beginningBalance) }}</td>
                                             <td></td>
                                         </tr>
-                                        <tr>
+                                        <tr class="{{ in_array($bucket->key, $expandedBuckets) ? '' : 'd-none' }}">
                                             <td class="font-italic text-muted" colspan="6">Saldo Awal</td>
                                             <td class="text-right font-italic text-muted">{{ $bucket->beginningBalance < 0 ? '(' . format_currency(abs($bucket->beginningBalance)) . ')' : format_currency($bucket->beginningBalance) }}</td>
                                             <td></td>
                                         </tr>
 
                                         {{-- Movement Rows --}}
-                                        @foreach($bucket->rows as $row)
-                                        <tr>
-                                            <td>{{ \Carbon\Carbon::parse($row->date)->format('d/m/Y') }}</td>
-                                            <td>{{ $row->sourceType }}</td>
-                                            <td>{{ $row->reference }}</td>
-                                            <td>{{ $row->description }}</td>
-                                            <td class="text-right">{{ $row->debit > 0 ? format_currency($row->debit) : '-' }}</td>
-                                            <td class="text-right">{{ $row->credit > 0 ? format_currency($row->credit) : '-' }}</td>
-                                            <td class="text-right">{{ $row->balance < 0 ? '(' . format_currency(abs($row->balance)) . ')' : format_currency($row->balance) }}</td>
-                                            <td>{{ $row->tag }}</td>
-                                        </tr>
-                                        @endforeach
+                                        @if(in_array($bucket->key, $expandedBuckets))
+                                            @if(isset($loadedBucketDetails[$bucket->key]))
+                                                @foreach($loadedBucketDetails[$bucket->key] as $row)
+                                                <tr>
+                                                    <td>{{ \Carbon\Carbon::parse($row['date'])->format('d/m/Y') }}</td>
+                                                    <td>{{ $row['sourceType'] }}</td>
+                                                    <td>{{ $row['reference'] }}</td>
+                                                    <td>{{ $row['description'] }}</td>
+                                                    <td class="text-right">{{ $row['debit'] > 0 ? format_currency($row['debit']) : '-' }}</td>
+                                                    <td class="text-right">{{ $row['credit'] > 0 ? format_currency($row['credit']) : '-' }}</td>
+                                                    <td class="text-right">{{ $row['runningBalance'] < 0 ? '(' . format_currency(abs($row['runningBalance'])) . ')' : format_currency($row['runningBalance']) }}</td>
+                                                    <td>{{ $row['tag'] }}</td>
+                                                </tr>
+                                                @endforeach
+                                            @else
+                                                <tr>
+                                                    <td colspan="8" class="text-center py-3">
+                                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                                            <span class="sr-only">Loading...</span>
+                                                        </div>
+                                                        <span class="ml-2 text-muted">Memuat data...</span>
+                                                    </td>
+                                                </tr>
+                                            @endif
+                                        @endif
 
                                         {{-- Ending Balance & Totals --}}
                                         <tr class="table-secondary">

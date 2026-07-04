@@ -285,4 +285,76 @@ class InventoryValuationReportQueryServiceTest extends TestCase
         $this->assertCount(1, $result['allRows']);
         $this->assertEquals($productSetting1->id, $result['allRows']->first()['product_id']);
     }
+
+    public function test_purchase_cost_uses_line_dpp_and_ignores_document_level_shipping_and_discounts()
+    {
+        $product = $this->createProduct(['average_purchase_price' => 0]);
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Test Supplier',
+            'supplier_phone' => '123456',
+            'supplier_email' => 'test@example.com',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test'
+        ]);
+
+        $purchaseId = \Illuminate\Support\Facades\DB::table('purchases')->insertGetId([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'date' => Carbon::now()->format('Y-m-d'),
+            'due_date' => Carbon::now()->format('Y-m-d'),
+            'reference' => 'BUY-DPP-01',
+            'tax_percentage' => 0,
+            'tax_amount' => 500, // Document level tax
+            'discount_percentage' => 0,
+            'discount_amount' => 500, // Document level discount
+            'shipping_amount' => 1000, // Document level shipping
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'created_at' => Carbon::now(),
+            'updated_at' => Carbon::now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('purchase_details')->insert([
+            'purchase_id' => $purchaseId,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 10,
+            'price' => 200, // Base price is 200
+            'unit_price' => 200,
+            'product_discount_amount' => 500, // Line discount 500
+            'sub_total' => 1500, // (200 * 10) - 500 = 1500. This is the stored subtotal, already reflecting line discount.
+            'product_tax_amount' => 150, // Line tax 150
+            // DPP should be: sub_total - product_tax_amount = 1500 - 150 = 1350
+            // Unit cost should be: 1350 / 10 = 135
+            'created_at' => Carbon::now(),
+            'updated_at' => Carbon::now(),
+        ]);
+
+        $this->createTransaction([
+            'product_id' => $product->id,
+            'type' => 'BUY',
+            'quantity' => 10,
+            'after_quantity' => 10,
+            'reason' => 'Buy #BUY-DPP-01',
+            'created_at' => Carbon::now()
+        ]);
+
+        $filters = new InventoryValuationReportFilterData();
+        $result = $this->service->getReport($filters, $this->setting->id);
+
+        $group = $result['allRows']->first();
+        $this->assertCount(1, $group['ledger_rows']);
+        
+        $buyRow = $group['ledger_rows'][0];
+        $this->assertEquals(135, $buyRow['unit_price'], 'Unit cost should be calculated from line DPP (1500 - 150) / 10');
+        $this->assertEquals(1350, $buyRow['running_value'], 'Value should be 10 * 135');
+        $this->assertEquals(135, $buyRow['running_avg']);
+    }
 }

@@ -22,6 +22,9 @@ class OperationalGeneralLedgerReport extends Component
     public $applied_start_date;
     public $applied_end_date;
     public $applied_selected_buckets = [];
+    
+    public $expandedBuckets = [];
+    public $loadedBucketDetails = [];
 
     protected $rules = [
         'start_date' => 'required|date',
@@ -52,7 +55,7 @@ class OperationalGeneralLedgerReport extends Component
             $this->applied_selected_buckets
         );
 
-        $report = $reportService->generate($validatedSettingIds, $filterData);
+        $report = $reportService->getSummary($validatedSettingIds, $filterData);
         $bucketLabels = OperationalGeneralLedgerBucketConfig::getLabels();
 
         return view('livewire.reports.operational-general-ledger-report', [
@@ -62,6 +65,51 @@ class OperationalGeneralLedgerReport extends Component
             'scopeLabel' => $this->getScopeLabel($availableSettings, $validatedSettingIds)
         ]);
     }
+    
+    public function toggleBucket($bucketKey) {
+        if (in_array($bucketKey, $this->expandedBuckets)) {
+            $this->expandedBuckets = array_diff($this->expandedBuckets, [$bucketKey]);
+        } else {
+            $this->expandedBuckets[] = $bucketKey;
+            
+            if (!isset($this->loadedBucketDetails[$bucketKey])) {
+                $reportService = app(OperationalGeneralLedgerReportService::class);
+                $availableSettings = $this->getAvailableSettings();
+                $effectiveSettingIds = $this->getEffectiveSettingIds();
+                $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
+                
+                $filterData = new OperationalGeneralLedgerReportFilterData(
+                    $this->applied_start_date ?: now()->format('Y-m-d'),
+                    $this->applied_end_date ?: now()->format('Y-m-d'),
+                    $this->applied_selected_buckets
+                );
+                
+                $bucketDetail = $reportService->getBucketDetail($validatedSettingIds, $filterData, $bucketKey);
+                
+                if ($bucketDetail) {
+                    $rows = [];
+                    foreach ($bucketDetail->rows as $row) {
+                        $rows[] = [
+                            'date' => $row->date,
+                            'sourceType' => $row->sourceType,
+                            'reference' => $row->reference,
+                            'description' => $row->description,
+                            'debit' => $row->debit,
+                            'credit' => $row->credit,
+                            'runningBalance' => $row->runningBalance,
+                            'tag' => $row->tag,
+                        ];
+                    }
+                    $this->loadedBucketDetails[$bucketKey] = $rows;
+                }
+            }
+        }
+    }
+    
+    public function updatedSelectedSettingIds() {
+        $this->expandedBuckets = [];
+        $this->loadedBucketDetails = [];
+    }
 
     public function generateReport() {
         $this->validate();
@@ -69,6 +117,9 @@ class OperationalGeneralLedgerReport extends Component
         $this->applied_start_date = $this->start_date;
         $this->applied_end_date = $this->end_date;
         $this->applied_selected_buckets = $this->selected_buckets;
+        
+        $this->expandedBuckets = [];
+        $this->loadedBucketDetails = [];
     }
 
     public function resetFilters() {
@@ -79,9 +130,14 @@ class OperationalGeneralLedgerReport extends Component
         $this->applied_start_date = $this->start_date;
         $this->applied_end_date = $this->end_date;
         $this->applied_selected_buckets = $this->selected_buckets;
+        
+        $this->expandedBuckets = [];
+        $this->loadedBucketDetails = [];
     }
 
     public function exportExcel() {
+        // We still call generateReport if inputs changed, but actually the button might just be for the applied filters.
+        // Wait, export Excel historically called generateReport() to commit the current input state.
         $this->generateReport();
 
         $availableSettings = $this->getAvailableSettings();

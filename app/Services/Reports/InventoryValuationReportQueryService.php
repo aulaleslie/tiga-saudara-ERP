@@ -23,7 +23,27 @@ class InventoryValuationReportQueryService
         'OPENING' => 'Saldo Awal',
     ];
 
+    public function getSummary(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
+    {
+        return $this->buildReport($filters, $settingId, false, null, $perPage, $page);
+    }
+
     public function getReport(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
+    {
+        return $this->buildReport($filters, $settingId, true, null, $perPage, $page);
+    }
+
+    public function getProductDetail(InventoryValuationReportFilterData $filters, int $settingId, int $productId): array
+    {
+        // Clone the filters to not mutate the original if passed by reference
+        $scopedFilters = clone $filters;
+        $scopedFilters->productIds = [$productId];
+        
+        $result = $this->buildReport($scopedFilters, $settingId, true, [$productId], 1, 1);
+        return $result['allRows']->first() ?: [];
+    }
+
+    private function buildReport(InventoryValuationReportFilterData $filters, int $settingId, bool $loadDetails, ?array $specificProductsToLoadDetail, int $perPage, int $page): array
     {
         $productsQuery = Product::query()
             ->where('setting_id', $settingId)
@@ -129,7 +149,12 @@ class InventoryValuationReportQueryService
             $openingStock = 0.0;
             $openingAvg = 0.0;
             
+            $periodStockIn = 0.0;
+            $periodStockOut = 0.0;
+            
             $ledgerRows = [];
+            
+            $shouldLoadDetailForThisProduct = $loadDetails && ($specificProductsToLoadDetail === null || in_array($product->id, $specificProductsToLoadDetail));
 
             foreach ($productTransactions as $transaction) {
                 $meta = $transactionMeta[$transaction->id] ?? null;
@@ -164,19 +189,27 @@ class InventoryValuationReportQueryService
                     $openingStock = $runningStock;
                     $openingAvg = $runningAvg;
                 } else {
-                    // This is within the period, add to ledger
-                    $ledgerRows[] = [
-                        'date' => $transactionDate->format('Y-m-d'),
-                        'type_label' => self::TYPE_LABELS[$type] ?? $type,
-                        'reference' => $meta['display_reference'] ?? '-',
-                        'description' => $transaction->reason ?? '-',
-                        'mutation' => $delta,
-                        'running_stock' => $runningStock,
-                        'unit' => $product->product_unit ?? 'Pcs',
-                        'running_avg' => $runningAvg,
-                        'unit_price' => $unitPrice,
-                        'running_value' => $runningStock * $runningAvg,
-                    ];
+                    if ($delta > 0) {
+                        $periodStockIn += $delta;
+                    } else {
+                        $periodStockOut += abs($delta);
+                    }
+                    
+                    if ($shouldLoadDetailForThisProduct) {
+                        // This is within the period, add to ledger
+                        $ledgerRows[] = [
+                            'date' => $transactionDate->format('Y-m-d'),
+                            'type_label' => self::TYPE_LABELS[$type] ?? $type,
+                            'reference' => $meta['display_reference'] ?? '-',
+                            'description' => $transaction->reason ?? '-',
+                            'mutation' => $delta,
+                            'running_stock' => $runningStock,
+                            'unit' => $product->product_unit ?? 'Pcs',
+                            'running_avg' => $runningAvg,
+                            'unit_price' => $unitPrice,
+                            'running_value' => $runningStock * $runningAvg,
+                        ];
+                    }
                 }
             }
 
@@ -187,10 +220,12 @@ class InventoryValuationReportQueryService
             if ($runningAvg == 0.0 && $fallbackAvg > 0) {
                 $runningAvg = $fallbackAvg;
                 // Update ledger rows avg and value if we used fallback
-                foreach ($ledgerRows as &$row) {
-                    if ($row['running_avg'] == 0.0) {
-                        $row['running_avg'] = $fallbackAvg;
-                        $row['running_value'] = $row['running_stock'] * $fallbackAvg;
+                if ($shouldLoadDetailForThisProduct) {
+                    foreach ($ledgerRows as &$row) {
+                        if ($row['running_avg'] == 0.0) {
+                            $row['running_avg'] = $fallbackAvg;
+                            $row['running_value'] = $row['running_stock'] * $fallbackAvg;
+                        }
                     }
                 }
             }
@@ -203,7 +238,17 @@ class InventoryValuationReportQueryService
                 'product_code' => $product->product_code,
                 'product_name' => $product->product_name,
                 'product_unit' => $product->product_unit ?? 'Pcs',
-                'opening_row' => [
+                'opening_stock' => $openingStock,
+                'opening_value' => $openingValue,
+                'period_stock_in' => $periodStockIn,
+                'period_stock_out' => $periodStockOut,
+                'ending_stock' => $runningStock,
+                'ending_avg' => $runningAvg,
+                'ending_value' => $finalValue,
+            ];
+            
+            if ($shouldLoadDetailForThisProduct) {
+                $group['opening_row'] = [
                     'date' => $tanggalAwal ? $tanggalAwal->format('Y-m-d') : '-',
                     'type_label' => self::TYPE_LABELS['OPENING'],
                     'reference' => '-',
@@ -214,14 +259,14 @@ class InventoryValuationReportQueryService
                     'running_avg' => $openingAvg,
                     'unit_price' => '-',
                     'running_value' => $openingValue,
-                ],
-                'ledger_rows' => $ledgerRows,
-                'subtotal' => [
+                ];
+                $group['ledger_rows'] = $ledgerRows;
+                $group['subtotal'] = [
                     'stock' => $runningStock,
                     'unit' => $product->product_unit ?? 'Pcs',
                     'value' => $finalValue,
-                ],
-            ];
+                ];
+            }
 
             $allGroupedRows[] = $group;
             $grandTotalValue += $finalValue;

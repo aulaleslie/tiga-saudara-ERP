@@ -17,8 +17,35 @@ use Carbon\Carbon;
 
 class OperationalGeneralLedgerReportService
 {
+    public function getSummary(int|array $settingScope, OperationalGeneralLedgerReportFilterData $filter): OperationalGeneralLedgerReport
+    {
+        return $this->buildReport($settingScope, $filter, false);
+    }
+
     public function generate(int|array $settingScope, OperationalGeneralLedgerReportFilterData $filter): OperationalGeneralLedgerReport
     {
+        // Preserves existing full-detail export path
+        return $this->buildReport($settingScope, $filter, true);
+    }
+
+    public function getBucketDetail(int|array $settingScope, OperationalGeneralLedgerReportFilterData $filter, string $bucketKey): ?OperationalGeneralLedgerBucket
+    {
+        $report = $this->buildReport($settingScope, $filter, true, [$bucketKey]);
+        foreach ($report->buckets as $bucket) {
+            if ($bucket->key === $bucketKey) {
+                return $bucket;
+            }
+        }
+        
+        return null;
+    }
+
+    private function buildReport(
+        int|array $settingScope, 
+        OperationalGeneralLedgerReportFilterData $filter, 
+        bool $loadDetails, 
+        ?array $specificBucketsToLoadDetail = null
+    ): OperationalGeneralLedgerReport {
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $firstSettingId = $settingIds[0] ?? session('setting_id');
         $setting = Setting::with('currency')->find($firstSettingId);
@@ -76,6 +103,8 @@ class OperationalGeneralLedgerReportService
             $runningBalance = $beginningBalance;
             $rows = [];
             
+            $shouldLoadDetailForThisBucket = $loadDetails && ($specificBucketsToLoadDetail === null || in_array($key, $specificBucketsToLoadDetail));
+            
             foreach ($bucketEvents as $e) {
                 $periodDebit += $e['debit'];
                 $periodCredit += $e['credit'];
@@ -83,22 +112,24 @@ class OperationalGeneralLedgerReportService
                 $netEffect = $this->getNetEffect($key, $e['debit'], $e['credit']);
                 $runningBalance += $netEffect;
                 
-                $rows[] = new OperationalGeneralLedgerMovementRow(
-                    substr($e['dt'], 0, 10),
-                    $e['sourceType'],
-                    $e['reference'],
-                    $e['description'],
-                    $e['debit'],
-                    $e['credit'],
-                    $runningBalance,
-                    $e['tag']
-                );
+                if ($shouldLoadDetailForThisBucket) {
+                    $rows[] = new OperationalGeneralLedgerMovementRow(
+                        substr($e['dt'], 0, 10),
+                        $e['sourceType'],
+                        $e['reference'],
+                        $e['description'],
+                        $e['debit'],
+                        $e['credit'],
+                        $runningBalance,
+                        $e['tag']
+                    );
+                }
             }
             
             $endingBalance = $beginningBalance + $this->getNetEffect($key, $periodDebit, $periodCredit);
             
             // Only include if there is activity or a non-zero balance
-            if (abs($beginningBalance) > 0.001 || abs($endingBalance) > 0.001 || count($rows) > 0) {
+            if (abs($beginningBalance) > 0.001 || abs($endingBalance) > 0.001 || count($bucketEvents) > 0) {
                 $buckets[] = new OperationalGeneralLedgerBucket(
                     $key,
                     $bucketLabels[$key],

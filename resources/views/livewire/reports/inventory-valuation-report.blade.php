@@ -220,47 +220,66 @@
                 @forelse($paginator as $group)
                     <tr class="table-secondary">
                         <td colspan="10" class="fw-bold">
+                            <button wire:click="toggleProduct({{ $group['product_id'] }})" class="btn btn-sm btn-link p-0 me-2 text-decoration-none">
+                                <i class="bi {{ in_array($group['product_id'], $expandedProducts) ? 'bi-chevron-up' : 'bi-chevron-down' }} text-dark"></i>
+                            </button>
                             {{ $group['product_code'] }} - {{ $group['product_name'] }}
                         </td>
                     </tr>
                     
-                    {{-- Opening Row --}}
-                    <tr>
-                        <td>{{ $group['opening_row']['date'] }}</td>
-                        <td>{{ $group['opening_row']['type_label'] }}</td>
-                        <td>{{ $group['opening_row']['reference'] }}</td>
-                        <td class="text-end">{{ $group['opening_row']['mutation'] }}</td>
-                        <td class="text-end fw-bold">{{ number_format((float)$group['opening_row']['running_stock'], 2, ',', '.') }}</td>
-                        <td>{{ $group['opening_row']['unit'] }}</td>
-                        <td class="text-end">-</td>
-                        <td class="text-end">-</td>
-                        <td class="text-end">{{ number_format((float)$group['opening_row']['running_avg'], 2, ',', '.') }}</td>
-                        <td class="text-end fw-bold">{{ number_format((float)$group['opening_row']['running_value'], 0, ',', '.') }}</td>
-                    </tr>
+                    {{-- Opening Row & Ledger Rows (Lazy Loaded) --}}
+                    @if(in_array($group['product_id'], $expandedProducts))
+                        @if(isset($loadedProductDetails[$group['product_id']]))
+                            @php $detail = $loadedProductDetails[$group['product_id']]; @endphp
+                            
+                            {{-- Opening Row --}}
+                            <tr>
+                                <td>{{ $detail['opening_row']['date'] }}</td>
+                                <td>{{ $detail['opening_row']['type_label'] }}</td>
+                                <td>{{ $detail['opening_row']['reference'] }}</td>
+                                <td class="text-end">{{ $detail['opening_row']['mutation'] }}</td>
+                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_stock'], 2, ',', '.') }}</td>
+                                <td>{{ $detail['opening_row']['unit'] }}</td>
+                                <td class="text-end">-</td>
+                                <td class="text-end">-</td>
+                                <td class="text-end">{{ number_format((float)$detail['opening_row']['running_avg'], 2, ',', '.') }}</td>
+                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_value'], 0, ',', '.') }}</td>
+                            </tr>
 
-                    {{-- Ledger Rows --}}
-                    @foreach($group['ledger_rows'] as $row)
-                        <tr>
-                            <td>{{ $row['date'] }}</td>
-                            <td>{{ $row['type_label'] }}</td>
-                            <td>{{ $row['reference'] }}</td>
-                            <td class="text-end">{{ number_format((float)$row['mutation'], 2, ',', '.') }}</td>
-                            <td class="text-end fw-bold">{{ number_format((float)$row['running_stock'], 2, ',', '.') }}</td>
-                            <td>{{ $row['unit'] }}</td>
-                            <td class="text-end">{{ (float)$row['mutation'] > 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
-                            <td class="text-end">{{ (float)$row['mutation'] < 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
-                            <td class="text-end">{{ number_format((float)$row['running_avg'], 2, ',', '.') }}</td>
-                            <td class="text-end fw-bold">{{ number_format((float)$row['running_value'], 0, ',', '.') }}</td>
-                        </tr>
-                    @endforeach
+                            {{-- Ledger Rows --}}
+                            @foreach($detail['ledger_rows'] as $row)
+                                <tr>
+                                    <td>{{ $row['date'] }}</td>
+                                    <td>{{ $row['type_label'] }}</td>
+                                    <td>{{ $row['reference'] }}</td>
+                                    <td class="text-end">{{ number_format((float)$row['mutation'], 2, ',', '.') }}</td>
+                                    <td class="text-end fw-bold">{{ number_format((float)$row['running_stock'], 2, ',', '.') }}</td>
+                                    <td>{{ $row['unit'] }}</td>
+                                    <td class="text-end">{{ (float)$row['mutation'] > 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                    <td class="text-end">{{ (float)$row['mutation'] < 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                    <td class="text-end">{{ number_format((float)$row['running_avg'], 2, ',', '.') }}</td>
+                                    <td class="text-end fw-bold">{{ number_format((float)$row['running_value'], 0, ',', '.') }}</td>
+                                </tr>
+                            @endforeach
+                        @else
+                            <tr>
+                                <td colspan="10" class="text-center py-3">
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                        <span class="sr-only">Loading...</span>
+                                    </div>
+                                    <span class="ms-2 text-muted">Memuat data pergerakan nilai...</span>
+                                </td>
+                            </tr>
+                        @endif
+                    @endif
 
                     {{-- Subtotal Row --}}
                     <tr class="table-light">
                         <td colspan="4" class="text-end fw-bold">Total stok di gudang</td>
-                        <td class="text-end fw-bold">{{ number_format((float)$group['subtotal']['stock'], 2, ',', '.') }}</td>
-                        <td>{{ $group['subtotal']['unit'] }}</td>
+                        <td class="text-end fw-bold">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
+                        <td>{{ $group['product_unit'] }}</td>
                         <td colspan="3" class="text-end fw-bold">Subtotal nilai</td>
-                        <td class="text-end fw-bold text-primary">{{ number_format((float)$group['subtotal']['value'], 0, ',', '.') }}</td>
+                        <td class="text-end fw-bold text-primary">{{ number_format((float)$group['ending_value'], 0, ',', '.') }}</td>
                     </tr>
                 @empty
                     <tr>

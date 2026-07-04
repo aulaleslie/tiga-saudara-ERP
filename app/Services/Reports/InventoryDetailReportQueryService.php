@@ -21,7 +21,27 @@ class InventoryDetailReportQueryService
         'OPENING' => 'Saldo Awal',
     ];
 
+    public function getSummary(InventoryDetailReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
+    {
+        return $this->buildReport($filters, $settingId, false, null, $perPage, $page);
+    }
+
     public function getDetail(InventoryDetailReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
+    {
+        return $this->buildReport($filters, $settingId, true, null, $perPage, $page);
+    }
+
+    public function getProductDetail(InventoryDetailReportFilterData $filters, int $settingId, int $productId): array
+    {
+        // Clone the filters to not mutate the original if passed by reference (though it's an object)
+        $scopedFilters = clone $filters;
+        $scopedFilters->productIds = [$productId];
+        
+        $result = $this->buildReport($scopedFilters, $settingId, true, [$productId], 1, 1);
+        return $result['allRows']->first() ?: [];
+    }
+
+    private function buildReport(InventoryDetailReportFilterData $filters, int $settingId, bool $loadDetails, ?array $specificProductsToLoadDetail, int $perPage, int $page): array
     {
         $productsQuery = Product::query()
             ->where('setting_id', $settingId)
@@ -133,8 +153,12 @@ class InventoryDetailReportQueryService
             
             $runningStock = 0.0;
             $openingStock = 0.0;
+            $periodStockIn = 0.0;
+            $periodStockOut = 0.0;
             
             $ledgerRows = [];
+            
+            $shouldLoadDetailForThisProduct = $loadDetails && ($specificProductsToLoadDetail === null || in_array($product->id, $specificProductsToLoadDetail));
 
             foreach ($productTransactions as $transaction) {
                 $meta = $transactionMeta[$transaction->id] ?? null;
@@ -158,16 +182,24 @@ class InventoryDetailReportQueryService
                     // This is before the start date, just accumulate the running totals
                     $openingStock = $runningStock;
                 } else {
-                    // This is within the period, add to ledger
-                    $ledgerRows[] = [
-                        'date' => $transactionDate->format('d/m/Y'),
-                        'type_label' => self::TYPE_LABELS[$type] ?? $type,
-                        'reference' => $reference,
-                        'description' => $transaction->reason ?? '-',
-                        'mutation' => $delta,
-                        'running_stock' => $runningStock,
-                        'unit' => $product->product_unit ?? 'Pcs',
-                    ];
+                    if ($delta > 0) {
+                        $periodStockIn += $delta;
+                    } else {
+                        $periodStockOut += abs($delta);
+                    }
+                    
+                    if ($shouldLoadDetailForThisProduct) {
+                        // This is within the period, add to ledger
+                        $ledgerRows[] = [
+                            'date' => $transactionDate->format('d/m/Y'),
+                            'type_label' => self::TYPE_LABELS[$type] ?? $type,
+                            'reference' => $reference,
+                            'description' => $transaction->reason ?? '-',
+                            'mutation' => $delta,
+                            'running_stock' => $runningStock,
+                            'unit' => $product->product_unit ?? 'Pcs',
+                        ];
+                    }
                 }
             }
 
@@ -176,7 +208,14 @@ class InventoryDetailReportQueryService
                 'product_code' => $product->product_code,
                 'product_name' => $product->product_name,
                 'product_unit' => $product->product_unit ?? 'Pcs',
-                'opening_row' => [
+                'opening_stock' => $openingStock,
+                'period_stock_in' => $periodStockIn,
+                'period_stock_out' => $periodStockOut,
+                'ending_stock' => $runningStock,
+            ];
+            
+            if ($shouldLoadDetailForThisProduct) {
+                $group['opening_row'] = [
                     'date' => $tanggalAwal ? $tanggalAwal->copy()->subDay()->format('d/m/Y') : '-',
                     'type_label' => self::TYPE_LABELS['OPENING'],
                     'reference' => '-',
@@ -184,13 +223,13 @@ class InventoryDetailReportQueryService
                     'mutation' => '-',
                     'running_stock' => $openingStock,
                     'unit' => $product->product_unit ?? 'Pcs',
-                ],
-                'ledger_rows' => $ledgerRows,
-                'subtotal' => [
+                ];
+                $group['ledger_rows'] = $ledgerRows;
+                $group['subtotal'] = [
                     'stock' => $runningStock,
                     'unit' => $product->product_unit ?? 'Pcs',
-                ],
-            ];
+                ];
+            }
 
             $allGroupedRows[] = $group;
         }
