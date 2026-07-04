@@ -1,0 +1,41 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+05/07/2022	,Expense,10175	,PLN,"",PLN,182579.0,0.0,Paid,0.0
+05/07/2022	,Expense,10176	,PDAM,"",PDAM,73460.0,0.0,Paid,0.0
+05/07/2022	,Expense,10177	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+09/07/2022	,Expense,10178	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,4810054.0,0.0,Paid,0.0
+09/07/2022	,Expense,10179	,Beban Pajak - Kini,"",PAJAK AGUS,385385.0,0.0,Paid,0.0
+09/07/2022	,Expense,10180	,Beban Pajak - Kini,"",PAJAK RAHMAT,1126350.0,0.0,Paid,0.0
+09/07/2022	,Expense,10181	,Beban Pajak - Kini,"",PAJAK ARIES,965295.0,0.0,Paid,0.0
+08/08/2022	,Expense,10184	,PDAM,"",PDAM,40290.0,0.0,Paid,0.0
+08/08/2022	,Expense,10182	,PLN,"",PLN,190018.0,0.0,Paid,0.0
+08/08/2022	,Expense,10183	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+11/08/2022	,Expense,10188	,Beban Pajak - Kini,"",PAJAK ARIES,878570.0,0.0,Paid,0.0
+11/08/2022	,Expense,10187	,Beban Pajak - Kini,"",PAJAK RAHMAT,942540.0,0.0,Paid,0.0
+11/08/2022	,Expense,10185	,Beban Pajak - Kini,"",PAJAK AGUS,3349230.0,0.0,Paid,0.0
+11/08/2022	,Expense,10186	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,6430266.0,0.0,Paid,0.0
+06/09/2022	,Expense,10189	,PLN,"",PLN,195331.0,0.0,Paid,0.0
+06/09/2022	,Expense,10190	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+06/09/2022	,Expense,10191	,PDAM,"",PDAM,70960.0,0.0,Paid,0.0
+11/09/2022	,Expense,10193	,Beban Pajak - Kini,"",PAJAK RAHMAT,2443185.0,0.0,Paid,0.0
+11/09/2022	,Expense,10195	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,6233559.0,0.0,Paid,0.0
+11/09/2022	,Expense,10192	,Beban Pajak - Kini,"",PAJAK ARIES,878570.0,0.0,Paid,0.0
+11/09/2022	,Expense,10194	,Beban Pajak - Kini,"",PAJAK AGUS,1714395.0,0.0,Paid,0.0
+05/10/2022	,Expense,10198	,PDAM,"",PDAM,6250.0,0.0,Paid,0.0
+05/10/2022	,Expense,10196	,PLN,"",PLN,228271.0,0.0,Paid,0.0
+05/10/2022	,Expense,10197	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+08/10/2022	,Expense,10202	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,3224405.0,0.0,Paid,0.0
+08/10/2022	,Expense,10201	,Beban Pajak - Kini,"",PAJAK AGUS,1497765.0,0.0,Paid,0.0
+08/10/2022	,Expense,10200	,Beban Pajak - Kini,"",PAJAK RAHMAT,3128115.0,0.0,Paid,0.0
+08/10/2022	,Expense,10199	,Beban Pajak - Kini,"",PAJAK ARIES,2822500.0,0.0,Paid,0.0
+05/11/2022	,Expense,10204	,PLN,"",PLN,200644.0,0.0,Paid,0.0
+05/11/2022	,Expense,10203	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+09/11/2022	,Expense,10206	,Beban Pajak - Kini,"",PAJAK AGUS,1053260.0,0.0,Paid,0.0
+09/11/2022	,Expense,10207	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,4103347.0,0.0,Paid,0.0
+09/11/2022	,Expense,10205	,Beban Pajak - Kini,"",PAJAK ARIES,1423440.0,0.0,Paid,0.0
+09/11/2022	,Expense,10208	,Beban Pajak - Kini,"",PAJAK RAHMAT,1886050.0,0.0,Paid,0.0
+05/12/2022	,Expense,10209	,PLN,"",PLN,249523.0,0.0,Paid,0.0
+05/12/2022	,Expense,10210	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+07/12/2022	,Expense,10211	,Beban Pajak - Kini,"",PAJAK ARIES,964265.0,0.0,Paid,0.0
+07/12/2022	,Expense,10212	,Beban Pajak - Kini,"",PAJAK RAHMAT,420625.0,0.0,Paid,0.0
+07/12/2022	,Expense,10213	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5555676.0,0.0,Paid,0.0
+07/12/2022	,Expense,10214	,Beban Pajak - Kini,"",PAJAK AGUS,2904080.0,0.0,Paid,0.0

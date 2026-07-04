@@ -1,0 +1,45 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+03/07/2021	,Expense,10083	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+05/07/2021	,Expense,10085	,telkom,"",telkom,618498.0,0.0,Paid,0.0
+05/07/2021	,Expense,10084	,PLN,"",PLN,98634.0,0.0,Paid,0.0
+07/07/2021	,Expense,10088	,Beban Pajak - Kini,"",PAJAK ARIES,2278060.0,0.0,Paid,0.0
+07/07/2021	,Expense,10086	,Beban Pajak - Kini,"",PAJAK AGUS,1484365.0,0.0,Paid,0.0
+07/07/2021	,Expense,10087	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,1595864.0,0.0,Paid,0.0
+07/07/2021	,Expense,10089	,Beban Pajak - Kini,"",PAJAK RAHMAT,2401225.0,0.0,Paid,0.0
+12/07/2021	,Expense,10090	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+05/08/2021	,Expense,10091	,PLN,"",PLN,209144.0,0.0,Paid,0.0
+05/08/2021	,Expense,10092	,telkom,"",telkom,618498.0,0.0,Paid,0.0
+09/08/2021	,Expense,10093	,PDAM,"",PDAM,39990.0,0.0,Paid,0.0
+10/08/2021	,Expense,10095	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,2341103.0,0.0,Paid,0.0
+10/08/2021	,Expense,10096	,Beban Pajak - Kini,"",PAJAK RAHMAT,856300.0,0.0,Paid,0.0
+10/08/2021	,Expense,10094	,Beban Pajak - Kini,"",PAJAK AGUS,1545890.0,0.0,Paid,0.0
+10/08/2021	,Expense,10097	,Beban Pajak - Kini,"",PAJAK ARIES,964125.0,0.0,Paid,0.0
+06/09/2021	,Expense,10100	,telkom,"",telkom,618498.0,0.0,Paid,0.0
+06/09/2021	,Expense,10098	,PLN,"",PLN,209144.0,0.0,Paid,0.0
+06/09/2021	,Expense,10099	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+09/09/2021	,Expense,10103	,pajak cv,"",PAJAK CV TIGA NUSA,4054483.0,0.0,Paid,0.0
+09/09/2021	,Expense,10102	,Beban Pajak - Kini,"",PAJAK AGUS,892990.0,0.0,Paid,0.0
+09/09/2021	,Expense,10104	,Beban Pajak - Kini,"",PAJAK ARIES,1153745.0,0.0,Paid,0.0
+09/09/2021	,Expense,10101	,Beban Pajak - Kini,"",PAJAK RAHMAT,1132057.0,0.0,Paid,0.0
+06/10/2021	,Expense,10131	,Beban Pajak - Kini,"",PAJAK RAHMAT,935110.0,0.0,Paid,0.0
+06/10/2021	,Expense,10107	,telkom,"",telkom,647098.0,0.0,Paid,0.0
+06/10/2021	,Expense,10106	,PLN,"",PLN,186830.0,0.0,Paid,0.0
+06/10/2021	,Expense,10108	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+08/10/2021	,Expense,10129	,Beban Pajak - Kini,"",PAJAK AGUS,574075.0,0.0,Paid,0.0
+08/10/2021	,Expense,10109	,PDAM,"",PDAM,58125.0,0.0,Paid,0.0
+14/10/2021	,Expense,10130	,Beban Pajak - Kini,"",PAJAK ARIES,703555.0,0.0,Paid,0.0
+05/11/2021	,Expense,10111	,telkom,"",telkom,665340.0,0.0,Paid,0.0
+05/11/2021	,Expense,10110	,PLN,"",PLN,167703.0,0.0,Paid,0.0
+05/11/2021	,Expense,10112	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+08/11/2021	,Expense,10113	,Beban Pajak - Kini,"",PAJAK AGUS,874620.0,0.0,Paid,0.0
+08/11/2021	,Expense,10114	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,2309766.0,0.0,Paid,0.0
+08/11/2021	,Expense,10115	,Beban Pajak - Kini,"",PAJAK ARIES,1344095.0,0.0,Paid,0.0
+08/11/2021	,Expense,10116	,Beban Pajak - Kini,"",PAJAK RAHMAT,1156750.0,0.0,Paid,0.0
+05/12/2021	,Expense,10117	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+06/12/2021	,Expense,10119	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+06/12/2021	,Expense,10120	,telkom,"",telkom,668000.0,0.0,Paid,0.0
+06/12/2021	,Expense,10118	,PLN,"",PLN,194268.0,0.0,Paid,0.0
+09/12/2021	,Expense,10121	,Beban Pajak - Kini,"",PAJAK ARIES,2057450.0,0.0,Paid,0.0
+09/12/2021	,Expense,10122	,Beban Pajak - Kini,"",PAJAK RAHMAT,1549500.0,0.0,Paid,0.0
+09/12/2021	,Expense,10123	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,4589816.0,0.0,Paid,0.0
+09/12/2021	,Expense,10124	,Beban Pajak - Kini,"",PAJAK AGUS,825435.0,0.0,Paid,0.0
