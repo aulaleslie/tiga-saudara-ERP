@@ -39,8 +39,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Add or update Buku Besar Livewire tests proving initial summary render, bucket expansion, filter cache invalidation, and full-detail export behavior.
-- [ ] 6.2 Add or update inventory detail Livewire tests proving initial summary render, product expansion, filter cache invalidation, and full-detail export behavior.
-- [ ] 6.3 Add or update inventory valuation Livewire tests proving initial summary render, product expansion, filter cache invalidation, full-detail export behavior, and corrected purchase DPP replay.
-- [ ] 6.4 Run focused report service and Livewire tests for the changed report classes.
-- [ ] 6.5 Run a broader PHP test command when practical, such as `php artisan test` with relevant filters or `composer test:fresh-sqlite`.
+- [x] 6.1 Add or update Buku Besar Livewire tests proving initial summary render, bucket expansion, filter cache invalidation, and full-detail export behavior.
+- [x] 6.2 Add or update inventory detail Livewire tests proving initial summary render, product expansion, filter cache invalidation, and full-detail export behavior.
+- [x] 6.3 Add or update inventory valuation Livewire tests proving initial summary render, product expansion, filter cache invalidation, full-detail export behavior, and corrected purchase DPP replay.
+- [x] 6.4 Run focused report service and Livewire tests for the changed report classes.
+- [x] 6.5 Run a broader PHP test command when practical, such as `php artisan test` with relevant filters or `composer test:fresh-sqlite`.
