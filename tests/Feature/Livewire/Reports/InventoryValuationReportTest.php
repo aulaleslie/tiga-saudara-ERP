@@ -121,4 +121,38 @@ class InventoryValuationReportTest extends TestCase
             ->assertSet('filterTriggered', true)
             ->assertSee('Total Produk');
     }
+
+    public function test_it_can_expand_product_and_load_details()
+    {
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $this->category->id,
+            'stock_managed' => true,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST-001',
+            'product_price' => 100,
+            'product_cost' => 100,
+        ]);
+
+        $component = Livewire::test(InventoryValuationReport::class)
+            ->set('tanggalAwal', now()->startOfMonth()->format('Y-m-d'))
+            ->set('tanggalAkhir', now()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->call('toggleProduct', $product->id);
+            
+        $this->assertContains($product->id, $component->get('expandedProducts'));
+        $this->assertArrayHasKey($product->id, $component->get('loadedProductDetails'));
+    }
+
+    public function test_it_clears_expanded_state_on_filter_change()
+    {
+        Livewire::test(InventoryValuationReport::class)
+            ->set('expandedProducts', [1])
+            ->set('loadedProductDetails', [1 => []])
+            ->set('tanggalAwal', '2026-01-01')
+            ->set('tanggalAkhir', '2026-01-31')
+            ->call('applyFilters')
+            ->assertSet('expandedProducts', [])
+            ->assertSet('loadedProductDetails', []);
+    }
 }

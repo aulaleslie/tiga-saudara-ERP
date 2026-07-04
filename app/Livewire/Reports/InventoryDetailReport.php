@@ -281,7 +281,7 @@ class InventoryDetailReport extends Component
         }
 
         $filterData = InventoryDetailReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getDetail($filterData, $this->settingId, 1, 1);
+        $result = $queryService->getDetail($filterData, $this->settingId, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');
@@ -303,7 +303,7 @@ class InventoryDetailReport extends Component
         }
 
         $filterData = InventoryDetailReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getDetail($filterData, $this->settingId, 1, 1);
+        $result = $queryService->getDetail($filterData, $this->settingId, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');

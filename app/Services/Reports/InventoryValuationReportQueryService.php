@@ -25,12 +25,12 @@ class InventoryValuationReportQueryService
 
     public function getSummary(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
     {
-        return $this->buildReport($filters, $settingId, false, null, $perPage, $page);
+        return $this->buildReport($filters, $settingId, false, null, $perPage, $page, true);
     }
 
     public function getReport(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
     {
-        return $this->buildReport($filters, $settingId, true, null, $perPage, $page);
+        return $this->buildReport($filters, $settingId, true, null, $perPage, $page, false);
     }
 
     public function getProductDetail(InventoryValuationReportFilterData $filters, int $settingId, int $productId): array
@@ -39,11 +39,11 @@ class InventoryValuationReportQueryService
         $scopedFilters = clone $filters;
         $scopedFilters->productIds = [$productId];
         
-        $result = $this->buildReport($scopedFilters, $settingId, true, [$productId], 1, 1);
+        $result = $this->buildReport($scopedFilters, $settingId, true, [$productId], 1, 1, false);
         return $result['allRows']->first() ?: [];
     }
 
-    private function buildReport(InventoryValuationReportFilterData $filters, int $settingId, bool $loadDetails, ?array $specificProductsToLoadDetail, int $perPage, int $page): array
+    private function buildReport(InventoryValuationReportFilterData $filters, int $settingId, bool $loadDetails, ?array $specificProductsToLoadDetail, int $perPage, int $page, bool $paginateBeforeProcessing): array
     {
         $productsQuery = Product::query()
             ->where('setting_id', $settingId)
@@ -80,10 +80,26 @@ class InventoryValuationReportQueryService
             })->values();
         }
 
+        $sortColumnMap = [
+            'product_name' => 'product_name',
+            'product_code' => 'product_code',
+        ];
+        $sortColumn = $sortColumnMap[$filters->sortColumn] ?? 'product_name';
+        
+        $products = $products->sortBy([
+            [$sortColumn, $filters->sortDirection === 'desc' ? 'desc' : 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        $totalItems = $products->count();
+        if ($paginateBeforeProcessing) {
+            $products = $products->forPage($page, $perPage);
+        }
         $productIds = $products->pluck('id');
+
         if ($productIds->isEmpty()) {
             return [
-                'paginator' => new LengthAwarePaginator([], 0, $perPage, $page),
+                'paginator' => new LengthAwarePaginator([], $totalItems, $perPage, $page),
                 'totalValue' => 0.0,
                 'allRows' => collect()
             ];
@@ -118,17 +134,6 @@ class InventoryValuationReportQueryService
                     return $this->compareTransactions($left, $right, $transactionMeta);
                 })->values();
             });
-
-        $sortColumnMap = [
-            'product_name' => 'product_name',
-            'product_code' => 'product_code',
-        ];
-        $sortColumn = $sortColumnMap[$filters->sortColumn] ?? 'product_name';
-        
-        $products = $products->sortBy([
-            [$sortColumn, $filters->sortDirection === 'desc' ? 'desc' : 'asc'],
-            ['id', 'asc'],
-        ])->values();
 
         $tanggalAwal = $filters->tanggalAwal;
         $tanggalAkhir = $filters->tanggalAkhir;
@@ -275,8 +280,8 @@ class InventoryValuationReportQueryService
         $resultsCollection = collect($allGroupedRows);
 
         $paginator = new LengthAwarePaginator(
-            $resultsCollection->forPage($page, $perPage)->values(),
-            $resultsCollection->count(),
+            $paginateBeforeProcessing ? $resultsCollection : $resultsCollection->forPage($page, $perPage)->values(),
+            $totalItems,
             $perPage,
             $page
         );

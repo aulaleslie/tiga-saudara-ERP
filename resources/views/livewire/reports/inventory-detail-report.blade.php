@@ -249,7 +249,12 @@
 
                     {{-- Subtotal Row --}}
                     <tr class="table-light">
-                        <td colspan="5" class="text-end fw-bold">Total Stok di Tangan</td>
+                        <td colspan="4" class="text-end text-muted small">
+                            Saldo Awal: <strong>{{ number_format((float)$group['opening_stock'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                            Masuk: <strong>{{ number_format((float)$group['period_stock_in'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                            Keluar: <strong>{{ number_format((float)$group['period_stock_out'], 2, ',', '.') }}</strong>
+                        </td>
+                        <td class="text-end fw-bold">Total Stok</td>
                         <td class="text-end fw-bold text-primary">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
                         <td>{{ $group['product_unit'] }}</td>
                     </tr>

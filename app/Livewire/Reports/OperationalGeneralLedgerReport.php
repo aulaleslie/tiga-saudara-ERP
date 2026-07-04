@@ -96,7 +96,7 @@ class OperationalGeneralLedgerReport extends Component
                             'description' => $row->description,
                             'debit' => $row->debit,
                             'credit' => $row->credit,
-                            'runningBalance' => $row->runningBalance,
+                            'runningBalance' => $row->balance,
                             'tag' => $row->tag,
                         ];
                     }

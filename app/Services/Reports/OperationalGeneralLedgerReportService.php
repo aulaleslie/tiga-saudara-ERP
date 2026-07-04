@@ -72,7 +72,17 @@ class OperationalGeneralLedgerReportService
 
         $movementService = app(OperationalMovementEventService::class);
         $openingBalances = $movementService->getOpeningBalances($settingScope, $startDateStr);
-        $events = $movementService->getPeriodMovements($settingScope, $startDateStr, $endDateStr);
+        
+        $events = [];
+        $endingBalances = [];
+
+        // If we don't need ANY details, we can skip getPeriodMovements entirely
+        if (!$loadDetails) {
+            $endDateNextDay = Carbon::parse($endDateStr)->addDay()->format('Y-m-d');
+            $endingBalances = $movementService->getOpeningBalances($settingScope, $endDateNextDay);
+        } else {
+            $events = $movementService->getPeriodMovements($settingScope, $startDateStr, $endDateStr);
+        }
 
         // --- Process Events into Buckets ---
         $bucketLabels = OperationalGeneralLedgerBucketConfig::getLabels();
@@ -87,49 +97,61 @@ class OperationalGeneralLedgerReportService
             $beginningCredit = $openingBalances[$key]['credit'] ?? 0.0;
             $beginningBalance = $this->getNetEffect($key, $beginningDebit, $beginningCredit);
             
-            // Filter events for this bucket
-            $bucketEvents = array_filter($events, fn($e) => $e['bucket'] === $key);
-            
-            // Sort by date/time ascending, tie-breaker by reference
-            usort($bucketEvents, function($a, $b) {
-                if ($a['dt'] === $b['dt']) {
-                    return strcmp($a['reference'], $b['reference']);
-                }
-                return $a['dt'] <=> $b['dt'];
-            });
-            
             $periodDebit = 0;
             $periodCredit = 0;
             $runningBalance = $beginningBalance;
             $rows = [];
             
             $shouldLoadDetailForThisBucket = $loadDetails && ($specificBucketsToLoadDetail === null || in_array($key, $specificBucketsToLoadDetail));
-            
-            foreach ($bucketEvents as $e) {
-                $periodDebit += $e['debit'];
-                $periodCredit += $e['credit'];
+            $hasActivity = false;
+
+            if (!$loadDetails) {
+                // Calculate period movement from opening balances delta
+                $endDebit = $endingBalances[$key]['debit'] ?? 0.0;
+                $endCredit = $endingBalances[$key]['credit'] ?? 0.0;
                 
-                $netEffect = $this->getNetEffect($key, $e['debit'], $e['credit']);
-                $runningBalance += $netEffect;
+                $periodDebit = max(0, $endDebit - $beginningDebit);
+                $periodCredit = max(0, $endCredit - $beginningCredit);
+                $hasActivity = ($periodDebit > 0 || $periodCredit > 0);
+            } else {
+                // Filter events for this bucket
+                $bucketEvents = array_filter($events, fn($e) => $e['bucket'] === $key);
+                $hasActivity = count($bucketEvents) > 0;
                 
-                if ($shouldLoadDetailForThisBucket) {
-                    $rows[] = new OperationalGeneralLedgerMovementRow(
-                        substr($e['dt'], 0, 10),
-                        $e['sourceType'],
-                        $e['reference'],
-                        $e['description'],
-                        $e['debit'],
-                        $e['credit'],
-                        $runningBalance,
-                        $e['tag']
-                    );
+                // Sort by date/time ascending, tie-breaker by reference
+                usort($bucketEvents, function($a, $b) {
+                    if ($a['dt'] === $b['dt']) {
+                        return strcmp($a['reference'], $b['reference']);
+                    }
+                    return $a['dt'] <=> $b['dt'];
+                });
+                
+                foreach ($bucketEvents as $e) {
+                    $periodDebit += $e['debit'];
+                    $periodCredit += $e['credit'];
+                    
+                    $netEffect = $this->getNetEffect($key, $e['debit'], $e['credit']);
+                    $runningBalance += $netEffect;
+                    
+                    if ($shouldLoadDetailForThisBucket) {
+                        $rows[] = new OperationalGeneralLedgerMovementRow(
+                            substr($e['dt'], 0, 10),
+                            $e['sourceType'],
+                            $e['reference'],
+                            $e['description'],
+                            $e['debit'],
+                            $e['credit'],
+                            $runningBalance,
+                            $e['tag']
+                        );
+                    }
                 }
             }
             
             $endingBalance = $beginningBalance + $this->getNetEffect($key, $periodDebit, $periodCredit);
             
             // Only include if there is activity or a non-zero balance
-            if (abs($beginningBalance) > 0.001 || abs($endingBalance) > 0.001 || count($bucketEvents) > 0) {
+            if (abs($beginningBalance) > 0.001 || abs($endingBalance) > 0.001 || $hasActivity) {
                 $buckets[] = new OperationalGeneralLedgerBucket(
                     $key,
                     $bucketLabels[$key],

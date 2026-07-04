@@ -191,7 +191,7 @@
             <div class="col-md-4">
                 <div class="card bg-light border-0 shadow-sm">
                     <div class="card-body py-2">
-                        <div class="text-muted small fw-bold text-uppercase mb-1">Total Nilai Persediaan</div>
+                        <div class="text-muted small fw-bold text-uppercase mb-1">Subtotal Nilai Persediaan (Halaman Ini)</div>
                         <div class="fs-4 fw-bold">{{ number_format((float)$totalValue, 0, ',', '.') }}</div>
                     </div>
                 </div>
@@ -275,7 +275,12 @@
 
                     {{-- Subtotal Row --}}
                     <tr class="table-light">
-                        <td colspan="4" class="text-end fw-bold">Total stok di gudang</td>
+                        <td colspan="4" class="text-end text-muted small">
+                            Saldo Awal: <strong>{{ number_format((float)$group['opening_stock'], 2, ',', '.') }} ({{ number_format((float)$group['opening_value'], 0, ',', '.') }})</strong> &nbsp;|&nbsp; 
+                            Masuk: <strong>{{ number_format((float)$group['period_stock_in'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                            Keluar: <strong>{{ number_format((float)$group['period_stock_out'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                            HPP Rata-rata: <strong>{{ number_format((float)$group['ending_avg'], 2, ',', '.') }}</strong>
+                        </td>
                         <td class="text-end fw-bold">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
                         <td>{{ $group['product_unit'] }}</td>
                         <td colspan="3" class="text-end fw-bold">Subtotal nilai</td>

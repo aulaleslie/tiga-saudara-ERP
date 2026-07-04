@@ -281,7 +281,7 @@ class InventoryValuationReport extends Component
         }
 
         $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getReport($filterData, $this->settingId, 1, 1);
+        $result = $queryService->getReport($filterData, $this->settingId, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');
@@ -303,7 +303,7 @@ class InventoryValuationReport extends Component
         }
 
         $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getReport($filterData, $this->settingId, 1, 1);
+        $result = $queryService->getReport($filterData, $this->settingId, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');
