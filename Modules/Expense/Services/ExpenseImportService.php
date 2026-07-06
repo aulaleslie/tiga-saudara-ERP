@@ -124,8 +124,9 @@ class ExpenseImportService
         if (empty($kategori)) {
             throw new \Exception('Missing kategori');
         }
+
         if (empty($supplierName)) {
-            throw new \Exception('Missing supplier');
+            $supplierName = $kategori;
         }
         if (empty($nomor)) {
             throw new \Exception('Missing nomor');

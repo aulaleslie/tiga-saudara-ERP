@@ -393,14 +393,35 @@ class ExpenseImportTest extends TestCase
         $this->assertEquals(1, $batch->error_count);
     }
 
-    public function test_missing_required_field_marks_row_invalid()
+    public function test_blank_supplier_falls_back_to_kategori()
     {
         [$batch, $row] = $this->processSingleRow($this->validRawJson([
             'supplier' => '',
+            'kategori' => 'PLN', // Valid category
+        ]));
+
+        $this->assertEquals(ExpenseImportRow::STATUS_PROCESSED, $row->status);
+        $this->assertEquals(1, $batch->success_count);
+
+        $expense = Expense::find($row->expense_id);
+        $this->assertNotNull($expense);
+
+        // Check if a supplier named PLN was created/reused and linked
+        $this->assertDatabaseHas('suppliers', [
+            'id' => $expense->supplier_id,
+            'supplier_name' => 'PLN',
+            'setting_id' => $this->setting->id,
+        ]);
+    }
+
+    public function test_missing_kategori_marks_row_invalid()
+    {
+        [$batch, $row] = $this->processSingleRow($this->validRawJson([
+            'kategori' => '',
         ]));
 
         $this->assertEquals(ExpenseImportRow::STATUS_INVALID, $row->status);
-        $this->assertStringContainsString('Missing supplier', $row->error_message);
+        $this->assertStringContainsString('Missing kategori', $row->error_message);
         $this->assertEquals(1, $batch->error_count);
     }
 

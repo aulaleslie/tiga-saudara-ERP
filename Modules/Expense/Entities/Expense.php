@@ -95,8 +95,11 @@ class Expense extends BaseModel implements HasMedia
 
         static::creating(function ($model) {
             if (empty($model->reference)) {
-                $year = now()->year;
-                $month = str_pad(now()->month, 2, '0', STR_PAD_LEFT);
+                $rawDate = $model->getAttributes()['date'] ?? null;
+                $date = $rawDate ? Carbon::parse($rawDate) : now();
+
+                $year = $date->year;
+                $month = str_pad($date->month, 2, '0', STR_PAD_LEFT);
                 $settingId = $model->setting_id;
 
                 $setting = \Modules\Setting\Entities\Setting::find($settingId);
@@ -104,8 +107,8 @@ class Expense extends BaseModel implements HasMedia
                 $prefix = $documentPrefix ? "{$documentPrefix}-EXP" : 'EXP';
 
                 $latestReference = Expense::where('setting_id', $settingId)
-                    ->whereYear('created_at', $year)
-                    ->whereMonth('created_at', now()->month)
+                    ->whereYear('date', $year)
+                    ->whereMonth('date', $date->month)
                     ->latest('id')
                     ->value('reference');
 
