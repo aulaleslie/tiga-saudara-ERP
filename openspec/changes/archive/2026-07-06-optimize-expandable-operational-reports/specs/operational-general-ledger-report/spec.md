@@ -30,7 +30,7 @@ The system SHALL render Buku Besar bucket summaries initially without hydrating 
 
 ## MODIFIED Requirements
 
-### Requirement: Buku Besar exports XLSX matching filtered full-detail data
+### Requirement: Buku Besar exports XLSX matching on-screen data
 
 The system SHALL allow authorized users to export the filtered Buku Besar report to XLSX using the same calculation output and business source scope represented by the on-screen summaries. The export SHALL include full movement rows for all selected buckets regardless of which buckets are expanded or collapsed on screen.
 
