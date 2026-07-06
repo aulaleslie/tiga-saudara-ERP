@@ -13,6 +13,10 @@ class ProductImportBatch extends Model
 {
     protected $table = 'product_import_batches';
 
+    public const TYPE_PRODUCT = 'product';
+    public const TYPE_STOCK_SNAPSHOT = 'stock_snapshot';
+    public const TYPE_SALES_HPP_SNAPSHOT = 'sales_hpp_snapshot';
+
     protected $fillable = [
         'user_id',
         'location_id',

@@ -82,7 +82,11 @@ class ProductUploadController extends Controller
             $normHeaders = array_map($normalize, $rawHeaders);
             
             if (in_array('total quantity', $normHeaders) && in_array('unassigned', $normHeaders)) {
-                $importType = 'stock_snapshot';
+                $importType = ProductImportBatch::TYPE_STOCK_SNAPSHOT;
+            } elseif (in_array('tipe transaksi', $normHeaders) && in_array('barang', $normHeaders) && in_array('mutasi', $normHeaders) && in_array('harga rata-rata', $normHeaders)) {
+                $importType = ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT;
+            } else {
+                $importType = ProductImportBatch::TYPE_PRODUCT;
             }
         } catch (\Throwable $e) {
             Log::warning('[ProductImport] Failed to detect import type', ['error' => $e->getMessage()]);
@@ -179,6 +183,109 @@ class ProductUploadController extends Controller
         $filename = 'template_stock_snapshot.csv';
         $headers = ['Product Code', 'Product Name', 'Unassigned', 'Total Quantity', 'Product Unit'];
         $example = ['SKU-001', 'Produk Contoh', 0, 100, 'PCS'];
+
+        return response()->streamDownload(function () use ($headers, $example) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, $headers);
+            fputcsv($out, $example);
+            fclose($out);
+        }, $filename, [
+            'Content-Type'  => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
+    }
+
+    /**
+     * Sales HPP snapshot dedicated upload page.
+     */
+    public function salesHppSnapshotUploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('products.create'), 403);
+        return view('product::products.sales-hpp-snapshot-upload');
+    }
+
+    /**
+     * Handle sales HPP snapshot CSV upload.
+     */
+    public function salesHppSnapshotUpload(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $request->validate([
+            'file' => 'required|mimes:csv,txt',
+        ]);
+
+        $file = $request->file('file');
+        Log::info('[SalesHppSnapshotImport] Upload request received', [
+            'user_id' => auth()->id(),
+            'file_name' => $file->getClientOriginalName(),
+            'file_size_kb' => round($file->getSize() / 1024, 2),
+        ]);
+
+        $path = $file->store('imports/products');
+        $fullPath = Storage::path($path);
+
+        // Resolve any setting/location for schema compatibility
+        $settingId = $this->resolveSettingId();
+        if (!$settingId) {
+            return back()->withErrors(['file' => 'Setting belum dikonfigurasi. Tambahkan setting terlebih dahulu.']);
+        }
+        $locationId = $this->resolveLocationId($settingId);
+        if ($locationId === null) {
+            return back()->withErrors(['file' => 'Lokasi belum dikonfigurasi. Tambahkan lokasi terlebih dahulu.']);
+        }
+
+        // Validate required headers
+        try {
+            $csv = \League\Csv\Reader::createFromPath($fullPath);
+            $sample = @file_get_contents($fullPath, false, null, 0, 4096) ?: '';
+            $delimiter = (substr_count($sample, ';') > substr_count($sample, ',')) ? ';' : ',';
+            $csv->setDelimiter($delimiter);
+            $csv->setHeaderOffset(0);
+            $rawHeaders = $csv->getHeader();
+            
+            $normalize = function (string $h): string {
+                $h = preg_replace('/^\xEF\xBB\xBF/', '', $h);
+                return mb_strtolower(trim(preg_replace('/\s+/', ' ', $h)));
+            };
+            $normHeaders = array_map($normalize, $rawHeaders);
+            
+            $required = ['tipe transaksi', 'barang', 'mutasi', 'harga rata-rata', 'no. transaksi'];
+            $missing = array_diff($required, $normHeaders);
+            if (!empty($missing)) {
+                return back()->withErrors(['file' => 'File CSV tidak memiliki kolom wajib: ' . implode(', ', $missing)]);
+            }
+        } catch (\Throwable $e) {
+            return back()->withErrors(['file' => 'Gagal membaca CSV: ' . $e->getMessage()]);
+        }
+
+        $batch = ProductImportBatch::create([
+            'user_id'         => auth()->id(),
+            'location_id'     => $locationId,
+            'source_csv_path' => $path,
+            'file_sha256'     => hash_file('sha256', $fullPath),
+            'status'          => 'queued',
+            'import_type'     => ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT,
+            'undo_token'      => Str::random(40),
+        ]);
+
+        Log::info('[SalesHppSnapshotImport] Batch created', ['batch_id' => $batch->id]);
+        dispatch(new ProcessProductImportBatch($batch->id));
+
+        toast("Upload HPP diterima. Batch #{$batch->id} sedang diproses.", 'success');
+        return redirect()->route('products.imports.show', $batch);
+    }
+
+    /**
+     * Download sales HPP snapshot CSV template.
+     */
+    public function downloadSalesHppSnapshotTemplate(): StreamedResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $filename = 'template_sales_hpp_snapshot.csv';
+        $headers = ['Tipe Transaksi', 'No. Transaksi', 'Barang', 'Mutasi', 'Harga Rata-Rata'];
+        $example = ['Sales Invoice', 'INV-001', 'Produk Contoh', '-10', '1500000'];
 
         return response()->streamDownload(function () use ($headers, $example) {
             $out = fopen('php://output', 'w');

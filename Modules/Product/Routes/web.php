@@ -31,6 +31,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/products/stock-snapshot/upload', [ProductUploadController::class, 'stockSnapshotUpload'])->name('products.stock-snapshot.upload');
     Route::get('/products/stock-snapshot/template', [ProductUploadController::class, 'downloadStockSnapshotTemplate'])->name('products.stock-snapshot.template');
 
+    // Sales HPP snapshot import
+    Route::get('/products/sales-hpp-snapshot/upload', [ProductUploadController::class, 'salesHppSnapshotUploadPage'])->name('products.sales-hpp-snapshot.upload.page');
+    Route::post('/products/sales-hpp-snapshot/upload', [ProductUploadController::class, 'salesHppSnapshotUpload'])->name('products.sales-hpp-snapshot.upload');
+    Route::get('/products/sales-hpp-snapshot/template', [ProductUploadController::class, 'downloadSalesHppSnapshotTemplate'])->name('products.sales-hpp-snapshot.template');
+
     // Monitor pages (new)
     Route::get('/products/imports',                [ProductImportController::class, 'index'])->name('products.imports.index');
     Route::get('/products/imports/{batch}',        [ProductImportController::class, 'show'])->name('products.imports.show');

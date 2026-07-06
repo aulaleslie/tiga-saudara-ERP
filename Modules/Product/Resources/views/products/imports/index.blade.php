@@ -23,6 +23,9 @@
                             <a href="{{ route('products.stock-snapshot.upload.page') }}" class="btn btn-info text-white">
                                 <i class="bi bi-box-seam"></i> Upload Stok Snapshot
                             </a>
+                            <a href="{{ route('products.sales-hpp-snapshot.upload.page') }}" class="btn btn-secondary text-white">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> Upload HPP Snapshot
+                            </a>
                         @endcan
 
                         <hr>
@@ -51,6 +54,8 @@
                                             <td>
                                                 @if($b->import_type === 'stock_snapshot')
                                                     <span class="badge bg-info text-white">Stok Snapshot</span>
+                                                @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT)
+                                                    <span class="badge bg-secondary text-white">HPP Snapshot</span>
                                                 @else
                                                     <span class="badge bg-primary text-white">Produk</span>
                                                 @endif

@@ -93,11 +93,16 @@ class ProcessProductImportBatch implements ShouldQueue
                 }
             }, 'id');
 
-        $this->batch->update([
+        $updateData = [
             'status' => 'completed',
             'completed_at' => now(),
-            'undo_available_until' => now()->addHour(),
-        ]);
+        ];
+        
+        if ($this->batch->import_type !== \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT) {
+            $updateData['undo_available_until'] = now()->addHour();
+        }
+        
+        $this->batch->update($updateData);
 
         Log::info('[ProductImportBatch] Job completed', [
             'batch_id' => $this->batchId,
@@ -160,6 +165,10 @@ class ProcessProductImportBatch implements ShouldQueue
             'nilai'              => 'Nilai',
             'unassigned'         => 'Unassigned',
             'total quantity'     => 'Total Quantity',
+            'tipe transaksi'     => 'Tipe Transaksi',
+            'no. transaksi'      => 'No. Transaksi',
+            'barang'             => 'Barang',
+            'mutasi'             => 'Mutasi',
         ];
 
         // Build canonical => actual header map
@@ -173,6 +182,8 @@ class ProcessProductImportBatch implements ShouldQueue
         // Required columns validation
         if ($this->batch->import_type === 'stock_snapshot') {
             $required = ['Kode Produk', 'Nama Produk', 'Satuan', 'Unassigned', 'Total Quantity'];
+        } elseif ($this->batch->import_type === ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT) {
+            $required = ['Tipe Transaksi', 'No. Transaksi', 'Barang', 'Mutasi', 'Harga Rata-rata'];
         } else {
             $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
         }
@@ -229,7 +240,7 @@ class ProcessProductImportBatch implements ShouldQueue
             return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
         };
 
-        return [
+        $payload = [
             'product_name'      => $get('Nama Produk'),
             'product_code'      => $get('Kode Produk'),
             'unit_name'         => $get('Satuan'),
@@ -239,13 +250,37 @@ class ProcessProductImportBatch implements ShouldQueue
             'nilai'             => $get('Nilai'),
             'unassigned'        => $get('Unassigned'),
             'total_quantity'    => $get('Total Quantity'),
+            'tipe_transaksi'    => $get('Tipe Transaksi'),
+            'no_transaksi'      => $get('No. Transaksi'),
+            'barang'            => $get('Barang'),
+            'mutasi'            => $get('Mutasi'),
         ];
+
+        if ($this->batch->import_type === ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT) {
+            $markerResolver = app(\App\Support\SalesImportMarkerResolver::class);
+            $numericParser = app(\App\Support\HppNumericParser::class);
+            
+            $rawName = (string) $payload['barang'];
+            $parsed = $markerResolver->parseProductName($rawName);
+            
+            $payload['raw_product_name'] = $rawName;
+            $payload['cleaned_product_name'] = $parsed['clean_name'] ?? $rawName;
+            $payload['source_quantity'] = $numericParser->parseQuantity($payload['mutasi']);
+            $payload['source_hpp'] = $numericParser->parseHpp($payload['average_price']);
+        }
+
+        return $payload;
     }
 
     private function processRow(ProductImportRow $row): void
     {
         if ($this->batch->import_type === 'stock_snapshot') {
             $this->processStockSnapshotRow($row);
+            return;
+        }
+
+        if ($this->batch->import_type === ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT) {
+            $this->processSalesHppSnapshotRow($row);
             return;
         }
 
@@ -420,6 +455,19 @@ class ProcessProductImportBatch implements ShouldQueue
             'status'        => 'imported',
             'product_id'    => $productId,
             'error_message' => null,
+        ])->save();
+
+        $this->batch->increment('processed_rows');
+        $this->batch->increment('success_rows');
+    }
+
+    private function recordHppSnapshotSuccess(ProductImportRow $row, int $productId, array $resultMeta): void
+    {
+        $row->forceFill([
+            'status'           => 'imported',
+            'product_id'       => $productId,
+            'result_metadata'  => $resultMeta,
+            'error_message'    => null,
         ])->save();
 
         $this->batch->increment('processed_rows');
@@ -748,6 +796,126 @@ class ProcessProductImportBatch implements ShouldQueue
         } catch (\Exception $e) {
             DB::rollBack();
             $this->recordFailure($row, 'Gagal sinkronisasi stok: ' . $e->getMessage());
+        }
+    }
+
+    private function processSalesHppSnapshotRow(ProductImportRow $row): void
+    {
+        $payload = (array) $row->raw_json;
+        $tipeTransaksi = strtolower(trim((string) ($payload['tipe_transaksi'] ?? '')));
+        
+        if ($tipeTransaksi !== 'sales invoice') {
+            $this->recordFailure($row, 'Baris diabaikan: Tipe transaksi bukan Sales Invoice.', 'skipped');
+            return;
+        }
+
+        $mutasi = (float) ($payload['source_quantity'] ?? 0);
+        if ($mutasi >= 0) {
+            $this->recordFailure($row, 'Baris diabaikan: Mutasi positif bukan penjualan.', 'skipped');
+            return;
+        }
+
+        $rawName = (string) ($payload['raw_product_name'] ?? '');
+        $resolver = app(\App\Support\SalesImportMarkerResolver::class);
+        $ownerKey = $resolver->resolveEffectiveOwnerKey($rawName);
+
+        // Find setting based on the resolved owner key
+        $owner = match ($ownerKey) {
+            'daizu' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%DAIZU%')->first(),
+            'marker:asterisk' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first(),
+            'marker:tp' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TOP IT INTERNUSA%')->first(),
+            default => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%PERDANA%')->first(),
+        };
+
+        if (!$owner) {
+            $this->recordFailure($row, "Pemilik tidak ditemukan untuk produk {$rawName} (OwnerKey: {$ownerKey}).");
+            return;
+        }
+        $ownerId = $owner->id;
+        $ownerName = $owner->company_name;
+
+        $cleanName = (string) ($payload['cleaned_product_name'] ?? '');
+
+        $reference = trim((string) ($payload['no_transaksi'] ?? ''));
+        if ($reference === '') {
+            $this->recordFailure($row, 'No transaksi kosong.');
+            return;
+        }
+
+        $sale = \Modules\Sale\Entities\Sale::where('imported_sales_reference_number', $reference)
+            ->where('setting_id', $ownerId)
+            ->first();
+
+        if (!$sale) {
+            $this->recordFailure($row, "Invoice '{$reference}' tidak ditemukan untuk pemilik {$ownerName}.");
+            return;
+        }
+
+        $saleDetails = \Modules\Sale\Entities\SaleDetails::where('sale_id', $sale->id)
+            ->whereRaw('LOWER(product_name) = ?', [mb_strtolower($cleanName)])
+            ->get();
+
+        if ($saleDetails->isEmpty()) {
+            $this->recordFailure($row, "Detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}' tidak ditemukan.");
+            return;
+        }
+
+        if ($saleDetails->count() > 1) {
+            $this->recordFailure($row, "Ambiguous match: Ditemukan lebih dari satu detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}'.");
+            return;
+        }
+
+        $saleDetail = $saleDetails->first();
+
+        if (abs(abs($mutasi) - (float) $saleDetail->quantity) > 0.001) {
+            $this->recordFailure($row, "Quantity mismatch: HPP Mutasi (" . abs($mutasi) . ") tidak sama dengan detail penjualan ({$saleDetail->quantity}).");
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $sourceHpp = $payload['source_hpp'] ?? null;
+            if ($sourceHpp === null || !is_numeric($sourceHpp) || $sourceHpp <= 0) {
+                $this->recordFailure($row, "Invalid HPP: Harga rata-rata tidak valid (" . ($payload['source_hpp'] ?? 'kosong') . ").");
+                DB::rollBack();
+                return;
+            }
+            $sourceHpp = (float) $sourceHpp;
+            
+            $qty = (float) $saleDetail->quantity;
+            $prevCostUnit = $saleDetail->cost_unit_snapshot;
+            $prevCostTotal = $saleDetail->cost_total_snapshot;
+            $prevSource = $saleDetail->cost_snapshot_source;
+
+            $saleDetail->cost_unit_snapshot = round($sourceHpp, 6);
+            $saleDetail->cost_total_snapshot = round($sourceHpp * $qty, 2);
+            $saleDetail->cost_snapshot_source = 'HPP_SNAPSHOT_IMPORT';
+            $saleDetail->cost_snapshot_at = now();
+            $saleDetail->save();
+
+            $resultMeta = [
+                'raw_marker'          => $rawName,
+                'clean_product_name'  => $cleanName,
+                'owner_setting_id'    => $ownerId,
+                'owner_setting_name'  => $ownerName,
+                'matched_sale_id'     => $sale->id,
+                'matched_sale_detail_id' => $saleDetail->id,
+                'source_quantity'     => $mutasi,
+                'imported_hpp'        => $sourceHpp,
+                'previous_cost_unit'  => (float) $prevCostUnit,
+                'previous_cost_total' => (float) $prevCostTotal,
+                'previous_source'     => $prevSource,
+                'after_cost_unit'     => (float) $saleDetail->cost_unit_snapshot,
+                'after_cost_total'    => (float) $saleDetail->cost_total_snapshot,
+            ];
+
+            $this->recordHppSnapshotSuccess($row, $saleDetail->product_id, $resultMeta);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $this->recordFailure($row, 'Gagal update HPP: ' . $e->getMessage());
         }
     }
 

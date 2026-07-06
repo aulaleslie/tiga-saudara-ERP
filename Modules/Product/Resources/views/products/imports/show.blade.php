@@ -15,6 +15,10 @@
                     <span class="badge bg-info text-white" style="font-size: 0.85rem;">
                         <i class="bi bi-box-seam"></i> Stok Snapshot
                     </span>
+                @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT)
+                    <span class="badge bg-secondary text-white" style="font-size: 0.85rem;">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> HPP Snapshot
+                    </span>
                 @else
                     <span class="badge bg-primary text-white" style="font-size: 0.85rem;">
                         <i class="bi bi-box"></i> Produk
@@ -174,6 +178,102 @@
                         @endforeach
                         </tbody>
                     </table>
+                    @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT)
+                        {{-- HPP Snapshot Enhanced Row Table --}}
+                        <table class="table table-sm mb-0 table-striped">
+                        <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Status</th>
+                            <th>Produk</th>
+                            <th>Pemilik</th>
+                            <th>Txn ID</th>
+                            <th>Qty (Mutasi)</th>
+                            <th>HPP (Imported)</th>
+                            <th>Prev Unit Cost</th>
+                            <th>After Unit Cost</th>
+                            <th>Error</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach($rows as $r)
+                            @php
+                                $meta = $r->result_metadata ?? [];
+                            @endphp
+                            <tr>
+                                <td>{{ $r->row_number }}</td>
+                                <td>
+                                    @if($r->status === 'imported')
+                                        <span class="badge bg-success">imported</span>
+                                    @elseif($r->status === 'error')
+                                        <span class="badge bg-danger">error</span>
+                                    @else
+                                        <span class="badge bg-secondary">{{ $r->status ?? 'queued' }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['clean_product_name']))
+                                        <span title="Product ID: {{ $r->product_id }}">{{ $meta['clean_product_name'] }}</span>
+                                        @if(!empty($meta['raw_marker']))
+                                            <br><small class="text-muted">Marker: <code>{{ $meta['raw_marker'] }}</code></small>
+                                        @endif
+                                    @elseif($r->product_id)
+                                        <span>ID: {{ $r->product_id }}</span>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['owner_setting_name']))
+                                        <small>{{ $meta['owner_setting_name'] }}</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['matched_sale_id']))
+                                        <small class="text-muted">#{{ $meta['matched_sale_id'] }}</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['source_quantity']))
+                                        {{ $meta['source_quantity'] }}
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['imported_hpp']))
+                                        {{ format_currency($meta['imported_hpp']) }}
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['previous_cost_unit']))
+                                        {{ format_currency($meta['previous_cost_unit']) }}
+                                        @if(!empty($meta['previous_source']))
+                                            <br><small class="text-muted">Src: {{ $meta['previous_source'] }}</small>
+                                        @endif
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['after_cost_unit']))
+                                        <span class="text-success">{{ format_currency($meta['after_cost_unit']) }}</span>
+                                        <br><small class="text-success">Src: HPP_SNAPSHOT_IMPORT</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td style="max-width:300px;"><small class="text-danger">{{ $r->error_message }}</small></td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                        </table>
                     @else
                         {{-- Default Product Import Row Table --}}
                         <table class="table table-sm mb-0 table-striped">

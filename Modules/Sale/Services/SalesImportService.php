@@ -26,6 +26,7 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Modules\Setting\Entities\Location;
+use App\Support\SalesImportMarkerResolver;
 
 class SalesImportService
 {
@@ -75,13 +76,15 @@ class SalesImportService
         ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
         ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null,
         ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null,
-        ?ImportSettlementAllocator $settlementAllocator = null
+        ?ImportSettlementAllocator $settlementAllocator = null,
+        protected ?SalesImportMarkerResolver $markerResolver = null
     )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
         $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
         $this->documentAdjustmentAllocator = $documentAdjustmentAllocator ?? app(ImportDocumentAdjustmentAllocator::class);
         $this->settlementAllocator = $settlementAllocator ?? app(ImportSettlementAllocator::class);
+        $this->markerResolver = $markerResolver ?? app(SalesImportMarkerResolver::class);
     }
 
     /**
@@ -91,29 +94,7 @@ class SalesImportService
      */
     public function parseProductName(string $rawName): array
     {
-        $name = trim($rawName);
-
-        // Check for asterisk prefix
-        if (str_starts_with($name, '*')) {
-            return [
-                'clean_name' => trim(ltrim($name, '* ')),
-                'marker' => 'asterisk',
-            ];
-        }
-
-        // Check for TP suffix
-        if (str_ends_with($name, ' TP')) {
-            return [
-                'clean_name' => trim(substr($name, 0, -3)),
-                'marker' => 'tp',
-            ];
-        }
-
-        // No marker
-        return [
-            'clean_name' => $name,
-            'marker' => 'default',
-        ];
+        return $this->markerResolver->parseProductName($rawName);
     }
 
     /**
@@ -164,10 +145,7 @@ class SalesImportService
      */
     public function normalizeProductName(string $rawName): string
     {
-        $normalized = strtoupper($rawName);
-        $normalized = preg_replace('/[^\w\s]/', ' ', $normalized);
-        $normalized = preg_replace('/\s+/', ' ', $normalized);
-        return trim($normalized);
+        return $this->markerResolver->normalizeProductName($rawName);
     }
 
     /**
@@ -175,8 +153,7 @@ class SalesImportService
      */
     public function isDaizuProduct(string $rawName): bool
     {
-        $normalized = $this->normalizeProductName($rawName);
-        return preg_match('/\b(KEDELE|KEDELAI|RAGI)\b/', $normalized) === 1;
+        return $this->markerResolver->isDaizuProduct($rawName);
     }
 
     /**
@@ -222,7 +199,12 @@ class SalesImportService
 
         // Priority 1: Product marker (* or TP suffix)
         $parsed = $this->parseProductName($productName);
-        return $this->getSettingForMarker($parsed['marker']);
+        if ($parsed['marker'] !== 'default') {
+            return $this->getSettingForMarker($parsed['marker']);
+        }
+
+        // Default
+        return $this->getSettingForMarker('default');
     }
 
     /**
@@ -231,12 +213,7 @@ class SalesImportService
      */
     public function resolveEffectiveOwnerKey(?string $tag, string $productName): string
     {
-        if ($this->isDaizuProduct($productName)) {
-            return 'daizu';
-        }
-
-        $parsed = $this->parseProductName($productName);
-        return 'marker:' . $parsed['marker'];
+        return $this->markerResolver->resolveEffectiveOwnerKey($productName);
     }
 
     /**
