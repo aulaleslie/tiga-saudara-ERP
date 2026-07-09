@@ -31,7 +31,7 @@ class ExpenseImportService
         return $settings->first();
     }
 
-    /**
+        /**
      * Process the entire batch of imported rows.
      */
     public function processBatch(ExpenseImportBatch $batch): void
@@ -41,31 +41,41 @@ class ExpenseImportService
         try {
             $setting = $this->getTargetSetting();
             
-            $rows = $batch->pendingRows()->get();
+            $rows = $batch->pendingRows()->orderBy('row_number')->get();
             $successCount = 0;
             $errorCount = 0;
             $skippedCount = 0;
 
+            $groups = [];
             foreach ($rows as $row) {
+                $nomor = trim($row->raw_json['nomor'] ?? '');
+                $groups[$nomor][] = $row;
+            }
+
+            foreach ($groups as $nomor => $groupRows) {
                 try {
-                    DB::transaction(function () use ($row, $setting, &$successCount) {
-                        $this->processRow($row, $setting);
-                        $successCount++;
+                    DB::transaction(function () use ($groupRows, $setting, &$successCount, $nomor) {
+                        $this->processGroup($groupRows, $setting, $nomor);
+                        $successCount += count($groupRows);
                     });
                 } catch (\Exception $e) {
                     // A duplicate Nomor is a skip, not an error.
                     if ($e->getMessage() === 'Duplicate imported_expense_number') {
-                        $row->update([
-                            'status' => ExpenseImportRow::STATUS_SKIPPED,
-                            'error_message' => 'Duplicate Nomor',
-                        ]);
-                        $skippedCount++;
+                        foreach ($groupRows as $row) {
+                            $row->update([
+                                'status' => ExpenseImportRow::STATUS_SKIPPED,
+                                'error_message' => 'Duplicate Nomor',
+                            ]);
+                        }
+                        $skippedCount += count($groupRows);
                     } else {
-                        $row->update([
-                            'status' => ExpenseImportRow::STATUS_INVALID,
-                            'error_message' => $e->getMessage(),
-                        ]);
-                        $errorCount++;
+                        foreach ($groupRows as $row) {
+                            $row->update([
+                                'status' => ExpenseImportRow::STATUS_INVALID,
+                                'error_message' => $e->getMessage(),
+                            ]);
+                        }
+                        $errorCount += count($groupRows);
                     }
                 }
             }
@@ -88,39 +98,71 @@ class ExpenseImportService
         }
     }
 
-    protected function processRow(ExpenseImportRow $row, Setting $setting): void
+    protected function processGroup(array $groupRows, Setting $setting, string $nomor): void
     {
-        $data = $row->raw_json;
+        if (empty($nomor)) {
+            throw new \Exception('Missing nomor');
+        }
 
-        // 3.2 Validate row eligibility
-        $transaksi = trim($data['transaksi'] ?? '');
-        $status = strtolower(trim($data['status'] ?? ''));
-        $sisaTagihan = $this->parseAmount($data['sisa_tagihan'] ?? '0', 'Sisa Tagihan');
-        $jumlah = $this->parseAmount($data['jumlah'] ?? '0', 'Jumlah');
-        $tax = $this->parseAmount($data['tax'] ?? '0', 'Tax');
-        $tanggalStr = $data['tanggal'] ?? '';
-        $kategori = trim($data['kategori'] ?? '');
-        $supplierName = trim($data['supplier'] ?? '');
-        $nomor = trim($data['nomor'] ?? '');
+        $parsedRows = [];
+        $totalJumlah = 0.0;
 
-        if ($transaksi !== 'Expense') {
-            throw new \Exception('Invalid transaction type: ' . $transaksi);
+        foreach ($groupRows as $row) {
+            $data = $row->raw_json;
+
+            $transaksi = trim($data['transaksi'] ?? '');
+            $status = strtolower(trim($data['status'] ?? ''));
+            $sisaTagihan = $this->parseAmount($data['sisa_tagihan'] ?? '0', 'Sisa Tagihan');
+            $jumlah = $this->parseAmount($data['jumlah'] ?? '0', 'Jumlah');
+            $tax = $this->parseAmount($data['tax'] ?? '0', 'Tax');
+            $tanggalStr = trim($data['tanggal'] ?? '');
+            
+            if ($transaksi !== 'Expense') {
+                throw new \Exception('Invalid transaction type: ' . $transaksi);
+            }
+            if ($status !== 'paid') {
+                throw new \Exception('Expense must be Paid');
+            }
+            if ($sisaTagihan != 0) {
+                throw new \Exception('Sisa Tagihan must be zero');
+            }
+            if ($jumlah <= 0) {
+                throw new \Exception('Jumlah must be greater than zero');
+            }
+            if (empty($tanggalStr)) {
+                throw new \Exception('Missing tanggal');
+            }
+            
+            try {
+                $tanggal = Carbon::createFromFormat('d/m/Y', $tanggalStr);
+            } catch (\Exception $e) {
+                $tanggal = null;
+            }
+            $errors = Carbon::getLastErrors();
+            if (
+                $tanggal === null
+                || $errors['error_count'] > 0
+                || $errors['warning_count'] > 0
+                || $tanggal->format('d/m/Y') !== $tanggalStr
+            ) {
+                throw new \Exception('Invalid date format: ' . $tanggalStr);
+            }
+
+            $parsedRows[] = [
+                'row' => $row,
+                'data' => $data,
+                'tanggal' => $tanggal,
+                'jumlah' => $jumlah,
+            ];
+            
+            $totalJumlah += $jumlah;
         }
-        if ($status !== 'paid') {
-            throw new \Exception('Expense must be Paid');
-        }
-        if ($sisaTagihan != 0) {
-            throw new \Exception('Sisa Tagihan must be zero');
-        }
-        if ($jumlah <= 0) {
-            throw new \Exception('Jumlah must be greater than zero');
-        }
-        if ($tax != 0) {
-            throw new \Exception('Tax must be zero');
-        }
-        if (empty($tanggalStr)) {
-            throw new \Exception('Missing tanggal');
-        }
+
+        $firstRowData = $parsedRows[0];
+        $firstData = $firstRowData['data'];
+        $kategori = trim($firstData['kategori'] ?? '');
+        $supplierName = trim($firstData['supplier'] ?? '');
+
         if (empty($kategori)) {
             throw new \Exception('Missing kategori');
         }
@@ -128,30 +170,7 @@ class ExpenseImportService
         if (empty($supplierName)) {
             $supplierName = $kategori;
         }
-        if (empty($nomor)) {
-            throw new \Exception('Missing nomor');
-        }
 
-        // Carbon silently rolls invalid calendar dates forward (e.g. 31/02/2026
-        // -> 2026-03-03), so validate by round-tripping the formatted output and
-        // checking Carbon's strict parse errors.
-        $tanggalStr = trim($tanggalStr);
-        try {
-            $tanggal = Carbon::createFromFormat('d/m/Y', $tanggalStr);
-        } catch (\Exception $e) {
-            $tanggal = null;
-        }
-        $errors = Carbon::getLastErrors();
-        if (
-            $tanggal === null
-            || $errors['error_count'] > 0
-            || $errors['warning_count'] > 0
-            || $tanggal->format('d/m/Y') !== $tanggalStr
-        ) {
-            throw new \Exception('Invalid date format: ' . $tanggalStr);
-        }
-
-        // 3.6 Detect duplicate imported source number
         $existing = Expense::where('setting_id', $setting->id)
             ->where('imported_expense_number', $nomor)
             ->first();
@@ -160,25 +179,18 @@ class ExpenseImportService
             throw new \Exception('Duplicate imported_expense_number');
         }
 
-        // 3.3 Resolve or create category
         $category = $this->findOrCreateCategory($kategori, $setting->id);
-
-        // 3.4 Resolve or create supplier
         $supplier = $this->findOrCreateSupplier($supplierName, $setting->id);
 
-        // Resolve a human-readable description, falling back when Deskripsi is
-        // blank ("" in the source CSV) since `??` only catches null.
-        $deskripsi = trim((string) ($data['deskripsi'] ?? ''));
+        $deskripsi = trim((string) ($firstData['deskripsi'] ?? ''));
         $expenseDetails = filled($deskripsi) ? $deskripsi : "Imported Expense {$nomor}";
-        $detailName = filled($deskripsi) ? $deskripsi : $kategori;
 
-        // 3.5 Create expense
         $expense = Expense::create([
-            'date' => $tanggal->format('Y-m-d'),
+            'date' => $firstRowData['tanggal']->format('Y-m-d'),
             'reference' => '', // Will be auto-generated
             'category_id' => $category->id,
             'supplier_id' => $supplier->id,
-            'amount' => $jumlah,
+            'amount' => $totalJumlah,
             'details' => $expenseDetails,
             'status' => Expense::STATUS_APPROVED,
             'setting_id' => $setting->id,
@@ -186,16 +198,26 @@ class ExpenseImportService
             'is_tax_included' => false,
         ]);
 
-        ExpenseDetail::create([
-            'expense_id' => $expense->id,
-            'amount' => $jumlah,
-            'name' => $detailName,
-        ]);
+        foreach ($parsedRows as $parsed) {
+            $rowDesc = trim((string) ($parsed['data']['deskripsi'] ?? ''));
+            $rowKategori = trim($parsed['data']['kategori'] ?? '');
+            
+            $detailName = filled($rowDesc) ? $rowDesc : $rowKategori;
+            if (empty($detailName)) {
+                $detailName = $kategori; // fallback to header category
+            }
 
-        $row->update([
-            'status' => ExpenseImportRow::STATUS_PROCESSED,
-            'expense_id' => $expense->id,
-        ]);
+            ExpenseDetail::create([
+                'expense_id' => $expense->id,
+                'amount' => $parsed['jumlah'],
+                'name' => $detailName,
+            ]);
+
+            $parsed['row']->update([
+                'status' => ExpenseImportRow::STATUS_PROCESSED,
+                'expense_id' => $expense->id,
+            ]);
+        }
     }
 
     protected function findOrCreateCategory(string $name, int $settingId): ExpenseCategory

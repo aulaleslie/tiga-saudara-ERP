@@ -221,14 +221,14 @@ class ExpenseImportTest extends TestCase
         $this->assertEquals(1, $batch->skipped_count); // They are counted as skipped at batch level.
     }
 
-    /**
-     * Stage a single row from a raw_json payload and process the batch.
+        /**
+     * Stage multiple rows from raw_json payloads and process the batch.
      */
-    protected function processSingleRow(array $rawJson): array
+    protected function processMultipleRows(array $rowsRawJson): array
     {
         $batch = ExpenseImportBatch::create([
             'status' => ExpenseImportBatch::STATUS_QUEUED,
-            'total_rows' => 1,
+            'total_rows' => count($rowsRawJson),
             'processed_rows' => 0,
             'success_count' => 0,
             'error_count' => 0,
@@ -237,16 +237,34 @@ class ExpenseImportTest extends TestCase
             'user_id' => $this->admin->id,
         ]);
 
-        $row = ExpenseImportRow::create([
-            'batch_id' => $batch->id,
-            'row_number' => 2,
-            'raw_json' => $rawJson,
-            'status' => ExpenseImportRow::STATUS_PENDING,
-        ]);
+        $rows = [];
+        $rowNumber = 2;
+        foreach ($rowsRawJson as $rawJson) {
+            $rows[] = ExpenseImportRow::create([
+                'batch_id' => $batch->id,
+                'row_number' => $rowNumber++,
+                'raw_json' => $rawJson,
+                'status' => ExpenseImportRow::STATUS_PENDING,
+            ]);
+        }
 
         (new ExpenseImportService())->processBatch($batch);
 
-        return [$batch->fresh(), $row->fresh()];
+        $freshRows = [];
+        foreach ($rows as $row) {
+            $freshRows[] = $row->fresh();
+        }
+
+        return [$batch->fresh(), $freshRows];
+    }
+
+    /**
+     * Helper to process a single row backward compatibility.
+     */
+    protected function processSingleRow(array $rawJson): array
+    {
+        [$batch, $rows] = $this->processMultipleRows([$rawJson]);
+        return [$batch, $rows[0]];
     }
 
     protected function validRawJson(array $overrides = []): array
@@ -263,6 +281,83 @@ class ExpenseImportTest extends TestCase
             'status' => 'Paid',
             'sisa_tagihan' => '0',
         ], $overrides);
+    }
+
+    public function test_group_expense_import_creates_one_expense_with_multiple_details()
+    {
+        [$batch, $rows] = $this->processMultipleRows([
+            $this->validRawJson([
+                'nomor' => 'EXP-002',
+                'deskripsi' => 'Row 1',
+                'jumlah' => '10000',
+            ]),
+            $this->validRawJson([
+                'nomor' => 'EXP-002',
+                'deskripsi' => 'Row 2',
+                'jumlah' => '20000',
+            ])
+        ]);
+
+        $this->assertEquals(ExpenseImportRow::STATUS_PROCESSED, $rows[0]->status);
+        $this->assertEquals(ExpenseImportRow::STATUS_PROCESSED, $rows[1]->status);
+        
+        $this->assertEquals($rows[0]->expense_id, $rows[1]->expense_id);
+        
+        $expense = Expense::find($rows[0]->expense_id);
+        $this->assertEquals(30000, $expense->amount); // 10k + 20k
+        $this->assertEquals(2, $expense->detailRows()->count());
+        
+        $this->assertEquals(2, $batch->success_count);
+        $this->assertEquals(0, $batch->error_count);
+    }
+
+    public function test_first_row_determines_header_fields()
+    {
+        [$batch, $rows] = $this->processMultipleRows([
+            $this->validRawJson([
+                'nomor' => 'EXP-003',
+                'tanggal' => '10/01/2026',
+                'kategori' => 'Cat 1',
+                'supplier' => 'Sup 1',
+                'deskripsi' => 'Row 1',
+                'jumlah' => '10000',
+            ]),
+            $this->validRawJson([
+                'nomor' => 'EXP-003',
+                'tanggal' => '11/01/2026',
+                'kategori' => 'Cat 2',
+                'supplier' => 'Sup 2',
+                'deskripsi' => 'Row 2',
+                'jumlah' => '20000',
+            ])
+        ]);
+
+        $expense = Expense::find($rows[0]->expense_id);
+        $this->assertEquals('2026-01-10 00:00:00', $expense->getAttributes()['date']); // First row date
+        
+        $cat1 = ExpenseCategory::where('category_name', 'CAT 1')->first();
+        $sup1 = Supplier::where('supplier_name', 'SUP 1')->first();
+        
+        $this->assertEquals($cat1->id, $expense->category_id);
+        $this->assertEquals($sup1->id, $expense->supplier_id);
+    }
+
+    public function test_parseable_nonzero_tax_is_ignored()
+    {
+        [$batch, $row] = $this->processSingleRow($this->validRawJson([
+            'tax' => '5000',
+            'jumlah' => '100000',
+        ]));
+
+        $this->assertEquals(ExpenseImportRow::STATUS_PROCESSED, $row->status);
+        $this->assertEquals(1, $batch->success_count);
+        
+        $expense = Expense::find($row->expense_id);
+        $this->assertEquals(100000, $expense->amount); // Excludes tax
+        $this->assertFalse((bool)$expense->is_tax_included);
+        
+        $detail = $expense->detailRows()->first();
+        $this->assertNull($detail->tax_id);
     }
 
     public function test_empty_deskripsi_falls_back_to_category_and_nomor()
@@ -335,17 +430,6 @@ class ExpenseImportTest extends TestCase
         $this->assertStringContainsString('Invalid date format', $row->error_message);
         $this->assertEquals(1, $batch->error_count);
         $this->assertEquals(0, $batch->success_count);
-    }
-
-    public function test_nonzero_tax_row_is_rejected()
-    {
-        [$batch, $row] = $this->processSingleRow($this->validRawJson([
-            'tax' => '5000',
-        ]));
-
-        $this->assertEquals(ExpenseImportRow::STATUS_INVALID, $row->status);
-        $this->assertStringContainsString('Tax must be zero', $row->error_message);
-        $this->assertEquals(1, $batch->error_count);
     }
 
     public function test_nonzero_sisa_tagihan_row_is_rejected()
@@ -454,6 +538,93 @@ class ExpenseImportTest extends TestCase
         // No duplicate category/supplier rows were created.
         $this->assertEquals(1, ExpenseCategory::where('setting_id', $this->setting->id)->count());
         $this->assertEquals(1, Supplier::where('setting_id', $this->setting->id)->count());
+    }
+
+        public function test_expense_import_service_skips_multi_row_duplicate_nomor()
+    {
+        $cat = ExpenseCategory::create([
+            'category_name' => 'Test',
+            'setting_id' => $this->setting->id,
+        ]);
+        
+        $sup = Supplier::create([
+            'supplier_name' => 'Test',
+            'supplier_email' => 'test@example.com',
+            'supplier_phone' => '123456',
+            'contact_name' => 'Test',
+            'address' => 'Test',
+            'city' => 'Test',
+            'country' => 'Test',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        Expense::create([
+            'date' => '2020-03-19',
+            'reference' => 'REF-001',
+            'category_id' => $cat->id,
+            'supplier_id' => $sup->id,
+            'amount' => 100000,
+            'details' => 'Test',
+            'status' => Expense::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'imported_expense_number' => 'EXP-DUP',
+            'is_tax_included' => false,
+        ]);
+
+        [$batch, $rows] = $this->processMultipleRows([
+            $this->validRawJson([
+                'nomor' => 'EXP-DUP',
+                'deskripsi' => 'Row 1',
+            ]),
+            $this->validRawJson([
+                'nomor' => 'EXP-DUP',
+                'deskripsi' => 'Row 2',
+            ])
+        ]);
+
+        $this->assertEquals(ExpenseImportRow::STATUS_SKIPPED, $rows[0]->status);
+        $this->assertEquals('Duplicate Nomor', $rows[0]->error_message);
+        
+        $this->assertEquals(ExpenseImportRow::STATUS_SKIPPED, $rows[1]->status);
+        $this->assertEquals('Duplicate Nomor', $rows[1]->error_message);
+        
+        $this->assertEquals(0, $batch->success_count);
+        $this->assertEquals(0, $batch->error_count); // Skipped duplicates are not errors.
+        $this->assertEquals(2, $batch->skipped_count); // They are counted as skipped at batch level (by row count).
+    }
+
+    public function test_invalid_multi_row_group_creates_no_records_and_marks_all_invalid()
+    {
+        $initialExpenseCount = Expense::count();
+        $initialDetailCount = ExpenseDetail::count();
+
+        // The second row has an invalid Sisa Tagihan.
+        // The first row is completely valid.
+        [$batch, $rows] = $this->processMultipleRows([
+            $this->validRawJson([
+                'nomor' => 'EXP-INV',
+                'deskripsi' => 'Valid Row 1',
+                'sisa_tagihan' => '0',
+            ]),
+            $this->validRawJson([
+                'nomor' => 'EXP-INV',
+                'deskripsi' => 'Invalid Row 2',
+                'sisa_tagihan' => '100', // invalid
+            ])
+        ]);
+
+        $this->assertEquals(ExpenseImportRow::STATUS_INVALID, $rows[0]->status);
+        $this->assertStringContainsString('Sisa Tagihan must be zero', $rows[0]->error_message);
+        
+        $this->assertEquals(ExpenseImportRow::STATUS_INVALID, $rows[1]->status);
+        $this->assertStringContainsString('Sisa Tagihan must be zero', $rows[1]->error_message);
+        
+        $this->assertEquals(0, $batch->success_count);
+        $this->assertEquals(2, $batch->error_count);
+        
+        // No partial Expense or Details should have been created.
+        $this->assertEquals($initialExpenseCount, Expense::count());
+        $this->assertEquals($initialDetailCount, ExpenseDetail::count());
     }
 
     public function test_ambiguous_target_setting_fails_batch()
