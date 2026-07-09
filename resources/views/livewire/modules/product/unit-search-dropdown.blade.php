@@ -55,7 +55,7 @@
         @endif
     </div>
 
-    @if($allowCreate)
+    @if($allowCreate && !$disabled)
         <button type="button"
                 class="btn btn-outline-primary btn-sm ms-1"
                 wire:click="openCreateModal"

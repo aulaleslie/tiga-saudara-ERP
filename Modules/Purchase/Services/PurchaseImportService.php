@@ -370,6 +370,8 @@ class PurchaseImportService
                 'product_name' => trim($cleanName),
                 'product_code' => 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8)),
                 'unit_id' => $unit->id,
+                'base_unit_id' => $unit->id,
+                'product_unit' => $unit->short_name ?: $unit->name,
                 'setting_id' => $settingId,
                 'product_cost' => 0,
                 'product_price' => 0,

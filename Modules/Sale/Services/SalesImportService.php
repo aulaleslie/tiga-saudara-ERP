@@ -415,6 +415,8 @@ class SalesImportService
                 'product_name' => trim($cleanName),
                 'product_code' => $this->importProductCode($cleanName),
                 'unit_id' => $unit->id,
+                'base_unit_id' => $unit->id,
+                'product_unit' => $unit->short_name ?: $unit->name,
                 'setting_id' => $settingId,
                 'product_cost' => 0,
                 'product_price' => 0,
