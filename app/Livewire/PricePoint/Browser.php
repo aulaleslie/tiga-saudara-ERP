@@ -2,7 +2,6 @@
 
 namespace App\Livewire\PricePoint;
 
-use App\Services\TypoTolerantSearch;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -205,31 +204,32 @@ class Browser extends Component
             ])
             ->when($term !== '', function ($q) use ($term) {
                 $like = "%{$term}%";
+                $tokens = array_filter(explode(' ', $term), 'strlen');
 
-                if (TypoTolerantSearch::isEnabled()) {
-                    // Use FULLTEXT for name/code + LIKE for barcode and relations
-                    $booleanTerm = TypoTolerantSearch::prepareBooleanTerm($term);
+                $q->where(function ($qq) use ($like, $tokens) {
+                    // 1. Scanner-code matching (whole input)
+                    $qq->where('products.barcode', 'like', $like)
+                        ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
+                        ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
 
-                    $q->where(function ($qq) use ($booleanTerm, $like) {
-                        $qq->whereRaw('MATCH(products.product_name, products.product_code) AGAINST(? IN BOOLEAN MODE)', [$booleanTerm])
-                            ->orWhere('products.barcode', 'like', $like)
-                            ->orWhereHas('brand', fn ($b) => $b->where('name', 'like', $like))
-                            ->orWhereHas('category', fn ($c) => $c->where('category_name', 'like', $like))
-                            ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
-                            ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
-                    });
-                } else {
-                    // Fallback to LIKE search
-                    $q->where(function ($qq) use ($like) {
-                        $qq->where('products.product_name', 'like', $like)
-                            ->orWhere('products.product_code', 'like', $like)
-                            ->orWhere('products.barcode', 'like', $like)
-                            ->orWhereHas('brand', fn ($b) => $b->where('name', 'like', $like))
-                            ->orWhereHas('category', fn ($c) => $c->where('category_name', 'like', $like))
-                            ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
-                            ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
-                    });
-                }
+                    // 2. Free-text matching (tokenized)
+                    if (!empty($tokens)) {
+                        $qq->orWhere(function ($ft) use ($tokens) {
+                            foreach ($tokens as $token) {
+                                $ft->where(function ($sub) use ($token) {
+                                    $sub->where('products.product_name', 'like', '%' . $token . '%')
+                                        ->orWhere('products.product_code', 'like', '%' . $token . '%')
+                                        ->orWhereHas('category', function ($cat) use ($token) {
+                                            $cat->where('category_name', 'like', '%' . $token . '%');
+                                        })
+                                        ->orWhereHas('brand', function ($brand) use ($token) {
+                                            $brand->where('name', 'like', '%' . $token . '%');
+                                        });
+                                });
+                            }
+                        });
+                    }
+                });
             })
             ->orderBy('products.product_name')
             ->paginate(
