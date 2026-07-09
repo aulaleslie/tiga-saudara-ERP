@@ -103,6 +103,9 @@
                                         @if(!empty($meta['raw_marker']))
                                             <br><small class="text-muted">Marker: <code>{{ $meta['raw_marker'] }}</code></small>
                                         @endif
+                                    @elseif(($meta['report_type'] ?? null) === 'sales_hpp_uncovered_sale_detail')
+                                        <span title="Product ID: {{ $r->product_id }}">{{ $meta['matched_product_name'] ?? '-' }}</span>
+                                        <br><small class="text-warning">Sales tanpa HPP snapshot</small>
                                     @elseif($r->product_id)
                                         <span>ID: {{ $r->product_id }}</span>
                                     @else
@@ -233,6 +236,12 @@
                                 <td>
                                     @if(!empty($meta['matched_sale_id']))
                                         <small class="text-muted">#{{ $meta['matched_sale_id'] }}</small>
+                                        @if(!empty($meta['imported_sales_reference_number']))
+                                            <br><small class="text-muted">{{ $meta['imported_sales_reference_number'] }}</small>
+                                        @endif
+                                        @if(!empty($meta['sale_date']))
+                                            <br><small class="text-muted">{{ $meta['sale_date'] }}</small>
+                                        @endif
                                     @else
                                         <span class="text-muted">-</span>
                                     @endif

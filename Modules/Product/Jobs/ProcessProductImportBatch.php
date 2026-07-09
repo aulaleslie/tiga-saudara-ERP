@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 use Log;
 use Throwable;
 
@@ -18,6 +19,7 @@ use Modules\Product\Entities\ProductImportBatch;
 use Modules\Product\Entities\ProductImportRow;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 
@@ -41,6 +43,14 @@ class ProcessProductImportBatch implements ShouldQueue
     /** @var array<string,bool> */
     private array $seenCodeKeys = [];
     private int $nextSkuNumber = 1;
+
+    private array $salesHppGroupCounts = [];
+    private array $salesHppGroupIds = [];
+    private ?\Modules\Setting\Entities\Setting $daizuSetting = null;
+    private ?\Modules\Setting\Entities\Setting $tigaNusaSetting = null;
+    private ?\Modules\Setting\Entities\Setting $topItSetting = null;
+    private ?\Modules\Setting\Entities\Setting $perdanaSetting = null;
+    private bool $settingsLoaded = false;
 
     public function __construct(public int $batchId) {}
 
@@ -92,6 +102,10 @@ class ProcessProductImportBatch implements ShouldQueue
                     $this->processRow($row);
                 }
             }, 'id');
+
+        if ($this->batch->import_type === ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT) {
+            $this->appendSalesHppCoverageReportRows();
+        }
 
         $updateData = [
             'status' => 'completed',
@@ -167,6 +181,8 @@ class ProcessProductImportBatch implements ShouldQueue
             'total quantity'     => 'Total Quantity',
             'tipe transaksi'     => 'Tipe Transaksi',
             'no. transaksi'      => 'No. Transaksi',
+            'tanggal'            => 'Tanggal',
+            'date'               => 'Tanggal',
             'barang'             => 'Barang',
             'mutasi'             => 'Mutasi',
         ];
@@ -252,6 +268,7 @@ class ProcessProductImportBatch implements ShouldQueue
             'total_quantity'    => $get('Total Quantity'),
             'tipe_transaksi'    => $get('Tipe Transaksi'),
             'no_transaksi'      => $get('No. Transaksi'),
+            'tanggal'           => $get('Tanggal'),
             'barang'            => $get('Barang'),
             'mutasi'            => $get('Mutasi'),
         ];
@@ -819,12 +836,20 @@ class ProcessProductImportBatch implements ShouldQueue
         $resolver = app(\App\Support\SalesImportMarkerResolver::class);
         $ownerKey = $resolver->resolveEffectiveOwnerKey($rawName);
 
+        if (!$this->settingsLoaded) {
+            $this->daizuSetting = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%DAIZU%')->first();
+            $this->tigaNusaSetting = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first();
+            $this->topItSetting = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TOP IT INTERNUSA%')->first();
+            $this->perdanaSetting = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%PERDANA%')->first();
+            $this->settingsLoaded = true;
+        }
+
         // Find setting based on the resolved owner key
         $owner = match ($ownerKey) {
-            'daizu' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%DAIZU%')->first(),
-            'marker:asterisk' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TIGA NUSA COMPUTER%')->first(),
-            'marker:tp' => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%CV TOP IT INTERNUSA%')->first(),
-            default => \Modules\Setting\Entities\Setting::where('company_name', 'like', '%PERDANA%')->first(),
+            'daizu' => $this->daizuSetting,
+            'marker:asterisk' => $this->tigaNusaSetting,
+            'marker:tp' => $this->topItSetting,
+            default => $this->perdanaSetting,
         };
 
         if (!$owner) {
@@ -835,6 +860,7 @@ class ProcessProductImportBatch implements ShouldQueue
         $ownerName = $owner->company_name;
 
         $cleanName = (string) ($payload['cleaned_product_name'] ?? '');
+        $normalizedCleanName = $resolver->normalizeProductName($cleanName);
 
         $reference = trim((string) ($payload['no_transaksi'] ?? ''));
         if ($reference === '') {
@@ -852,25 +878,113 @@ class ProcessProductImportBatch implements ShouldQueue
         }
 
         $saleDetails = \Modules\Sale\Entities\SaleDetails::where('sale_id', $sale->id)
-            ->whereRaw('LOWER(product_name) = ?', [mb_strtolower($cleanName)])
+            ->whereRaw('ABS(quantity - ?) < 0.001', [abs($mutasi)])
             ->get();
 
-        if ($saleDetails->isEmpty()) {
-            $this->recordFailure($row, "Detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}' tidak ditemukan.");
+        $qtyDisambiguated = $saleDetails->filter(function ($detail) use ($resolver, $normalizedCleanName) {
+            $parsed = $resolver->parseProductName($detail->product_name);
+            $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
+            return $normalizedDetailName === $normalizedCleanName;
+        });
+
+        $matchMethod = 'exact';
+        $matchScore = 100.0;
+        $matchedProductName = $normalizedCleanName;
+
+        if ($qtyDisambiguated->isEmpty()) {
+            $scoredGroups = [];
+
+            foreach ($saleDetails as $detail) {
+                $parsed = $resolver->parseProductName($detail->product_name);
+                $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
+
+                if (!isset($scoredGroups[$normalizedDetailName])) {
+                    similar_text($normalizedCleanName, $normalizedDetailName, $perc);
+                    $scoredGroups[$normalizedDetailName] = $perc;
+                }
+            }
+
+            arsort($scoredGroups);
+            
+            $topName = key($scoredGroups);
+            $topScore = current($scoredGroups);
+            next($scoredGroups);
+            $secondScore = current($scoredGroups);
+
+            // Clear winner criteria: top score >= 80, and at least 10 points better than second (or no second)
+            if ($topName !== null && $topScore >= 80 && ($secondScore === false || ($topScore - $secondScore) >= 10)) {
+                $qtyDisambiguated = $saleDetails->filter(function ($detail) use ($resolver, $topName) {
+                    $parsed = $resolver->parseProductName($detail->product_name);
+                    $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
+                    return $normalizedDetailName === $topName;
+                });
+                
+                $matchMethod = 'fallback';
+                $matchScore = $topScore;
+                $matchedProductName = $topName;
+            }
+
+            if ($qtyDisambiguated->isEmpty()) {
+                $this->recordFailure($row, "Detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}' dengan mutasi " . abs($mutasi) . " tidak ditemukan (fallback ambigu/gagal).");
+                return;
+            }
+        }
+
+        $groupKey = $reference . '|' . $ownerId . '|' . $normalizedCleanName . '|' . abs($mutasi);
+
+        if ($qtyDisambiguated->count() > 1) {
+            if (!isset($this->salesHppGroupCounts[$groupKey])) {
+                $similarRows = ProductImportRow::where('batch_id', $this->batch->id)
+                    ->where('raw_json->no_transaksi', $reference)
+                    ->orderBy('id', 'asc')
+                    ->get()
+                    ->filter(function ($sRow) use ($resolver, $ownerId, $normalizedCleanName, $mutasi) {
+                        $p = (array) $sRow->raw_json;
+                        if (strtolower(trim($p['tipe_transaksi'] ?? '')) !== 'sales invoice') return false;
+                        if ((float) ($p['source_quantity'] ?? 0) >= 0) return false;
+                        if (abs(abs((float) ($p['source_quantity'] ?? 0)) - abs($mutasi)) > 0.001) return false;
+                        
+                        $rName = (string) ($p['raw_product_name'] ?? '');
+                        $oKey = $resolver->resolveEffectiveOwnerKey($rName);
+                        $o = match ($oKey) {
+                            'daizu' => $this->daizuSetting,
+                            'marker:asterisk' => $this->tigaNusaSetting,
+                            'marker:tp' => $this->topItSetting,
+                            default => $this->perdanaSetting,
+                        };
+                        if (!$o || $o->id !== $ownerId) return false;
+                        
+                        $cName = (string) ($p['cleaned_product_name'] ?? '');
+                        if ($resolver->normalizeProductName($cName) !== $normalizedCleanName) return false;
+                        
+                        return true;
+                    });
+                
+                $this->salesHppGroupCounts[$groupKey] = $similarRows->count();
+                $this->salesHppGroupIds[$groupKey] = $similarRows->pluck('id')->values()->all();
+            }
+
+            $similarSourceRowsCount = $this->salesHppGroupCounts[$groupKey];
+            if ($similarSourceRowsCount !== $qtyDisambiguated->count()) {
+                $this->recordFailure($row, "Ambiguous match: Ditemukan {$qtyDisambiguated->count()} detail penjualan, tapi {$similarSourceRowsCount} baris HPP untuk produk '{$cleanName}' dengan mutasi " . abs($mutasi) . " di invoice '{$reference}'.");
+                return;
+            }
+            
+            $groupIds = $this->salesHppGroupIds[$groupKey] ?? [];
+            $matchIndex = array_search($row->id, $groupIds);
+            if ($matchIndex === false) $matchIndex = 0;
+        } else {
+            $matchIndex = 0;
+        }
+
+        $orderedDetails = $qtyDisambiguated->sortBy('id')->values();
+
+        if ($orderedDetails->count() <= $matchIndex) {
+            $this->recordFailure($row, "Ambiguous match: Tidak ada detail penjualan tersisa (index {$matchIndex}) untuk produk '{$cleanName}' dengan mutasi " . abs($mutasi) . " di invoice '{$reference}'.");
             return;
         }
 
-        if ($saleDetails->count() > 1) {
-            $this->recordFailure($row, "Ambiguous match: Ditemukan lebih dari satu detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}'.");
-            return;
-        }
-
-        $saleDetail = $saleDetails->first();
-
-        if (abs(abs($mutasi) - (float) $saleDetail->quantity) > 0.001) {
-            $this->recordFailure($row, "Quantity mismatch: HPP Mutasi (" . abs($mutasi) . ") tidak sama dengan detail penjualan ({$saleDetail->quantity}).");
-            return;
-        }
+        $saleDetail = $orderedDetails->get($matchIndex);
 
         try {
             DB::beginTransaction();
@@ -901,6 +1015,10 @@ class ProcessProductImportBatch implements ShouldQueue
                 'owner_setting_name'  => $ownerName,
                 'matched_sale_id'     => $sale->id,
                 'matched_sale_detail_id' => $saleDetail->id,
+                'matched_product_name'=> $saleDetail->product_name,
+                'matched_normalized_name' => $matchedProductName,
+                'match_method'        => $matchMethod,
+                'match_score'         => round($matchScore, 2),
                 'source_quantity'     => $mutasi,
                 'imported_hpp'        => $sourceHpp,
                 'previous_cost_unit'  => (float) $prevCostUnit,
@@ -916,6 +1034,144 @@ class ProcessProductImportBatch implements ShouldQueue
         } catch (\Throwable $e) {
             DB::rollBack();
             $this->recordFailure($row, 'Gagal update HPP: ' . $e->getMessage());
+        }
+    }
+
+    private function appendSalesHppCoverageReportRows(): void
+    {
+        [$startDate, $endDate] = $this->resolveSalesHppImportDateRange();
+
+        ProductImportRow::where('batch_id', $this->batch->id)
+            ->where('status', 'skipped')
+            ->where('error_message', 'like', 'Sales detail tidak memiliki HPP snapshot%')
+            ->delete();
+
+        if (!$startDate || !$endDate) {
+            Log::warning('[ProductImportBatch] HPP coverage report skipped: no Sales Invoice date range', [
+                'batch_id' => $this->batch->id,
+            ]);
+            return;
+        }
+
+        $nextRowNumber = ((int) ProductImportRow::where('batch_id', $this->batch->id)->max('row_number')) + 1;
+        $now = now();
+        $buffer = [];
+
+        SaleDetails::query()
+            ->select('sale_details.*')
+            ->with(['sale:id,date,reference,imported_sales_reference_number,setting_id', 'product:id,product_name'])
+            ->where(function ($query) {
+                $query->whereNull('cost_snapshot_source')
+                    ->orWhere('cost_snapshot_source', '!=', 'HPP_SNAPSHOT_IMPORT');
+            })
+            ->whereHas('sale', function ($query) use ($startDate, $endDate) {
+                $query->whereDate('date', '>=', $startDate->toDateString())
+                    ->whereDate('date', '<=', $endDate->toDateString());
+            })
+            ->orderBy('sale_id')
+            ->orderBy('id')
+            ->chunkById(500, function ($details) use (&$nextRowNumber, &$buffer, $now) {
+                foreach ($details as $detail) {
+                    $sale = $detail->sale;
+                    $saleDate = $sale?->date ? Carbon::parse($sale->date)->toDateString() : null;
+                    $buffer[] = [
+                        'batch_id' => $this->batch->id,
+                        'row_number' => $nextRowNumber++,
+                        'raw_json' => json_encode([
+                            'report_type' => 'sales_hpp_uncovered_sale_detail',
+                            'sale_id' => $detail->sale_id,
+                            'sale_detail_id' => $detail->id,
+                            'sale_reference' => $sale?->reference,
+                            'imported_sales_reference_number' => $sale?->imported_sales_reference_number,
+                            'sale_date' => $saleDate,
+                            'setting_id' => $sale?->setting_id,
+                            'product_id' => $detail->product_id,
+                            'product_name' => $detail->product_name,
+                            'quantity' => (float) $detail->quantity,
+                            'unit_price' => (float) $detail->unit_price,
+                            'sub_total' => (float) $detail->sub_total,
+                            'current_cost_snapshot_source' => $detail->cost_snapshot_source,
+                        ]),
+                        'status' => 'skipped',
+                        'error_message' => 'Sales detail tidak memiliki HPP snapshot dalam periode import.',
+                        'product_id' => $detail->product_id,
+                        'result_metadata' => json_encode([
+                            'report_type' => 'sales_hpp_uncovered_sale_detail',
+                            'matched_sale_id' => $detail->sale_id,
+                            'matched_sale_detail_id' => $detail->id,
+                            'matched_product_name' => $detail->product_name,
+                            'source_quantity' => (float) $detail->quantity,
+                            'imported_sales_reference_number' => $sale?->imported_sales_reference_number,
+                            'sale_reference' => $sale?->reference,
+                            'sale_date' => $saleDate,
+                            'owner_setting_id' => $sale?->setting_id,
+                            'current_cost_snapshot_source' => $detail->cost_snapshot_source,
+                        ]),
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+
+                    if (count($buffer) >= 500) {
+                        DB::table('product_import_rows')->insert($buffer);
+                        $buffer = [];
+                    }
+                }
+            }, 'sale_details.id', 'id');
+
+        if (!empty($buffer)) {
+            DB::table('product_import_rows')->insert($buffer);
+        }
+    }
+
+    /**
+     * @return array{0: ?Carbon, 1: ?Carbon}
+     */
+    private function resolveSalesHppImportDateRange(): array
+    {
+        $startDate = null;
+        $endDate = null;
+
+        ProductImportRow::where('batch_id', $this->batch->id)
+            ->orderBy('id')
+            ->chunkById(500, function ($rows) use (&$startDate, &$endDate) {
+                foreach ($rows as $row) {
+                    $payload = (array) $row->raw_json;
+                    if (strtolower(trim((string) ($payload['tipe_transaksi'] ?? ''))) !== 'sales invoice') {
+                        continue;
+                    }
+
+                    $date = $this->parseImportDate($payload['tanggal'] ?? null);
+                    if (!$date) {
+                        continue;
+                    }
+
+                    $startDate = $startDate ? $startDate->min($date) : $date->copy();
+                    $endDate = $endDate ? $endDate->max($date) : $date->copy();
+                }
+            }, 'id');
+
+        return [$startDate, $endDate];
+    }
+
+    private function parseImportDate(mixed $value): ?Carbon
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        foreach (['d/m/Y', 'Y-m-d', 'd-m-Y'] as $format) {
+            try {
+                return Carbon::createFromFormat($format, $raw)->startOfDay();
+            } catch (\Throwable) {
+                // Try next supported import date format.
+            }
+        }
+
+        try {
+            return Carbon::parse($raw)->startOfDay();
+        } catch (\Throwable) {
+            return null;
         }
     }
 
