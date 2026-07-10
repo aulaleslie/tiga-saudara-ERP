@@ -32,6 +32,7 @@ class ProductServiceProvider extends ServiceProvider
         
         $this->commands([
             \Modules\Product\Console\NormalizeProductPurchasePricesCommand::class,
+            \Modules\Product\Console\PreflightBarcodesCommand::class,
         ]);
     }
 

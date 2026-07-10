@@ -1,11 +1,11 @@
 ## 1. Barcode Identity and Audit Schema
 
-- [ ] 1.1 Add migrations for the barcode identity registry and product barcode assignment history with nullable audit-preserving foreign keys, ownership metadata, canonical key uniqueness, and MySQL/SQLite-compatible indexes.
-- [ ] 1.2 Add registry and assignment-history Eloquent models with product, conversion, and actor relationships plus initialization/replacement action constants or enum handling.
-- [ ] 1.3 Implement a deterministic barcode canonicalization utility that preserves stored string values and leading zeroes while producing consistent identity keys across MySQL and SQLite.
-- [ ] 1.4 Implement a read-only historical barcode preflight that detects duplicates within and across product and conversion-unit barcodes and reports every conflicting owner without modifying data.
-- [ ] 1.5 Implement safe registry backfill and per-table uniqueness migration behavior that aborts with actionable conflict details instead of rewriting historical barcodes.
-- [ ] 1.6 Add migration and unit tests for clean backfill, duplicate preflight failure, nullable values, rollback safety, and equivalent canonical collision behavior on SQLite.
+- [x] 1.1 Add migrations for the barcode identity registry and product barcode assignment history with nullable audit-preserving foreign keys, ownership metadata, canonical key uniqueness, and MySQL/SQLite-compatible indexes.
+- [x] 1.2 Add registry and assignment-history Eloquent models with product, conversion, and actor relationships plus initialization/replacement action constants or enum handling.
+- [x] 1.3 Implement a deterministic barcode canonicalization utility that preserves stored string values and leading zeroes while producing consistent identity keys across MySQL and SQLite.
+- [x] 1.4 Implement a read-only historical barcode preflight that detects duplicates within and across product and conversion-unit barcodes and reports every conflicting owner without modifying data.
+- [x] 1.5 Implement safe registry backfill and per-table uniqueness migration behavior that aborts with actionable conflict details instead of rewriting historical barcodes.
+- [x] 1.6 Add migration and unit tests for clean backfill, duplicate preflight failure, nullable values, rollback safety, and equivalent canonical collision behavior on SQLite.
 
 ## 2. Shared Barcode Integrity Services
 
