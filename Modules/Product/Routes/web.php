@@ -62,6 +62,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::delete('/{bundle}', [ProductBundleController::class, 'destroy'])->name('products.bundle.destroy');
     });
 
+    Route::group(['middleware' => ['can:products.barcodes.manage']], function () {
+        Route::get('/products/barcodes/manage', [\Modules\Product\Http\Controllers\ProductBarcodeInitializationController::class, 'index'])->name('products.barcodes.index');
+    });
+
     Route::resource('product-categories', 'CategoriesController')->except('create', 'show');
     Route::resource('brands', 'BrandController');
 });

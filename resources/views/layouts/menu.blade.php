@@ -339,7 +339,7 @@
     </li>
 @endcanany
 
-@canany(['products.access', 'categories.access', 'barcodes.print', 'units.access', 'brands.access'])
+@canany(['products.access', 'categories.access', 'barcodes.print', 'units.access', 'brands.access', 'products.barcodes.manage'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bbi bi-box2-fill" style="line-height: 1;"></i> Produk
@@ -368,6 +368,15 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('barcode.print') ? 'c-active' : '' }}"
                        href="{{ route('barcode.print') }}">
                         <i class="c-sidebar-nav-icon bi bi-upc-scan" style="line-height: 1;"></i> Print Barcode
+                    </a>
+                </li>
+            @endcan
+
+            @can('products.barcodes.manage')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('products.barcodes.*') ? 'c-active' : '' }}"
+                       href="{{ route('products.barcodes.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-upc" style="line-height: 1;"></i> Inisialisasi Barcode
                     </a>
                 </li>
             @endcan

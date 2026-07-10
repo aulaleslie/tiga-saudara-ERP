@@ -96,6 +96,11 @@ class ProductCreator
         try {
             $product = Product::create($validatedData);
 
+            if (!empty($validatedData['barcode'])) {
+                app(\Modules\Product\Services\BarcodeIdentityService::class)
+                    ->reserve($validatedData['barcode'], $product->id);
+            }
+
             ProductPrice::seedForSettings(
                 $product->id,
                 [
@@ -130,6 +135,11 @@ class ProductCreator
                         'conversion_factor' => $conversion['conversion_factor'] ?? 0,
                         'barcode'           => $conversion['barcode'] ?? null,
                     ]);
+
+                    if (!empty($conversion['barcode'])) {
+                        app(\Modules\Product\Services\BarcodeIdentityService::class)
+                            ->reserve($conversion['barcode'], null, $createdConversion->id);
+                    }
 
                     ProductUnitConversionPrice::seedForSettings(
                         $createdConversion->id,

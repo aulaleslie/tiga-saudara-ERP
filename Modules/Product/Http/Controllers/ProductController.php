@@ -382,7 +382,21 @@ class ProductController extends Controller
 
         try {
             // 1) Update non-price product fields on `products`
+            $oldBarcode = $product->barcode;
+            $newBarcode = $validatedData['barcode'] ?? null;
+
             $product->update($validatedData);
+
+            if ($oldBarcode !== $newBarcode) {
+                $identityService = app(\Modules\Product\Services\BarcodeIdentityService::class);
+                if ($oldBarcode && !$newBarcode) {
+                    $identityService->release($oldBarcode, $product->id);
+                } elseif (!$oldBarcode && $newBarcode) {
+                    $identityService->reserve($newBarcode, $product->id);
+                } else {
+                    $identityService->replace($oldBarcode, $newBarcode, $product->id);
+                }
+            }
 
             // 2) Upsert prices only for the current setting on `product_prices`
             $settingId = $this->getActiveSettingId();
@@ -430,10 +444,10 @@ class ProductController extends Controller
                 }
             }
 
-            if (!empty($conversions)) {
-                $existingConversions = $product->conversions()->with('prices')->get()->keyBy('id');
-                $processedIds = [];
+            $existingConversions = $product->conversions()->with('prices')->get()->keyBy('id');
+            $processedIds = [];
 
+            if (!empty($conversions)) {
                 foreach ($conversions as $conversion) {
                     $unitId = $conversion['unit_id'] ?? null;
                     if (!$unitId) {
@@ -450,7 +464,22 @@ class ProductController extends Controller
 
                     if (!empty($conversion['id']) && $existingConversions->has((int) $conversion['id'])) {
                         $model = $existingConversions[(int) $conversion['id']];
+                        
+                        $oldConvBarcode = $model->barcode;
+                        $newConvBarcode = $payload['barcode'] ?? null;
+
                         $model->update($payload);
+
+                        if ($oldConvBarcode !== $newConvBarcode) {
+                            $identityService = app(\Modules\Product\Services\BarcodeIdentityService::class);
+                            if ($oldConvBarcode && !$newConvBarcode) {
+                                $identityService->release($oldConvBarcode, null, $model->id);
+                            } elseif (!$oldConvBarcode && $newConvBarcode) {
+                                $identityService->reserve($newConvBarcode, null, $model->id);
+                            } else {
+                                $identityService->replace($oldConvBarcode, $newConvBarcode, null, $model->id);
+                            }
+                        }
 
                         ProductUnitConversionPrice::upsertFor([
                             'product_unit_conversion_id' => $model->id,
@@ -459,6 +488,11 @@ class ProductController extends Controller
                         ]);
                     } else {
                         $model = $product->conversions()->create($payload);
+
+                        if (!empty($payload['barcode'])) {
+                            app(\Modules\Product\Services\BarcodeIdentityService::class)
+                                ->reserve($payload['barcode'], null, $model->id);
+                        }
 
                         ProductUnitConversionPrice::seedForSettings(
                             $model->id,
@@ -469,11 +503,17 @@ class ProductController extends Controller
 
                     $processedIds[] = $model->id;
                 }
+            }
 
-                $idsToDelete = $existingConversions->keys()->diff($processedIds);
-                if ($idsToDelete->isNotEmpty()) {
-                    $product->conversions()->whereIn('id', $idsToDelete->all())->delete();
+            $idsToDelete = $existingConversions->keys()->diff($processedIds);
+            if ($idsToDelete->isNotEmpty()) {
+                foreach ($idsToDelete as $idToDelete) {
+                    $deletedConv = $existingConversions[$idToDelete];
+                    if ($deletedConv->barcode) {
+                        app(\Modules\Product\Services\BarcodeIdentityService::class)->release($deletedConv->barcode, null, $deletedConv->id);
+                    }
                 }
+                $product->conversions()->whereIn('id', $idsToDelete->all())->delete();
             }
 
             DB::commit();

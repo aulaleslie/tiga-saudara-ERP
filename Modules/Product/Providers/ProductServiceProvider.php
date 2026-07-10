@@ -95,6 +95,7 @@ class ProductServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.product.unit-search-dropdown', \Modules\Product\Livewire\UnitSearchDropdown::class);
         \Livewire\Livewire::component('modules.product.product-price-setup', \Modules\Product\Livewire\ProductPriceSetup::class);
         \Livewire\Livewire::component('modules.product.sale-price-setup', \Modules\Product\Livewire\SalePriceSetup::class);
+        \Livewire\Livewire::component('product::barcode-initialization', \Modules\Product\Livewire\BarcodeInitialization::class);
     }
 
     /**

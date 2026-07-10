@@ -43,7 +43,7 @@ class ProductCreateValidation
             'tier_2_price'      => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
             'sale_tax_id'       => ['nullable', 'integer', 'exists:taxes,id'],
 
-            'barcode'           => ['nullable', 'string', 'max:255', 'unique:products,barcode'],
+            'barcode'           => ['nullable', 'string', 'max:255', new \Modules\Product\Rules\UniqueBarcodeIdentity()],
 
             'base_unit_id'      => [
                 'required_if:stock_managed,1,true,on',
@@ -87,8 +87,11 @@ class ProductCreateValidation
                         $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    if ($value && ProductUnitConversion::where('barcode', $value)->exists()) {
-                        $fail('Barcode konversi ini sudah ada di database.');
+                    if ($value) {
+                        $rule = new \Modules\Product\Rules\UniqueBarcodeIdentity();
+                        if (!$rule->passes($attribute, $value)) {
+                            $fail($rule->message());
+                        }
                     }
                 },
             ],

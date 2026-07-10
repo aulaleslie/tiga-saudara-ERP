@@ -47,7 +47,7 @@ class UpdateProductRequest extends FormRequest
             'sale_tax_id'    => ['nullable', 'integer', 'exists:taxes,id'],
 
             // === Barcode (same as create, but ignore current product) ===
-            'barcode'        => ['nullable', 'string', 'max:255', Rule::unique('products', 'barcode')->ignore($productId)],
+            'barcode'        => ['nullable', 'string', 'max:255', new \Modules\Product\Rules\UniqueBarcodeIdentity($productId)],
 
             // === Base Unit (same as create) ===
             'base_unit_id'   => [
@@ -105,13 +105,9 @@ class UpdateProductRequest extends FormRequest
                         $currentId = data_get($conversions, "$index.id");
 
                         // DB uniqueness: ignore current conversion row (edit case)
-                        $query = ProductUnitConversion::where('barcode', $value);
-                        if ($currentId) {
-                            $query->where('id', '!=', $currentId);
-                        }
-
-                        if ($query->exists()) {
-                            $fail('Barcode konversi ini sudah ada di database.');
+                        $rule = new \Modules\Product\Rules\UniqueBarcodeIdentity(null, $currentId ?: null);
+                        if (!$rule->passes($attribute, $value)) {
+                            $fail($rule->message());
                         }
                     }
                 }
