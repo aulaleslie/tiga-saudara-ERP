@@ -63,7 +63,6 @@ class BarcodeIdentityService
         }
 
         $query = BarcodeIdentity::where('canonical_key', $key);
-        
         if ($productId) {
             $query->where('product_id', $productId);
         } elseif ($conversionId) {
@@ -89,13 +88,26 @@ class BarcodeIdentityService
             return ['success' => true];
         }
 
-        return DB::transaction(function () use ($oldKey, $newKey, $oldBarcode, $newBarcode, $productId, $conversionId) {
-            if ($oldKey) {
-                $this->release($oldBarcode, $productId, $conversionId);
-            }
+        try {
+            return DB::transaction(function () use ($oldKey, $newKey, $oldBarcode, $newBarcode, $productId, $conversionId) {
+                if ($oldKey) {
+                    $this->release($oldBarcode, $productId, $conversionId);
+                }
 
-            return $this->reserve($newBarcode, $productId, $conversionId);
-        });
+                $reservation = $this->reserve($newBarcode, $productId, $conversionId);
+                if (!$reservation['success']) {
+                    throw new \RuntimeException(json_encode($reservation));
+                }
+
+                return $reservation;
+            });
+        } catch (\RuntimeException $e) {
+            $decoded = json_decode($e->getMessage(), true);
+            if (is_array($decoded) && isset($decoded['success']) && !$decoded['success']) {
+                return $decoded;
+            }
+            throw $e;
+        }
     }
 
     /**

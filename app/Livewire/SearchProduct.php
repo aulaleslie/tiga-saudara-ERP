@@ -20,7 +20,7 @@ class SearchProduct extends Component
         $this->search_results = collect();
     }
 
-    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function render()
     {
         return view('livewire.search-product');
     }

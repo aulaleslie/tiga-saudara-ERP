@@ -19,9 +19,9 @@ class ProductEditUnitAlignmentTest extends TestCase
     {
         parent::setUp();
         Setting::factory()->create();
-        
+
         \Illuminate\Support\Facades\Gate::before(fn() => true);
-        
+
         $this->user = User::factory()->create([
             'email' => 'test@test.com',
         ]);
@@ -61,7 +61,7 @@ class ProductEditUnitAlignmentTest extends TestCase
             'product_note' => '',
             'category_id' => '',
             'brand_id' => '',
-            'unit_id' => $unit->id, 
+            'unit_id' => $unit->id,
             'base_unit_id' => $unit->id, // Sent as locked usually
             'product_unit' => 'PCS',
         ];
@@ -74,7 +74,7 @@ class ProductEditUnitAlignmentTest extends TestCase
         $this->assertEquals(100, $product->product_cost); // Legacy remains untouched
         $this->assertEquals(200, $product->product_price); // Legacy remains untouched
         $this->assertEquals($unit->id, $product->base_unit_id);
-        
+
         $priceRow = $product->prices()->where('setting_id', 1)->first();
         $this->assertNotNull($priceRow);
         $this->assertEquals(150, $priceRow->last_purchase_price);

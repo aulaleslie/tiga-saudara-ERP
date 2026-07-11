@@ -97,7 +97,7 @@
                             
                             @if($currentState === 'READY_TO_SCAN')
                                 <!-- Form wrapper prevents page reload on enter -->
-                                <form onsubmit="event.preventDefault(); window.livewire.find('{{ $_instance->getId() }}').handleScan(document.getElementById('scannerInput').value);">
+                                <form onsubmit="event.preventDefault(); window.Livewire.find('{{ $_instance->getId() }}').handleScan(document.getElementById('scannerInput').value);">
                                     <div class="input-group input-group-lg">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
@@ -123,11 +123,13 @@
                                     <h2 class="display-4 font-monospace">{{ $candidateBarcode }}</h2>
                                     
                                     <div class="mt-3 mb-4">
+                                        @php $previewFailed = false; @endphp
                                         <!-- Code 128 Preview using Milon/Barcode (Requires DNS1D facade or similar) -->
                                         @try
                                             {!! DNS1D::getBarcodeSVG($candidateBarcode, 'C128', 2, 60, 'black', true) !!}
                                         @catch (\Exception $e)
                                             <div class="text-danger small">Tidak dapat merender preview barcode.</div>
+                                            @php $previewFailed = true; @endphp
                                         @endtry
                                     </div>
                                     
@@ -140,8 +142,8 @@
                                     @endif
                                     
                                     <div class="d-flex justify-content-center gap-3">
-                                        <button class="btn btn-secondary mr-2" wire:click="$set('currentState', 'READY_TO_SCAN')" @if($currentState === 'SAVING') disabled @endif>Ulangi Scan</button>
-                                        <button class="btn {{ $originalBarcode ? 'btn-warning' : 'btn-success' }} ml-2" wire:click="save" @if($currentState === 'SAVING') disabled @endif>
+                                        <button class="btn btn-secondary mr-2" wire:click="ulangiScan" @if($currentState === 'SAVING') disabled @endif>Ulangi Scan</button>
+                                        <button class="btn {{ $originalBarcode ? 'btn-warning' : 'btn-success' }} ml-2" wire:click="save" id="btnConfirmSave" @if($currentState === 'SAVING' || $previewFailed) disabled @endif>
                                             @if($currentState === 'SAVING')
                                                 <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Menyimpan...
                                             @else
@@ -182,11 +184,33 @@
             }, 100);
         });
 
-        $wire.on('save-success', () => {
-            // Toast notification or similar can go here
+        $wire.on('review-ready', () => {
+            setTimeout(() => {
+                const btnConfirmSave = document.getElementById('btnConfirmSave');
+                if(btnConfirmSave && !btnConfirmSave.disabled) {
+                    btnConfirmSave.focus();
+                }
+            }, 100);
         });
 
-        // Add a global shortcut for scanning? (Not required, but good UX if focus is lost)
+        $wire.on('save-success', () => {
+            setTimeout(() => {
+                const searchInput = document.querySelector('input[wire\\:model\\.live\\.debounce\\.300ms="searchQuery"]');
+                if(searchInput) {
+                    searchInput.value = '';
+                    searchInput.focus();
+                }
+            }, 100);
+        });
+
+        $wire.on('selection-cancelled', () => {
+            setTimeout(() => {
+                const searchInput = document.querySelector('input[wire\\:model\\.live\\.debounce\\.300ms="searchQuery"]');
+                if(searchInput) {
+                    searchInput.focus();
+                }
+            }, 100);
+        });
     </script>
     @endscript
 </div>

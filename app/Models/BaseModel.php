@@ -15,6 +15,7 @@ abstract class BaseModel extends Model
         'password', 'remember_token',
         '*email*', '*phone*', '*mobile*', '*whatsapp*',
         '*_path', '*_url', '*_file', '*_attachment', // Exclude file paths, URLs, and attachments
+        '*barcode*',
     ];
 
     protected function shouldUppercase(string $key): bool
@@ -29,8 +30,12 @@ abstract class BaseModel extends Model
 
     public function setAttribute($key, $value)
     {
-        if ($this->uppercaseAllText && is_string($value) && $this->shouldUppercase($key)) {
-            $value = mb_strtoupper(trim($value), 'UTF-8');
+        if (is_string($value)) {
+            if ($this->uppercaseAllText && $this->shouldUppercase($key)) {
+                $value = mb_strtoupper(trim($value), 'UTF-8');
+            } elseif (\Illuminate\Support\Str::is('*barcode*', $key)) {
+                $value = trim($value);
+            }
         }
         return parent::setAttribute($key, $value);
     }

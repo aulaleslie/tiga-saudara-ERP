@@ -217,7 +217,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $product = $this->createProduct();
         $purchase = $this->createPurchase();
-        
+
         $detail = $this->createPurchaseDetail($purchase, $product, [
             'quantity' => 10, // ordered 10
             'price' => 15000,
@@ -242,7 +242,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
 
         $prices = ProductPrice::where('product_id', $product->id)->get();
         $this->assertCount(2, $prices); // for primary and secondary setting
-        
+
         foreach ($prices as $price) {
             $this->assertEquals(15000, $price->average_purchase_price);
             $this->assertEquals(15000, $price->last_purchase_price);
@@ -253,7 +253,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $product = $this->createProduct();
         $purchase = $this->createPurchase();
-        
+
         $detail = $this->createPurchaseDetail($purchase, $product, [
             'quantity' => 10,
             'price' => 20000,
@@ -263,7 +263,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
 
         $prices = ProductPrice::where('product_id', $product->id)->get();
         $this->assertCount(2, $prices);
-        
+
         foreach ($prices as $price) {
             $this->assertEquals(20000, $price->average_purchase_price);
         }
@@ -273,7 +273,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $stockManagedProduct = $this->createProduct(['stock_managed' => true]);
         $nonStockManagedProduct = $this->createProduct(['stock_managed' => false]);
-        
+
         // Archived purchase
         $archivedPurchase = $this->createPurchase(['archived_at' => now()]);
         $this->createPurchaseDetail($archivedPurchase, $stockManagedProduct, ['price' => 1000]);
@@ -294,7 +294,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     public function test_weighted_average_and_latest_price_calculations()
     {
         $product = $this->createProduct();
-        
+
         $purchase1 = $this->createPurchase(['date' => now()->subDays(3)]);
         $this->createPurchaseDetail($purchase1, $product, [
             'quantity' => 10,
@@ -311,7 +311,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
 
         $prices = ProductPrice::where('product_id', $product->id)->get();
         $this->assertCount(2, $prices);
-        
+
         // (10*100 + 20*200) / 30 = (1000 + 4000) / 30 = 5000 / 30 = 166.67
         foreach ($prices as $price) {
             $this->assertEquals(166.67, $price->average_purchase_price);
@@ -324,7 +324,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
         $product = $this->createProduct();
         $tax1 = \Modules\Setting\Entities\Tax::create(['name' => 'Tax 1', 'value' => 10]);
         $tax2 = \Modules\Setting\Entities\Tax::create(['name' => 'Tax 2', 'value' => 5]);
-        
+
         ProductPrice::create([
             'product_id' => $product->id,
             'setting_id' => $this->primarySetting->id,
@@ -363,7 +363,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
         $product = $this->createProduct();
         $tax1 = \Modules\Setting\Entities\Tax::create(['name' => 'Tax 1', 'value' => 10]);
         $tax2 = \Modules\Setting\Entities\Tax::create(['name' => 'Tax 2', 'value' => 5]);
-        
+
         // Create an existing row to act as template
         ProductPrice::create([
             'product_id' => $product->id,
@@ -391,7 +391,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
 
         $this->assertEquals(200, $secondaryPrice->average_purchase_price);
         $this->assertEquals(200, $secondaryPrice->last_purchase_price);
-        
+
         // Copied from primary setting
         $this->assertEquals(1000, $secondaryPrice->sale_price);
         $this->assertEquals(900, $secondaryPrice->tier_1_price);
@@ -404,7 +404,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $product = $this->createProduct();
         $purchase = $this->createPurchase(['status' => Purchase::STATUS_RECEIVED_PARTIALLY]);
-        
+
         $this->createPurchaseDetail($purchase, $product, [
             'quantity' => 10,
             'price' => 20000,
@@ -420,7 +420,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $product = $this->createProduct();
         $purchase = $this->createPurchase();
-        
+
         $this->createPurchaseDetail($purchase, $product, [
             'quantity' => 0,
             'price' => 20000,
@@ -459,7 +459,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     public function test_latest_price_precedence_uses_approved_at_when_available()
     {
         $product = $this->createProduct();
-        
+
         // Older purchase, but approved later
         $purchase1 = $this->createPurchase(['date' => now()->subDays(5)]);
         $detail1 = $this->createPurchaseDetail($purchase1, $product, ['quantity' => 10, 'price' => 100]);
@@ -475,7 +475,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
         $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
 
         $price = ProductPrice::where('product_id', $product->id)->first();
-        
+
         // The one approved later (rn1) has a unit cost of 100, which should be the last_purchase_price
         $this->assertEquals(100, $price->last_purchase_price);
         $this->assertEquals(150, $price->average_purchase_price);
@@ -509,7 +509,7 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     {
         $product = $this->createProduct();
         $purchase = $this->createPurchase();
-        
+
         $this->createPurchaseDetail($purchase, $product, [
             'quantity' => 10,
             'price' => 11000,
@@ -529,82 +529,82 @@ class NormalizeProductPurchasePricesCommandTest extends TestCase
     public function test_normalization_isolates_buckets_for_special_companies_and_rest()
     {
         $product = $this->createProduct();
-        
+
         $tigaNusa = $this->createSetting('tiga_nusa');
         $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
         $tigaNusa->saveQuietly();
-        
+
         $topIt = $this->createSetting('top_it');
         $topIt->company_name = 'CV TOP IT INTERNUSA';
         $topIt->saveQuietly();
-        
+
         $other1 = $this->createSetting('other1'); // REST
         $other2 = $this->createSetting('other2'); // REST
-        
+
         $purchase1 = $this->createPurchase(['setting_id' => $tigaNusa->id]);
         $this->createPurchaseDetail($purchase1, $product, ['quantity' => 10, 'price' => 100]);
-        
+
         $purchase2 = $this->createPurchase(['setting_id' => $topIt->id]);
         $this->createPurchaseDetail($purchase2, $product, ['quantity' => 10, 'price' => 200]);
-        
+
         $purchase3 = $this->createPurchase(['setting_id' => $other1->id]);
         $this->createPurchaseDetail($purchase3, $product, ['quantity' => 10, 'price' => 300]);
-        
+
         $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
-        
+
         $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
         $this->assertEquals(100, $tigaNusaPrice->average_purchase_price);
-        
+
         $topItPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $topIt->id)->first();
         $this->assertEquals(200, $topItPrice->average_purchase_price);
-        
+
         $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
         $this->assertEquals(300, $other1Price->average_purchase_price);
-        
+
         $other2Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other2->id)->first();
         $this->assertEquals(300, $other2Price->average_purchase_price);
     }
-    
+
     public function test_special_companies_fall_back_to_rest_bucket_when_empty()
     {
         $product = $this->createProduct();
-        
+
         $tigaNusa = $this->createSetting('tiga_nusa');
         $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
         $tigaNusa->saveQuietly();
-        
+
         $other1 = $this->createSetting('other1');
-        
+
         $purchase3 = $this->createPurchase(['setting_id' => $other1->id]);
         $this->createPurchaseDetail($purchase3, $product, ['quantity' => 10, 'price' => 300]);
-        
+
         $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
-        
+
         $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
         $this->assertEquals(300, $tigaNusaPrice->average_purchase_price);
-        
+
         $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
         $this->assertEquals(300, $other1Price->average_purchase_price);
     }
-    
+
     public function test_normalization_skips_row_creation_if_no_bucket_and_no_fallback()
     {
         $product = $this->createProduct();
-        
+
         $tigaNusa = $this->createSetting('tiga_nusa');
         $tigaNusa->company_name = 'CV TIGA NUSA COMPUTER';
         $tigaNusa->saveQuietly();
-        
+
         $other1 = $this->createSetting('other1');
-        
+
         $purchase = $this->createPurchase(['setting_id' => $tigaNusa->id]);
         $this->createPurchaseDetail($purchase, $product, ['quantity' => 10, 'price' => 100]);
-        
+
         $this->artisan('product:normalize-purchase-prices', ['--write' => true])->assertExitCode(0);
-        
+
         $tigaNusaPrice = ProductPrice::where('product_id', $product->id)->where('setting_id', $tigaNusa->id)->first();
         $this->assertEquals(100, $tigaNusaPrice->average_purchase_price);
-        
+
         $other1Price = ProductPrice::where('product_id', $product->id)->where('setting_id', $other1->id)->first();
         $this->assertNull($other1Price);
     }

@@ -183,4 +183,117 @@ class ProductBarcodeMutationIntegrationTest extends TestCase
 
         $this->assertDatabaseMissing('barcode_identities', ['value' => 'OLD-CONV-BARCODE']);
     }
+
+    public function test_quick_add_barcode_persistence()
+    {
+        $setting = $this->createSetting();
+        $this->authenticateForAbility('products.create');
+        $unit = $this->createUnit($setting, 'Piece');
+
+        \Livewire\Livewire::test(\App\Livewire\Modules\Product\Modals\ProductQuickAddModal::class)
+            ->call('openModal', ['context' => 'purchase'])
+            ->set('product_name', 'Quick Add')
+            ->set('product_code', 'QA01')
+            ->set('base_unit_id', $unit->id)
+            ->set('barcode', 'QA12345')
+            ->set('purchase_price', 800)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('products', [
+            'product_code' => 'QA01',
+            'barcode' => 'QA12345',
+        ]);
+        $this->assertDatabaseHas('barcode_identities', [
+            'canonical_key' => 'qa12345',
+        ]);
+    }
+
+    public function test_conversion_updates_deletions()
+    {
+        $setting = $this->createSetting();
+        $this->authenticateForAbility('products.edit');
+        $unit = $this->createUnit($setting, 'Piece');
+        $unit2 = $this->createUnit($setting, 'Box');
+        $category = \Modules\Product\Entities\Category::create(['category_code' => 'C01', 'category_name' => 'Cat', 'created_by' => auth()->id(), 'setting_id' => $setting->id]);
+        $brand = \Modules\Product\Entities\Brand::create(['name' => 'Brand', 'created_by' => auth()->id(), 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Prod',
+            'product_code' => 'PR01',
+            'base_unit_id' => $unit->id,
+            'setting_id' => $setting->id,
+            'barcode' => null,
+            'product_price' => 100,
+            'product_cost' => 80,
+            'stock_managed' => true,
+        ]);
+
+        // Add conversion
+        // Let's assume the controller route doesn't exist separately but is handled via product update
+        // We'll just test the mutation of product with conversions
+        $response = $this->withSession(['setting_id' => $setting->id])
+            ->put(route('products.update', $product), [
+            'product_name' => 'Prod',
+            'product_code' => 'PR01',
+            'base_unit_id' => $unit->id,
+            'category_id' => $category->id,
+            'brand_id' => $brand->id,
+            'stock_managed' => true,
+            'conversions' => [
+                [
+                    'unit_id' => $unit2->id,
+                    'conversion_factor' => 10,
+                    'price' => 1000,
+                    'barcode' => 'CONV123'
+                ]
+            ]
+        ]);
+
+        $this->assertDatabaseHas('barcode_identities', [
+            'canonical_key' => 'conv123',
+        ]);
+
+        // Update conversion
+        $response = $this->withSession(['setting_id' => $setting->id])
+            ->put(route('products.update', $product), [
+            'product_name' => 'Prod',
+            'product_code' => 'PR01',
+            'base_unit_id' => $unit->id,
+            'category_id' => $category->id,
+            'brand_id' => $brand->id,
+            'stock_managed' => true,
+            'conversions' => [
+                [
+                    'unit_id' => $unit2->id,
+                    'conversion_factor' => 10,
+                    'price' => 1000,
+                    'barcode' => 'CONV456'
+                ]
+            ]
+        ]);
+
+        $this->assertDatabaseMissing('barcode_identities', [
+            'canonical_key' => 'conv123',
+        ]);
+        $this->assertDatabaseHas('barcode_identities', [
+            'canonical_key' => 'conv456',
+        ]);
+
+        // Delete conversion (empty conversions array)
+        $response = $this->withSession(['setting_id' => $setting->id])
+            ->put(route('products.update', $product), [
+            'product_name' => 'Prod',
+            'product_code' => 'PR01',
+            'base_unit_id' => $unit->id,
+            'category_id' => $category->id,
+            'brand_id' => $brand->id,
+            'stock_managed' => true,
+            'conversions' => []
+        ]);
+
+        $this->assertDatabaseMissing('barcode_identities', [
+            'canonical_key' => 'conv456',
+        ]);
+    }
 }

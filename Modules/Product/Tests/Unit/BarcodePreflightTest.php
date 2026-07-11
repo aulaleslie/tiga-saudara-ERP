@@ -18,7 +18,7 @@ class BarcodePreflightTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         Schema::dropIfExists('barcode_identities');
         Schema::dropIfExists('product_unit_conversions');
         Schema::dropIfExists('products');
@@ -180,7 +180,7 @@ class BarcodePreflightTest extends TestCase
 
         $migration->down();
         $this->assertDatabaseCount('barcode_identities', 0);
-        
+
         $sm = Schema::getConnection()->getDoctrineSchemaManager();
         $productIndexes = $sm->listTableIndexes('products');
         $this->assertArrayNotHasKey('products_barcode_unique', $productIndexes);
@@ -192,7 +192,7 @@ class BarcodePreflightTest extends TestCase
             ['id' => 601, 'barcode' => '666'],
             ['id' => 999, 'barcode' => 'somethingelse']
         ]);
-        
+
         DB::table('barcode_identities')->insert([
             'canonical_key' => '666',
             'value' => '666',

@@ -97,8 +97,11 @@ class ProductCreator
             $product = Product::create($validatedData);
 
             if (!empty($validatedData['barcode'])) {
-                app(\Modules\Product\Services\BarcodeIdentityService::class)
+                $res = app(\Modules\Product\Services\BarcodeIdentityService::class)
                     ->reserve($validatedData['barcode'], $product->id);
+                if (!$res['success']) {
+                    throw new \Exception("Barcode sudah digunakan atau tidak valid: " . $validatedData['barcode']);
+                }
             }
 
             ProductPrice::seedForSettings(
@@ -137,8 +140,11 @@ class ProductCreator
                     ]);
 
                     if (!empty($conversion['barcode'])) {
-                        app(\Modules\Product\Services\BarcodeIdentityService::class)
+                        $res = app(\Modules\Product\Services\BarcodeIdentityService::class)
                             ->reserve($conversion['barcode'], null, $createdConversion->id);
+                        if (!$res['success']) {
+                            throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $conversion['barcode']);
+                        }
                     }
 
                     ProductUnitConversionPrice::seedForSettings(

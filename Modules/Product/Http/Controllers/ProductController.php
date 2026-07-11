@@ -392,9 +392,15 @@ class ProductController extends Controller
                 if ($oldBarcode && !$newBarcode) {
                     $identityService->release($oldBarcode, $product->id);
                 } elseif (!$oldBarcode && $newBarcode) {
-                    $identityService->reserve($newBarcode, $product->id);
+                    $res = $identityService->reserve($newBarcode, $product->id);
+                    if (!$res['success']) {
+                        throw new \Exception("Barcode sudah digunakan atau tidak valid: " . $newBarcode);
+                    }
                 } else {
-                    $identityService->replace($oldBarcode, $newBarcode, $product->id);
+                    $res = $identityService->replace($oldBarcode, $newBarcode, $product->id);
+                    if (!$res['success']) {
+                        throw new \Exception("Barcode sudah digunakan atau tidak valid: " . $newBarcode);
+                    }
                 }
             }
 
@@ -464,7 +470,7 @@ class ProductController extends Controller
 
                     if (!empty($conversion['id']) && $existingConversions->has((int) $conversion['id'])) {
                         $model = $existingConversions[(int) $conversion['id']];
-                        
+
                         $oldConvBarcode = $model->barcode;
                         $newConvBarcode = $payload['barcode'] ?? null;
 
@@ -475,9 +481,15 @@ class ProductController extends Controller
                             if ($oldConvBarcode && !$newConvBarcode) {
                                 $identityService->release($oldConvBarcode, null, $model->id);
                             } elseif (!$oldConvBarcode && $newConvBarcode) {
-                                $identityService->reserve($newConvBarcode, null, $model->id);
+                                $res = $identityService->reserve($newConvBarcode, null, $model->id);
+                                if (!$res['success']) {
+                                    throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $newConvBarcode);
+                                }
                             } else {
-                                $identityService->replace($oldConvBarcode, $newConvBarcode, null, $model->id);
+                                $res = $identityService->replace($oldConvBarcode, $newConvBarcode, null, $model->id);
+                                if (!$res['success']) {
+                                    throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $newConvBarcode);
+                                }
                             }
                         }
 
@@ -490,8 +502,11 @@ class ProductController extends Controller
                         $model = $product->conversions()->create($payload);
 
                         if (!empty($payload['barcode'])) {
-                            app(\Modules\Product\Services\BarcodeIdentityService::class)
+                            $res = app(\Modules\Product\Services\BarcodeIdentityService::class)
                                 ->reserve($payload['barcode'], null, $model->id);
+                            if (!$res['success']) {
+                                throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $payload['barcode']);
+                            }
                         }
 
                         ProductUnitConversionPrice::seedForSettings(

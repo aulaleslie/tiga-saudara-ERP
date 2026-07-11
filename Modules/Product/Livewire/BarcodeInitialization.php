@@ -38,6 +38,11 @@ class BarcodeInitialization extends Component
 
     protected $listeners = ['scannerCaptured' => 'handleScan'];
 
+    public function mount()
+    {
+        abort_if(!auth()->user() || !auth()->user()->can('products.barcodes.manage'), 403);
+    }
+
     public function updatedSearchQuery()
     {
         $this->resetPage();
@@ -52,7 +57,12 @@ class BarcodeInitialization extends Component
 
     public function selectProduct($productId)
     {
-        $product = Product::with('baseUnit')->find($productId);
+        abort_if(!auth()->user()->can('products.barcodes.manage'), 403);
+
+        $product = Product::with('baseUnit')
+            ->where('id', $productId)
+            ->first();
+
         if (!$product) {
             return;
         }
@@ -87,8 +97,8 @@ class BarcodeInitialization extends Component
         }
 
         $cleanBarcode = trim($barcode);
-        if (empty($cleanBarcode)) {
-            $this->candidateError = 'Barcode tidak boleh kosong.';
+        if (empty($cleanBarcode) || strlen($cleanBarcode) > 255) {
+            $this->candidateError = empty($cleanBarcode) ? 'Barcode tidak boleh kosong.' : 'Barcode maksimal 255 karakter.';
             $this->currentState = 'READY_TO_SCAN';
             $this->dispatch('scan-error');
             return;
@@ -101,7 +111,15 @@ class BarcodeInitialization extends Component
         $this->dispatch('review-ready');
     }
 
-    public function save()
+    public function ulangiScan()
+    {
+        $this->candidateBarcode = '';
+        $this->candidateError = null;
+        $this->currentState = 'READY_TO_SCAN';
+        $this->dispatch('scan-error');
+    }
+
+    public function save(\Modules\Product\Services\ProductBarcodeAssignmentService $assignmentService)
     {
         if ($this->currentState !== 'REVIEW' || empty($this->candidateBarcode) || !$this->selectedProductId) {
             return;
@@ -110,50 +128,13 @@ class BarcodeInitialization extends Component
         $this->currentState = 'SAVING';
         $this->candidateError = null;
 
-        $identityService = app(BarcodeIdentityService::class);
-
         try {
-            DB::beginTransaction();
-
-            $product = Product::lockForUpdate()->find($this->selectedProductId);
-            
-            if (!$product) {
-                throw new \Exception("Product not found.");
-            }
-
-            if ($product->barcode !== $this->originalBarcode) {
-                $this->candidateError = 'Status barcode produk telah berubah oleh pengguna lain. Silakan pilih kembali.';
-                $this->currentState = 'READY_TO_SCAN';
-                $this->originalBarcode = $product->barcode;
-                DB::rollBack();
-                $this->dispatch('scan-error');
-                return;
-            }
-
-            if ($product->barcode === $this->candidateBarcode) {
-                $this->candidateError = 'Barcode baru sama dengan barcode lama (No-op).';
-                $this->currentState = 'READY_TO_SCAN';
-                DB::rollBack();
-                $this->dispatch('scan-error');
-                return;
-            }
-
-            if ($product->barcode && !$this->candidateBarcode) {
-                // Not supported via this UI to clear barcode
-                $this->candidateError = 'Tidak bisa menghapus barcode dari halaman ini.';
-                $this->currentState = 'READY_TO_SCAN';
-                DB::rollBack();
-                $this->dispatch('scan-error');
-                return;
-            }
-
-            $action = $product->barcode ? 'replace' : 'initialize';
-            
-            if ($action === 'replace') {
-                $result = $identityService->replace($product->barcode, $this->candidateBarcode, $product->id);
-            } else {
-                $result = $identityService->reserve($this->candidateBarcode, $product->id);
-            }
+            $result = $assignmentService->assign(
+                $this->selectedProductId,
+                $this->candidateBarcode,
+                $this->originalBarcode,
+                auth()->user()
+            );
 
             if (!$result['success']) {
                 if ($result['error'] === 'duplicate') {
@@ -161,36 +142,30 @@ class BarcodeInitialization extends Component
                     $ownerType = ($conflict['type'] ?? 'unknown') === 'product' ? 'Produk Utama' : 'Konversi Unit';
                     $ownerId = $conflict['product_id'] ?? 'Unknown';
                     $this->candidateError = "Barcode sudah digunakan oleh {$ownerType} (ID Produk: {$ownerId}).";
+                } elseif ($result['error'] === 'stale_state') {
+                    $this->candidateError = 'Status barcode produk telah berubah oleh pengguna lain. Silakan pilih kembali.';
+                    $this->originalBarcode = $result['current_barcode'] ?? $this->originalBarcode;
+                } elseif ($result['error'] === 'not_found' || $result['error'] === 'unauthorized') {
+                    $this->candidateError = 'Produk tidak ditemukan atau akses ditolak.';
                 } else {
-                    $this->candidateError = 'Barcode tidak valid.';
+                    $this->candidateError = 'Barcode tidak valid atau terjadi kesalahan lain.';
                 }
                 $this->currentState = 'READY_TO_SCAN';
-                DB::rollBack();
                 $this->dispatch('scan-error');
                 return;
             }
 
-            // Update the product
-            $product->barcode = $this->candidateBarcode;
-            $product->save();
-
-            // Record audit history
-            ProductBarcodeAssignment::create([
-                'product_id' => $product->id,
-                'product_name' => $product->product_name,
-                'product_code' => $product->product_code,
-                'old_barcode' => $this->originalBarcode,
-                'new_barcode' => $this->candidateBarcode,
-                'action' => $action,
-                'actor_id' => auth()->id(),
-            ]);
-
-            DB::commit();
+            if (($result['status'] ?? '') === 'no_op') {
+                $this->candidateError = 'Barcode baru sama dengan barcode lama (No-op).';
+                $this->currentState = 'READY_TO_SCAN';
+                $this->dispatch('scan-error');
+                return;
+            }
 
             // Record success
             $this->sessionSavedCount++;
             array_unshift($this->recentSuccesses, [
-                'name' => $product->product_name,
+                'name' => $result['product']->product_name,
                 'barcode' => $this->candidateBarcode,
                 'time' => now()->format('H:i:s')
             ]);
@@ -202,10 +177,10 @@ class BarcodeInitialization extends Component
 
             // Reset to searching
             $this->cancelSelection();
+            $this->searchQuery = '';
             $this->dispatch('save-success', ['message' => 'Barcode berhasil disimpan.']);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             Log::error('Barcode Initialization Error', ['exception' => $e]);
             $this->candidateError = 'Terjadi kesalahan sistem saat menyimpan barcode.';
             $this->currentState = 'READY_TO_SCAN';
@@ -217,24 +192,13 @@ class BarcodeInitialization extends Component
     {
         $query = Product::query()
             ->with('baseUnit')
-            ->when($this->searchQuery, function ($q) {
-                $q->where(function ($sub) {
-                    $sub->where('product_name', 'like', '%' . $this->searchQuery . '%')
-                        ->orWhere('product_code', 'like', '%' . $this->searchQuery . '%');
-                });
-            })
+            ->globalSearch($this->searchQuery)
             ->when($this->filterUninitializedOnly, function ($q) {
                 $q->where(function ($sub) {
                     $sub->whereNull('barcode')->orWhere('barcode', '');
                 });
             })
             ->orderBy('product_name');
-
-        // Note: apply other visibility rules if required (e.g. active setting)
-        $settingId = session('setting_id');
-        if ($settingId) {
-            $query->where('setting_id', $settingId);
-        }
 
         $products = $query->paginate(10);
 

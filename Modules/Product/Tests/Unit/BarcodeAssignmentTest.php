@@ -15,7 +15,7 @@ class BarcodeAssignmentTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         Schema::dropIfExists('product_barcode_assignments');
         Schema::dropIfExists('products');
         Schema::dropIfExists('users');

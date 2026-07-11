@@ -35,7 +35,7 @@ class ProductBarcodeAssignmentServiceTest extends TestCase
             $table->id();
             $table->string('product_name')->nullable();
             $table->string('product_code')->nullable();
-            $table->string('barcode')->nullable();
+            $table->string('barcode')->unique()->nullable();
             $table->timestamps();
         });
 
@@ -180,5 +180,103 @@ class ProductBarcodeAssignmentServiceTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertEquals('unauthorized', $result['error']);
+    }
+
+    public function test_conversion_conflict()
+    {
+        $product = $this->createProduct(108, null);
+
+        $mockIdentityService = \Mockery::mock(\Modules\Product\Services\BarcodeIdentityService::class);
+        $mockIdentityService->shouldReceive('replace')->andReturn([
+            'success' => false,
+            'error' => 'duplicate',
+            'conflict' => [
+                'type' => 'conversion',
+                'product_id' => 109,
+                'conversion_id' => 99,
+                'product_code' => 'P-109',
+                'product_name' => 'Prod 109',
+                'unit_name' => 'Box',
+                'multiplier' => 10
+            ]
+        ]);
+
+        $this->app->instance(\Modules\Product\Services\BarcodeIdentityService::class, $mockIdentityService);
+        $service = app(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
+
+        $result = $service->assign($product->id, '123', null, $this->authorizedActor);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('duplicate', $result['error']);
+        $this->assertEquals('conversion', $result['conflict']['type']);
+    }
+
+    public function test_rollback_on_failure()
+    {
+        $product = $this->createProduct(109, null);
+
+        $mockIdentityService = \Mockery::mock(\Modules\Product\Services\BarcodeIdentityService::class);
+        $mockIdentityService->shouldReceive('replace')->andThrow(new \Exception('DB failure'));
+
+        $this->app->instance(\Modules\Product\Services\BarcodeIdentityService::class, $mockIdentityService);
+        $service = app(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
+
+        try {
+            $service->assign($product->id, 'FAIL', null, $this->authorizedActor);
+        } catch (\Exception $e) {}
+
+        $product->refresh();
+        $this->assertNull($product->barcode);
+        $this->assertDatabaseMissing('product_barcode_assignments', [
+            'product_id' => $product->id,
+        ]);
+    }
+
+    public function test_duplicate_response_propagation_on_assignment()
+    {
+        $product = $this->createProduct(110, null);
+
+        $mockIdentityService = \Mockery::mock(\Modules\Product\Services\BarcodeIdentityService::class);
+        // Correcting the mock from 'reserve' to 'replace' as per feedback
+        $mockIdentityService->shouldReceive('replace')->andReturn([
+            'success' => false,
+            'error' => 'duplicate'
+        ]);
+        // Also mock reserve just in case it's initialization
+        $mockIdentityService->shouldReceive('reserve')->andReturn([
+            'success' => false,
+            'error' => 'duplicate'
+        ]);
+
+        $this->app->instance(\Modules\Product\Services\BarcodeIdentityService::class, $mockIdentityService);
+        $service = app(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
+
+        $result = $service->assign($product->id, 'RACE123', null, $this->authorizedActor);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('duplicate', $result['error']);
+    }
+
+    public function test_concurrent_database_collision()
+    {
+        $product1 = $this->createProduct(111, 'COLLISION123');
+        $product2 = $this->createProduct(112, null);
+
+        // The real identity service will succeed because createProduct bypasses the registry,
+        // simulating a race condition or direct DB insert. The unique constraint on products
+        // table will then catch the duplicate during save(), forcing a rollback.
+        $service = app(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
+
+        $result = $service->assign($product2->id, 'COLLISION123', null, $this->authorizedActor);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('duplicate', $result['error']);
+        $this->assertEquals('unknown', $result['conflict']['type']);
+
+        // Assert the registry reservation was rolled back
+        $this->assertDatabaseMissing('barcode_identities', [
+            'value' => 'COLLISION123',
+            'product_id' => $product2->id,
+        ]);
     }
 }

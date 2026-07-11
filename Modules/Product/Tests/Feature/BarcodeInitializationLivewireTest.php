@@ -104,7 +104,7 @@ class BarcodeInitializationLivewireTest extends TestCase
             ->set('filterUninitializedOnly', false)
             ->assertSee('PRODUK A')
             ->assertSee('PRODUK B')
-            ->set('searchQuery', 'Produk A')
+            ->set('searchQuery', 'PA')
             ->assertSee('PRODUK A')
             ->assertDontSee('PRODUK B');
     }
@@ -208,5 +208,145 @@ class BarcodeInitializationLivewireTest extends TestCase
             ->assertSet('candidateError', "Barcode sudah digunakan oleh Produk Utama (ID Produk: {$existingProduct->id}).");
 
         $this->assertNull($newProduct->fresh()->barcode);
+    }
+
+    public function test_scanner_cancellation()
+    {
+        $product = $this->createProduct(['barcode' => null]);
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
+            ->call('selectProduct', $product->id)
+            ->call('handleScan', '987654321')
+            ->call('cancelSelection')
+            ->assertSet('currentState', 'SEARCHING')
+            ->assertSet('selectedProductId', null)
+            ->assertSet('candidateBarcode', null)
+            ->assertSet('candidateError', null);
+    }
+
+    public function test_no_op()
+    {
+        $product = $this->createProduct(['barcode' => 'EXISTING123']);
+        $this->identityService->reserve('EXISTING123', $product->id);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
+            ->set('filterUninitializedOnly', false)
+            ->call('selectProduct', $product->id)
+            ->call('handleScan', 'EXISTING123')
+            ->call('save')
+            ->assertSet('currentState', 'READY_TO_SCAN')
+            ->assertSet('candidateError', 'Barcode baru sama dengan barcode lama (No-op).');
+
+        $this->assertEquals('EXISTING123', $product->fresh()->barcode);
+    }
+
+    public function test_conversion_conflicts()
+    {
+        $conversionProduct = $this->createProduct(['product_code' => 'P123']);
+        $mockService = \Mockery::mock(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
+        $mockService->shouldReceive('assign')->andReturn([
+            'success' => false,
+            'error' => 'duplicate',
+            'conflict' => [
+                'type' => 'conversion',
+                'product_id' => $conversionProduct->id,
+                'conversion_id' => 999,
+                'product_code' => 'P123',
+                'product_name' => 'Produk 123',
+                'unit_name' => 'Box',
+                'multiplier' => 10
+            ]
+        ]);
+        app()->instance(\Modules\Product\Services\ProductBarcodeAssignmentService::class, $mockService);
+
+        $product = $this->createProduct(['barcode' => null]);
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
+            ->call('selectProduct', $product->id)
+            ->call('handleScan', 'CONFLICT123')
+            ->call('save')
+            ->assertSet('currentState', 'READY_TO_SCAN');
+    }
+
+    public function test_stale_updates()
+    {
+        $product = $this->createProduct(['barcode' => 'OLD_VAL']);
+        $test = \Livewire\Livewire::actingAs($this->user)
+            ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
+            ->set('filterUninitializedOnly', false)
+            ->call('selectProduct', $product->id)
+            ->call('handleScan', 'SCAN123'); // Ensure it transitions to REVIEW state
+
+        // Make the DB stale
+        $product->update(['barcode' => 'NEW_VAL']);
+
+        $test->call('save')
+            ->assertSet('currentState', 'READY_TO_SCAN')
+            ->assertSet('candidateError', 'Status barcode produk telah berubah oleh pengguna lain. Silakan pilih kembali.');
+    }
+
+    public function test_recent_activity_and_counters()
+    {
+        $product1 = $this->createProduct(['product_code' => 'A1', 'product_name' => 'P1', 'barcode' => null]);
+        $product2 = $this->createProduct(['product_code' => 'A2', 'product_name' => 'P2', 'barcode' => null]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
+            ->call('selectProduct', $product1->id)
+            ->call('handleScan', 'B1')
+            ->call('save')
+            ->assertSet('sessionSavedCount', 1)
+            ->call('selectProduct', $product2->id)
+            ->call('handleScan', 'B2')
+            ->call('save')
+            ->assertSet('sessionSavedCount', 2);
+    }
+
+    public function test_cross_setting_product_search_and_assignment()
+    {
+        $otherSetting = Setting::create([
+            'company_name'              => 'Beta Co',
+            'company_email'             => 'beta@example.com',
+            'company_phone'             => '22222',
+            'default_currency_id'       => $this->setting->default_currency_id,
+            'default_currency_position' => 'left',
+            'notification_email'        => 'notify-beta@example.com',
+            'footer_text'               => 'Beta',
+            'company_address'           => 'Beta Street',
+        ]);
+
+        $otherProduct = $this->createProduct([
+            'product_name' => 'Produk Lintas Cabang',
+            'product_code' => 'X-1',
+            'barcode' => null,
+            'setting_id' => $otherSetting->id,
+        ]);
+
+        Livewire::actingAs($this->user)
+            ->test(BarcodeInitialization::class)
+            ->set('searchQuery', 'Lintas Cabang')
+            ->assertSee('PRODUK LINTAS CABANG')
+            ->call('selectProduct', $otherProduct->id)
+            ->assertSet('selectedProductId', $otherProduct->id)
+            ->call('handleScan', 'X-BARCODE')
+            ->call('save')
+            ->assertDispatched('save-success');
+
+        $this->assertEquals('X-BARCODE', $otherProduct->fresh()->barcode);
+    }
+
+    public function test_tokenized_product_search()
+    {
+        $this->createProduct([
+            'product_name' => 'LAPTOP GAMING ACER',
+            'product_code' => 'L-ACER',
+            'barcode' => null,
+        ]);
+
+        Livewire::actingAs($this->user)
+            ->test(BarcodeInitialization::class)
+            ->set('searchQuery', 'acer laptop')
+            ->assertSee('LAPTOP GAMING ACER');
     }
 }
