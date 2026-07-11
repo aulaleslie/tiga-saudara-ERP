@@ -123,14 +123,21 @@
                                     <h2 class="display-4 font-monospace">{{ $candidateBarcode }}</h2>
                                     
                                     <div class="mt-3 mb-4">
-                                        @php $previewFailed = false; @endphp
+                                        @php
+                                            $previewSvg = '';
+                                            $previewFailed = false;
+                                            try {
+                                                $previewSvg = DNS1D::getBarcodeSVG($candidateBarcode, 'C128', 2, 60, 'black', true);
+                                            } catch (\Throwable $e) {
+                                                $previewFailed = true;
+                                            }
+                                        @endphp
                                         <!-- Code 128 Preview using Milon/Barcode (Requires DNS1D facade or similar) -->
-                                        @try
-                                            {!! DNS1D::getBarcodeSVG($candidateBarcode, 'C128', 2, 60, 'black', true) !!}
-                                        @catch (\Exception $e)
+                                        @if($previewFailed)
                                             <div class="text-danger small">Tidak dapat merender preview barcode.</div>
-                                            @php $previewFailed = true; @endphp
-                                        @endtry
+                                        @else
+                                            {!! $previewSvg !!}
+                                        @endif
                                     </div>
                                     
                                     <hr>

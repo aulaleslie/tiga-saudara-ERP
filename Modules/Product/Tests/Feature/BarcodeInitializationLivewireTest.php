@@ -349,4 +349,16 @@ class BarcodeInitializationLivewireTest extends TestCase
             ->set('searchQuery', 'acer laptop')
             ->assertSee('LAPTOP GAMING ACER');
     }
+
+    public function test_valid_barcode_renders_svg_without_error()
+    {
+        $product = $this->createProduct(['barcode' => null]);
+
+        Livewire::actingAs($this->user)
+            ->test(BarcodeInitialization::class)
+            ->call('selectProduct', $product->id)
+            ->call('handleScan', '089686180657')
+            ->assertSee('<svg', false)
+            ->assertDontSee('Tidak dapat merender preview barcode.');
+    }
 }
