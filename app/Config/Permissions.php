@@ -359,6 +359,7 @@ return [
         'stockTransfers.dispatch' => 'Pengiriman',
         'stockTransfers.receive' => 'Terima',
         'stockTransfers.approval' => 'Persetujuan',
+        'stockTransfers.archive' => 'Arsip',
     ],
 
     'Pemasok' => [

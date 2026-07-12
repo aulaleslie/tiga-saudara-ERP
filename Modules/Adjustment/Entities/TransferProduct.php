@@ -58,4 +58,9 @@ class TransferProduct extends BaseModel
     {
         return $this->belongsTo(User::class, 'dispatched_by');
     }
+
+    public function returnObligation()
+    {
+        return $this->hasOne(TransferReturnObligation::class, 'transfer_product_id');
+    }
 }

@@ -20,6 +20,10 @@ class Transfer extends BaseModel
     public const STATUS_RECEIVED          = 'RECEIVED';
     public const STATUS_RETURN_DISPATCHED = 'RETURN_DISPATCHED';
     public const STATUS_RETURN_RECEIVED   = 'RETURN_RECEIVED';
+    public const STATUS_DRAFT             = 'DRAFT';
+    public const STATUS_COMPLETED         = 'COMPLETED';
+    public const STATUS_AWAITING_RETURN   = 'AWAITING_RETURN';
+    public const STATUS_ARCHIVED          = 'ARCHIVED';
 
     protected $fillable = [
         'document_number',
@@ -32,7 +36,9 @@ class Transfer extends BaseModel
         'received_by',
         'return_dispatched_by',
         'return_received_by',
+        'archived_by',
         'status',
+        'revision',
         'transfer_date',
         'approved_at',
         'rejected_at',
@@ -40,6 +46,8 @@ class Transfer extends BaseModel
         'received_at',
         'return_dispatched_at',
         'return_received_at',
+        'archived_at',
+        'archive_reason',
     ];
 
     protected $casts = [
@@ -50,6 +58,8 @@ class Transfer extends BaseModel
         'received_at'          => 'datetime',
         'return_dispatched_at' => 'datetime',
         'return_received_at'   => 'datetime',
+        'archived_at'          => 'datetime',
+        'revision'             => 'integer',
     ];
 
     protected static function booted(): void
@@ -205,8 +215,31 @@ class Transfer extends BaseModel
         return $this->hasMany(TransferProduct::class);
     }
 
+    public function actionHistories(): HasMany
+    {
+        return $this->hasMany(TransferActionHistory::class);
+    }
+
+    public function returnObligations(): HasMany
+    {
+        return $this->hasMany(TransferReturnObligation::class);
+    }
+
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by');
+    }
+
     public function requiresReturn(): bool
     {
+        if ($this->returnObligations()->exists()) {
+            return true;
+        }
+
+        if (in_array($this->status, [self::STATUS_RECEIVED, self::STATUS_COMPLETED, self::STATUS_RETURN_DISPATCHED, self::STATUS_RETURN_RECEIVED, self::STATUS_ARCHIVED])) {
+            return false;
+        }
+
         $origin      = $this->relationLoaded('originLocation') ? $this->originLocation : $this->originLocation()->first();
         $destination = $this->relationLoaded('destinationLocation') ? $this->destinationLocation : $this->destinationLocation()->first();
 

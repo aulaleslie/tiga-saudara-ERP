@@ -31,10 +31,21 @@ class TransferStockForm extends Component
         'rowsUpdated'                 => 'onRowsUpdated',
     ];
 
-    public function mount()
+    public ?Transfer $transfer = null;
+
+    public function mount(?Transfer $transfer = null)
     {
         $this->currentSetting = Setting::find(session('setting_id'));
         $this->settings       = Setting::all();
+        
+        if ($transfer && $transfer->exists) {
+            $this->transfer = $transfer;
+            $this->originLocation = $transfer->origin_location_id;
+            $this->destinationLocation = $transfer->destination_location_id;
+            
+            $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
+            $this->rows = $mapper->mapToLivewireRows($transfer);
+        }
     }
 
     public function onOriginLocationSelected($payload)
@@ -71,8 +82,12 @@ class TransferStockForm extends Component
         $this->rows = $rows;
     }
 
-    public function submit()
+    public $submitAction = null;
+
+    public function submit($action = null)
     {
+        $this->submitAction = $action;
+        
         $this->dispatch('transfer:submit-start');
 
         // reset location errors
@@ -136,20 +151,24 @@ class TransferStockForm extends Component
                 $stock = $row['stock'] ?? [];
 
                 if ($finalQuantities['quantity_tax'] > ($stock['quantity_tax'] ?? 0)) {
+                    $available = $stock['quantity_tax'] ?? 0;
                     $tableErrors["row.{$i}.quantity_tax"] =
-                        "Jumlah Pajak tidak boleh lebih dari stok ({$stock['quantity_tax']}).";
+                        "Jumlah Pajak tidak boleh lebih dari stok ({$available}).";
                 }
                 if ($finalQuantities['quantity_non_tax'] > ($stock['quantity_non_tax'] ?? 0)) {
+                    $available = $stock['quantity_non_tax'] ?? 0;
                     $tableErrors["row.{$i}.quantity_non_tax"] =
-                        "Jumlah Non Pajak tidak boleh lebih dari stok ({$stock['quantity_non_tax']}).";
+                        "Jumlah Non Pajak tidak boleh lebih dari stok ({$available}).";
                 }
                 if ($finalQuantities['quantity_broken_tax'] > ($stock['broken_quantity_tax'] ?? 0)) {
+                    $available = $stock['broken_quantity_tax'] ?? 0;
                     $tableErrors["row.{$i}.broken_quantity_tax"] =
-                        "Rusak Pajak tidak boleh lebih dari stok rusak ({$stock['broken_quantity_tax']}).";
+                        "Rusak Pajak tidak boleh lebih dari stok rusak ({$available}).";
                 }
                 if ($finalQuantities['quantity_broken_non_tax'] > ($stock['broken_quantity_non_tax'] ?? 0)) {
+                    $available = $stock['broken_quantity_non_tax'] ?? 0;
                     $tableErrors["row.{$i}.broken_quantity_non_tax"] =
-                        "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$stock['broken_quantity_non_tax']}).";
+                        "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$available}).";
                 }
 
                 $preparedRows[] = [
@@ -169,34 +188,45 @@ class TransferStockForm extends Component
             return;
         }
 
-        // all validations passed → persist data
-        DB::beginTransaction();
-
+        // all validations passed → persist data through TransferDraftService
         try {
-            // 1) create the transfer header
-            $transfer = Transfer::create([
-                'origin_location_id'      => $this->originLocation,
-                'destination_location_id' => $this->destinationLocation,
-                'created_by'              => auth()->id(),
-                'status'                  => Transfer::STATUS_PENDING,
-            ]);
-
-            // 2) create each transfer_product row
-            foreach ($preparedRows as $row) {
-                $quantities = $row['quantities'];
-                TransferProduct::create([
-                    'transfer_id'               => $transfer->id,
-                    'product_id'                => $row['id'],
-                    'quantity'                  => $row['total'],
-                    'quantity_tax'              => $quantities['quantity_tax'],
-                    'quantity_non_tax'          => $quantities['quantity_non_tax'],
-                    'quantity_broken_tax'       => $quantities['quantity_broken_tax'],
-                    'quantity_broken_non_tax'   => $quantities['quantity_broken_non_tax'],
-                    'serial_numbers'            => ! empty($row['serial_numbers']) ? $row['serial_numbers'] : null,
-                ]);
+            $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
+            $lifecycleService = app(\Modules\Adjustment\Services\TransferLifecycleService::class);
+            $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
+            
+            // Convert Livewire rows to authoritative TransferFormState
+            // The service will reload all data from database rather than trusting client state
+            $formState = $mapper->mapToTransferFormState(
+                $preparedRows,
+                (int) $this->originLocation,
+                (int) $this->destinationLocation
+            );
+            
+            // Use draft service for create/update/resubmit
+            if ($this->transfer && $this->transfer->exists) {
+                // Update or resubmit existing transfer - keep as DRAFT on save
+                $transfer = $draftService->saveDraft(
+                    $formState,
+                    auth()->user(),
+                    $this->currentSetting->id,
+                    $this->transfer,
+                    null, // no idempotency key
+                    true, // validate stock
+                    false // do NOT auto-submit - editing remains DRAFT
+                );
+                // Explicit resubmission must be a separate action
+            } else {
+                // Create new transfer - atomic: create and submit to PENDING in one transaction
+                $transfer = $draftService->saveDraft(
+                    $formState,
+                    auth()->user(),
+                    $this->currentSetting->id,
+                    null, // no existing transfer
+                    null, // no idempotency key
+                    true, // validate stock
+                    true  // atomicSubmit: create and submit PENDING in one transaction
+                );
             }
-
-            DB::commit();
 
             // 3) reset form and show success
             toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
@@ -204,7 +234,6 @@ class TransferStockForm extends Component
             return redirect()->route('transfers.index');
         }
         catch (Exception $e) {
-            DB::rollback();
             Log::error('Transfer submit error', ['error' => $e->getMessage()]);
             session()->flash('message', 'Terjadi kesalahan saat mengajukan transfer.');
         } finally {

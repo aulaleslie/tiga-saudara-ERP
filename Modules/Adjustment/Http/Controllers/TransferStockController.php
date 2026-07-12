@@ -15,11 +15,17 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Modules\Adjustment\DataTables\StockTransfersDataTable;
+use Modules\Adjustment\DTOs\TransferFormLineState;
+use Modules\Adjustment\DTOs\TransferFormState;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Adjustment\Http\Requests\StockTransferRequest;
 use Modules\Adjustment\Http\Requests\UpdateStockTransferRequest;
+use Modules\Adjustment\Services\TransferDraftService;
+use Modules\Adjustment\Services\TransferLifecycleService;
+use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
@@ -65,33 +71,84 @@ class TransferStockController extends Controller
 
     /**
      * Store a newly created resource in storage.
+     * Routes through TransferDraftService for authoritative validation and atomic creation+submission.
      */
     public function store(StockTransferRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.create'), 403);
 
         $validated = $request->validated();
+        $currentSettingId = (int) session('setting_id');
+        $user = auth()->user();
 
-        $transfer = Transfer::create([
-            'origin_location_id'      => $validated['origin_location'],
-            'destination_location_id' => $validated['destination_location'],
-            'created_by'              => auth()->id(),
-            'status'                  => Transfer::STATUS_PENDING,
-        ]);
+        try {
+            // Build TransferFormState from request data
+            $draftService = app(TransferDraftService::class);
+            $lifecycleService = app(TransferLifecycleService::class);
+            
+            $formState = new TransferFormState(
+                (int) $validated['origin_location'],
+                (int) $validated['destination_location']
+            );
+            
+            // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $quantity = (int) ($validated['quantities'][$index] ?? 0);
+                if ($quantity <= 0) continue;
+                
+                $product = Product::find($productId);
+                if (!$product) {
+                    throw new InvalidArgumentException("Product {$productId} not found.");
+                }
+                
+                // HTTP contract does not support serialized products or broken mode
+                if ($product->serial_number_required) {
+                    throw new InvalidArgumentException(
+                        "Product '{$product->product_name}' requires serial number selection. " .
+                        "Use the web interface to allocate serials for this product."
+                    );
+                }
+                
+                $line = new TransferFormLineState(
+                    $productId,
+                    $product->product_name,
+                    $product->product_code,
+                    $product->barcode,
+                    (bool) $product->serial_number_required,
+                    false, // normal mode
+                    $quantity
+                );
+                
+                $formState->addLine($line);
+            }
+            
+            if (empty($formState->lines)) {
+                throw new InvalidArgumentException("At least one product with quantity > 0 is required.");
+            }
+            
+            // Use draft service for authoritative persistence with stock validation enabled
+            // atomicSubmit=true ensures initial creation is atomic: create + submit in one transaction
+            $transfer = $draftService->saveDraft(
+                $formState,
+                $user,
+                $currentSettingId,
+                null, // no existing transfer
+                null, // no idempotency key
+                true, // enable authoritative stock validation for all write paths
+                true  // atomicSubmit: create and submit PENDING in one transaction
+            );
 
-        foreach ($validated['product_ids'] as $index => $productId) {
-            $quantity = (int) ($validated['quantities'][$index] ?? 0);
-
-            TransferProduct::create([
-                'transfer_id' => $transfer->id,
-                'product_id'  => $productId,
-                'quantity'    => $quantity,
+            toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
+            return redirect()->route('transfers.show', $transfer->id);
+        } catch (Throwable $e) {
+            Log::error('Failed to create transfer', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => auth()->id(),
             ]);
+            toast($e->getMessage(), 'error');
+            return redirect()->back()->withInput();
         }
-
-        toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
-
-        return redirect()->route('transfers.index');
     }
 
     /**
@@ -134,34 +191,22 @@ class TransferStockController extends Controller
     /**
      * Approve the stock transfer.
      */
-    public function approve(Transfer $transfer): RedirectResponse
+    public function approve(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
-
-        $transfer->loadMissing('originLocation.setting');
+        abort_if(Gate::denies('stockTransfers.approval'), 403);
 
         $currentSettingId = (int) session('setting_id');
-        $originSettingId  = $transfer->originLocation?->setting?->id;
 
-        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
-            toast('Transfer hanya dapat disetujui oleh tenant asal.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
+        try {
+            $service->approve($transfer, auth()->id(), $currentSettingId);
+            toast('Transfer Stok Disetujui! No. Dokumen: ' . $transfer->document_number, 'success');
+        } catch (Throwable $e) {
+            Log::error('Failed to approve transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
         }
-
-        if ($transfer->status !== Transfer::STATUS_PENDING) {
-            toast('Transfer tidak dapat disetujui pada status saat ini.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->update([
-            'status'      => Transfer::STATUS_APPROVED,
-            'approved_by' => auth()->id(),
-            'approved_at' => Carbon::now(),
-        ]);
-
-        toast('Transfer Stok Disetujui! No. Dokumen: ' . $transfer->document_number, 'success');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -169,144 +214,104 @@ class TransferStockController extends Controller
     /**
      * Reject the stock transfer.
      */
-    public function reject(Transfer $transfer): RedirectResponse
+    public function reject(Request $request, Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
+        abort_if(Gate::denies('stockTransfers.approval'), 403);
 
-        $transfer->loadMissing('originLocation.setting');
+        $reason = $request->input('reason', '');
+        if (empty(trim($reason))) {
+            toast('Alasan penolakan harus diisi.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
 
         $currentSettingId = (int) session('setting_id');
-        $originSettingId  = $transfer->originLocation?->setting?->id;
 
-        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
-            toast('Transfer hanya dapat ditolak oleh tenant asal.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
+        try {
+            $service->reject($transfer, auth()->id(), $currentSettingId, $reason);
+            toast('Transfer Stok Ditolak! No. Dokumen: ' . $transfer->document_number, 'warning');
+        } catch (Throwable $e) {
+            Log::error('Failed to reject transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
         }
-
-        if ($transfer->status !== Transfer::STATUS_PENDING) {
-            toast('Transfer tidak dapat ditolak pada status saat ini.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->update([
-            'status'      => Transfer::STATUS_REJECTED,
-            'rejected_by' => auth()->id(),
-            'rejected_at' => Carbon::now(),
-        ]);
-
-        toast('Transfer Stok Ditolak! No. Dokumen: ' . $transfer->document_number, 'warning');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
-     * Dispatch the stock transfer.
+     * Acknowledge rejection and transition to DRAFT for resubmission.
      */
-    public function dispatchShipment(Transfer $transfer): RedirectResponse
+    public function acknowledgeRejection(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->acknowledgeRejection($transfer, auth()->id(), $currentSettingId);
+            toast('Penolakan diakui. Transfer sekarang siap untuk diajukan kembali.', 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to acknowledge rejection', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Resubmit a rejected transfer with a new PENDING revision.
+     */
+    public function resubmit(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->resubmit($transfer, auth()->id(), $currentSettingId);
+            toast('Transfer berhasil diajukan kembali dengan revisi baru.', 'success');
+        } catch (Throwable $e) {
+            Log::error('Failed to resubmit transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Dispatch the transfer shipment.
+     */
+    public function dispatchShipment(Transfer $transfer, Request $request, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.dispatch'), 403);
 
-        $transfer->loadMissing(['originLocation.setting', 'destinationLocation.setting']);
-
         $currentSettingId = (int) session('setting_id');
-        $originSettingId  = $transfer->originLocation?->setting?->id;
-
-        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
-            toast('Transfer hanya dapat dikirim oleh tenant asal.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        if ($transfer->status !== Transfer::STATUS_APPROVED) {
-            toast('Transfer harus disetujui sebelum dapat dikirim.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->loadMissing(['products.product']);
+        $acknowledgedHash = $request->input('acknowledged_hash');
 
         try {
-            DB::transaction(function () use ($transfer) {
-                foreach ($transfer->products as $transferProduct) {
-                    $serialValidation = $this->validateSerialNumbersForLocation(
-                        $transferProduct,
-                        $transfer->origin_location_id,
-                        preferDispatchedPayload: false
-                    );
-
-                    $serialsToMove    = $serialValidation['serials'];
-                    $normalizedSerials = $serialValidation['payload'];
-
-                    if ($serialsToMove->isNotEmpty()) {
-                        ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
-                            ->update(['location_id' => $transfer->destination_location_id]);
-
-                        // Record LOCATION_TRANSFER history for each serial
-                        foreach ($serialsToMove as $serial) {
-                            SerialNumberHistoryService::record(
-                                $serial->id,
-                                SerialNumberHistory::EVENT_LOCATION_TRANSFER,
-                                $transfer->destination_location_id,
-                                $transfer,
-                                sprintf(
-                                    'Transfer dari %s ke %s',
-                                    $transfer->originLocation->name ?? '-',
-                                    $transfer->destinationLocation->name ?? '-'
-                                )
-                            );
-                        }
-                    }
-
-                    $stock = $this->ensureStock($transferProduct->product_id, $transfer->origin_location_id, false);
-
-                    $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: false);
-
-                    $transferProduct->update([
-                        'dispatched_at'                      => now(),
-                        'dispatched_by'                      => auth()->id(),
-                        'dispatched_quantity'                => $snapshot['total'],
-                        'dispatched_quantity_tax'            => $snapshot['quantities']['tax'],
-                        'dispatched_quantity_non_tax'        => $snapshot['quantities']['non_tax'],
-                        'dispatched_quantity_broken_tax'     => $snapshot['quantities']['broken_tax'],
-                        'dispatched_quantity_broken_non_tax' => $snapshot['quantities']['broken_non_tax'],
-                        'dispatched_serial_numbers'          => ! empty($normalizedSerials) ? $normalizedSerials : null,
-                    ]);
-
-                    $reason = sprintf(
-                        'Transfer stock to %s - %s (#%d)',
-                        $transfer->destinationLocation->setting->company_name ?? '-',
-                        $transfer->destinationLocation->name ?? '-',
-                        $transfer->id
-                    );
-
-                    $this->recordTransaction(
-                        $transfer,
-                        $transferProduct,
-                        $snapshot,
-                        $transfer->origin_location_id,
-                        $transfer->originLocation->setting_id,
-                        $reason,
-                        increase: false
-                    );
-                }
-
-                $transfer->update([
-                    'status'        => Transfer::STATUS_DISPATCHED,
-                    'dispatched_by' => auth()->id(),
-                    'dispatched_at' => now(),
-                ]);
-            });
-
+            $service->dispatch($transfer, auth()->id(), $currentSettingId, $acknowledgedHash);
             toast('Transfer Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (\Modules\Adjustment\Exceptions\AllocationDriftException $e) {
+            session()->flash('drift_exception', [
+                'message' => $e->getMessage(),
+                'hash' => $e->hash,
+                'allocations' => $e->allocations,
+            ]);
+            toast('Alokasi stok berubah. Harap tinjau dan konfirmasi.', 'warning');
         } catch (Throwable $e) {
             Log::error('Failed to dispatch transfer', [
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            session()->flash('error', 'Gagal mengirim transfer stok. Silakan coba lagi.');
-            toast('Gagal mengirim Transfer Stok!', 'error');
+            toast($e->getMessage(), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -315,72 +320,21 @@ class TransferStockController extends Controller
     /**
      * Receive the stock transfer.
      */
-    public function receive(Transfer $transfer): RedirectResponse
+    public function receive(Transfer $transfer, Request $request, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.receive'), 403);
 
-        if ($transfer->status !== Transfer::STATUS_DISPATCHED) {
-            toast('Transfer belum dalam status terkirim.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
-
-        $currentSettingId      = (int) session('setting_id');
-        $destinationSettingId  = $transfer->destinationLocation?->setting?->id;
-
-        if ($destinationSettingId === null || $currentSettingId !== (int) $destinationSettingId) {
-            toast('Transfer hanya dapat diterima oleh tenant tujuan.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
+        $currentSettingId = (int) session('setting_id');
 
         try {
-            DB::transaction(function () use ($transfer) {
-                foreach ($transfer->products as $transferProduct) {
-                    $this->validateSerialNumbersForLocation(
-                        $transferProduct,
-                        $transfer->destination_location_id
-                    );
-
-                    $stock = $this->ensureStock($transferProduct->product_id, $transfer->destination_location_id, true);
-
-                    $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: true);
-
-                    $reason = sprintf(
-                        'Receive stock from %s - %s (#%d)',
-                        $transfer->originLocation->setting->company_name ?? '-',
-                        $transfer->originLocation->name ?? '-',
-                        $transfer->id
-                    );
-
-                    $this->recordTransaction(
-                        $transfer,
-                        $transferProduct,
-                        $snapshot,
-                        $transfer->destination_location_id,
-                        $transfer->destinationLocation->setting_id,
-                        $reason,
-                        increase: true
-                    );
-                }
-
-                $transfer->update([
-                    'status'      => Transfer::STATUS_RECEIVED,
-                    'received_by' => auth()->id(),
-                    'received_at' => now(),
-                ]);
-            });
-
+            $service->receive($transfer, auth()->id(), $currentSettingId);
             toast('Transfer Stok Diterima! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
             Log::error('Failed to receive transfer', [
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            session()->flash('error', 'Gagal menerima transfer stok. Silakan coba lagi.');
-            toast('Gagal menerima Transfer Stok!', 'error');
+            toast($e->getMessage(), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -389,177 +343,68 @@ class TransferStockController extends Controller
     /**
      * Dispatch back the stock for cross-tenant transfers.
      */
-    public function dispatchReturn(Transfer $transfer): RedirectResponse
+    public function dispatchReturn(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.dispatch'), 403);
 
-        $transfer->loadMissing(['originLocation.setting', 'destinationLocation.setting']);
-
-        $currentSettingId     = (int) session('setting_id');
-        $destinationSettingId = $transfer->destinationLocation?->setting?->id;
-
-        if ($destinationSettingId === null || $currentSettingId !== (int) $destinationSettingId) {
-            toast('Transfer hanya dapat dikirim kembali oleh tenant tujuan.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        if ($transfer->status !== Transfer::STATUS_RECEIVED || ! $transfer->requiresReturn()) {
-            toast('Transfer tidak tersedia untuk pengiriman kembali.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->loadMissing(['products.product']);
+        $currentSettingId = (int) session('setting_id');
 
         try {
-            DB::transaction(function () use ($transfer) {
-                foreach ($transfer->products as $transferProduct) {
-                    $serialValidation = $this->validateSerialNumbersForLocation(
-                        $transferProduct,
-                        $transfer->destination_location_id
-                    );
-
-                    $serialsToMove    = $serialValidation['serials'];
-                    $normalizedSerials = $serialValidation['payload'];
-
-                    if ($serialsToMove->isNotEmpty()) {
-                        ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
-                            ->update(['location_id' => $transfer->origin_location_id]);
-
-                        // Record LOCATION_TRANSFER history for each serial (return flow)
-                        foreach ($serialsToMove as $serial) {
-                            SerialNumberHistoryService::record(
-                                $serial->id,
-                                SerialNumberHistory::EVENT_LOCATION_TRANSFER,
-                                $transfer->origin_location_id,
-                                $transfer,
-                                sprintf(
-                                    'Return dari %s ke %s',
-                                    $transfer->destinationLocation->name ?? '-',
-                                    $transfer->originLocation->name ?? '-'
-                                )
-                            );
-                        }
-                    }
-
-                    $stock = $this->ensureStock($transferProduct->product_id, $transfer->destination_location_id, false);
-
-                    $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: false);
-
-                    $reason = sprintf(
-                        'Return stock to %s - %s (#%d)',
-                        $transfer->originLocation->setting->company_name ?? '-',
-                        $transfer->originLocation->name ?? '-',
-                        $transfer->id
-                    );
-
-                    $this->recordTransaction(
-                        $transfer,
-                        $transferProduct,
-                        $snapshot,
-                        $transfer->destination_location_id,
-                        $transfer->destinationLocation->setting_id,
-                        $reason,
-                        increase: false
-                    );
-
-                    if (! empty($normalizedSerials)) {
-                        $transferProduct->update([
-                            'dispatched_serial_numbers' => $normalizedSerials,
-                        ]);
-                    }
-                }
-
-                $transfer->update([
-                    'status'                => Transfer::STATUS_RETURN_DISPATCHED,
-                    'return_dispatched_by'  => auth()->id(),
-                    'return_dispatched_at'  => now(),
-                ]);
-            });
-
-            toast('Barang dikirim kembali ke lokasi asal! No. Dokumen: ' . $transfer->document_number, 'info');
+            $service->dispatchReturn($transfer, auth()->id(), $currentSettingId);
+            toast('Retur Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
-            Log::error('Failed to dispatch transfer return', [
+            Log::error('Failed to dispatch return for transfer', [
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            session()->flash('error', 'Gagal mengirim kembali transfer stok. Silakan coba lagi.');
-            toast('Gagal mengirim kembali Transfer Stok!', 'error');
+            toast($e->getMessage(), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
-     * Receive back the stock for cross-tenant transfers.
+     * Receive back the returned stock at the origin location.
      */
-    public function receiveReturn(Transfer $transfer): RedirectResponse
+    public function receiveReturn(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.receive'), 403);
 
-        if ($transfer->status !== Transfer::STATUS_RETURN_DISPATCHED || ! $transfer->requiresReturn()) {
-            toast('Transfer belum dalam status pengiriman kembali.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
-
-        $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
-
         $currentSettingId = (int) session('setting_id');
-        $originSettingId  = $transfer->originLocation?->setting?->id;
-
-        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
-            toast('Transfer hanya dapat diterima kembali oleh tenant asal.', 'error');
-
-            return redirect()->route('transfers.show', $transfer->id);
-        }
 
         try {
-            DB::transaction(function () use ($transfer) {
-                foreach ($transfer->products as $transferProduct) {
-                    $this->validateSerialNumbersForLocation(
-                        $transferProduct,
-                        $transfer->origin_location_id
-                    );
-
-                    $stock = $this->ensureStock($transferProduct->product_id, $transfer->origin_location_id, true);
-
-                    $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: true);
-
-                    $reason = sprintf(
-                        'Receive returned stock from %s - %s (#%d)',
-                        $transfer->destinationLocation->setting->company_name ?? '-',
-                        $transfer->destinationLocation->name ?? '-',
-                        $transfer->id
-                    );
-
-                    $this->recordTransaction(
-                        $transfer,
-                        $transferProduct,
-                        $snapshot,
-                        $transfer->origin_location_id,
-                        $transfer->originLocation->setting_id,
-                        $reason,
-                        increase: true
-                    );
-                }
-
-                $transfer->update([
-                    'status'               => Transfer::STATUS_RETURN_RECEIVED,
-                    'return_received_by'   => auth()->id(),
-                    'return_received_at'   => now(),
-                ]);
-            });
-
-            toast('Barang kembali diterima di lokasi asal! No. Dokumen: ' . $transfer->document_number, 'success');
+            $service->receiveReturn($transfer, auth()->id(), $currentSettingId);
+            toast('Retur Stok Diterima! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
-            Log::error('Failed to receive transfer return', [
+            Log::error('Failed to receive return for transfer', [
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            session()->flash('error', 'Gagal menerima kembali transfer stok. Silakan coba lagi.');
-            toast('Gagal menerima kembali Transfer Stok!', 'error');
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+    
+    /**
+     * Archive the stock transfer.
+     */
+    public function archive(Request $request, Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.archive'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+        $reason = $request->input('reason');
+
+        try {
+            $service->archive($transfer, auth()->id(), $currentSettingId, $reason);
+            toast('Transfer Stok Diarsipkan! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to archive transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -571,6 +416,21 @@ class TransferStockController extends Controller
     public function edit(Transfer $transfer): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        $transfer->loadMissing('originLocation.setting');
+
+        // Verify active tenant owns the origin location
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId = $transfer->originLocation?->setting?->id;
+        
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            abort(403, 'You can only edit transfers from your origin location.');
+        }
+
+        // Only PENDING and acknowledged DRAFT transfers can be edited
+        if (!in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT])) {
+            abort(403, 'This transfer cannot be edited in its current status.');
+        }
 
         $currentSetting       = $transfer->originLocation->setting;
         $settings             = Setting::all();
@@ -584,28 +444,93 @@ class TransferStockController extends Controller
 
     /**
      * Update the specified transfer in storage.
+     * Routes through TransferDraftService to preserve bucket and serial data.
+     * Does NOT auto-submit: editing remains DRAFT, explicit resubmit required.
      */
     public function update(UpdateStockTransferRequest $request, Transfer $transfer): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.edit'), 403);
 
-        $validated = $request->validated();
+        $transfer->loadMissing('originLocation.setting');
 
-        $transfer->products()->delete();
-
-        foreach ($validated['product_ids'] as $index => $productId) {
-            $quantity = (int) ($validated['quantities'][$index] ?? 0);
-
-            TransferProduct::create([
-                'transfer_id' => $transfer->id,
-                'product_id'  => $productId,
-                'quantity'    => $quantity,
-            ]);
+        // Verify active tenant owns the origin location
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId = $transfer->originLocation?->setting?->id;
+        
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('You can only edit transfers from your origin location.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
         }
 
-        toast('Stock Transfer Updated! No. Dokumen: ' . $transfer->document_number, 'success');
+        // Only PENDING and acknowledged DRAFT transfers can be edited
+        if (!in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT])) {
+            toast('This transfer cannot be edited in its current status.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
 
-        return redirect()->route('transfers.show', $transfer->id);
+        $validated = $request->validated();
+        $user = auth()->user();
+
+        try {
+            // Build TransferFormState from request data
+            $draftService = app(TransferDraftService::class);
+            
+            $formState = new TransferFormState(
+                (int) $transfer->origin_location_id,
+                (int) $transfer->destination_location_id
+            );
+            
+            // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $quantity = (int) ($validated['quantities'][$index] ?? 0);
+                if ($quantity <= 0) continue;
+                
+                $product = Product::find($productId);
+                if (!$product) {
+                    throw new InvalidArgumentException("Product {$productId} not found.");
+                }
+                
+                // HTTP contract does not support serialized products or broken mode
+                if ($product->serial_number_required) {
+                    throw new InvalidArgumentException(
+                        "Product '{$product->product_name}' requires serial number selection. " .
+                        "Use the web interface to allocate serials for this product."
+                    );
+                }
+                
+                $line = new TransferFormLineState(
+                    $productId,
+                    $product->product_name,
+                    $product->product_code,
+                    $product->barcode,
+                    (bool) $product->serial_number_required,
+                    false, // normal mode
+                    $quantity
+                );
+                
+                $formState->addLine($line);
+            }
+            
+            // Use draft service for authoritative persistence with stock validation enabled
+            $transfer = $draftService->saveDraft(
+                $formState,
+                $user,
+                $currentSettingId,
+                $transfer, // existing transfer
+                null, // no idempotency key
+                true // enable authoritative stock validation for all write paths
+            );
+
+            toast('Transfer Stok Diperbarui! No. Dokumen: ' . $transfer->document_number, 'success');
+            return redirect()->route('transfers.show', $transfer->id);
+        } catch (Throwable $e) {
+            Log::error('Failed to update transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($e->getMessage(), 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
     /**
@@ -626,349 +551,4 @@ class TransferStockController extends Controller
         return redirect()->route('transfers.index');
     }
 
-    private function ensureStock(int $productId, int $locationId, bool $createIfMissing): ProductStock
-    {
-        $query = ProductStock::where('product_id', $productId)
-            ->where('location_id', $locationId)
-            ->lockForUpdate();
-
-        $stock = $query->first();
-
-        if (! $stock && ! $createIfMissing) {
-            throw new Exception('Data stok tidak ditemukan untuk produk di lokasi yang dipilih.');
-        }
-
-        if (! $stock) {
-            $stock = ProductStock::create([
-                'product_id'              => $productId,
-                'location_id'             => $locationId,
-                'quantity'                => 0,
-                'quantity_non_tax'        => 0,
-                'quantity_tax'            => 0,
-                'broken_quantity_non_tax' => 0,
-                'broken_quantity_tax'     => 0,
-                'broken_quantity'         => 0,
-            ]);
-
-            $stock = ProductStock::whereKey($stock->id)->lockForUpdate()->first();
-        }
-
-        return $stock;
-    }
-
-    private function applyInventoryChange(TransferProduct $transferProduct, ProductStock $stock, bool $increase): array
-    {
-        $product = $transferProduct->product;
-
-        $quantities = $this->getQuantities($transferProduct);
-        $total      = $quantities['total'];
-        $brokenTotal = $quantities['broken_tax'] + $quantities['broken_non_tax'];
-
-        $previousStock = [
-            'quantity_tax'       => (int) ($stock->quantity_tax ?? 0),
-            'quantity_non_tax'   => (int) ($stock->quantity_non_tax ?? 0),
-            'broken_tax'         => (int) ($stock->broken_quantity_tax ?? 0),
-            'broken_non_tax'     => (int) ($stock->broken_quantity_non_tax ?? 0),
-        ];
-
-        $previousStockQuantity = (int) ($stock->quantity ?? array_sum($previousStock));
-        $previousBrokenQuantity = (int) ($stock->broken_quantity ?? ($previousStock['broken_tax'] + $previousStock['broken_non_tax']));
-        $previousProductQuantity = (int) ($product->product_quantity ?? 0);
-        $previousProductBroken   = (int) ($product->broken_quantity ?? 0);
-
-        if (! $increase) {
-            if ($previousStock['quantity_tax'] < $quantities['tax']
-                || $previousStock['quantity_non_tax'] < $quantities['non_tax']
-                || $previousStock['broken_tax'] < $quantities['broken_tax']
-                || $previousStock['broken_non_tax'] < $quantities['broken_non_tax']) {
-                throw new Exception('Stok tidak mencukupi untuk melakukan perpindahan.');
-            }
-
-            $stock->quantity_tax            = max(0, $previousStock['quantity_tax'] - $quantities['tax']);
-            $stock->quantity_non_tax        = max(0, $previousStock['quantity_non_tax'] - $quantities['non_tax']);
-            $stock->broken_quantity_tax     = max(0, $previousStock['broken_tax'] - $quantities['broken_tax']);
-            $stock->broken_quantity_non_tax = max(0, $previousStock['broken_non_tax'] - $quantities['broken_non_tax']);
-
-            $product->product_quantity = max(0, $previousProductQuantity - $total);
-            $product->broken_quantity  = max(0, $previousProductBroken - $brokenTotal);
-        } else {
-            $stock->quantity_tax            = $previousStock['quantity_tax'] + $quantities['tax'];
-            $stock->quantity_non_tax        = $previousStock['quantity_non_tax'] + $quantities['non_tax'];
-            $stock->broken_quantity_tax     = $previousStock['broken_tax'] + $quantities['broken_tax'];
-            $stock->broken_quantity_non_tax = $previousStock['broken_non_tax'] + $quantities['broken_non_tax'];
-
-            $product->product_quantity = $previousProductQuantity + $total;
-            $product->broken_quantity  = $previousProductBroken + $brokenTotal;
-        }
-
-        $stock->quantity        = max(0, $stock->quantity_tax + $stock->quantity_non_tax + $stock->broken_quantity_tax + $stock->broken_quantity_non_tax);
-        $stock->broken_quantity = max(0, $stock->broken_quantity_tax + $stock->broken_quantity_non_tax);
-
-        $stock->save();
-        $product->save();
-
-        return [
-            'total'            => $total,
-            'quantities'       => $quantities,
-            'previous_stock'   => [
-                'quantity'      => $previousStockQuantity,
-                'broken'        => $previousBrokenQuantity,
-                'quantity_tax'  => $previousStock['quantity_tax'],
-                'quantity_non_tax' => $previousStock['quantity_non_tax'],
-                'broken_tax'    => $previousStock['broken_tax'],
-                'broken_non_tax'=> $previousStock['broken_non_tax'],
-            ],
-            'current_stock'    => [
-                'quantity'      => (int) $stock->quantity,
-                'broken'        => (int) $stock->broken_quantity,
-                'quantity_tax'  => (int) $stock->quantity_tax,
-                'quantity_non_tax' => (int) $stock->quantity_non_tax,
-                'broken_tax'    => (int) $stock->broken_quantity_tax,
-                'broken_non_tax'=> (int) $stock->broken_quantity_non_tax,
-            ],
-            'previous_product' => [
-                'quantity' => $previousProductQuantity,
-                'broken'   => $previousProductBroken,
-            ],
-            'current_product'  => [
-                'quantity' => (int) $product->product_quantity,
-                'broken'   => (int) $product->broken_quantity,
-            ],
-        ];
-    }
-
-    private function recordTransaction(
-        Transfer $transfer,
-        TransferProduct $transferProduct,
-        array $snapshot,
-        int $locationId,
-        int $settingId,
-        string $reason,
-        bool $increase
-    ): void {
-        Transaction::create([
-            'product_id'                   => $transferProduct->product_id,
-            'setting_id'                   => $settingId,
-            'type'                         => 'TRF',
-            'quantity'                     => $increase ? $snapshot['total'] : -$snapshot['total'],
-            'current_quantity'             => $snapshot['current_stock']['quantity'],
-            'broken_quantity'              => $snapshot['current_stock']['broken'],
-            'previous_quantity'            => $snapshot['previous_product']['quantity'],
-            'previous_quantity_at_location'=> $snapshot['previous_stock']['quantity'],
-            'after_quantity'               => $snapshot['current_product']['quantity'],
-            'after_quantity_at_location'   => $snapshot['current_stock']['quantity'],
-            'quantity_tax'                 => $snapshot['current_stock']['quantity_tax'],
-            'quantity_non_tax'             => $snapshot['current_stock']['quantity_non_tax'],
-            'broken_quantity_tax'          => $snapshot['current_stock']['broken_tax'],
-            'broken_quantity_non_tax'      => $snapshot['current_stock']['broken_non_tax'],
-            'location_id'                  => $locationId,
-            'user_id'                      => auth()->id(),
-            'reason'                       => $reason,
-        ]);
-    }
-
-    private function getSerialPayload(TransferProduct $transferProduct, bool $preferDispatchedPayload = true): Collection
-    {
-        $payload = collect();
-
-        if ($preferDispatchedPayload) {
-            $payload = collect($transferProduct->dispatched_serial_numbers ?? []);
-        }
-
-        if ($payload->isEmpty()) {
-            $payload = collect($transferProduct->serial_numbers ?? []);
-        }
-
-        return $payload->values();
-    }
-
-    private function validateSerialNumbersForLocation(
-        TransferProduct $transferProduct,
-        int $expectedLocationId,
-        bool $preferDispatchedPayload = true
-    ): array {
-        $payload = $this->getSerialPayload($transferProduct, $preferDispatchedPayload);
-
-        $product = $transferProduct->relationLoaded('product')
-            ? $transferProduct->product
-            : $transferProduct->product()->first();
-
-        $productName = $product?->product_name ?? ('ID #' . $transferProduct->product_id);
-
-        if ($payload->isEmpty()) {
-            if ($product && $product->serial_number_required) {
-                throw new Exception("Produk {$productName} memerlukan nomor seri untuk diproses.");
-            }
-
-            return [
-                'serials' => collect(),
-                'payload' => [],
-            ];
-        }
-
-        $serialIds = $payload->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->filter(fn ($id) => $id > 0)
-            ->values();
-
-        if ($serialIds->isEmpty()) {
-            throw new Exception("Data nomor seri untuk produk {$productName} tidak valid.");
-        }
-
-        if ($serialIds->unique()->count() !== $serialIds->count()) {
-            throw new Exception("Nomor seri duplikat terdeteksi pada produk {$productName}.");
-        }
-
-        $serials = ProductSerialNumber::whereIn('id', $serialIds)
-            ->lockForUpdate()
-            ->get()
-            ->keyBy('id');
-
-        if ($serials->count() !== $serialIds->count()) {
-            throw new Exception("Beberapa nomor seri tidak ditemukan atau sudah digunakan untuk produk {$productName}.");
-        }
-
-        $orderedSerials = $serialIds->map(fn ($id) => $serials->get($id))->values();
-
-        foreach ($orderedSerials as $serial) {
-            if (! $serial instanceof ProductSerialNumber) {
-                throw new Exception("Nomor seri tidak valid untuk produk {$productName}.");
-            }
-
-            if ((int) $serial->product_id !== (int) $transferProduct->product_id) {
-                throw new Exception("Nomor seri {$serial->serial_number} tidak sesuai dengan produk {$productName}.");
-            }
-
-            if ((int) $serial->location_id !== $expectedLocationId) {
-                throw new Exception("Nomor seri {$serial->serial_number} tidak berada di lokasi yang sesuai untuk produk {$productName}.");
-            }
-
-            if ($serial->dispatch_detail_id !== null) {
-                throw new Exception("Nomor seri {$serial->serial_number} sedang digunakan dalam pengiriman lain.");
-            }
-        }
-
-        $breakdown = $this->calculateSerialQuantitiesFromModels($orderedSerials);
-
-        $expectedQuantities = [
-            'quantity_tax'            => (int) ($transferProduct->quantity_tax ?? 0),
-            'quantity_non_tax'        => (int) ($transferProduct->quantity_non_tax ?? 0),
-            'quantity_broken_tax'     => (int) ($transferProduct->quantity_broken_tax ?? 0),
-            'quantity_broken_non_tax' => (int) ($transferProduct->quantity_broken_non_tax ?? 0),
-        ];
-
-        if (
-            $breakdown['quantity_tax'] !== $expectedQuantities['quantity_tax']
-            || $breakdown['quantity_non_tax'] !== $expectedQuantities['quantity_non_tax']
-            || $breakdown['quantity_broken_tax'] !== $expectedQuantities['quantity_broken_tax']
-            || $breakdown['quantity_broken_non_tax'] !== $expectedQuantities['quantity_broken_non_tax']
-        ) {
-            throw new Exception("Jumlah nomor seri tidak sesuai dengan rincian kuantitas untuk produk {$productName}.");
-        }
-
-        if ($breakdown['total'] !== $orderedSerials->count()) {
-            throw new Exception("Jumlah nomor seri tidak konsisten untuk produk {$productName}.");
-        }
-
-        $normalizedPayload = $orderedSerials->map(function (ProductSerialNumber $serial) {
-            return [
-                'id'            => $serial->id,
-                'serial_number' => $serial->serial_number,
-                'tax_id'        => $serial->tax_id,
-                'taxable'       => $serial->tax_id !== null,
-                'is_broken'     => (bool) $serial->is_broken,
-            ];
-        })->toArray();
-
-        return [
-            'serials' => $orderedSerials,
-            'payload' => $normalizedPayload,
-        ];
-    }
-
-    private function calculateSerialQuantitiesFromModels(Collection $serials): array
-    {
-        $quantityTax          = 0;
-        $quantityNonTax       = 0;
-        $brokenQuantityTax    = 0;
-        $brokenQuantityNonTax = 0;
-
-        foreach ($serials as $serial) {
-            if (! $serial instanceof ProductSerialNumber) {
-                continue;
-            }
-
-            $isBroken = (bool) ($serial->is_broken ?? false);
-            $isTaxed  = $serial->tax_id !== null;
-
-            if ($isBroken && $isTaxed) {
-                $brokenQuantityTax++;
-            } elseif ($isBroken && ! $isTaxed) {
-                $brokenQuantityNonTax++;
-            } elseif ($isTaxed) {
-                $quantityTax++;
-            } else {
-                $quantityNonTax++;
-            }
-        }
-
-        return [
-            'quantity_tax'            => $quantityTax,
-            'quantity_non_tax'        => $quantityNonTax,
-            'quantity_broken_tax'     => $brokenQuantityTax,
-            'quantity_broken_non_tax' => $brokenQuantityNonTax,
-            'total'                   => $quantityTax + $quantityNonTax + $brokenQuantityTax + $brokenQuantityNonTax,
-        ];
-    }
-
-    private function getQuantities(TransferProduct $transferProduct): array
-    {
-        $tax        = max(0, (int) ($transferProduct->quantity_tax ?? 0));
-        $nonTax     = max(0, (int) ($transferProduct->quantity_non_tax ?? 0));
-        $brokenTax  = max(0, (int) ($transferProduct->quantity_broken_tax ?? 0));
-        $brokenNon  = max(0, (int) ($transferProduct->quantity_broken_non_tax ?? 0));
-
-        $total = $tax + $nonTax + $brokenTax + $brokenNon;
-
-        $product = $transferProduct->relationLoaded('product')
-            ? $transferProduct->product
-            : $transferProduct->product()->first();
-
-        if ($product && $product->serial_number_required) {
-            $payload = $this->getSerialPayload($transferProduct);
-            $serialCount = $payload->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->filter(fn ($id) => $id > 0)
-                ->unique()
-                ->count();
-
-            $productName = $product->product_name ?? ('ID #' . $transferProduct->product_id);
-
-            if ($serialCount === 0) {
-                throw new Exception("Produk {$productName} memerlukan nomor seri tetapi tidak ditemukan data serial.");
-            }
-
-            if ($total === 0) {
-                throw new Exception("Jumlah kuantitas untuk produk {$productName} tidak boleh kosong ketika nomor seri tersedia.");
-            }
-
-            if ($serialCount !== $total) {
-                throw new Exception("Jumlah nomor seri ({$serialCount}) tidak sesuai dengan total kuantitas ({$total}) untuk produk {$productName}.");
-            }
-        }
-
-        if ($total === 0) {
-            $fallback = max(0, (int) ($transferProduct->quantity ?? 0));
-            $total    = $fallback;
-            $nonTax   = $fallback;
-        }
-
-        return [
-            'tax'          => $tax,
-            'non_tax'      => $nonTax,
-            'broken_tax'   => $brokenTax,
-            'broken_non_tax' => $brokenNon,
-            'total'        => $total,
-        ];
-    }
 }

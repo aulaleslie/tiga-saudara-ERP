@@ -25,6 +25,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('adjustments', 'AdjustmentController');
     Route::post('/transfers/{transfer}/approve', 'TransferStockController@approve')->name('transfers.approve');
     Route::post('/transfers/{transfer}/reject', 'TransferStockController@reject')->name('transfers.reject');
+    Route::post('/transfers/{transfer}/acknowledge-rejection', 'TransferStockController@acknowledgeRejection')->name('transfers.acknowledge-rejection');
+    Route::post('/transfers/{transfer}/resubmit', 'TransferStockController@resubmit')->name('transfers.resubmit');
+    Route::post('/transfers/{transfer}/archive', 'TransferStockController@archive')->name('transfers.archive');
     Route::post('/transfers/{transfer}/dispatch', 'TransferStockController@dispatchShipment')->name('transfers.dispatch');
     Route::post('/transfers/{transfer}/receive', 'TransferStockController@receive')->name('transfers.receive');
     Route::post('/transfers/{transfer}/return-dispatch', 'TransferStockController@dispatchReturn')->name('transfers.return-dispatch');
