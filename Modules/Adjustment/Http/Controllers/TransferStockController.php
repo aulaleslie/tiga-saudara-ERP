@@ -126,15 +126,14 @@ class TransferStockController extends Controller
                 throw new InvalidArgumentException("At least one product with quantity > 0 is required.");
             }
             
-            // Use draft service for authoritative persistence with stock validation enabled
-            // atomicSubmit=true ensures initial creation is atomic: create + submit in one transaction
+            // Use draft service for authoritative persistence
+            // atomicSubmit=true ensures initial creation is atomic: create + submit PENDING in one transaction
             $transfer = $draftService->saveDraft(
                 $formState,
                 $user,
                 $currentSettingId,
                 null, // no existing transfer
                 null, // no idempotency key
-                true, // enable authoritative stock validation for all write paths
                 true  // atomicSubmit: create and submit PENDING in one transaction
             );
 

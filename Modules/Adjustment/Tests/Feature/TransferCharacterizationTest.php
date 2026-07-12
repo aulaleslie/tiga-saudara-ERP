@@ -6,6 +6,7 @@ namespace Modules\Adjustment\Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Product\Entities\Product;
@@ -94,6 +95,18 @@ class TransferCharacterizationTest extends TestCase
             'stock_managed' => true,
         ]);
 
+        // Create stock at origin location
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $originLocation->id,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'quantity' => 5,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
         $payload = [
             'origin_location' => $originLocation->id,
             'destination_location' => $destinationLocation->id,
@@ -123,7 +136,7 @@ class TransferCharacterizationTest extends TestCase
     }
 
     /** @test */
-    public function it_fails_to_hydrate_edit_with_nested_eloquent_collection_because_of_legacy_array_shape()
+    public function it_renders_edit_view_and_returns_http_200_without_error()
     {
         $user = User::factory()->create(['is_active' => 1]);
         [$setting, $originLocation] = $this->createTenantData('Tenant A');
@@ -160,9 +173,73 @@ class TransferCharacterizationTest extends TestCase
             ->get(route('transfers.edit', $transfer->id));
 
         $response->assertOk();
-        // The edit route loads the view, but the Livewire component cannot cleanly handle the shape
-        // This test characterizes that the view renders, but the Livewire form handles legacy arrays.
         $response->assertViewIs('adjustment::transfers.edit');
+    }
+
+    /** @test */
+    public function it_hydrates_livewire_transfer_edit_component_with_persisted_lines()
+    {
+        $user = User::factory()->create(['is_active' => 1]);
+        [$setting, $originLocation] = $this->createTenantData('Tenant A');
+        [$settingB, $destinationLocation] = $this->createTenantData('Tenant B');
+
+        $role = Role::create(['name' => 'editor', 'guard_name' => 'web']);
+        $role->givePermissionTo('stockTransfers.edit');
+        $user->assignRole($role);
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
+
+        $product = Product::create([
+            'setting_id' => $setting->id,
+            'product_name' => 'Item',
+            'product_code' => 'SKU',
+            'product_price' => 100,
+            'product_cost' => 50,
+            'stock_managed' => true,
+        ]);
+
+        $transfer = Transfer::create([
+            'origin_location_id' => $originLocation->id,
+            'destination_location_id' => $destinationLocation->id,
+            'created_by' => $user->id,
+            'status' => Transfer::STATUS_PENDING,
+        ]);
+
+        TransferProduct::create([
+            'transfer_id' => $transfer->id,
+            'product_id' => $product->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'quantity_broken_tax' => 0,
+            'quantity_broken_non_tax' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->session(['setting_id' => $setting->id]);
+
+        $component = Livewire::test(\App\Livewire\Transfer\TransferStockForm::class, ['transfer' => $transfer]);
+
+        $component->assertSet('transfer', fn ($val) => $val && $val->id === $transfer->id);
+        $component->assertSet('originLocation', $originLocation->id);
+        $component->assertSet('destinationLocation', $destinationLocation->id);
+        $component->assertSet('currentSetting', fn ($val) => $val && $val->id === $setting->id);
+
+        // Assert the hydrated row contains the correct product, quantity, serials, and mode
+        $component->assertSet('rows', function ($rows) use ($product) {
+            $this->assertIsArray($rows);
+            $this->assertCount(1, $rows);
+
+            $row = $rows[0];
+            $this->assertEquals($product->id, $row['id']);
+            $this->assertEquals($product->product_name, $row['product_name']);
+            $this->assertEquals(5, $row['quantity_non_tax']);
+            $this->assertIsArray($row['serial_numbers']);
+            $this->assertArrayHasKey('quantity_tax', $row);
+            $this->assertArrayHasKey('broken_quantity_tax', $row);
+            $this->assertArrayHasKey('broken_quantity_non_tax', $row);
+
+            return true;
+        });
     }
 
     /** @test */

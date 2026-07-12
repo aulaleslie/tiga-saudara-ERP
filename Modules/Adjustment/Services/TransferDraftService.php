@@ -71,6 +71,11 @@ class TransferDraftService
                 throw new InvalidArgumentException("Product {$line->productId} not found.");
             }
 
+            // Validate product belongs to current tenant
+            if ((int) $product->setting_id !== $tenantSettingId) {
+                throw new InvalidArgumentException("Product {$product->id} does not belong to current tenant.");
+            }
+
             // Validate stock_managed requirement
             if (!$product->stock_managed) {
                 throw new InvalidArgumentException("Product {$product->id} must have stock management enabled.");
@@ -92,13 +97,20 @@ class TransferDraftService
                 $serialIds = collect($line->selectedSerials)->map(function ($serial) {
                     return is_array($serial) || is_object($serial) ? $serial['id'] ?? $serial->id : $serial;
                 })->toArray();
-                
+
                 // Normalize and deduplicate serial IDs
                 $normalizedSerialIds = array_unique(array_map('intval', $serialIds));
-                
+
+                // Verify serialized quantity consistency: selected serial count must equal requestedBaseQuantity
+                if (count($normalizedSerialIds) !== (int) $line->requestedBaseQuantity) {
+                    throw new InvalidArgumentException(
+                        "Selected serial count (" . count($normalizedSerialIds) . ") must match requested quantity (" . $line->requestedBaseQuantity . ")."
+                    );
+                }
+
                 // Query by ID and validate all required properties
                 $validSerials = ProductSerialNumber::whereKey($normalizedSerialIds)->get();
-                    
+
                 // Verify exact ID count matches after normalization
                 if ($validSerials->count() !== count($normalizedSerialIds)) {
                     throw new InvalidArgumentException("One or more selected serials are invalid.");
@@ -159,6 +171,17 @@ class TransferDraftService
                 $brokenNonTaxQuantity = $line->isBrokenMode ? $preview->allocatedNonTax : 0;
             }
 
+            // Store authoritative serial snapshots with full data
+            $serialSnapshots = null;
+            if ($line->isSerialNumberRequired && !empty($normalizedSerialIds)) {
+                $serialSnapshots = $validSerials->map(fn($s) => [
+                    'id' => $s->id,
+                    'serial_number' => $s->serial_number,
+                    'tax_id' => $s->tax_id,
+                    'is_broken' => $s->is_broken,
+                ])->values()->all();
+            }
+
             $productsData[] = [
                 'product_id' => $product->id,
                 'quantity' => $line->requestedBaseQuantity,
@@ -168,7 +191,7 @@ class TransferDraftService
                     'quantity_broken_tax' => $brokenTaxQuantity,
                     'quantity_broken_non_tax' => $brokenNonTaxQuantity,
                 ],
-                'serial_numbers' => $normalizedSerialIds ?: $line->selectedSerials,
+                'serial_numbers' => $serialSnapshots ?: $line->selectedSerials,
             ];
         }
 
@@ -201,7 +224,7 @@ class TransferDraftService
         } elseif ($transfer->status === Transfer::STATUS_PENDING) {
             return $this->lifecycleService->updateTransfer($transfer, $productsData, $actor->id);
         } elseif ($transfer->status === Transfer::STATUS_REJECTED) {
-            return $this->lifecycleService->resubmit($transfer, $productsData, $actor->id, $tenantSettingId);
+            return $this->lifecycleService->resubmit($transfer, $actor->id, $tenantSettingId, $productsData);
         }
 
         throw new InvalidArgumentException("Transfer is in an uneditable state.");

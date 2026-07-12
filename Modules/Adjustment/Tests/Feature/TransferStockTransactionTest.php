@@ -73,8 +73,8 @@ class TransferStockTransactionTest extends TestCase
     {
         // Test that actual receipt workflow generates completion history
         $user = User::factory()->create(['is_active' => 1]);
-        
-        // Create an approved transfer with concrete stock and lines
+
+        // Create stock at origin
         $stock = ProductStock::create([
             'product_id' => $this->product->id,
             'location_id' => $this->originLocation->id,
@@ -86,28 +86,45 @@ class TransferStockTransactionTest extends TestCase
             'broken_quantity_tax' => 0,
         ]);
 
-        // Create transfer with lifecycle service to ensure proper state
-        $transfer = Transfer::create([
-            'origin_location_id' => $this->originLocation->id,
-            'destination_location_id' => $this->destinationLocation->id,
-            'status' => Transfer::STATUS_COMPLETED,
-            'created_by' => $user->id,
-            'revision' => 1,
+        // For same-tenant transfers, both locations must be in the same setting
+        // Create destination in same setting
+        $sameSettingDest = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Same Setting Destination',
         ]);
 
-        // Add action history through proper lifecycle
-        TransferActionHistory::create([
-            'transfer_id' => $transfer->id,
-            'action' => TransferActionHistory::ACTION_RECEIVED,
-            'from_status' => Transfer::STATUS_DISPATCHED,
-            'to_status' => Transfer::STATUS_COMPLETED,
-            'created_by' => $user->id,
-            'revision' => $transfer->revision,
-            'notes' => 'All items received, transfer complete',
-        ]);
+        // Create transfer with draft service
+        $lifecycleService = app(\Modules\Adjustment\Services\TransferLifecycleService::class);
+        $transfer = $lifecycleService->createPending(
+            $this->originLocation->id,
+            $sameSettingDest->id,
+            [
+                [
+                    'product_id' => $this->product->id,
+                    'quantity' => 5,
+                    'quantities' => [
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 5,
+                        'quantity_broken_tax' => 0,
+                        'quantity_broken_non_tax' => 0,
+                    ],
+                    'serial_numbers' => null,
+                ]
+            ],
+            $user->id
+        );
+
+        // Approve the transfer from origin setting
+        $transfer = $lifecycleService->approve($transfer, $user->id, $this->setting->id);
+
+        // Dispatch the transfer from origin setting
+        $transfer = $lifecycleService->dispatch($transfer, $user->id, $this->setting->id);
+
+        // Receive the transfer from destination setting (same setting, so still use $this->setting->id)
+        $transfer = $lifecycleService->receive($transfer, $user->id, $this->setting->id);
 
         // Verify the receipt action was recorded
-        $history = $transfer->actionHistories()
+        $history = $transfer->refresh()->actionHistories()
             ->where('action', TransferActionHistory::ACTION_RECEIVED)
             ->first();
 
@@ -121,7 +138,17 @@ class TransferStockTransactionTest extends TestCase
     {
         // Verify HTTP transfer creation validates stock and creates in proper state
         $user = User::factory()->create(['is_active' => 1]);
-        
+
+        // Grant stockTransfers.create permission
+        $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'stockTransfers.create']);
+        $user->givePermissionTo($permission);
+
+        // Set session setting on user
+        $user->update(['setting_id' => $this->setting->id]);
+
+        // Set the active tenant in the HTTP test session
+        $this->withSession(['setting_id' => $this->setting->id]);
+
         // Setup required stock
         $stock = ProductStock::create([
             'product_id' => $this->product->id,
@@ -134,26 +161,25 @@ class TransferStockTransactionTest extends TestCase
             'broken_quantity_tax' => 0,
         ]);
 
-        // Simulate HTTP endpoint creating a transfer with stock validation
-        // The draft service should validate stock and create with proper quantities
         $this->actingAs($user);
-        
-        // Create transfer (would come from HTTP endpoint in real scenario)
-        $transfer = Transfer::create([
-            'origin_location_id' => $this->originLocation->id,
-            'destination_location_id' => $this->destinationLocation->id,
-            'status' => Transfer::STATUS_PENDING,
-            'created_by' => $user->id,
-            'revision' => 1,
+
+        // Send HTTP POST to create transfer (production creation atomically submits to PENDING)
+        $response = $this->post(route('transfers.store'), [
+            'origin_location' => $this->originLocation->id,
+            'destination_location' => $this->destinationLocation->id,
+            'product_ids' => [$this->product->id],
+            'quantities' => [5],
         ]);
 
-        // HTTP endpoints should create transfers in PENDING status with validated stock
+        // Should redirect to the new transfer
+        $this->assertTrue($response->status() >= 300 && $response->status() < 400, "Expected redirect but got {$response->status()}");
+        $transfer = Transfer::whereStatus(Transfer::STATUS_PENDING)
+            ->where('created_by', $user->id)
+            ->latest()
+            ->first();
+
+        $this->assertNotNull($transfer);
         $this->assertEquals(Transfer::STATUS_PENDING, $transfer->status);
-        $this->assertNotNull($transfer->id);
-        
-        // Verify stock record existed and was checked
-        $this->assertNotNull($stock);
-        $this->assertEquals(10, $stock->quantity);
     }
 
     /** @test */
@@ -161,20 +187,44 @@ class TransferStockTransactionTest extends TestCase
     {
         $user = User::factory()->create(['is_active' => 1]);
 
-        $transfer = Transfer::create([
-            'origin_location_id' => $this->originLocation->id,
-            'destination_location_id' => $this->destinationLocation->id,
-            'status' => Transfer::STATUS_DRAFT,
-            'created_by' => $user->id,
-            'revision' => 1,
+        // Create stock
+        $stock = ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->originLocation->id,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 5,
+            'quantity' => 15,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
         ]);
+
+        // Create transfer with draft service
+        $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
+        $formState = new \Modules\Adjustment\DTOs\TransferFormState();
+        $formState->originLocationId = $this->originLocation->id;
+        $formState->destinationLocationId = $this->destinationLocation->id;
+        $formState->lines = [];
+
+        $transfer = $draftService->saveDraft($formState, $user, $this->setting->id);
 
         $this->assertEquals(1, $transfer->revision);
 
-        // Simulate an update
-        $transfer->update(['revision' => 2]);
+        // Update transfer through draft service (should increment revision)
+        $formState->lines = [
+            (object) [
+                'productId' => $this->product->id,
+                'requestedBaseQuantity' => 5,
+                'isBrokenMode' => false,
+                'isSerialNumberRequired' => false,
+                'selectedSerials' => [],
+            ]
+        ];
+
+        $updatedTransfer = $draftService->saveDraft($formState, $user, $this->setting->id, $transfer);
         
-        $this->assertEquals(2, $transfer->refresh()->revision);
+        // Revision should increment
+        $this->assertGreaterThan(1, $updatedTransfer->revision);
     }
 
     /** @test */

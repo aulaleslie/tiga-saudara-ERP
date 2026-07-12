@@ -7,6 +7,8 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Sale\Support\PendingDispatchSerialGuard;
+use Modules\Setting\Entities\Location;
+use InvalidArgumentException;
 
 class TransferScanResolverService
 {
@@ -19,12 +21,22 @@ class TransferScanResolverService
             return ['type' => 'none'];
         }
 
+        // Validate origin location belongs to current tenant
+        $originLocation = Location::where('id', $originLocationId)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (!$originLocation) {
+            throw new InvalidArgumentException("Invalid origin location for current tenant.");
+        }
+
         $allowedLocationIds = [$originLocationId];
         $query = trim($query);
         $queryLower = strtolower($query);
 
         // 1. Exact barcode match on products
         $productByBarcode = Product::query()
+            ->where('setting_id', $settingId)
             ->where('stock_managed', true)
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->first();
@@ -35,7 +47,7 @@ class TransferScanResolverService
 
         // 2. Exact barcode match on product_unit_conversions
         $unitConversionBarcode = ProductUnitConversion::query()
-            ->whereHas('product', fn ($q) => $q->where('stock_managed', true))
+            ->whereHas('product', fn ($q) => $q->where('setting_id', $settingId)->where('stock_managed', true))
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->with(['product', 'unit'])
             ->first();
@@ -50,6 +62,7 @@ class TransferScanResolverService
             ->where('status', 'ACTIVE')
             ->whereNull('dispatch_detail_id')
             ->whereIn('location_id', $allowedLocationIds)
+            ->whereHas('product', fn ($q) => $q->where('setting_id', $settingId))
             ->with('product')
             ->first();
 
@@ -58,6 +71,7 @@ class TransferScanResolverService
             && ! PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)
             && $serialRecord->product
             && $serialRecord->product->stock_managed
+            && (int) $serialRecord->product->setting_id === $settingId
         ) {
             return [
                 'type' => 'serial_exact',
