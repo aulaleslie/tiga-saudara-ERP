@@ -610,6 +610,9 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
 
         $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
         $this->assertSame(5780000.0, $expectedCash);
+
+        $calculator = app(\Modules\Pos\Services\PosSessionExpectedCashCalculator::class);
+        $this->assertSame(5780000.0, (float) $calculator->calculate($context['session']->id)['expected_cash_total']);
     }
 
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_tender(): void
@@ -838,7 +841,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         // Get session summary
         $response = $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->get(route('pos.sessions.summary', ['session' => $context['session']->id]));
+            ->getJson(route('pos.sessions.summary', ['session' => $context['session']->id]));
 
         $response->assertOk();
 

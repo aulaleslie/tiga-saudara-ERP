@@ -16,6 +16,11 @@ class Location extends BaseModel
 {
     use HasFactory;
 
+    public function save(array $options = [])
+    {
+        return \Illuminate\Support\Facades\DB::transaction(fn () => parent::save($options));
+    }
+
     protected static function newFactory()
     {
         return \Database\Factories\LocationFactory::new();

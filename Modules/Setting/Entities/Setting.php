@@ -29,7 +29,7 @@ class Setting extends BaseModel
                 return;
             }
             $locations = Location::query()
-                ->orderByRaw('CASE WHEN setting_id = ? THEN 0 ELSE 1 END', [$setting->id])
+                ->where('setting_id', $setting->id)
                 ->orderBy('name')
                 ->orderBy('id')
                 ->pluck('id');
