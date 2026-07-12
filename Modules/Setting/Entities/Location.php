@@ -26,29 +26,17 @@ class Location extends BaseModel
     protected static function booted(): void
     {
         static::created(function (Location $location) {
-            $settings = Setting::query()->pluck('id');
-            $now = now();
+            $maxPosition = SettingSaleLocation::query()
+                ->where('setting_id', $location->setting_id)
+                ->max('position') ?? 0;
 
-            $maxPositions = SettingSaleLocation::query()
-                ->selectRaw('setting_id, MAX(position) as max_pos')
-                ->groupBy('setting_id')
-                ->pluck('max_pos', 'setting_id');
-
-            $chunks = $settings->chunk(500);
-            foreach ($chunks as $chunk) {
-                $payload = $chunk->map(fn ($settingId) => [
-                    'setting_id'  => $settingId,
-                    'location_id' => $location->id,
-                    'is_enabled'  => true,
-                    'position'    => ($maxPositions[$settingId] ?? 0) + 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ])->all();
-
-                SettingSaleLocation::insertOrIgnore($payload);
-            }
-
-            SalesLocationResolver::forget();
+            SettingSaleLocation::create([
+                'setting_id'  => $location->setting_id,
+                'location_id' => $location->id,
+                'is_enabled'  => true,
+                'position'    => $maxPosition + 1,
+            ]);
+            // SettingSaleLocation::created event will naturally handle cache clearing.
         });
 
         static::updated(function (Location $location) {

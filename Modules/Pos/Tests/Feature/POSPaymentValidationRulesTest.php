@@ -133,11 +133,19 @@ class POSPaymentValidationRulesTest extends TestCase
             ->assertJsonPath('paid_total', 100000.0)
             ->assertJsonPath('change_total', 25000.0);
 
-        // Verify session cash event - should only record the grand_total (net cash added to drawer)
+        // Verify session cash events - should record the full tender amount and separate change event
         $checkoutId = (int) $response->json('pos_checkout_id');
         $this->assertDatabaseHas('pos_session_cash_events', [
             'pos_session_id' => $context['session']->id,
-            'amount' => 75000,
+            'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
+            'amount' => 100000,
+            'reference_id' => $checkoutId,
+        ]);
+
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+            'amount' => 25000,
             'reference_id' => $checkoutId,
         ]);
     }

@@ -710,9 +710,9 @@ class FinalizePosCheckoutService
                 $cashAmountForSession = 0.0;
                 if ((bool) ($payment['is_multi_payment'] ?? false)) {
                     $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
-                    $cashAmountForSession = min($totalCashMinor / 100, $actualGrandTotal);
+                    $cashAmountForSession = $totalCashMinor / 100;
                 } elseif ($payment['is_cash']) {
-                    $cashAmountForSession = $actualGrandTotal;
+                    $cashAmountForSession = $paidTotal;
                 }
 
                 if ($cashAmountForSession > 0) {

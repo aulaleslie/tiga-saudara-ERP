@@ -198,4 +198,26 @@ class SaleLocationConfigurationTest extends TestCase
         $this->assertEquals(1, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $loc2->id)->value('position'));
         $this->assertEquals(2, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $loc1->id)->value('position'));
     }
+
+    public function test_location_creation_busts_sales_location_resolver_cache(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $this->actingAsSuperAdminForSetting($settingA);
+
+        // Pre-cache the sales locations (should be empty initially)
+        $cachedIdsBefore = \App\Support\SalesLocationResolver::resolveLocationIds($settingA->id);
+        $this->assertEmpty($cachedIdsBefore);
+
+        // Create a new location (which should trigger cache clear via observer)
+        $ownedLocation = Location::create([
+            'name'       => 'CVTN 1',
+            'setting_id' => $settingA->id,
+        ]);
+
+        // Fetch again from resolver. Without cache bust, it will return the cached empty array.
+        $cachedIdsAfter = \App\Support\SalesLocationResolver::resolveLocationIds($settingA->id);
+        
+        $this->assertNotEmpty($cachedIdsAfter);
+        $this->assertContains($ownedLocation->id, $cachedIdsAfter->toArray());
+    }
 }

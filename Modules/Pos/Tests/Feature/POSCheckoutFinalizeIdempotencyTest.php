@@ -559,7 +559,60 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         ]);
     }
 
-    public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void
+    public function test_checkout_regression_5m_float_780k_sale_800k_tender_20k_change(): void
+    {
+        // 1.1 Add a checkout regression test for Rp5,000,000 opening cash, Rp780,000 grand total, Rp800,000 cash tender, and Rp20,000 change
+        $context = $this->createCheckoutContext('POS REGRESSION 5M FLOAT');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        // Update session opening float to 5,000,000
+        $context['session']->update(['opening_float_total' => 5000000, 'expected_cash_total' => 5000000]);
+        DB::table('pos_session_cash_events')
+            ->where('pos_session_id', $context['session']->id)
+            ->where('event_type', PosSessionCashEvent::EVENT_OPEN_FLOAT)
+            ->update(['amount' => 5000000]);
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-REGRESS-001', 780000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-REGRESS-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 800000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('paid_total', 800000.0)
+            ->assertJsonPath('change_total', 20000.0);
+
+        $checkoutId = (int) $response->json('pos_checkout_id');
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
+            'direction' => PosSessionCashEvent::DIRECTION_IN,
+            'amount' => 800000,
+            'reference_id' => $checkoutId,
+        ]);
+
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+            'direction' => PosSessionCashEvent::DIRECTION_OUT,
+            'amount' => 20000,
+            'reference_id' => $checkoutId,
+        ]);
+
+        $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
+        $this->assertSame(5780000.0, $expectedCash);
+    }
+
+    public function test_cash_overpay_computes_change_and_updates_expected_cash_by_tender(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT OVERPAY');
         $methods = $context['methods'];
@@ -587,13 +640,13 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'pos_session_id' => $context['session']->id,
             'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
             'direction' => PosSessionCashEvent::DIRECTION_IN,
-            'amount' => 10000,
+            'amount' => 12000,
             'reference_id' => $checkoutId,
         ]);
 
-        // Opening float 100000 + cash sale 10000 - change 2000 = 108000
+        // Opening float 100000 + cash sale tender 12000 - change 2000 = 110000
         $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
-        $this->assertSame(108000.0, $expectedCash);
+        $this->assertSame(110000.0, $expectedCash);
 
         // Verify CHANGE_OUT event was created
         $this->assertDatabaseHas('pos_session_cash_events', [
@@ -692,10 +745,10 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             ],
         ]);
 
-        // Opening float: 100000, cash sale: 5000, change: 1000
-        // Expected: 100000 + 5000 - 1000 = 104000
+        // Opening float: 100000, cash sale tender: 6000, change: 1000
+        // Expected: 100000 + 6000 - 1000 = 105000
         $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
-        $this->assertSame(104000.0, $expectedCash);
+        $this->assertSame(105000.0, $expectedCash);
     }
 
     public function test_no_change_out_event_when_payment_equals_grand_total(): void

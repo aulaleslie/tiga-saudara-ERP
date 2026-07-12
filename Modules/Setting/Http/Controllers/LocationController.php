@@ -52,10 +52,12 @@ class LocationController extends Controller
 
         $settingId = session('setting_id');
 
-        $location = Location::create([
-            'name'       => $request->name,
-            'setting_id' => $settingId,
-        ]);
+        $location = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $settingId) {
+            return Location::create([
+                'name'       => $request->name,
+                'setting_id' => $settingId,
+            ]);
+        });
 
         toast('Lokasi Berhasil ditambahkan!', 'success');
 

@@ -51,11 +51,12 @@ class LocationQuickAddModal extends Component
     {
         $this->validate();
 
-        $location = Location::create([
-            'name' => $this->name,
-            'setting_id' => session('setting_id') ?? 1,
-            // Location model boot method handles assignment to setting sale locations
-        ]);
+        $location = \Illuminate\Support\Facades\DB::transaction(function () {
+            return Location::create([
+                'name' => $this->name,
+                'setting_id' => session('setting_id') ?? 1,
+            ]);
+        });
 
         $this->dispatch('locationCreated', [
             'id' => $location->id,

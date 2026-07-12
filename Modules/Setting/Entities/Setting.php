@@ -47,8 +47,8 @@ class Setting extends BaseModel
                     'created_at'  => $now,
                     'updated_at'  => $now,
                 ])->all();
-
                 SettingSaleLocation::insertOrIgnore($payload);
+                \App\Support\SalesLocationResolver::forget($setting->id);
             }
 
             $paymentMethodIds = \Modules\Setting\Entities\PaymentMethod::pluck('id');
