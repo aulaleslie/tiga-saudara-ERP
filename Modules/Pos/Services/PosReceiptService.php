@@ -35,10 +35,8 @@ class PosReceiptService
         $sale = $checkout->sale;
         $session = $checkout->session;
         $terminal = $checkout->terminal;
-        $customerName = $checkout->customer?->contact_name
-            ?? $checkout->customer?->customer_name
-            ?? $sale?->customer?->contact_name
-            ?? $sale?->customer?->customer_name
+        $customerName = $checkout->customer?->display_name
+            ?? $sale?->customer?->display_name
             ?? '-';
 
         $lines = [];
@@ -428,9 +426,7 @@ class PosReceiptService
 
         $setting = $transaction->setting;
         $lines = [];
-        $customerName = $transaction->customer?->contact_name
-            ?? $transaction->customer?->customer_name
-            ?? '-';
+        $customerName = $transaction->customer?->display_name ?? '-';
 
         foreach ($transaction->lines as $line) {
             $unitBreakdown = null;

@@ -29,4 +29,20 @@ class Customer extends BaseModel
     {
         return $this->belongsTo(PaymentTerm::class, 'payment_term_id', 'id');
     }
+
+    public function getDisplayNameAttribute(): string
+    {
+        $contact = filled($this->contact_name) ? $this->contact_name : null;
+        $company = filled($this->company_name) ? $this->company_name : null;
+
+        if (!$company) {
+            $company = filled($this->customer_name) ? $this->customer_name : null;
+        }
+
+        if ($contact && $company) {
+            return "{$contact} - {$company}";
+        }
+
+        return $contact ?? $company ?? '-';
+    }
 }

@@ -437,4 +437,65 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
             ],
         ]);
     }
+
+    public function test_transaction_receipt_displays_robust_customer_name_with_both_contact_and_company(): void
+    {
+        $setting = $this->createSetting('Test Business');
+        $user = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access',
+            'pos.transactions.view',
+            'pos.receipts.reprint',
+        ]);
+
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'contact_name' => 'Budi Santoso',
+            'company_name' => 'CV Maju Jaya',
+            'customer_name' => 'Fallback Name',
+        ]);
+
+        $transaction = $this->createDraftTransaction($setting, $user);
+        $transaction->update(['customer_id' => $customer->id]);
+
+        // View receipt
+        $this->actingAs($user)->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.transactions.receipt', $transaction))
+            ->assertStatus(200)
+            ->assertSee('Pelanggan')
+            ->assertSee('BUDI SANTOSO - CV MAJU JAYA');
+
+        // Reprint receipt
+        $this->actingAs($user)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.transactions.receipt.reprint', $transaction))
+            ->assertStatus(200)
+            ->assertSee('Pelanggan')
+            ->assertSee('BUDI SANTOSO - CV MAJU JAYA');
+    }
+
+    public function test_transaction_receipt_reprint_displays_only_company_when_contact_is_empty(): void
+    {
+        $setting = $this->createSetting('Test Business');
+        $user = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access',
+            'pos.transactions.view',
+            'pos.receipts.reprint',
+        ]);
+
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'contact_name' => '',
+            'company_name' => 'PT Sukses Bersama',
+            'customer_name' => 'Fallback Name',
+        ]);
+
+        $transaction = $this->createDraftTransaction($setting, $user);
+        $transaction->update(['customer_id' => $customer->id]);
+
+        // Reprint receipt
+        $this->actingAs($user)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.transactions.receipt.reprint', $transaction))
+            ->assertStatus(200)
+            ->assertSee('Pelanggan')
+            ->assertSee('PT SUKSES BERSAMA');
+    }
 }
