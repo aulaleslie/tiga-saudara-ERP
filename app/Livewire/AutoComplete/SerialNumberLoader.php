@@ -19,7 +19,7 @@ class SerialNumberLoader extends Component
     public $how_many = 10; // Limit for search results
     public $location_id = 0;
     public $product_id = 0;
-    public $is_taxed = false;
+    public $is_taxed = null; // null means allow both tax and non-tax
     public $is_broken = false;
     public $serialIndex;
     public $productCompositeKey;
@@ -70,12 +70,7 @@ class SerialNumberLoader extends Component
                     fn($query) => $query->where('location_id', $this->location_id)
                 )
                 ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
-                ->when($this->is_taxed,
-                    fn($query) => $query->whereNotNull('tax_id')->where('tax_id', '>', 0),
-                    fn($query) => $query->where(function ($q) {
-                        $q->whereNull('tax_id')->orWhere('tax_id', 0);
-                    })
-                )
+                // Filter by broken mode only if specified, allow all tax/non-tax serials
                 ->when(
                     ! is_null($this->is_broken),
                     fn($query) => $query->where('is_broken', (bool) $this->is_broken)
@@ -103,6 +98,11 @@ class SerialNumberLoader extends Component
             ->when(
                 $this->location_id,
                 fn($query) => $query->where('location_id', $this->location_id)
+            )
+            ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
+            ->when(
+                ! is_null($this->is_broken),
+                fn($query) => $query->where('is_broken', (bool) $this->is_broken)
             )
             ->when(
                 $this->is_dispatch,

@@ -4,14 +4,34 @@
     <!-- Search Input -->
     <div class="form-group mb-0">
         <div class="input-group">
-            <input
-                wire:keydown.escape="resetQuery"
-                wire:model.live.debounce.400ms="query"
-                type="text"
-                class="form-control"
-                wire:focus="$set('isFocused', true)"
-                wire:blur="resetQueryAfterDelay"
-                placeholder="Ketik nama lokasi...">
+            @if($locationSelected)
+                <input
+                    wire:key="input-selected-{{ $name }}"
+                    type="text"
+                    class="form-control border-success"
+                    readonly
+                    value="{{ $query }}"
+                >
+                <div class="input-group-append">
+                    <button class="btn btn-outline-danger" type="button" wire:click="clearSelection" title="Clear selection">
+                        <i class="bi bi-x"></i>
+                    </button>
+                    <span class="input-group-text bg-success text-white">
+                        <i class="bi bi-check-circle"></i> Selected
+                    </span>
+                </div>
+            @else
+                <input
+                    wire:key="input-search-{{ $name }}"
+                    wire:keydown.escape="resetQuery"
+                    wire:model.live.debounce.400ms="query"
+                    type="text"
+                    class="form-control"
+                    wire:focus="$set('isFocused', true)"
+                    wire:blur="resetQueryAfterDelay"
+                    placeholder="Ketik nama lokasi..."
+                >
+            @endif
         </div>
     </div>
 

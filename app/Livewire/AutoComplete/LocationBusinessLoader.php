@@ -48,8 +48,9 @@ class LocationBusinessLoader extends Component
         if ($locationId) {
             $location = Location::find($locationId);
             if ($location) {
-                $this->query = $location->name;
+                $this->query = $location->name . ' - ' . $location->setting->company_name;
                 $this->search_results = [$location];
+                $this->locationSelected = true;
                 $this->query_count = 1;
             }
         }
@@ -57,10 +58,24 @@ class LocationBusinessLoader extends Component
 
     public function updatedQuery(): void
     {
-        $this->locationSelected = false;
+        // If user edits the text, clear the selected location ID
+        if ($this->locationSelected && trim($this->query) !== '') {
+            $location = Location::find($this->locationId);
+            $expectedQuery = $location ? $location->name . ' - ' . $location->setting->company_name : '';
+
+            // If query differs from expected selected format, clear selection
+            if (trim($this->query) !== $expectedQuery) {
+                $this->locationId = null;
+                $this->locationSelected = false;
+                $this->dispatch($this->eventName, null);
+            }
+        }
+
         if (trim($this->query) === '') {
             $this->search_results = [];
             $this->query_count = 0;
+            $this->locationId = null;
+            $this->locationSelected = false;
             $this->dispatch($this->eventName, null);
             return;
         }
@@ -120,6 +135,15 @@ class LocationBusinessLoader extends Component
             $this->isFocused = false;
             $this->query_count = 0;
         }
+    }
+
+    public function clearSelection(): void
+    {
+        $this->locationId = null;
+        $this->locationSelected = false;
+        $this->query = '';
+        $this->search_results = [];
+        $this->dispatch($this->eventName, null);
     }
 
     public function loadMore(): void

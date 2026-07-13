@@ -25,10 +25,14 @@ class TransferStockForm extends Component
     // hold validation errors for locations only
     public $selfManagedValidationErrors = [];
 
+    // hold validation errors from the table
+    public $tableValidationErrors = [];
+
     protected $listeners = [
         'originLocationSelected'      => 'onOriginLocationSelected',
         'destinationLocationSelected' => 'onDestinationLocationSelected',
         'rowsUpdated'                 => 'onRowsUpdated',
+        'tableValidationErrors'       => 'onTableValidationErrors',
     ];
 
     public ?Transfer $transfer = null;
@@ -82,12 +86,17 @@ class TransferStockForm extends Component
         $this->rows = $rows;
     }
 
+    public function onTableValidationErrors(array $errors)
+    {
+        $this->tableValidationErrors = $errors;
+    }
+
     public $submitAction = null;
 
     public function submit($action = null)
     {
         $this->submitAction = $action;
-        
+
         $this->dispatch('transfer:submit-start');
 
         // reset location errors
@@ -96,6 +105,9 @@ class TransferStockForm extends Component
 
         // emit any existing table errors (will be reset below if none)
         $this->dispatch('tableValidationErrors', $tableErrors);
+
+        // Collect any existing validation errors from the table (e.g., insufficient stock)
+        $this->dispatch('collectTableErrors');
 
         // validate origin and destination
         if (! $this->originLocation) {
@@ -116,22 +128,23 @@ class TransferStockForm extends Component
             $this->selfManagedValidationErrors['rows'] = 'Silakan pilih minimal satu produk.';
         } else {
             foreach ($this->rows as $i => $row) {
-                $manualQuantities = [
+                $allocatedQuantities = [
                     'quantity_tax'            => max(0, (int) ($row['quantity_tax']            ?? 0)),
                     'quantity_non_tax'        => max(0, (int) ($row['quantity_non_tax']        ?? 0)),
                     'quantity_broken_tax'     => max(0, (int) ($row['broken_quantity_tax']     ?? 0)),
                     'quantity_broken_non_tax' => max(0, (int) ($row['broken_quantity_non_tax'] ?? 0)),
                 ];
 
+                $requestedQuantity = max(0, (int) ($row['requested_quantity'] ?? 0));
                 $serials       = $this->normalizeSerialPayload($row['serial_numbers'] ?? []);
                 $serialDetails = $this->calculateSerialBreakdown($serials);
 
-                $finalQuantities = $manualQuantities;
+                $finalQuantities = $allocatedQuantities;
                 $requiresSerial  = ! empty($row['serial_number_required']);
 
                 if (! empty($serials)) {
-                    if ($manualQuantities !== $serialDetails['quantities']) {
-                        $tableErrors["row.{$i}.serial_numbers"] =
+                    if ($allocatedQuantities !== $serialDetails['quantities']) {
+                        $tableErrors["products.{$i}.serial_numbers"] =
                             'Jumlah nomor seri tidak sesuai dengan rincian kuantitas yang dimasukkan.';
                     }
 
@@ -139,45 +152,62 @@ class TransferStockForm extends Component
                 }
 
                 if ($requiresSerial && empty($serials)) {
-                    $tableErrors["row.{$i}.serial_numbers"] = 'Produk ini memerlukan nomor seri.';
+                    $tableErrors["products.{$i}.serial_numbers"] = 'Produk ini memerlukan nomor seri.';
                 }
 
                 $total = array_sum($finalQuantities);
 
                 if ($total <= 0) {
-                    $tableErrors["row.{$i}"] = "Jumlah keseluruhan produk harus lebih besar dari 0.";
+                    $tableErrors["products.{$i}"] = "Jumlah keseluruhan produk harus lebih besar dari 0.";
+                }
+
+                if ($requestedQuantity > 0 && $total !== $requestedQuantity) {
+                    $tableErrors["products.{$i}.requested_quantity"] =
+                        "Jumlah yang diminta ({$requestedQuantity}) tidak sesuai dengan alokasi stok ({$total}).";
                 }
 
                 $stock = $row['stock'] ?? [];
 
                 if ($finalQuantities['quantity_tax'] > ($stock['quantity_tax'] ?? 0)) {
                     $available = $stock['quantity_tax'] ?? 0;
-                    $tableErrors["row.{$i}.quantity_tax"] =
+                    $tableErrors["products.{$i}.quantity_tax"] =
                         "Jumlah Pajak tidak boleh lebih dari stok ({$available}).";
                 }
                 if ($finalQuantities['quantity_non_tax'] > ($stock['quantity_non_tax'] ?? 0)) {
                     $available = $stock['quantity_non_tax'] ?? 0;
-                    $tableErrors["row.{$i}.quantity_non_tax"] =
+                    $tableErrors["products.{$i}.quantity_non_tax"] =
                         "Jumlah Non Pajak tidak boleh lebih dari stok ({$available}).";
                 }
                 if ($finalQuantities['quantity_broken_tax'] > ($stock['broken_quantity_tax'] ?? 0)) {
                     $available = $stock['broken_quantity_tax'] ?? 0;
-                    $tableErrors["row.{$i}.broken_quantity_tax"] =
+                    $tableErrors["products.{$i}.broken_quantity_tax"] =
                         "Rusak Pajak tidak boleh lebih dari stok rusak ({$available}).";
                 }
                 if ($finalQuantities['quantity_broken_non_tax'] > ($stock['broken_quantity_non_tax'] ?? 0)) {
                     $available = $stock['broken_quantity_non_tax'] ?? 0;
-                    $tableErrors["row.{$i}.broken_quantity_non_tax"] =
+                    $tableErrors["products.{$i}.broken_quantity_non_tax"] =
                         "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$available}).";
                 }
 
-                $preparedRows[] = [
-                    'id'                       => $row['id'],
+                // Show warning if tax stock is being used (requires return)
+                if ($finalQuantities['quantity_tax'] > 0 || $finalQuantities['quantity_broken_tax'] > 0) {
+                    $row['tax_warning'] = 'Stok pajak akan digunakan dan harus dikembalikan lintas lokasi.';
+                }
+
+                $preparedRows[] = array_merge($row, [
                     'serial_numbers'           => $serials,
-                    'quantities'               => $finalQuantities,
+                    'quantity_tax'             => $finalQuantities['quantity_tax'] ?? 0,
+                    'quantity_non_tax'         => $finalQuantities['quantity_non_tax'] ?? 0,
+                    'broken_quantity_tax'      => $finalQuantities['quantity_broken_tax'] ?? 0,
+                    'broken_quantity_non_tax'  => $finalQuantities['quantity_broken_non_tax'] ?? 0,
                     'total'                    => $total,
-                ];
+                ]);
             }
+        }
+
+        // Merge table validation errors from the component state
+        foreach ($this->tableValidationErrors as $key => $error) {
+            $tableErrors[$key] = $error;
         }
 
         // abort on validation errors
@@ -191,7 +221,6 @@ class TransferStockForm extends Component
         // all validations passed → persist data through TransferDraftService
         try {
             $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
-            $lifecycleService = app(\Modules\Adjustment\Services\TransferLifecycleService::class);
             $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
             
             // Convert Livewire rows to authoritative TransferFormState
@@ -211,7 +240,6 @@ class TransferStockForm extends Component
                     $this->currentSetting->id,
                     $this->transfer,
                     null, // no idempotency key
-                    true, // validate stock
                     false // do NOT auto-submit - editing remains DRAFT
                 );
                 // Explicit resubmission must be a separate action
@@ -223,7 +251,6 @@ class TransferStockForm extends Component
                     $this->currentSetting->id,
                     null, // no existing transfer
                     null, // no idempotency key
-                    true, // validate stock
                     true  // atomicSubmit: create and submit PENDING in one transaction
                 );
             }

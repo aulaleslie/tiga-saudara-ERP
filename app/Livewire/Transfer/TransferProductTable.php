@@ -17,6 +17,7 @@ class TransferProductTable extends Component
         'removeSerialNumber',
         'locationsConfirmed'      => 'resetOnNewLocations',
         'tableValidationErrors'   => 'onTableValidationErrors',
+        'collectTableErrors'      => 'onCollectTableErrors',
     ];
 
     public $products = [];
@@ -76,54 +77,37 @@ class TransferProductTable extends Component
         if ($existingKey !== false) {
             // For serial products, we don't automatically increment quantities, the user must scan the serials.
             if (empty($product['serial_number_required'])) {
+                $currentRequested = (int) ($this->products[$existingKey]['requested_quantity'] ?? 0);
+                $newRequested = $currentRequested + $scanMultiplier;
+
+                // Calculate remaining available
+                $isBrokenMode = (bool) ($this->products[$existingKey]['is_broken_mode'] ?? false);
                 if ($isBrokenMode) {
-                    // Calculate remaining available for broken mode
-                    $currentBrokenTotal = (int) ($this->products[$existingKey]['broken_quantity_tax'] ?? 0) 
+                    $currentBrokenTotal = (int) ($this->products[$existingKey]['broken_quantity_tax'] ?? 0)
                                         + (int) ($this->products[$existingKey]['broken_quantity_non_tax'] ?? 0);
                     $availableBrokenStock = ($stock?->broken_quantity ?? 0) - $currentBrokenTotal;
-                    
+
                     if ($availableBrokenStock >= $scanMultiplier && $stock) {
-                        // Create a temporary stock object with remaining quantities for allocation
-                        $tempStock = (object)[
-                            'broken_quantity_non_tax' => ($stock->broken_quantity_non_tax ?? 0) - (int) ($this->products[$existingKey]['broken_quantity_non_tax'] ?? 0),
-                            'broken_quantity_tax' => ($stock->broken_quantity_tax ?? 0) - (int) ($this->products[$existingKey]['broken_quantity_tax'] ?? 0),
-                            'broken_quantity' => $availableBrokenStock,
-                            'quantity_non_tax' => 0,
-                            'quantity_tax' => 0,
-                            'quantity' => 0,
-                        ];
-                        
-                        $allocation = $allocationService->previewAllocation($tempStock, $scanMultiplier, true);
-                        $this->products[$existingKey]['broken_quantity_non_tax'] = (int) ($this->products[$existingKey]['broken_quantity_non_tax'] ?? 0) + (int) $allocation->allocatedNonTax;
-                        $this->products[$existingKey]['broken_quantity_tax'] = (int) ($this->products[$existingKey]['broken_quantity_tax'] ?? 0) + (int) $allocation->allocatedTax;
+                        $this->products[$existingKey]['requested_quantity'] = $newRequested;
+                        // Recalculate allocation
+                        $this->recalculateAllocation($existingKey);
                     } else {
                         session()->flash('message', 'Stok rusak tidak mencukupi untuk ditambah lagi.');
                     }
                 } else {
-                    // Calculate remaining available for normal mode
-                    $currentTotal = (int) ($this->products[$existingKey]['quantity_tax'] ?? 0) 
+                    $currentTotal = (int) ($this->products[$existingKey]['quantity_tax'] ?? 0)
                                   + (int) ($this->products[$existingKey]['quantity_non_tax'] ?? 0);
                     $availableStock = ($stock?->quantity ?? 0) - $currentTotal;
-                    
+
                     if ($availableStock >= $scanMultiplier && $stock) {
-                        // Create a temporary stock object with remaining quantities for allocation
-                        $tempStock = (object)[
-                            'quantity_non_tax' => ($stock->quantity_non_tax ?? 0) - (int) ($this->products[$existingKey]['quantity_non_tax'] ?? 0),
-                            'quantity_tax' => ($stock->quantity_tax ?? 0) - (int) ($this->products[$existingKey]['quantity_tax'] ?? 0),
-                            'quantity' => $availableStock,
-                            'broken_quantity_non_tax' => 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity' => 0,
-                        ];
-                        
-                        $allocation = $allocationService->previewAllocation($tempStock, $scanMultiplier, false);
-                        $this->products[$existingKey]['quantity_non_tax'] = (int) ($this->products[$existingKey]['quantity_non_tax'] ?? 0) + (int) $allocation->allocatedNonTax;
-                        $this->products[$existingKey]['quantity_tax'] = (int) ($this->products[$existingKey]['quantity_tax'] ?? 0) + (int) $allocation->allocatedTax;
+                        $this->products[$existingKey]['requested_quantity'] = $newRequested;
+                        // Recalculate allocation
+                        $this->recalculateAllocation($existingKey);
                     } else {
                         session()->flash('message', 'Stok tidak mencukupi untuk ditambah lagi.');
                     }
                 }
-                
+
                 $this->dispatch('rowsUpdated', $this->products);
             }
             return;
@@ -139,28 +123,35 @@ class TransferProductTable extends Component
         ];
 
         // initialize transfer inputs
-        $product['quantity_tax']            = 0;
-        $product['quantity_non_tax']        = 0;
-        $product['broken_quantity_tax']     = 0;
-        $product['broken_quantity_non_tax'] = 0;
+        $product['requested_quantity']      = 0; // Single user-facing quantity input
+        $product['quantity_tax']            = 0; // Calculated allocation
+        $product['quantity_non_tax']        = 0; // Calculated allocation
+        $product['broken_quantity_tax']     = 0; // Calculated allocation
+        $product['broken_quantity_non_tax'] = 0; // Calculated allocation
         $product['serial_number_required']  = (bool) ($product['serial_number_required'] ?? false);
         $product['serial_numbers']          = [];
 
-        // Apply initial multiplier if stock is sufficient and product doesn't require serials
+        // Set the requested quantity and let recalculateAllocation handle allocation
+        $product['requested_quantity'] = $scanMultiplier;
+
         if (!$product['serial_number_required'] && $stock) {
+            $allocation = $allocationService->previewAllocation($stock, $scanMultiplier, $isBrokenMode);
+
             if ($isBrokenMode) {
-                $allocation = $allocationService->previewAllocation($stock, $scanMultiplier, true);
                 $product['broken_quantity_non_tax'] = (int) $allocation->allocatedNonTax;
                 $product['broken_quantity_tax'] = (int) $allocation->allocatedTax;
-                
+                $product['quantity_tax'] = 0;
+                $product['quantity_non_tax'] = 0;
+
                 if ($allocation->isInsufficient) {
                     session()->flash('message', 'Stok rusak tidak mencukupi untuk jumlah yang dipindai.');
                 }
             } else {
-                $allocation = $allocationService->previewAllocation($stock, $scanMultiplier, false);
                 $product['quantity_non_tax'] = (int) $allocation->allocatedNonTax;
                 $product['quantity_tax'] = (int) $allocation->allocatedTax;
-                
+                $product['broken_quantity_tax'] = 0;
+                $product['broken_quantity_non_tax'] = 0;
+
                 if ($allocation->isInsufficient) {
                     session()->flash('message', 'Stok tidak mencukupi untuk jumlah yang dipindai.');
                 }
@@ -319,6 +310,9 @@ class TransferProductTable extends Component
         $this->products[$rowKey]['quantity_non_tax']        = $quantityNonTax;
         $this->products[$rowKey]['broken_quantity_tax']     = $brokenQuantityTax;
         $this->products[$rowKey]['broken_quantity_non_tax'] = $brokenQuantityNonTax;
+
+        // Synchronize requested_quantity to match the serial count
+        $this->products[$rowKey]['requested_quantity'] = count($serials);
     }
 
     /**
@@ -327,10 +321,80 @@ class TransferProductTable extends Component
     public function updated($name, $value)
     {
         if (strpos($name, 'products.') === 0) {
-            // clear any existing validation for this field
-            unset($this->tableValidationErrors[$name]);
+            // Handle quantity input changes
+            if (preg_match('/^products\.(\d+)\.requested_quantity$/', $name, $matches)) {
+                $rowKey = (int) $matches[1];
+                $this->recalculateAllocation($rowKey);
+                // Don't clear the error for requested_quantity, it's set by recalculateAllocation
+            } else {
+                // clear any existing validation for this field (but not requested_quantity)
+                unset($this->tableValidationErrors[$name]);
+            }
+
             unset($this->tableValidationErrors['rows']);
             $this->dispatch('rowsUpdated', $this->products);
+        }
+    }
+
+    /**
+     * Recalculate tax/non-tax allocation based on requested quantity
+     */
+    protected function recalculateAllocation(int $rowKey): void
+    {
+        if (!isset($this->products[$rowKey])) {
+            return;
+        }
+
+        $product = &$this->products[$rowKey];
+
+        // For serialized products, allocation is derived from serials
+        if (!empty($product['serial_number_required'])) {
+            return;
+        }
+
+        $requestedQty = max(0, (int) ($product['requested_quantity'] ?? 0));
+
+        $stock = ProductStock::where('product_id', $product['id'])
+            ->where('location_id', $this->originLocationId)
+            ->first();
+
+        if (!$stock) {
+            $product['quantity_tax'] = 0;
+            $product['quantity_non_tax'] = 0;
+            $product['broken_quantity_tax'] = 0;
+            $product['broken_quantity_non_tax'] = 0;
+            return;
+        }
+
+        $allocationService = app(TransferAllocationPreviewService::class);
+        $isBrokenMode = (bool) ($product['is_broken_mode'] ?? false);
+
+        $allocation = $allocationService->previewAllocation($stock, $requestedQty, $isBrokenMode);
+
+        if ($isBrokenMode) {
+            $product['broken_quantity_non_tax'] = (int) $allocation->allocatedNonTax;
+            $product['broken_quantity_tax'] = (int) $allocation->allocatedTax;
+            $product['quantity_tax'] = 0;
+            $product['quantity_non_tax'] = 0;
+
+            // Reject if allocation is insufficient
+            if ($allocation->isInsufficient) {
+                $this->tableValidationErrors['products.' . $rowKey . '.requested_quantity'] = 'Stok rusak tidak mencukupi untuk jumlah yang diminta.';
+            } else {
+                unset($this->tableValidationErrors['products.' . $rowKey . '.requested_quantity']);
+            }
+        } else {
+            $product['quantity_non_tax'] = (int) $allocation->allocatedNonTax;
+            $product['quantity_tax'] = (int) $allocation->allocatedTax;
+            $product['broken_quantity_tax'] = 0;
+            $product['broken_quantity_non_tax'] = 0;
+
+            // Reject if allocation is insufficient
+            if ($allocation->isInsufficient) {
+                $this->tableValidationErrors['products.' . $rowKey . '.requested_quantity'] = 'Stok tidak mencukupi untuk jumlah yang diminta.';
+            } else {
+                unset($this->tableValidationErrors['products.' . $rowKey . '.requested_quantity']);
+            }
         }
     }
 
@@ -340,6 +404,14 @@ class TransferProductTable extends Component
     public function onTableValidationErrors(array $errors): void
     {
         $this->tableValidationErrors = $errors;
+    }
+
+    /**
+     * Collect current table validation errors and dispatch to parent
+     */
+    public function onCollectTableErrors(): void
+    {
+        $this->dispatch('tableValidationErrors', $this->tableValidationErrors);
     }
 
     public function serialScanned(array $payload): void

@@ -32,7 +32,10 @@ return new class extends Migration
             $table->index('transfer_id');
             $table->index('transfer_product_id');
             
-            $table->unique(['transfer_id', 'transfer_product_id']);
+            $table->unique(
+                ['transfer_id', 'transfer_product_id'],
+                'transfer_return_transfer_product_unique'
+            );
         });
     }
 

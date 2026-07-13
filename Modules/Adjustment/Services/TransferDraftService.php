@@ -27,7 +27,7 @@ class TransferDraftService
 
     /**
      * Create, update, or resubmit a transfer from a draft state.
-     * 
+     *
      * @param bool $atomicSubmit If true and creating a new transfer, atomically submit to PENDING; otherwise create as DRAFT
      */
     public function saveDraft(
@@ -43,21 +43,21 @@ class TransferDraftService
         if (!$origin || (int) $origin->setting_id !== $tenantSettingId) {
             throw new InvalidArgumentException("Invalid origin location for current tenant.");
         }
-        
+
         $destination = Location::where('id', $state->destinationLocationId)->first();
         if (!$destination) {
             throw new InvalidArgumentException("Invalid destination location.");
         }
-        
+
         if ($origin->id === $destination->id) {
             throw new InvalidArgumentException("Origin and destination cannot be the same.");
         }
 
         if ($transfer) {
-            $transferOriginSettingId = $transfer->relationLoaded('originLocation') 
-                ? $transfer->originLocation?->setting_id 
+            $transferOriginSettingId = $transfer->relationLoaded('originLocation')
+                ? $transfer->originLocation?->setting_id
                 : Location::where('id', $transfer->origin_location_id)->value('setting_id');
-                
+
             if ((int) $transferOriginSettingId !== $origin->setting_id) {
                 throw new InvalidArgumentException("Cannot modify transfer from another tenant.");
             }
@@ -84,14 +84,14 @@ class TransferDraftService
             $stock = ProductStock::where('product_id', $product->id)
                 ->where('location_id', $origin->id)
                 ->first();
-            
+
             // Stock must exist for all transfers
             if (!$stock) {
                 throw new InvalidArgumentException("No stock found for product {$product->id} at origin.");
             }
 
             $normalizedSerialIds = [];
-            
+
             if ($line->isSerialNumberRequired) {
                 // Extract serial IDs from selectedSerials (handle both ID arrays and object arrays)
                 $serialIds = collect($line->selectedSerials)->map(function ($serial) {
@@ -115,7 +115,7 @@ class TransferDraftService
                 if ($validSerials->count() !== count($normalizedSerialIds)) {
                     throw new InvalidArgumentException("One or more selected serials are invalid.");
                 }
-                
+
                 // Validate each serial: product, location, status, dispatch availability, return process, mode
                 foreach ($validSerials as $serial) {
                     if ((int) $serial->product_id !== (int) $product->id) {
@@ -134,18 +134,18 @@ class TransferDraftService
                         throw new InvalidArgumentException("Serial {$serial->serial_number} is already in return process.");
                     }
                 }
-                
+
                 // Verify mode compatibility: normal vs broken
                 $normalSerials = $validSerials->filter(fn($s) => !$s->is_broken);
                 $brokenSerials = $validSerials->filter(fn($s) => $s->is_broken);
-                
+
                 if ($line->isBrokenMode && $normalSerials->count() > 0) {
                     throw new InvalidArgumentException("Cannot include non-broken serials in broken mode.");
                 }
                 if (!$line->isBrokenMode && $brokenSerials->count() > 0) {
                     throw new InvalidArgumentException("Cannot include broken serials in normal mode.");
                 }
-                
+
                 // Derive provenance from tax_id and is_broken
                 // Tax = (is_broken=false AND tax_id!=null), NonTax = (is_broken=false AND tax_id=null)
                 // BrokenTax = (is_broken=true AND tax_id!=null), BrokenNonTax = (is_broken=true AND tax_id=null)
@@ -153,7 +153,7 @@ class TransferDraftService
                 $quantityNonTax = $validSerials->filter(fn($s) => !$s->is_broken && $s->tax_id === null)->count();
                 $quantityBrokenTax = $validSerials->filter(fn($s) => $s->is_broken && $s->tax_id !== null)->count();
                 $quantityBrokenNonTax = $validSerials->filter(fn($s) => $s->is_broken && $s->tax_id === null)->count();
-                
+
                 $taxQuantity = $line->isBrokenMode ? 0 : $quantityTax;
                 $nonTaxQuantity = $line->isBrokenMode ? 0 : $quantityNonTax;
                 $brokenTaxQuantity = $line->isBrokenMode ? $quantityBrokenTax : 0;
@@ -164,7 +164,7 @@ class TransferDraftService
                 if ($preview->isInsufficient) {
                     throw new InvalidArgumentException("Insufficient stock for product {$product->id}.");
                 }
-                
+
                 $taxQuantity = $line->isBrokenMode ? 0 : $preview->allocatedTax;
                 $nonTaxQuantity = $line->isBrokenMode ? 0 : $preview->allocatedNonTax;
                 $brokenTaxQuantity = $line->isBrokenMode ? $preview->allocatedTax : 0;
@@ -182,18 +182,34 @@ class TransferDraftService
                 ])->values()->all();
             }
 
-            $productsData[] = [
-                'product_id' => $product->id,
-                'quantity' => $line->requestedBaseQuantity,
-                'quantities' => [
-                    'quantity_tax' => $taxQuantity,
-                    'quantity_non_tax' => $nonTaxQuantity,
-                    'quantity_broken_tax' => $brokenTaxQuantity,
-                    'quantity_broken_non_tax' => $brokenNonTaxQuantity,
-                ],
-                'serial_numbers' => $serialSnapshots ?: $line->selectedSerials,
-            ];
+            $pid = $product->id;
+            if (!isset($productsData[$pid])) {
+                $productsData[$pid] = [
+                    'product_id' => $pid,
+                    'quantity' => 0,
+                    'quantities' => [
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
+                        'quantity_broken_tax' => 0,
+                        'quantity_broken_non_tax' => 0,
+                    ],
+                    'serial_numbers' => [],
+                ];
+            }
+
+            $productsData[$pid]['quantity'] += $line->requestedBaseQuantity;
+            $productsData[$pid]['quantities']['quantity_tax'] += $taxQuantity;
+            $productsData[$pid]['quantities']['quantity_non_tax'] += $nonTaxQuantity;
+            $productsData[$pid]['quantities']['quantity_broken_tax'] += $brokenTaxQuantity;
+            $productsData[$pid]['quantities']['quantity_broken_non_tax'] += $brokenNonTaxQuantity;
+
+            $serialsToMerge = $serialSnapshots ?: $line->selectedSerials;
+            if (!empty($serialsToMerge)) {
+                $productsData[$pid]['serial_numbers'] = array_merge($productsData[$pid]['serial_numbers'], $serialsToMerge);
+            }
         }
+
+        $productsData = array_values($productsData);
 
         if (!$transfer) {
             if ($atomicSubmit) {
@@ -205,7 +221,7 @@ class TransferDraftService
                     $idempotencyKey
                 );
             }
-            
+
             return $this->lifecycleService->createDraft(
                 $origin->id,
                 $destination->id,

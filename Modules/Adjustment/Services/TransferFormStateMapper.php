@@ -16,37 +16,83 @@ class TransferFormStateMapper
     public function mapToLivewireRows(Transfer $transfer): array
     {
         $transfer->loadMissing('products.product');
-        
+
         $rows = [];
         foreach ($transfer->products as $transferProduct) {
             $product = $transferProduct->product;
-            
+
             $stock = ProductStock::where('product_id', $product->id)
                 ->where('location_id', $transfer->origin_location_id)
                 ->first();
-                
-            $rows[] = [
+
+            $stockData = [
+                'total'                   => $stock?->quantity                 ?? 0,
+                'quantity_tax'            => $stock?->quantity_tax             ?? 0,
+                'quantity_non_tax'        => $stock?->quantity_non_tax         ?? 0,
+                'broken_quantity_tax'     => $stock?->broken_quantity_tax      ?? 0,
+                'broken_quantity_non_tax' => $stock?->broken_quantity_non_tax  ?? 0,
+            ];
+
+            $baseRow = [
                 'id' => $product->id,
                 'product_name' => $product->product_name,
                 'product_code' => $product->product_code,
                 'product_barcode' => $product->barcode,
                 'serial_number_required' => $product->serial_number_required,
-                'quantity_tax' => $transferProduct->quantity_tax,
-                'quantity_non_tax' => $transferProduct->quantity_non_tax,
-                'broken_quantity_tax' => $transferProduct->quantity_broken_tax,
-                'broken_quantity_non_tax' => $transferProduct->quantity_broken_non_tax,
-                'serial_numbers' => $transferProduct->serial_numbers ?? [],
-                'stock' => [
-                    'total'                   => $stock?->quantity                 ?? 0,
-                    'quantity_tax'            => $stock?->quantity_tax             ?? 0,
-                    'quantity_non_tax'        => $stock?->quantity_non_tax         ?? 0,
-                    'broken_quantity_tax'     => $stock?->broken_quantity_tax      ?? 0,
-                    'broken_quantity_non_tax' => $stock?->broken_quantity_non_tax  ?? 0,
-                ],
+                'stock' => $stockData,
                 'scan_quantity_multiplier' => 1,
             ];
+
+            // Normal mode
+            if ($transferProduct->quantity_tax > 0 || $transferProduct->quantity_non_tax > 0) {
+                $normalRow = $baseRow;
+                $normalRow['is_broken_mode'] = false;
+                $normalRow['requested_quantity'] = $transferProduct->quantity_tax + $transferProduct->quantity_non_tax;
+                $normalRow['quantity_tax'] = $transferProduct->quantity_tax;
+                $normalRow['quantity_non_tax'] = $transferProduct->quantity_non_tax;
+                $normalRow['broken_quantity_tax'] = 0;
+
+                $normalRow['serial_numbers'] = collect($transferProduct->serial_numbers ?? [])
+                    ->filter(fn($s) => empty($s['is_broken']))
+                    ->values()
+                    ->all();
+
+                $rows[] = $normalRow;
+            }
+
+            // Broken mode
+            if ($transferProduct->quantity_broken_tax > 0 || $transferProduct->quantity_broken_non_tax > 0) {
+                $brokenRow = $baseRow;
+                $brokenRow['is_broken_mode'] = true;
+                $brokenRow['requested_quantity'] = $transferProduct->quantity_broken_tax + $transferProduct->quantity_broken_non_tax;
+                $brokenRow['quantity_tax'] = 0;
+                $brokenRow['quantity_non_tax'] = 0;
+                $brokenRow['broken_quantity_tax'] = $transferProduct->quantity_broken_tax;
+                $brokenRow['broken_quantity_non_tax'] = $transferProduct->quantity_broken_non_tax;
+
+                $brokenRow['serial_numbers'] = collect($transferProduct->serial_numbers ?? [])
+                    ->filter(fn($s) => !empty($s['is_broken']))
+                    ->values()
+                    ->all();
+
+                $rows[] = $brokenRow;
+            }
+
+            // Fallback for empty transfer product
+            if ($transferProduct->quantity_tax == 0 && $transferProduct->quantity_non_tax == 0 &&
+                $transferProduct->quantity_broken_tax == 0 && $transferProduct->quantity_broken_non_tax == 0) {
+                $normalRow = $baseRow;
+                $normalRow['is_broken_mode'] = false;
+                $normalRow['requested_quantity'] = 0;
+                $normalRow['quantity_tax'] = 0;
+                $normalRow['quantity_non_tax'] = 0;
+                $normalRow['broken_quantity_tax'] = 0;
+                $normalRow['broken_quantity_non_tax'] = 0;
+                $normalRow['serial_numbers'] = [];
+                $rows[] = $normalRow;
+            }
         }
-        
+
         return $rows;
     }
 

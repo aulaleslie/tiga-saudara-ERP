@@ -17,10 +17,8 @@
                 <th>#</th>
                 <th>Nama Produk</th>
                 <th>Stok</th>
-                <th>Jumlah Pajak</th>
-                <th>Jumlah Non Pajak</th>
-                <th>Rusak Pajak</th>
-                <th>Rusak Non Pajak</th>
+                <th>Jumlah</th>
+                <th>Alokasi</th>
                 <th>Action</th>
             </tr>
             </thead>
@@ -33,117 +31,172 @@
                         {{ $p['product_name'] }}
                         <div><span class="badge badge-secondary">{{ $p['product_code'] }}</span></div>
 
-                        @if(!empty($tableValidationErrors["row.{$i}"]))
+                        @if(!empty($tableValidationErrors["products.{$i}"]))
                             <span class="text-danger small">
-                                {{ $tableValidationErrors["row.{$i}"] }}
+                                {{ $tableValidationErrors["products.{$i}"] }}
                             </span>
                         @endif
                     </td>
 
-                    <td class="text-center">
-                        <span
-                            class="badge badge-info"
-                            title="Pajak: {{ $p['stock']['quantity_tax'] }} | Non Pajak: {{ $p['stock']['quantity_non_tax'] }} | Rusak Pajak: {{ $p['stock']['broken_quantity_tax'] }} | Rusak Non Pajak: {{ $p['stock']['broken_quantity_non_tax'] }}">
-                            {{ $p['stock']['total'] }}
-                        </span>
-                    </td>
-
                     @php
-                        $fields = [
-                            'quantity_tax'             => ['label' => 'Jumlah Pajak', 'is_taxed' => true,  'is_broken' => false],
-                            'quantity_non_tax'         => ['label' => 'Jumlah Non Pajak', 'is_taxed' => false, 'is_broken' => false],
-                            'broken_quantity_tax'      => ['label' => 'Rusak Pajak', 'is_taxed' => true,  'is_broken' => true],
-                            'broken_quantity_non_tax'  => ['label' => 'Rusak Non Pajak', 'is_taxed' => false, 'is_broken' => true],
-                        ];
                         $serialRequired = $p['serial_number_required'] ?? false;
                         $serials = collect($p['serial_numbers'] ?? []);
+                        $isBrokenMode = $p['is_broken_mode'] ?? false;
                     @endphp
 
-                    @foreach($fields as $field => $config)
-                        <td>
-                            @if($serialRequired)
-                                <div class="d-flex flex-column">
-                                    <div class="mb-2">
-                                        @if($originLocationId)
-                                            <livewire:auto-complete.serial-number-loader
-                                                :location-id="$originLocationId"
-                                                :product-id="$p['id']"
-                                                :is-taxed="$config['is_taxed']"
-                                                :is-broken="$config['is_broken']"
-                                                :serial-index="'transfer-' . $field . '-' . $i"
-                                                :product-composite-key="$i"
-                                                :is-dispatch="true"
-                                                wire:key="transfer-serial-{{ $field }}-{{ $i }}"
-                                            />
-                                        @else
-                                            <div class="alert alert-warning mb-2 py-1 px-2">
-                                                <small>Pilih lokasi asal terlebih dahulu.</small>
-                                            </div>
-                                        @endif
-                                    </div>
+                    <!-- Stock Column: Show tax/non-tax buckets based on mode -->
+                    <td class="text-center">
+                        <div class="small">
+                            @if($isBrokenMode)
+                                <div>
+                                    <strong>Rusak Non Pajak:</strong> {{ $p['stock']['broken_quantity_non_tax'] ?? 0 }}
+                                </div>
+                                <div>
+                                    <strong>Rusak Pajak:</strong> {{ $p['stock']['broken_quantity_tax'] ?? 0 }}
+                                </div>
+                                <div class="mt-1 font-weight-bold text-primary">
+                                    Total: {{ ($p['stock']['broken_quantity_non_tax'] ?? 0) + ($p['stock']['broken_quantity_tax'] ?? 0) }}
+                                </div>
+                            @else
+                                <div>
+                                    <strong>Non Pajak:</strong> {{ $p['stock']['quantity_non_tax'] ?? 0 }}
+                                </div>
+                                <div>
+                                    <strong>Pajak:</strong> {{ $p['stock']['quantity_tax'] ?? 0 }}
+                                </div>
+                                <div class="mt-1 font-weight-bold text-primary">
+                                    Total: {{ ($p['stock']['quantity_non_tax'] ?? 0) + ($p['stock']['quantity_tax'] ?? 0) }}
+                                </div>
+                            @endif
+                        </div>
+                    </td>
 
-                                    <div class="form-control-plaintext text-center font-weight-bold">
-                                        {{ $p[$field] ?? 0 }}
-                                    </div>
-
-                                    @php
-                                        $filteredSerials = $serials->filter(function ($serial, $serialIndex) use ($config) {
-                                            $matchesTax   = (bool) ($serial['taxable'] ?? false) === (bool) $config['is_taxed'];
-                                            $matchesBroken = (bool) ($serial['is_broken'] ?? false) === (bool) $config['is_broken'];
-
-                                            return $matchesTax && $matchesBroken;
-                                        });
-                                    @endphp
-
-                                    <div class="mt-2">
-                                        @if($filteredSerials->isEmpty())
-                                            <small class="text-muted">Belum ada nomor seri.</small>
-                                        @else
-                                            <div class="d-flex flex-wrap">
-                                                @foreach($filteredSerials as $serialIndex => $serial)
-                                                    <span class="badge badge-light border d-flex align-items-center mb-1 mr-1">
-                                                        <span>{{ $serial['serial_number'] }}</span>
-                                                        <button type="button"
-                                                            class="btn btn-link btn-sm text-danger p-0 ml-2"
-                                                            wire:click="removeSerialNumber({{ $i }}, {{ $serialIndex }})"
-                                                            title="Hapus nomor seri">
-                                                            <i class="bi bi-x-circle"></i>
-                                                        </button>
-                                                    </span>
-                                                @endforeach
-                                            </div>
-                                        @endif
-                                    </div>
-
-                                    @if($loop->first && isset($tableValidationErrors["row.{$i}.serial_numbers"]))
-                                        <div class="text-danger small mt-1">
-                                            {{ $tableValidationErrors["row.{$i}.serial_numbers"] }}
-                                        </div>
-                                    @endif
-
-                                    @if(isset($tableValidationErrors["row.{$i}.{$field}"]))
-                                        <div class="text-danger small mt-1">
-                                            {{ $tableValidationErrors["row.{$i}.{$field}"] }}
+                    <!-- Single Quantity Input Column -->
+                    <td>
+                        @if($serialRequired)
+                            <!-- Serial Products: Use serial selection, quantity is derived -->
+                            <div class="d-flex flex-column">
+                                <div class="mb-2">
+                                    @if($originLocationId)
+                                        <livewire:auto-complete.serial-number-loader
+                                            :location-id="$originLocationId"
+                                            :product-id="$p['id']"
+                                            :serial-index="'transfer-serials-' . $i"
+                                            :product-composite-key="$i"
+                                            :is-broken="$isBrokenMode"
+                                            :is-dispatch="true"
+                                            wire:key="transfer-serial-{{ $i }}"
+                                        />
+                                    @else
+                                        <div class="alert alert-warning mb-2 py-1 px-2">
+                                            <small>Pilih lokasi asal terlebih dahulu.</small>
                                         </div>
                                     @endif
                                 </div>
-                            @else
+
+                                <div class="form-control-plaintext text-center font-weight-bold">
+                                    {{ count($serials) }}
+                                </div>
+
+                                <div class="mt-2">
+                                    @if($serials->isEmpty())
+                                        <small class="text-muted">Belum ada nomor seri.</small>
+                                    @else
+                                        <div class="d-flex flex-wrap">
+                                            @foreach($serials as $serialIndex => $serial)
+                                                <span class="badge badge-light border d-flex align-items-center mb-1 mr-1">
+                                                    <span>{{ $serial['serial_number'] }}</span>
+                                                    <button type="button"
+                                                        class="btn btn-link btn-sm text-danger p-0 ml-2"
+                                                        wire:click="removeSerialNumber({{ $i }}, {{ $serialIndex }})"
+                                                        title="Hapus nomor seri">
+                                                        <i class="bi bi-x-circle"></i>
+                                                    </button>
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+
+                                @if(isset($tableValidationErrors["products.{$i}.serial_numbers"]))
+                                    <div class="text-danger small mt-1">
+                                        {{ $tableValidationErrors["products.{$i}.serial_numbers"] }}
+                                    </div>
+                                @endif
+                            </div>
+                        @else
+                            <!-- Non-Serial Products: Single quantity input with auto-allocation -->
+                            <div>
                                 <input
                                     type="number"
                                     min="0"
                                     class="form-control"
-                                    wire:model.lazy="products.{{ $i }}.{{ $field }}"
+                                    wire:model.live="products.{{ $i }}.requested_quantity"
+                                    placeholder="Jumlah dasar"
+                                    title="Masukkan jumlah dalam satuan dasar. Alokasi pajak/non-pajak dihitung otomatis."
                                 >
 
-                                {{-- field-level error --}}
-                                @if(isset($tableValidationErrors["row.{$i}.{$field}"]))
+                                @if(isset($tableValidationErrors["products.{$i}.requested_quantity"]))
                                     <div class="text-danger small mt-1">
-                                        {{ $tableValidationErrors["row.{$i}.{$field}"] }}
+                                        {{ $tableValidationErrors["products.{$i}.requested_quantity"] }}
                                     </div>
                                 @endif
+                            </div>
+                        @endif
+                    </td>
+
+                    <!-- Allocation Display Column -->
+                    <td class="text-center">
+                        <div class="small">
+                            @if($serialRequired)
+                                <!-- Serial: Show breakdown of selected serials -->
+                                @php
+                                    $taxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
+                                    $nonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
+                                    $brokenTaxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
+                                    $brokenNonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
+                                @endphp
+                                @if($isBrokenMode)
+                                    @if($brokenNonTaxCount > 0)
+                                        <div>Rusak Non Pajak: {{ $brokenNonTaxCount }}</div>
+                                    @endif
+                                    @if($brokenTaxCount > 0)
+                                        <div class="text-warning">Rusak Pajak: {{ $brokenTaxCount }} <i class="bi bi-exclamation-circle"></i></div>
+                                    @endif
+                                @else
+                                    @if($nonTaxCount > 0)
+                                        <div>Non Pajak: {{ $nonTaxCount }}</div>
+                                    @endif
+                                    @if($taxCount > 0)
+                                        <div class="text-warning">Pajak: {{ $taxCount }} <i class="bi bi-exclamation-circle"></i></div>
+                                    @endif
+                                @endif
+                            @else
+                                <!-- Non-Serial: Show calculated allocation -->
+                                @php
+                                    if ($isBrokenMode) {
+                                        $nonTaxAlloc = $p['broken_quantity_non_tax'] ?? 0;
+                                        $taxAlloc = $p['broken_quantity_tax'] ?? 0;
+                                        $label = 'Rusak';
+                                    } else {
+                                        $nonTaxAlloc = $p['quantity_non_tax'] ?? 0;
+                                        $taxAlloc = $p['quantity_tax'] ?? 0;
+                                        $label = '';
+                                    }
+                                @endphp
+
+                                @if($nonTaxAlloc > 0)
+                                    <div>{{ $isBrokenMode ? 'R' : '' }}Non Pajak: {{ $nonTaxAlloc }}</div>
+                                @endif
+                                @if($taxAlloc > 0)
+                                    <div class="text-warning">{{ $isBrokenMode ? 'R' : '' }}Pajak: {{ $taxAlloc }} <i class="bi bi-exclamation-circle" title="Stok pajak harus dikembalikan lintas lokasi"></i></div>
+                                @endif
+                                @if($nonTaxAlloc === 0 && $taxAlloc === 0)
+                                    <span class="text-muted">-</span>
+                                @endif
                             @endif
-                        </td>
-                    @endforeach
+                        </div>
+                    </td>
 
                     <td class="text-center">
                         <button

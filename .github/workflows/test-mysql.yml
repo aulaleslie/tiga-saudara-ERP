@@ -56,6 +56,16 @@ jobs:
         sed -i 's/value="sqlite"/value="mysql"/g' phpunit.xml
         sed -i 's/value="database\/testing.sqlite"/value="testing"/g' phpunit.xml
 
+    - name: Verify MySQL Migrations
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan migrate:fresh
+
     - name: Run Tests (MySQL)
       env:
         DB_CONNECTION: mysql
