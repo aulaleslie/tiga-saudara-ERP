@@ -33,13 +33,16 @@ class PurchaseTable extends Component
     public bool $paidLast30DaysOnly = false;
     /** @var array<string>|null */
     public ?array $cardStatusFilter = null;
+    public bool $globalMode = false;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
-    public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null)
+    public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false)
     {
-        // if you pass it in from the parent, use that; otherwise, fall back to the logged-in user’s
-        $this->settingId = $settingId ?? session('setting_id');
+        $this->globalMode = $globalMode;
+        if (!$this->globalMode) {
+            $this->settingId = $settingId ?? session('setting_id');
+        }
         $this->statusFilter = $statusFilter;
         $this->purchaseId = $purchaseId;
         $this->supplierId = $supplierId;
@@ -117,10 +120,19 @@ class PurchaseTable extends Component
             $statuses = $this->cardStatusFilter;
         }
 
-        $query = ($this->showArchived ? Purchase::archived() : Purchase::query())
+        $query = ($this->showArchived && !$this->globalMode ? Purchase::archived() : Purchase::query())
             ->with(['supplier', 'tags', 'purchaseDetails'])
-            ->where('setting_id', $this->settingId)
-            ->when($statuses !== null, function ($q) use ($statuses) {
+            ->withSum(['purchasePayments as active_payments_sum' => function($q) {
+                $q->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
+            }], 'amount')
+            ->when(!$this->globalMode, function ($q) {
+                $q->where('setting_id', $this->settingId);
+            })
+            ->when($this->globalMode, function ($q) {
+                $q->where('status', Purchase::STATUS_RECEIVED)
+                  ->whereLiveDueAmountGreaterThan(0);
+            })
+            ->when($statuses !== null && !$this->globalMode, function ($q) use ($statuses) {
                 $q->whereIn('status', $statuses);
             })
             ->when(! empty($this->purchaseId), function ($q) {

@@ -1,14 +1,16 @@
 @php use Illuminate\Support\Carbon; @endphp
 <div>
     <div class="d-flex justify-content-between align-items-center mb-2">
-        @can('purchases.archive')
-            <div class="d-flex align-items-center" style="gap: 1rem;">
-                <div class="form-check form-switch pt-1">
-                    <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
-                    <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
+        @if(!$globalMode)
+            @can('purchases.archive')
+                <div class="d-flex align-items-center" style="gap: 1rem;">
+                    <div class="form-check form-switch pt-1">
+                        <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
+                        <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
+                    </div>
                 </div>
-            </div>
-        @endcan
+            @endcan
+        @endif
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
@@ -70,7 +72,7 @@
                             return ($detail->product->product_name ?? $detail->product_name) . ' (Qty: ' . $detail->quantity . ')';
                         })->implode("\n");
                     @endphp
-                    <a href="{{ route('purchases.show', $purchase->id) }}"
+                    <a href="{{ $globalMode ? route('purchases.global-payments.show', $purchase->id) : route('purchases.show', $purchase->id) }}"
                        class="text-primary font-weight-bold"
                        class="purchase-ref-tooltip"
                        data-toggle="tooltip"
@@ -91,7 +93,7 @@
                     <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
                 @endif
                 <td>{{ format_currency($purchase->total_amount) }}</td>
-                <td>{{ format_currency($purchase->due_amount) }}</td>
+                <td>{{ format_currency($globalMode ? $purchase->live_due_amount : $purchase->due_amount) }}</td>
                 <td>
                     @foreach ($purchase->tags as $tag)
                         <span class="badge bg-info text-white fs-6 me-1">
@@ -101,7 +103,13 @@
                 </td>
                 <td>@include('purchase::partials.status', ['data' => $purchase])</td>
                 <td>@include('purchase::partials.payment-status', ['data' => $purchase])</td>
-                <td>@include('purchase::partials.actions', ['data' => $purchase])</td>
+                <td>
+                    @if($globalMode)
+                        @include('purchase::partials.global-payment-actions', ['data' => $purchase])
+                    @else
+                        @include('purchase::partials.actions', ['data' => $purchase])
+                    @endif
+                </td>
             </tr>
         @empty
             <tr>

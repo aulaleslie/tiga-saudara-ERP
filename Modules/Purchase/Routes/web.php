@@ -19,6 +19,7 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Http\Controllers\PurchaseController;
 use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
 use Modules\Purchase\Http\Controllers\PurchaseUploadController;
+use Modules\Purchase\Http\Controllers\GlobalPurchasePaymentController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -76,6 +77,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('purchases.attachments.store');
     Route::delete('/purchases/{purchase}/attachments/{media}', [PurchaseController::class, 'destroyAttachment'])
         ->name('purchases.attachments.destroy');
+
+    // Global Purchase Payments
+    Route::group(['middleware' => ['can:purchasePayments.global.access']], function () {
+        Route::get('/purchases/global-payments', [GlobalPurchasePaymentController::class, 'index'])->name('purchases.global-payments.index');
+        Route::get('/purchases/global-payments/supplier/{supplier}/create', [GlobalPurchasePaymentController::class, 'create'])->middleware('can:purchasePayments.create')->name('purchases.global-payments.create');
+        Route::post('/purchases/global-payments/supplier/{supplier}', [GlobalPurchasePaymentController::class, 'store'])->middleware(['can:purchasePayments.create', 'idempotency'])->name('purchases.global-payments.store');
+        Route::get('/purchases/global-payments/history/{purchase_id}', [GlobalPurchasePaymentController::class, 'history'])->name('purchases.global-payments.history');
+        Route::get('/purchases/global-payments/datatable/{purchase_id}', [GlobalPurchasePaymentController::class, 'datatable'])->name('datatable.global_purchase_payments');
+        Route::get('/purchases/global-payments/{purchase_id}', [GlobalPurchasePaymentController::class, 'show'])->name('purchases.global-payments.show');
+    });
+
     Route::resource('purchases', 'PurchaseController')->middleware('idempotency');
 
     //Payments

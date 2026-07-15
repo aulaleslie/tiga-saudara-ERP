@@ -146,6 +146,11 @@ class Purchase extends BaseModel implements HasMedia
         return $query->where('status', 'Completed');
     }
 
+    public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
+    {
+        return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount/100.0) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) > ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);
+    }
+
     public function getShippingAmountAttribute($value) {
         return $value;
     }
@@ -190,9 +195,18 @@ class Purchase extends BaseModel implements HasMedia
      */
     public function getEffectivePaidAmount(): float
     {
+        if (array_key_exists('active_payments_sum', $this->attributes)) {
+            return (float) ($this->attributes['active_payments_sum'] ?: 0) / 100;
+        }
+
         return (float) $this->purchasePayments()
             ->where('status', PurchasePayment::STATUS_ACTIVE)
             ->sum('amount') / 100;
+    }
+
+    public function getLiveDueAmountAttribute(): float
+    {
+        return max(0, $this->total_amount - $this->getEffectivePaidAmount());
     }
 
     /**

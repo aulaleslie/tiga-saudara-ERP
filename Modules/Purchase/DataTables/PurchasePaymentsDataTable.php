@@ -40,7 +40,8 @@ class PurchasePaymentsDataTable extends DataTable
                 return 'No Attachment';
             })
             ->addColumn('action', function ($data) {
-                return view('purchase::payments.partials.actions', compact('data'));
+                $globalMode = request()->routeIs('datatable.global_purchase_payments');
+                return view('purchase::payments.partials.actions', compact('data', 'globalMode'));
             })
             ->addColumn('status', function ($data) {
                 $badgeType = $data->isActive() ? 'success' : 'danger';

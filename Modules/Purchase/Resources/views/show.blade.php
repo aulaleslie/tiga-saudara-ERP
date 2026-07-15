@@ -7,7 +7,11 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
+        @if(isset($globalMode) && $globalMode)
+            <li class="breadcrumb-item"><a href="{{ route('purchases.global-payments.index') }}">Pembayaran Pembelian Global</a></li>
+        @else
+            <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
+        @endif
         <li class="breadcrumb-item active">Rincian</li>
     </ol>
 @endsection
@@ -21,22 +25,24 @@
                         <div>
                             Referensi: <strong>{{ $purchase->reference }}</strong>
                         </div>
-                        <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
-                           href="{{ route('purchases.pdf', $purchase->id) }}">
-                            <i class="bi bi-printer"></i> Print
-                        </a>
-                        <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
-                           href="{{ route('purchases.pdf', $purchase->id) }}">
-                            <i class="bi bi-save"></i> Simpan
-                        </a>
-                        @can('purchases.create')
-                            <a class="btn btn-sm btn-outline-secondary mfe-1 d-print-none"
-                               href="{{ route('purchases.create', ['duplicate' => $purchase->id]) }}">
-                                <i class="bi bi-files"></i> Duplikat
+                        @if(!(isset($globalMode) && $globalMode))
+                            <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
+                               href="{{ route('purchases.pdf', $purchase->id) }}">
+                                <i class="bi bi-printer"></i> Print
                             </a>
-                        @endcan
-                        <a class="btn btn-sm btn-info mfe-1 d-print-none"
-                           href="{{ route('purchases.index') }}">
+                            <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
+                               href="{{ route('purchases.pdf', $purchase->id) }}">
+                                <i class="bi bi-save"></i> Simpan
+                            </a>
+                            @can('purchases.create')
+                                <a class="btn btn-sm btn-outline-secondary mfe-1 d-print-none"
+                                   href="{{ route('purchases.create', ['duplicate' => $purchase->id]) }}">
+                                    <i class="bi bi-files"></i> Duplikat
+                                </a>
+                            @endcan
+                        @endif
+                        <a class="btn btn-sm btn-info {{ (isset($globalMode) && $globalMode) ? 'mfs-auto' : '' }} mfe-1 d-print-none"
+                           href="{{ (isset($globalMode) && $globalMode) ? route('purchases.global-payments.index') : route('purchases.index') }}">
                             <i class="bi bi-back"></i> Kembali
                         </a>
                     </div>
@@ -44,10 +50,17 @@
                         <div class="row mb-4">
                             <div class="col-sm-4 mb-3 mb-md-0">
                                 <h5 class="mb-2 border-bottom pb-2">Informasi Bisnis:</h5>
-                                <div><strong>{{ settings()->company_name }}</strong></div>
-                                <div>{{ settings()->company_address }}</div>
-                                <div>Email: {{ settings()->company_email }}</div>
-                                <div>Kontak: {{ settings()->company_phone }}</div>
+                                @if(isset($globalMode) && $globalMode && isset($setting))
+                                    <div><strong>{{ $setting->company_name }}</strong></div>
+                                    <div>{{ $setting->company_address }}</div>
+                                    <div>Email: {{ $setting->company_email }}</div>
+                                    <div>Kontak: {{ $setting->company_phone }}</div>
+                                @else
+                                    <div><strong>{{ settings()->company_name }}</strong></div>
+                                    <div>{{ settings()->company_address }}</div>
+                                    <div>Email: {{ settings()->company_email }}</div>
+                                    <div>Kontak: {{ settings()->company_phone }}</div>
+                                @endif
                             </div>
 
                             <div class="col-sm-4 mb-3 mb-md-0">
@@ -64,16 +77,24 @@
                                 <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
                                 <div>Tanggal Jatuh Tempo: {{ \Carbon\Carbon::parse($purchase->due_date)->format('d M, Y') }}</div>
                                 <div class="mt-2">
-                                    <livewire:purchase.supplier-purchase-number-editor
-                                        :purchaseId="$purchase->id"
-                                        :key="'supplier-purchase-number-' . $purchase->id"
-                                    />
+                                    @if(isset($globalMode) && $globalMode)
+                                        <div>Nomor Pembelian Pemasok: <strong>{{ $purchase->supplier_purchase_number ?? '-' }}</strong></div>
+                                    @else
+                                        <livewire:purchase.supplier-purchase-number-editor
+                                            :purchaseId="$purchase->id"
+                                            :key="'supplier-purchase-number-' . $purchase->id"
+                                        />
+                                    @endif
                                 </div>
                                 <div class="mt-2">
-                                    <livewire:purchase.tax-ref-no-editor
-                                        :purchaseId="$purchase->id"
-                                        :key="'tax-ref-no-' . $purchase->id"
-                                    />
+                                    @if(isset($globalMode) && $globalMode)
+                                        <div>Nomor Seri Faktur Pajak: <strong>{{ $purchase->tax_ref_no ?? '-' }}</strong></div>
+                                    @else
+                                        <livewire:purchase.tax-ref-no-editor
+                                            :purchaseId="$purchase->id"
+                                            :key="'tax-ref-no-' . $purchase->id"
+                                        />
+                                    @endif
                                 </div>
                                 <div class="mt-2">
                                     <div>Tags:</div>
@@ -213,7 +234,7 @@
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Lampiran:</h5>
                                 @can('purchases.update')
-                                    @if(!$purchase->isArchived())
+                                    @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode))
                                         <form action="{{ route('purchases.attachments.store', $purchase->id) }}"
                                           method="POST"
                                           enctype="multipart/form-data"
@@ -276,7 +297,7 @@
                                                         Download
                                                     </a>
                                                     @can('purchases.update')
-                                                        @if(!$purchase->isArchived())
+                                                        @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode))
                                                             <form method="POST"
                                                                   action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
                                                                   onsubmit="return confirm('Hapus lampiran ini?');"
@@ -417,8 +438,8 @@
                                             <h4 class="mb-0">Pembayaran</h4>
                                             @can('purchasePayments.create')
                                                 @if($purchase->status === Purchase::STATUS_RECEIVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
-                                                    @if($purchase->due_amount > 0)
-                                                        <a href="{{ route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary btn-sm">
+                                                    @if((isset($globalMode) && $globalMode ? $purchase->live_due_amount : $purchase->due_amount) > 0)
+                                                        <a href="{{ isset($globalMode) && $globalMode ? route('purchases.global-payments.create', ['supplier' => $purchase->supplier_id, 'purchase_id' => $purchase->id]) : route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary btn-sm">
                                                             Tambah Pembayaran <i class="bi bi-plus"></i>
                                                         </a>
                                                     @endif
@@ -445,50 +466,52 @@
                             </div>
                         </div>
 
-                        <div class="card-footer text-end">
-                            @if ($purchase->status === Purchase::STATUS_DRAFTED)
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
-                                    @csrf
-                                    @method('PATCH')
-                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
-                                    <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
-                                </form>
-                                <a href="{{ route('purchases.update', $purchase->id) }}" class="btn btn-primary">
-                                    <i class="bi bi-pencil mr-2"></i> Ubah
-                                </a>
-                            @endif
-
-                            @can('purchases.approval')
-                                @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
+                        @if(!(isset($globalMode) && $globalMode))
+                            <div class="card-footer text-end">
+                                @if ($purchase->status === Purchase::STATUS_DRAFTED)
                                     <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                         @csrf
                                         @method('PATCH')
-                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
-                                        <button type="submit" class="btn btn-success">Setuju</button>
+                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
+                                        <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
                                     </form>
-                                    <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#rejectPurchaseModal">
-                                        Tolak
-                                    </button>
-                                @endif
-                            @endcan
-
-                            @if ($purchase->status === Purchase::STATUS_REJECTED)
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
-                                    @csrf
-                                    @method('PATCH')
-                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_DRAFTED }}">
-                                    <button type="submit" class="btn btn-info">Selesaikan / Perbaiki (Draft)</button>
-                                </form>
-                            @endif
-
-                            @can('purchases.receive')
-                                @if (!$purchase->isArchived() && ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY))
-                                    <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
-                                        Menerima
+                                    <a href="{{ route('purchases.update', $purchase->id) }}" class="btn btn-primary">
+                                        <i class="bi bi-pencil mr-2"></i> Ubah
                                     </a>
                                 @endif
-                            @endcan
-                        </div>
+
+                                @can('purchases.approval')
+                                    @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
+                                        <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                            @csrf
+                                            @method('PATCH')
+                                            <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
+                                            <button type="submit" class="btn btn-success">Setuju</button>
+                                        </form>
+                                        <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#rejectPurchaseModal">
+                                            Tolak
+                                        </button>
+                                    @endif
+                                @endcan
+
+                                @if ($purchase->status === Purchase::STATUS_REJECTED)
+                                    <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_DRAFTED }}">
+                                        <button type="submit" class="btn btn-info">Selesaikan / Perbaiki (Draft)</button>
+                                    </form>
+                                @endif
+
+                                @can('purchases.receive')
+                                    @if (!$purchase->isArchived() && ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY))
+                                        <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
+                                            Menerima
+                                        </a>
+                                    @endif
+                                @endcan
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -573,7 +596,7 @@
                 processing: true,
                 serverSide: true,
                 ajax: {
-                    url: '{{ route("datatable.purchase_payments", ":purchase_id") }}'.replace(':purchase_id', '{{ $purchase->id }}'),
+                    url: '{{ isset($globalMode) && $globalMode ? route("datatable.global_purchase_payments", ":purchase_id") : route("datatable.purchase_payments", ":purchase_id") }}'.replace(':purchase_id', '{{ $purchase->id }}'),
                 },
                 columns: [
                     { data: 'date', name: 'date', title: 'Tanggal' },

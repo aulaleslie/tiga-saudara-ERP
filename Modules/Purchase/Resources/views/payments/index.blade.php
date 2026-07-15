@@ -9,8 +9,13 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Purchases</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.show', $purchase) }}">{{ $purchase->reference }}</a></li>
+        @if(isset($globalMode) && $globalMode)
+            <li class="breadcrumb-item"><a href="{{ route('purchases.global-payments.index') }}">Pembayaran Pembelian Global</a></li>
+            <li class="breadcrumb-item"><a href="{{ route('purchases.global-payments.show', $purchase) }}">{{ $purchase->reference }}</a></li>
+        @else
+            <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Purchases</a></li>
+            <li class="breadcrumb-item"><a href="{{ route('purchases.show', $purchase) }}">{{ $purchase->reference }}</a></li>
+        @endif
         <li class="breadcrumb-item active">Payments</li>
     </ol>
 @endsection
@@ -24,7 +29,7 @@
                     <div class="card-header">
                         @can('purchasePayments.create')
                             @if(($purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED || $purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY) && $purchase->due_amount > 0)
-                                <a href="{{ route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary">
+                                <a href="{{ isset($globalMode) && $globalMode ? route('purchases.global-payments.create', ['supplier' => $purchase->supplier_id, 'purchase_id' => $purchase->id]) : route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary">
                                     Tambah Pembayaran <i class="bi bi-plus"></i>
                                 </a>
                             @endif

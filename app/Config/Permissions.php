@@ -211,6 +211,7 @@ return [
         'purchasePayments.create' => 'Buat',
         'purchasePayments.edit' => 'Ubah',
         'purchasePayments.delete' => 'Hapus',
+        'purchasePayments.global.access' => 'Akses Global',
     ],
 
     'Retur Pembelian' => [
