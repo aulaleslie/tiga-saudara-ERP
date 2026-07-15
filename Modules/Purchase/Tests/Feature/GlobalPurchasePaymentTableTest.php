@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Livewire\Livewire;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Setting\Entities\Setting;
@@ -25,6 +26,10 @@ class GlobalPurchasePaymentTableTest extends TestCase
         $this->setting1 = Setting::factory()->create();
         $this->setting2 = Setting::factory()->create();
         session(['setting_id' => $this->setting1->id]);
+        
+        \Illuminate\Support\Facades\Gate::define('purchasePayments.global.access', function (?\App\Models\User $user = null) {
+            return true;
+        });
     }
 
     private function createPurchase($overrides = [])
@@ -96,12 +101,70 @@ class GlobalPurchasePaymentTableTest extends TestCase
             'amount' => 10000,
             'date' => now(),
             'reference' => 'PAY-123',
-            'payment_method' => 'Cash'
+            'payment_method' => 'Cash',
+            'status' => \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE
         ]);
 
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->assertSee($unpaid->reference)
             ->assertDontSee($paid->reference);
+    }
+    
+    public function test_global_mode_shows_paid_purchases_when_filter_applied_with_date_boundaries()
+    {
+        $unpaid = $this->createPurchase(['due_amount' => 10000, 'payment_status' => 'UNPAID']);
+        
+        // 1. Paid today (should show)
+        $paidToday = $this->createPurchase(['due_amount' => 0, 'payment_status' => 'PAID']);
+        \Modules\Purchase\Entities\PurchasePayment::create([
+            'purchase_id' => $paidToday->id,
+            'amount' => 10000,
+            'date' => Carbon::today(),
+            'reference' => 'PAY-1',
+            'payment_method' => 'Cash',
+            'status' => \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE
+        ]);
+        
+        // 2. Paid exactly 30 days ago (should show)
+        $paid30DaysAgo = $this->createPurchase(['due_amount' => 0, 'payment_status' => 'PAID']);
+        \Modules\Purchase\Entities\PurchasePayment::create([
+            'purchase_id' => $paid30DaysAgo->id,
+            'amount' => 10000,
+            'date' => Carbon::today()->subDays(30),
+            'reference' => 'PAY-2',
+            'payment_method' => 'Cash',
+            'status' => \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE
+        ]);
+        
+        // 3. Paid exactly 31 days ago (should NOT show)
+        $paid31DaysAgo = $this->createPurchase(['due_amount' => 0, 'payment_status' => 'PAID']);
+        \Modules\Purchase\Entities\PurchasePayment::create([
+            'purchase_id' => $paid31DaysAgo->id,
+            'amount' => 10000,
+            'date' => Carbon::today()->subDays(31),
+            'reference' => 'PAY-3',
+            'payment_method' => 'Cash',
+            'status' => \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE
+        ]);
+        
+        // 4. Paid tomorrow (future, should NOT show)
+        $paidTomorrow = $this->createPurchase(['due_amount' => 0, 'payment_status' => 'PAID']);
+        \Modules\Purchase\Entities\PurchasePayment::create([
+            'purchase_id' => $paidTomorrow->id,
+            'amount' => 10000,
+            'date' => Carbon::today()->addDay(),
+            'reference' => 'PAY-4',
+            'payment_method' => 'Cash',
+            'status' => \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE
+        ]);
+
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->call('applyPurchaseFilter', 'paid')
+            ->assertSee($paidToday->reference)
+            ->assertSee($paid30DaysAgo->reference)
+            ->assertDontSee($paid31DaysAgo->reference)
+            ->assertDontSee($paidTomorrow->reference)
+            ->assertDontSee($unpaid->reference);
     }
 
     public function test_global_mode_excludes_archived_purchases()
@@ -113,5 +176,24 @@ class GlobalPurchasePaymentTableTest extends TestCase
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->assertSee($active->reference)
             ->assertDontSee($archived->reference);
+    }
+    
+    public function test_unauthorized_user_cannot_access_global_mode()
+    {
+        // Deny access
+        \Illuminate\Support\Facades\Gate::define('purchasePayments.global.access', function (?\App\Models\User $user = null) {
+            return false;
+        });
+
+        // Test component mounting throws 403
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->assertForbidden();
+            
+        // Test component mutating globalMode throws exception since it's locked
+        $component = Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => false]);
+        
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [globalMode]');
+        $component->set('globalMode', true);
     }
 }

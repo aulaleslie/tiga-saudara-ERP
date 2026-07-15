@@ -17,6 +17,8 @@
                     <div class="card-body">
                         {{-- No create or import buttons for global payment view --}}
                         
+                        <livewire:purchase.purchase-summary-cards :globalMode="true" />
+                        
                         <div class="table-responsive" style="min-height: 300px;">
                             <livewire:purchase.purchase-table :globalMode="true" />
                         </div>

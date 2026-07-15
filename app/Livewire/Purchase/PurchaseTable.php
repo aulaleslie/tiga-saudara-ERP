@@ -3,10 +3,12 @@
 namespace App\Livewire\Purchase;
 
 use Livewire\Attributes\On;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Purchase\Entities\Purchase;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Gate;
 
 class PurchaseTable extends Component
 {
@@ -33,6 +35,8 @@ class PurchaseTable extends Component
     public bool $paidLast30DaysOnly = false;
     /** @var array<string>|null */
     public ?array $cardStatusFilter = null;
+    
+    #[Locked]
     public bool $globalMode = false;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
@@ -40,6 +44,11 @@ class PurchaseTable extends Component
     public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false)
     {
         $this->globalMode = $globalMode;
+        
+        if ($this->globalMode) {
+            abort_if(Gate::denies('purchasePayments.global.access'), 403);
+        }
+        
         if (!$this->globalMode) {
             $this->settingId = $settingId ?? session('setting_id');
         }
@@ -93,17 +102,17 @@ class PurchaseTable extends Component
         ];
 
         if ($type === 'unpaid') {
-            $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
+            $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->dueAmountOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
         } elseif ($type === 'overdue') {
-            $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
+            $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->overdueOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
         } elseif ($type === 'paid') {
             $this->paymentStatusFilter = null; // Filtered via paidLast30DaysOnly instead
             $this->paidLast30DaysOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
         }
         
         $this->resetPage();
@@ -129,8 +138,10 @@ class PurchaseTable extends Component
                 $q->where('setting_id', $this->settingId);
             })
             ->when($this->globalMode, function ($q) {
-                $q->where('status', Purchase::STATUS_RECEIVED)
-                  ->whereLiveDueAmountGreaterThan(0);
+                $q->where('status', Purchase::STATUS_RECEIVED);
+                if (! $this->paidLast30DaysOnly) {
+                    $q->whereLiveDueAmountGreaterThan(0);
+                }
             })
             ->when($statuses !== null && !$this->globalMode, function ($q) use ($statuses) {
                 $q->whereIn('status', $statuses);
@@ -148,21 +159,41 @@ class PurchaseTable extends Component
                 $q->whereIn('payment_status', $this->paymentStatusFilters);
             })
             ->when($this->dueAmountOnly, function ($q) {
-                $q->where('due_amount', '>', 0);
+                if ($this->globalMode) {
+                    // Due amount > 0 is already handled by the global mode block above,
+                    // but we can leave it empty here or enforce it again
+                } else {
+                    $q->where('due_amount', '>', 0);
+                }
             })
             ->when($this->overdueOnly, function ($q) {
-                $q->where('due_date', '<', Carbon::today())
-                  ->where('due_amount', '>', 0);
+                $q->where('due_date', '<', Carbon::today());
+                if (! $this->globalMode) {
+                    $q->where('due_amount', '>', 0);
+                }
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
-                $q->where('payment_status', 'PAID')
-                  ->where(function ($sub) use ($thirtyDaysAgo) {
-                    $sub->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
-                        $pq->where('date', '>=', $thirtyDaysAgo)
-                           ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
-                    })->orWhere('date', '>=', $thirtyDaysAgo);
-                });
+                if ($this->globalMode) {
+                    $q->whereLiveDueAmountLessThanOrEqual(0)
+                      ->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
+                          $pq->where('date', '>=', $thirtyDaysAgo)
+                             ->where('date', '<=', Carbon::today()->endOfDay())
+                             ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
+                      });
+                } else {
+                    $q->where('payment_status', 'PAID')
+                      ->where(function ($sub) use ($thirtyDaysAgo) {
+                        $sub->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
+                            $pq->where('date', '>=', $thirtyDaysAgo)
+                               ->where('date', '<=', Carbon::today()->endOfDay())
+                               ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
+                        })->orWhere(function ($q2) use ($thirtyDaysAgo) {
+                            $q2->where('date', '>=', $thirtyDaysAgo)
+                               ->where('date', '<=', Carbon::today()->endOfDay());
+                        });
+                    });
+                }
             })
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {

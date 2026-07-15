@@ -28,7 +28,10 @@
                 <div class="card">
                     <div class="card-header">
                         @can('purchasePayments.create')
-                            @if(($purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED || $purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY) && $purchase->due_amount > 0)
+                            @php
+                                $hasDebt = (isset($globalMode) && $globalMode) ? ($purchase->live_due_amount > 0) : ($purchase->due_amount > 0);
+                            @endphp
+                            @if(($purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED || $purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY) && $hasDebt)
                                 <a href="{{ isset($globalMode) && $globalMode ? route('purchases.global-payments.create', ['supplier' => $purchase->supplier_id, 'purchase_id' => $purchase->id]) : route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary">
                                     Tambah Pembayaran <i class="bi bi-plus"></i>
                                 </a>

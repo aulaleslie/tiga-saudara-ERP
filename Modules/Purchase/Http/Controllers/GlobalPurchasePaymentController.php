@@ -21,7 +21,6 @@ class GlobalPurchasePaymentController extends Controller
         
         $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
             ->whereNull('archived_at')
-            ->whereLiveDueAmountGreaterThan(0)
             ->findOrFail($purchase_id);
         $supplier = \Modules\People\Entities\Supplier::findOrFail($purchase->supplier_id);
         
@@ -56,7 +55,6 @@ class GlobalPurchasePaymentController extends Controller
         
         $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
             ->whereNull('archived_at')
-            ->whereLiveDueAmountGreaterThan(0)
             ->findOrFail($purchase_id);
         
         return $dataTable->with(['globalMode' => true])->render('purchase::payments.index', [
@@ -71,7 +69,6 @@ class GlobalPurchasePaymentController extends Controller
         
         $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
             ->whereNull('archived_at')
-            ->whereLiveDueAmountGreaterThan(0)
             ->findOrFail($purchase_id);
         
         return $dataTable->with(['globalMode' => true])->render('purchase::payments.index', [

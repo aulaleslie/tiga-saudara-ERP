@@ -151,6 +151,11 @@ class Purchase extends BaseModel implements HasMedia
         return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount/100.0) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) > ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);
     }
 
+    public function scopeWhereLiveDueAmountLessThanOrEqual($query, $amount = 0)
+    {
+        return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount/100.0) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) <= ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);
+    }
+
     public function getShippingAmountAttribute($value) {
         return $value;
     }
