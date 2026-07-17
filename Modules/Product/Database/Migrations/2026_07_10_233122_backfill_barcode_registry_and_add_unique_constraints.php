@@ -108,21 +108,26 @@ return new class extends Migration
                 }
             });
 
-        // Add unique indexes safely
-        $sm = Schema::getConnection()->getDoctrineSchemaManager();
-        
-        $productIndexes = $sm->listTableIndexes('products');
-        if (!array_key_exists('products_barcode_unique', $productIndexes)) {
+        try {
             Schema::table('products', function (Blueprint $table) {
                 $table->unique('barcode');
             });
+        } catch (\Exception $e) {
+            // Ignore if index already exists
+            if (!str_contains(strtolower($e->getMessage()), 'already exists') && !str_contains(strtolower($e->getMessage()), 'duplicate key')) {
+                throw $e;
+            }
         }
         
-        $conversionIndexes = $sm->listTableIndexes('product_unit_conversions');
-        if (!array_key_exists('product_unit_conversions_barcode_unique', $conversionIndexes)) {
+        try {
             Schema::table('product_unit_conversions', function (Blueprint $table) {
                 $table->unique('barcode');
             });
+        } catch (\Exception $e) {
+            // Ignore if index already exists
+            if (!str_contains(strtolower($e->getMessage()), 'already exists') && !str_contains(strtolower($e->getMessage()), 'duplicate key')) {
+                throw $e;
+            }
         }
     }
 
