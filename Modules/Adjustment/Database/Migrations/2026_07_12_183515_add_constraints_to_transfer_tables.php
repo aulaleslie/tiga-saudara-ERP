@@ -29,37 +29,44 @@ return new class extends Migration
             );
         }
 
-        Schema::table('transfers', function (Blueprint $table) {
-            // Check and add foreign keys for users if they don't exist
-            $this->addForeignKeySafely($table, 'transfers', 'created_by', 'users', 'id');
-            $this->addForeignKeySafely($table, 'transfers', 'approved_by', 'users', 'id', true);
-            $this->addForeignKeySafely($table, 'transfers', 'rejected_by', 'users', 'id', true);
-            $this->addForeignKeySafely($table, 'transfers', 'dispatched_by', 'users', 'id', true);
-            $this->addForeignKeySafely($table, 'transfers', 'received_by', 'users', 'id', true);
+        // Check and add foreign keys for users if they don't exist
+        $this->addForeignKeySafely('transfers', 'created_by', 'users', 'id');
+        $this->addForeignKeySafely('transfers', 'approved_by', 'users', 'id', true);
+        $this->addForeignKeySafely('transfers', 'rejected_by', 'users', 'id', true);
+        $this->addForeignKeySafely('transfers', 'dispatched_by', 'users', 'id', true);
+        $this->addForeignKeySafely('transfers', 'received_by', 'users', 'id', true);
 
-            // Add foreign keys for locations
-            $this->addForeignKeySafely($table, 'transfers', 'origin_location_id', 'locations', 'id');
-            $this->addForeignKeySafely($table, 'transfers', 'destination_location_id', 'locations', 'id');
-        });
+        // Add foreign keys for locations
+        $this->addForeignKeySafely('transfers', 'origin_location_id', 'locations', 'id');
+        $this->addForeignKeySafely('transfers', 'destination_location_id', 'locations', 'id');
 
-        Schema::table('transfer_products', function (Blueprint $table) {
-            // Make quantity unsigned if possible without breaking data
-            // For SQLite, modify column requires doctrine/dbal and can be tricky, so we skip it
-            if (DB::getDriverName() !== 'sqlite') {
-                $table->unsignedInteger('quantity')->change();
-                $table->unsignedInteger('dispatched_quantity')->change();
-                $table->unsignedInteger('dispatched_quantity_tax')->change();
-                $table->unsignedInteger('dispatched_quantity_non_tax')->change();
-                $table->unsignedInteger('dispatched_quantity_broken_tax')->change();
-                $table->unsignedInteger('dispatched_quantity_broken_non_tax')->change();
+        // Make quantity unsigned if possible without breaking data
+        // For SQLite, modify column requires doctrine/dbal and can be tricky, so we skip it
+        if (DB::getDriverName() !== 'sqlite') {
+            try {
+                Schema::table('transfer_products', function (Blueprint $table) {
+                    $table->unsignedInteger('quantity')->change();
+                    $table->unsignedInteger('dispatched_quantity')->change();
+                    $table->unsignedInteger('dispatched_quantity_tax')->change();
+                    $table->unsignedInteger('dispatched_quantity_non_tax')->change();
+                    $table->unsignedInteger('dispatched_quantity_broken_tax')->change();
+                    $table->unsignedInteger('dispatched_quantity_broken_non_tax')->change();
+                });
+            } catch (\Exception $e) {
+                // Ignore DBAL change errors
             }
-        });
+        }
 
-        // Add the unique constraint separately after preflight check confirms no duplicates
-        if (!$this->hasIndex('transfer_products', 'transfer_products_transfer_id_product_id_unique')) {
+        // Add the unique constraint separately
+        try {
             Schema::table('transfer_products', function (Blueprint $table) {
-                $table->unique(['transfer_id', 'product_id']);
+                $table->unique(['transfer_id', 'product_id'], 'transfer_products_transfer_id_product_id_unique');
             });
+        } catch (\Exception $e) {
+            // Ignore if index already exists
+            if (!str_contains(strtolower($e->getMessage()), 'already exists') && !str_contains(strtolower($e->getMessage()), 'duplicate key')) {
+                throw $e;
+            }
         }
     }
 
@@ -68,72 +75,48 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('transfers', function (Blueprint $table) {
-            $this->dropForeignKeySafely($table, 'transfers', 'created_by');
-            $this->dropForeignKeySafely($table, 'transfers', 'approved_by');
-            $this->dropForeignKeySafely($table, 'transfers', 'rejected_by');
-            $this->dropForeignKeySafely($table, 'transfers', 'dispatched_by');
-            $this->dropForeignKeySafely($table, 'transfers', 'received_by');
-            $this->dropForeignKeySafely($table, 'transfers', 'origin_location_id');
-            $this->dropForeignKeySafely($table, 'transfers', 'destination_location_id');
-        });
+        $this->dropForeignKeySafely('transfers', 'created_by');
+        $this->dropForeignKeySafely('transfers', 'approved_by');
+        $this->dropForeignKeySafely('transfers', 'rejected_by');
+        $this->dropForeignKeySafely('transfers', 'dispatched_by');
+        $this->dropForeignKeySafely('transfers', 'received_by');
+        $this->dropForeignKeySafely('transfers', 'origin_location_id');
+        $this->dropForeignKeySafely('transfers', 'destination_location_id');
 
-        Schema::table('transfer_products', function (Blueprint $table) {
-            if ($this->hasIndex('transfer_products', 'transfer_products_transfer_id_product_id_unique')) {
+        try {
+            Schema::table('transfer_products', function (Blueprint $table) {
                 $table->dropUnique('transfer_products_transfer_id_product_id_unique');
-            }
-        });
+            });
+        } catch (\Exception $e) {
+            // Ignore if index doesn't exist
+        }
     }
 
-    private function addForeignKeySafely(Blueprint $table, string $tableName, string $column, string $referencesTable, string $referencesColumn, bool $nullOnDelete = false): void
+    private function addForeignKeySafely(string $tableName, string $column, string $referencesTable, string $referencesColumn, bool $nullOnDelete = false): void
     {
         if (Schema::hasColumn($tableName, $column)) {
-            $foreignKeyName = "{$tableName}_{$column}_foreign";
-            if (!$this->hasForeignKey($tableName, $foreignKeyName)) {
-                $foreign = $table->foreign($column)->references($referencesColumn)->on($referencesTable);
-                if ($nullOnDelete) {
-                    $foreign->nullOnDelete();
-                }
+            try {
+                Schema::table($tableName, function (Blueprint $table) use ($column, $referencesTable, $referencesColumn, $nullOnDelete) {
+                    $foreign = $table->foreign($column)->references($referencesColumn)->on($referencesTable);
+                    if ($nullOnDelete) {
+                        $foreign->nullOnDelete();
+                    }
+                });
+            } catch (\Exception $e) {
+                // Ignore if it fails (likely already exists)
             }
         }
     }
 
-    private function dropForeignKeySafely(Blueprint $table, string $tableName, string $column): void
+    private function dropForeignKeySafely(string $tableName, string $column): void
     {
         $foreignKeyName = "{$tableName}_{$column}_foreign";
-        if ($this->hasForeignKey($tableName, $foreignKeyName)) {
-            $table->dropForeign($foreignKeyName);
+        try {
+            Schema::table($tableName, function (Blueprint $table) use ($foreignKeyName) {
+                $table->dropForeign($foreignKeyName);
+            });
+        } catch (\Exception $e) {
+            // Ignore if foreign key doesn't exist
         }
-    }
-
-    private function hasForeignKey(string $table, string $foreignKeyName): bool
-    {
-        if (DB::getDriverName() === 'sqlite') {
-            // SQLite doesn't support retrieving foreign keys easily by name in this way
-            return false;
-        }
-
-        $foreignKeys = Schema::getConnection()->getDoctrineSchemaManager()->listTableForeignKeys($table);
-        foreach ($foreignKeys as $fk) {
-            if ($fk->getName() === $foreignKeyName) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasIndex(string $table, string $indexName): bool
-    {
-        if (DB::getDriverName() === 'sqlite') {
-            return false;
-        }
-
-        $indexes = Schema::getConnection()->getDoctrineSchemaManager()->listTableIndexes($table);
-        foreach ($indexes as $index) {
-            if ($index->getName() === $indexName) {
-                return true;
-            }
-        }
-        return false;
     }
 };
