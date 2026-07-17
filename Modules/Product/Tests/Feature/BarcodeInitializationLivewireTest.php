@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBarcodeAssignment;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Livewire\BarcodeInitialization;
 use Modules\Product\Services\BarcodeIdentityService;
 use Spatie\Permission\Models\Permission;
@@ -194,7 +195,11 @@ class BarcodeInitializationLivewireTest extends TestCase
 
     public function test_prevents_duplicate_barcode_assignment()
     {
-        $existingProduct = $this->createProduct(['barcode' => 'DUP999', 'product_code' => 'EXISTING']);
+        $existingProduct = $this->createProduct([
+            'product_name' => 'Produk Pemilik Barcode',
+            'barcode' => 'DUP999',
+            'product_code' => 'EXISTING',
+        ]);
         $this->identityService->reserve('DUP999', $existingProduct->id);
 
         $newProduct = $this->createProduct(['barcode' => null, 'product_code' => 'NEWPROD']);
@@ -205,7 +210,10 @@ class BarcodeInitializationLivewireTest extends TestCase
             ->call('handleScan', 'DUP999')
             ->call('save')
             ->assertSet('currentState', 'READY_TO_SCAN')
-            ->assertSet('candidateError', "Barcode sudah digunakan oleh Produk Utama (ID Produk: {$existingProduct->id}).");
+            ->assertSet(
+                'candidateError',
+                "Barcode sudah digunakan pada produk \"{$existingProduct->product_name}\" ({$existingProduct->product_code})."
+            );
 
         $this->assertNull($newProduct->fresh()->barcode);
     }
@@ -243,30 +251,37 @@ class BarcodeInitializationLivewireTest extends TestCase
 
     public function test_conversion_conflicts()
     {
-        $conversionProduct = $this->createProduct(['product_code' => 'P123']);
-        $mockService = \Mockery::mock(\Modules\Product\Services\ProductBarcodeAssignmentService::class);
-        $mockService->shouldReceive('assign')->andReturn([
-            'success' => false,
-            'error' => 'duplicate',
-            'conflict' => [
-                'type' => 'conversion',
-                'product_id' => $conversionProduct->id,
-                'conversion_id' => 999,
-                'product_code' => 'P123',
-                'product_name' => 'Produk 123',
-                'unit_name' => 'Box',
-                'multiplier' => 10
-            ]
+        $boxUnit = Unit::create([
+            'name' => 'Box',
+            'short_name' => 'Box',
+            'setting_id' => $this->setting->id,
         ]);
-        app()->instance(\Modules\Product\Services\ProductBarcodeAssignmentService::class, $mockService);
+        $conversionProduct = $this->createProduct([
+            'product_name' => 'Produk 123',
+            'product_code' => 'P123',
+        ]);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $conversionProduct->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->unit->id,
+            'conversion_factor' => 10,
+            'barcode' => 'CONFLICT123',
+        ]);
+        $this->identityService->reserve('CONFLICT123', null, $conversion->id);
 
-        $product = $this->createProduct(['barcode' => null]);
+        $product = $this->createProduct(['barcode' => null, 'product_code' => 'TARGET']);
         \Livewire\Livewire::actingAs($this->user)
             ->test(\Modules\Product\Livewire\BarcodeInitialization::class)
             ->call('selectProduct', $product->id)
             ->call('handleScan', 'CONFLICT123')
             ->call('save')
-            ->assertSet('currentState', 'READY_TO_SCAN');
+            ->assertSet('currentState', 'READY_TO_SCAN')
+            ->assertSet(
+                'candidateError',
+                "Barcode sudah digunakan pada produk \"{$conversionProduct->product_name}\" ({$conversionProduct->product_code}) untuk unit {$boxUnit->short_name}."
+            );
+
+        $this->assertNull($product->fresh()->barcode);
     }
 
     public function test_stale_updates()

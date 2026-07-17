@@ -139,9 +139,17 @@ class BarcodeInitialization extends Component
             if (!$result['success']) {
                 if ($result['error'] === 'duplicate') {
                     $conflict = $result['conflict'] ?? [];
-                    $ownerType = ($conflict['type'] ?? 'unknown') === 'product' ? 'Produk Utama' : 'Konversi Unit';
-                    $ownerId = $conflict['product_id'] ?? 'Unknown';
-                    $this->candidateError = "Barcode sudah digunakan oleh {$ownerType} (ID Produk: {$ownerId}).";
+                    $productName = $conflict['product_name'] ?? null;
+                    $productCode = $conflict['product_code'] ?? null;
+
+                    if (($conflict['type'] ?? null) === 'conversion' && $productName && $productCode) {
+                        $unitName = $conflict['unit_short_name'] ?? $conflict['unit_name'] ?? 'tidak diketahui';
+                        $this->candidateError = "Barcode sudah digunakan pada produk \"{$productName}\" ({$productCode}) untuk unit {$unitName}.";
+                    } elseif (($conflict['type'] ?? null) === 'product' && $productName && $productCode) {
+                        $this->candidateError = "Barcode sudah digunakan pada produk \"{$productName}\" ({$productCode}).";
+                    } else {
+                        $this->candidateError = 'Barcode sudah digunakan.';
+                    }
                 } elseif ($result['error'] === 'stale_state') {
                     $this->candidateError = 'Status barcode produk telah berubah oleh pengguna lain. Silakan pilih kembali.';
                     $this->originalBarcode = $result['current_barcode'] ?? $this->originalBarcode;
