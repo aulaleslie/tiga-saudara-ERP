@@ -16,6 +16,7 @@ class ProductImportBatch extends Model
     public const TYPE_PRODUCT = 'product';
     public const TYPE_STOCK_SNAPSHOT = 'stock_snapshot';
     public const TYPE_SALES_HPP_SNAPSHOT = 'sales_hpp_snapshot';
+    public const TYPE_SALES_PRICE_SNAPSHOT = 'sales_price_snapshot';
 
     protected $fillable = [
         'user_id',
@@ -33,6 +34,7 @@ class ProductImportBatch extends Model
         'undo_available_until',
         'undone_at',
         'completed_at',
+        'error_message',
     ];
 
     protected $casts = [

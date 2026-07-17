@@ -27,6 +27,11 @@
                                 <i class="bi bi-file-earmark-spreadsheet"></i> Upload HPP Snapshot
                             </a>
                         @endcan
+                        @can("products.edit")
+                            <a href="{{ route('products.sales-price-snapshot.upload.page') }}" class="btn btn-warning text-white">
+                                <i class="bi bi-tag"></i> Upload Harga Jual Snapshot
+                            </a>
+                        @endcan
 
                         <hr>
 
@@ -56,6 +61,8 @@
                                                     <span class="badge bg-info text-white">Stok Snapshot</span>
                                                 @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT)
                                                     <span class="badge bg-secondary text-white">HPP Snapshot</span>
+                                                @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT)
+                                                    <span class="badge bg-warning text-white">Harga Jual Snapshot</span>
                                                 @else
                                                     <span class="badge bg-primary text-white">Produk</span>
                                                 @endif

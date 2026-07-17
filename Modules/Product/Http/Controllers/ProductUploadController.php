@@ -298,6 +298,63 @@ class ProductUploadController extends Controller
         ]);
     }
 
+    /**
+     * Sales price snapshot dedicated upload page.
+     */
+    public function salesPriceSnapshotUploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+        return view('product::products.sales-price-snapshot-upload');
+    }
+
+    /**
+     * Handle sales price snapshot XLSX upload.
+     */
+    public function salesPriceSnapshotUpload(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+
+        $request->validate([
+            'file' => 'required|mimes:xlsx',
+        ]);
+
+        $file = $request->file('file');
+        Log::info('[SalesPriceSnapshotImport] Upload request received', [
+            'user_id' => auth()->id(),
+            'file_name' => $file->getClientOriginalName(),
+            'file_size_kb' => round($file->getSize() / 1024, 2),
+        ]);
+
+        $path = $file->store('imports/products');
+        $fullPath = Storage::path($path);
+
+        // Resolve any setting/location for schema compatibility
+        $settingId = $this->resolveSettingId();
+        if (!$settingId) {
+            return back()->withErrors(['file' => 'Setting belum dikonfigurasi. Tambahkan setting terlebih dahulu.']);
+        }
+        $locationId = $this->resolveLocationId($settingId);
+        if ($locationId === null) {
+            return back()->withErrors(['file' => 'Lokasi belum dikonfigurasi. Tambahkan lokasi terlebih dahulu.']);
+        }
+
+        $batch = ProductImportBatch::create([
+            'user_id'         => auth()->id(),
+            'location_id'     => $locationId,
+            'source_csv_path' => $path,
+            'file_sha256'     => hash_file('sha256', $fullPath),
+            'status'          => 'queued',
+            'import_type'     => ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT,
+            'undo_token'      => Str::random(40),
+        ]);
+
+        Log::info('[SalesPriceSnapshotImport] Batch created', ['batch_id' => $batch->id]);
+        dispatch(new \Modules\Product\Jobs\ProcessSalesPriceSnapshotBatch($batch->id));
+
+        toast("Upload Harga Jual diterima. Batch #{$batch->id} sedang diproses.", 'success');
+        return redirect()->route('products.imports.show', $batch);
+    }
+
     private function resolveSettingId(): ?int
     {
         $id = session('setting_id') ?? Setting::query()->min('id');
