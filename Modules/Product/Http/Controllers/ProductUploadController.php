@@ -315,10 +315,24 @@ class ProductUploadController extends Controller
         abort_if(Gate::denies('products.edit'), 403);
 
         $request->validate([
-            'file' => 'required|mimes:xlsx',
+            'file' => 'required|file',
         ]);
 
         $file = $request->file('file');
+
+        if (strtolower($file->getClientOriginalExtension()) !== 'xlsx') {
+            return back()->withErrors(['file' => 'The file must be a file of type: xlsx.']);
+        }
+
+        try {
+            $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+            if (!$reader->canRead($file->getRealPath())) {
+                return back()->withErrors(['file' => 'The uploaded file is not a valid XLSX workbook.']);
+            }
+        } catch (\Throwable $e) {
+            return back()->withErrors(['file' => 'The uploaded file is not a valid XLSX workbook: ' . $e->getMessage()]);
+        }
+
         Log::info('[SalesPriceSnapshotImport] Upload request received', [
             'user_id' => auth()->id(),
             'file_name' => $file->getClientOriginalName(),
