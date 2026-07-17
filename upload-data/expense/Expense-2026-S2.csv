@@ -1,2 +1,8 @@
 Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
 05/07/2026	,Expense,10523	,PLN,"",PLN,295408.0,0.0,Paid,0.0
+13/07/2026	,Expense,10525	,Beban Pajak - Kini,"",PAJAK AGUS,1950250.0,0.0,Paid,0.0
+13/07/2026	,Expense,10527	,Beban Pajak - Kini,"",PAJAK RAHMAT,1901125.0,0.0,Paid,0.0
+13/07/2026	,Expense,10529	,Beban Pajak - Kini,"",PAJAK ARIES,1217525.0,0.0,Paid,0.0
+13/07/2026	,Expense,10526	,Beban Pajak - Kini,"",CV TOP IT INTERNUSA,422625.0,0.0,Paid,0.0
+13/07/2026	,Expense,10528	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,5680881.0,0.0,Paid,0.0
+13/07/2026	,Expense,10524	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,950000.0,0.0,Paid,0.0
