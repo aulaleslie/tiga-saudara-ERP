@@ -68,10 +68,11 @@
 
                             <h5>Alokasi Faktur</h5>
                             <div class="table-responsive">
-                                <table class="table table-bordered">
+                                <table class="table table-bordered" id="allocations-table">
                                     <thead>
                                         <tr>
                                             <th>Nomor Transaksi</th>
+                                            <th>No. Pembelian Supplier</th>
                                             <th>Deskripsi</th>
                                             <th>Jatuh Tempo</th>
                                             <th>Total</th>
@@ -92,6 +93,7 @@
                                                     {{ $candidate->reference }}
                                                 </a>
                                             </td>
+                                            <td>{{ $candidate->supplier_purchase_number ?? '-' }}</td>
                                             <td>Pembelian</td>
                                             <td>{{ $candidate->due_date ? \Carbon\Carbon::parse($candidate->due_date)->format('d M Y') : '-' }}</td>
                                             <td>{{ format_currency($candidate->total_amount) }}</td>
@@ -157,21 +159,27 @@
                 return isNaN(num) ? 0 : num;
             }
 
+            var table = $('#allocations-table').DataTable({
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+                pageLength: 10,
+                ordering: false,
+            });
+
             function recalculateTotal() {
                 var total = 0;
-                $('.allocation-input').each(function() {
+                table.$('.allocation-input').each(function() {
                     total += parseCurrency($(this).val());
                 });
                 $('#total_allocation_display').val(formatCurrency(total));
             }
 
-            $('.allocation-input').each(function() {
+            table.$('.allocation-input').each(function() {
                 var val = $(this).val();
                 $(this).val(formatCurrency(val));
             });
             recalculateTotal();
 
-            $('.allocation-input').on('focus', function () {
+            $('#allocations-table').on('focus', '.allocation-input', function () {
                 var val = $(this).val();
                 var raw = parseCurrency(val);
                 if (raw === 0) {
@@ -182,7 +190,7 @@
                 $(this).select();
             });
 
-            $('.allocation-input').on('blur', function () {
+            $('#allocations-table').on('blur', '.allocation-input', function () {
                 var val = $(this).val();
                 var num = parseCurrency(val);
                 var max = parseFloat($(this).data('max'));
@@ -199,12 +207,26 @@
                 recalculateTotal();
             });
 
-            $('#payment-form').on('submit', function () {
+            $('#payment-form').on('submit', function (e) {
                 // Ensure all inputs are synced to hidden fields before submit
-                $('.allocation-input').each(function() {
+                // And append hidden inputs to the form since DataTables removes off-page rows
+                table.$('.allocation-input').each(function() {
                     var id = $(this).data('id');
                     var val = parseCurrency($(this).val());
-                    $('#allocation_hidden_' + id).val(val);
+                    
+                    // If the hidden input is not in the DOM, it might have been removed by DataTables pagination
+                    // DataTables removes tr elements from DOM when they are not on the current page.
+                    // We need to add the hidden inputs back to the form if they are not present.
+                    if ($('#allocation_hidden_' + id).length === 0 || !$.contains(document, $('#allocation_hidden_' + id)[0])) {
+                        $('<input>').attr({
+                            type: 'hidden',
+                            name: 'allocations[' + id + ']',
+                            id: 'allocation_hidden_form_' + id,
+                            value: val
+                        }).appendTo('#payment-form');
+                    } else {
+                        $('#allocation_hidden_' + id).val(val);
+                    }
                 });
                 
                 $('#btn-submit').attr('disabled', true);
