@@ -135,6 +135,8 @@ window.PosStagedPayment = (function () {
 
         state = States.SELECTING_METHOD;
         clearErrors();
+        
+        resetStageForm();
 
         // Try to recover payment chain from session
         const recovered = await checkReloadRecovery(cartToken, grandTotal);
