@@ -44,7 +44,7 @@ class CustomerCreationRegressionTest extends TestCase
         $this->actingAs($user)->withSession(['setting_id' => $setting->id]);
 
         $firstResponse = $this->post(route('customers.store'), [
-            'contact_name' => 'Pelanggan Satu',
+            'customer_name' => 'Dummy Name', 'contact_name' => 'Pelanggan Satu',
             'customer_phone' => '081230000001',
             'customer_email' => '',
             'identity_number' => '',
@@ -54,7 +54,7 @@ class CustomerCreationRegressionTest extends TestCase
         $firstResponse->assertRedirect(route('customers.index'));
 
         $secondResponse = $this->post(route('customers.store'), [
-            'contact_name' => 'Pelanggan Dua',
+            'customer_name' => 'Dummy Name', 'contact_name' => 'Pelanggan Dua',
             'customer_phone' => '081230000002',
             'customer_email' => '',
             'identity_number' => '',
@@ -105,7 +105,7 @@ class CustomerCreationRegressionTest extends TestCase
         });
 
         $response = $this->from(route('customers.create'))->post(route('customers.store'), [
-            'contact_name' => 'Pelanggan Tiga',
+            'customer_name' => 'Dummy Name', 'contact_name' => 'Pelanggan Tiga',
             'customer_phone' => '081230000003',
             'customer_email' => '',
         ]);

@@ -105,9 +105,10 @@ class AgedReceivablesReport extends Component
             return;
         }
         $this->customerOptions = Customer::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(customer_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
-            ->limit(10)->get(['id', 'customer_name'])->toArray();
+            ->orWhereRaw('LOWER(contact_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
+            ->limit(10)->get()
+            ->map(fn($c) => ['id' => $c->id, 'customer_name' => $c->canonical_name])->toArray();
     }
 
     public function updatedTagSearch($value): void

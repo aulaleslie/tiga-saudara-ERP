@@ -40,7 +40,7 @@ class CustomersDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                        'tr' .
                                  <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(5)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -56,9 +56,13 @@ class CustomersDataTable extends DataTable
     protected function getColumns(): array
     {
         return [
-            Column::make('contact_name')
+            Column::make('customer_name')
                 ->className('text-center align-middle')
                 ->title('Nama Pelanggan'),
+
+            Column::make('contact_name')
+                ->className('text-center align-middle')
+                ->title('Kontak'),
 
             Column::make('customer_email')
                 ->className('text-center align-middle')

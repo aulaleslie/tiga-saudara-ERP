@@ -30,19 +30,41 @@ class Customer extends BaseModel
         return $this->belongsTo(PaymentTerm::class, 'payment_term_id', 'id');
     }
 
+    public function getCanonicalNameAttribute(): string
+    {
+        $customerName = filled($this->customer_name) ? trim($this->customer_name) : null;
+        if ($customerName) {
+            return $customerName;
+        }
+
+        $contactName = filled($this->contact_name) ? trim($this->contact_name) : null;
+        if ($contactName) {
+            return $contactName;
+        }
+
+        return '-';
+    }
+
     public function getDisplayNameAttribute(): string
     {
-        $contact = filled($this->contact_name) ? $this->contact_name : null;
-        $company = filled($this->company_name) ? $this->company_name : null;
+        $companyName = filled($this->company_name) ? trim($this->company_name) : null;
+        $customerName = filled($this->customer_name) ? trim($this->customer_name) : null;
+        $contactName = filled($this->contact_name) ? trim($this->contact_name) : null;
 
-        if (!$company) {
-            $company = filled($this->customer_name) ? $this->customer_name : null;
+        $company = $companyName ?: $customerName;
+
+        if ($contactName && $company && strcasecmp($contactName, $company) !== 0) {
+            return "{$contactName} - {$company}";
         }
 
-        if ($contact && $company) {
-            return "{$contact} - {$company}";
+        if ($contactName) {
+            return $contactName;
         }
 
-        return $contact ?? $company ?? '-';
+        if ($company) {
+            return $company;
+        }
+
+        return '-';
     }
 }

@@ -21,7 +21,6 @@ class SettingController extends Controller
         $currentSettingId = session('setting_id');
         $settings = Setting::findOrFail($currentSettingId);
         $walkInCustomerOptions = Customer::query()
-            ->where('setting_id', $currentSettingId)
             ->orderBy('customer_name')
             ->orderBy('id')
             ->get(['id', 'customer_name', 'contact_name', 'customer_phone']);

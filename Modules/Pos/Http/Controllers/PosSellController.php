@@ -134,7 +134,7 @@ class PosSellController extends Controller
         $customer = Customer::create([
             'setting_id' => $settingId,
             'customer_name' => $validated['customer_name'],
-            'contact_name' => $validated['customer_name'],
+            'contact_name' => null,
             'customer_email' => $email,
             'customer_phone' => $phone,
             'address' => '',
@@ -144,16 +144,12 @@ class PosSellController extends Controller
             'tier' => $validated['tier'] ?? null,
         ]);
 
-        $displayName = $customer->contact_name
-            ? $customer->contact_name . ' - ' . $customer->customer_name
-            : $customer->customer_name;
-
         return response()->json([
             'id' => (int) $customer->id,
             'customer_name' => (string) $customer->customer_name,
-            'contact_name' => $customer->contact_name !== '' ? (string) $customer->contact_name : null,
+            'contact_name' => null,
             'customer_phone' => ($customer->customer_phone !== '' && strpos($customer->customer_phone, 'nophone-') !== 0) ? (string) $customer->customer_phone : null,
-            'display_name' => $displayName,
+            'display_name' => $customer->display_name,
         ]);
     }
 

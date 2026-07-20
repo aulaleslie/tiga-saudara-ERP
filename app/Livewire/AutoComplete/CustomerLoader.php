@@ -24,7 +24,7 @@ class CustomerLoader extends Component
     {
         if ($customerId) {
             $customer = Customer::find($customerId);
-            $this->query = $customer->contact_name;
+            $this->query = $customer->canonical_name;
             $this->search_results = [$customer];
             $this->query_count = 1;
             $this->selectedCustomerId = $customerId;
@@ -56,11 +56,13 @@ class CustomerLoader extends Component
     {
         if ($this->query) {
             $this->query_count = Customer::where(function ($query) {
-                $query->where('contact_name', 'like', '%' . $this->query . '%');
+                $query->where('contact_name', 'like', '%' . $this->query . '%')
+                      ->orWhere('customer_name', 'like', '%' . $this->query . '%');
             })
                 ->count();
             $this->search_results = Customer::where(function ($query) {
-                $query->where('contact_name', 'like', '%' . $this->query . '%');
+                $query->where('contact_name', 'like', '%' . $this->query . '%')
+                      ->orWhere('customer_name', 'like', '%' . $this->query . '%');
             })
                 ->limit($this->how_many)
                 ->get();
@@ -73,7 +75,7 @@ class CustomerLoader extends Component
         if ($customer) {
             // Set selectedCustomerId BEFORE changing query to prevent updatedQuery from overwriting
             $this->selectedCustomerId = $customer->id;
-            $this->query = $customer->contact_name;
+            $this->query = $customer->canonical_name;
             $this->search_results = []; // Clear results to close dropdown
             $this->isFocused = false;
             $this->query_count = 0;
@@ -96,7 +98,7 @@ class CustomerLoader extends Component
             if ($customer) {
                 // Mark as selected before mutating query to prevent updatedQuery from clearing it
                 $this->selectedCustomerId = $customer->id;
-                $this->query = $customer->contact_name;
+                $this->query = $customer->canonical_name;
                 $this->search_results = [$customer];
                 $this->query_count = 1;
                 $this->isFocused = false;

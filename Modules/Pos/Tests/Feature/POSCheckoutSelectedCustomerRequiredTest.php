@@ -74,7 +74,7 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
         // Should reject when no customer selected
         $response->assertStatus(422)
             ->assertJsonPath('code', 'CUSTOMER_UNRESOLVED')
-            ->assertJsonPath('message', 'Customer is not resolved for checkout.');
+            ->assertJsonPath('message', 'Pelanggan belum ditentukan untuk checkout.');
     }
 
     public function test_checkout_with_selected_customer_succeeds(): void

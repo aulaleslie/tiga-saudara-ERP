@@ -68,8 +68,7 @@ class POSReceiptCustomerDisplayNameTest extends TestCase
         $customer = Customer::factory()->create([
             'setting_id' => $context['setting']->id,
             'contact_name' => 'Budi Santoso',
-            'company_name' => 'CV Maju Jaya',
-            'customer_name' => 'Fallback Name',
+            'customer_name' => 'CV Maju Jaya',
         ]);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BOTH', 25000, false);
 
@@ -101,9 +100,8 @@ class POSReceiptCustomerDisplayNameTest extends TestCase
         $methods = $context['methods'];
         $customer = Customer::factory()->create([
             'setting_id' => $context['setting']->id,
-            'contact_name' => '',
-            'company_name' => 'PT Sukses Bersama',
-            'customer_name' => 'Fallback Name',
+            'contact_name' => null,
+            'customer_name' => 'PT Sukses Bersama',
         ]);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-COMP', 30000, false);
 
@@ -135,9 +133,8 @@ class POSReceiptCustomerDisplayNameTest extends TestCase
         $methods = $context['methods'];
         $customer = Customer::factory()->create([
             'setting_id' => $context['setting']->id,
-            'contact_name' => 'Siti Rahayu',
-            'company_name' => '',
-            'customer_name' => 'Fallback Name',
+            'contact_name' => 'John Doe',
+            'customer_name' => 'John Doe',
         ]);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CONT', 20000, false);
 
@@ -155,12 +152,12 @@ class POSReceiptCustomerDisplayNameTest extends TestCase
         $checkoutId = $response->json('pos_checkout_id');
         session()->put('setting_id', $context['setting']->id);
 
-        // Receipt should display only "Siti Rahayu"
+        // Receipt should display only "John Doe"
         $this->actingAs($context['cashier'])
             ->get("/pos/sell/checkout/{$checkoutId}/receipt")
             ->assertStatus(200)
             ->assertSee('Pelanggan')
-            ->assertSee('SITI RAHAYU');
+            ->assertSee('JOHN DOE');
     }
 
     public function test_receipt_displays_dash_when_all_names_empty(): void

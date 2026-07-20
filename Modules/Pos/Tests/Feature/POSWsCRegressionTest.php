@@ -146,7 +146,7 @@ class POSWsCRegressionTest extends TestCase
     public function test_checkout_finalize_without_customer_returns_422_customer_unresolved(): void
     {
         $context = $this->createCheckoutContext('WS-C CHECKOUT NO CUST');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'SKU-WS-C-FINAL', 50000);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -155,7 +155,7 @@ class POSWsCRegressionTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-WS-C-FINAL',
             'payment' => [
-                'payment_method_id' => 1,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 50000,
             ],
         ]);
@@ -163,7 +163,7 @@ class POSWsCRegressionTest extends TestCase
         // Should reject at finalization boundary
         $response->assertStatus(422)
             ->assertJsonPath('code', 'CUSTOMER_UNRESOLVED')
-            ->assertJsonPath('message', 'Customer is not resolved for checkout.');
+            ->assertJsonPath('message', 'Pelanggan belum ditentukan untuk checkout.');
     }
 
     // --- Helper Methods (copied from POSWalkInCustomerSelectionTest and POSCheckoutSelectedCustomerRequiredTest) ---
@@ -338,12 +338,22 @@ class POSWsCRegressionTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-            $methods[strtolower($name)] = PaymentMethod::create([
+            $paymentMethod = PaymentMethod::create([
                 'name' => "$name WS-C " . $index,
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
                 'requires_reference' => !$isCash,
             ]);
+
+            \DB::table('setting_pos_payment_methods')->insert([
+                'setting_id' => $setting->id,
+                'payment_method_id' => $paymentMethod->id,
+                'is_enabled' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $methods[strtolower($name)] = $paymentMethod;
         }
 
         return $methods;

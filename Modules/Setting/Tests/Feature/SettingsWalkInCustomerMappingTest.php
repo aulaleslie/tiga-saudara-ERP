@@ -52,7 +52,7 @@ class SettingsWalkInCustomerMappingTest extends TestCase
         ]);
     }
 
-    public function test_settings_update_rejects_walk_in_customer_from_other_setting(): void
+    public function test_settings_update_accepts_walk_in_customer_from_other_setting(): void
     {
         $setting = $this->createSetting('BIZ SETTING WALK-IN STRICT');
         $otherSetting = $this->createSetting('BIZ SETTING WALK-IN OTHER');
@@ -64,7 +64,12 @@ class SettingsWalkInCustomerMappingTest extends TestCase
             ->patch(route('settings.update'), $this->settingsPayload($setting, [
                 'pos_walk_in_customer_id' => $otherCustomer->id,
             ]))
-            ->assertSessionHasErrors(['pos_walk_in_customer_id']);
+            ->assertRedirect(route('settings.index'));
+
+        $this->assertDatabaseHas('settings', [
+            'id' => $setting->id,
+            'pos_walk_in_customer_id' => $otherCustomer->id,
+        ]);
     }
 
     public function test_settings_update_allows_clearing_walk_in_customer_mapping(): void
@@ -132,6 +137,42 @@ class SettingsWalkInCustomerMappingTest extends TestCase
         $user->settings()->attach($setting->id, ['role_id' => $role->id]);
 
         return $user;
+    }
+    public function test_settings_update_accepts_walk_in_customer_with_null_setting(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING WALK-IN NULL');
+        // Customer with no setting_id
+        $customer = Customer::factory()->create([
+            'setting_id' => null,
+            'customer_name' => 'Settingless Customer',
+            'customer_phone' => '08130000003',
+        ]);
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR NULL');
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->patch(route('settings.update'), $this->settingsPayload($setting, [
+                'pos_walk_in_customer_id' => $customer->id,
+            ]))
+            ->assertRedirect(route('settings.index'));
+
+        $this->assertDatabaseHas('settings', [
+            'id' => $setting->id,
+            'pos_walk_in_customer_id' => $customer->id,
+        ]);
+    }
+
+    public function test_settings_update_rejects_missing_customer(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING WALK-IN MISSING');
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR MISSING');
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->patch(route('settings.update'), $this->settingsPayload($setting, [
+                'pos_walk_in_customer_id' => 999999, // Non-existent ID
+            ]))
+            ->assertSessionHasErrors(['pos_walk_in_customer_id']);
     }
 
     /**

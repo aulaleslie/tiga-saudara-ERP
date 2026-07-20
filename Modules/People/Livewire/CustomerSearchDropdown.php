@@ -121,16 +121,14 @@ class CustomerSearchDropdown extends Component
     {
         $option = [
             'id' => $customer['id'] ?? null,
-            'name' => isset($customer['display_name']) 
-                ? $customer['display_name'] 
-                : ($customer['customer_name'] ?? ''),
+            'name' => isset($customer['canonical_name'])
+                ? $customer['canonical_name']
+                : (isset($customer['customer_name']) ? $customer['customer_name'] : '-'),
         ];
 
-        // Construct display name if not preset
+        // Construct canonical name if not preset
         if (empty($option['name']) && !empty($customer['customer_name'])) {
-             $option['name'] = !empty($customer['contact_name'])
-                ? "{$customer['contact_name']} - {$customer['customer_name']}"
-                : $customer['customer_name'];
+             $option['name'] = trim($customer['customer_name']);
         }
 
         if (($option['id'] ?? null) === null || ($option['name'] ?? null) === null) {
@@ -163,11 +161,7 @@ class CustomerSearchDropdown extends Component
             return null;
         }
 
-        $name = $customer->contact_name 
-            ? "{$customer->contact_name} - {$customer->customer_name}" 
-            : $customer->customer_name;
-
-        return $name;
+        return $customer->canonical_name;
     }
 
     /**
@@ -189,9 +183,7 @@ class CustomerSearchDropdown extends Component
             ->get()
             ->map(fn (Customer $customer) => [
                 'id' => $customer->id,
-                'name' => $customer->contact_name 
-                    ? "{$customer->contact_name} - {$customer->customer_name}" 
-                    : $customer->customer_name,
+                'name' => $customer->canonical_name,
             ])
             ->all();
     }

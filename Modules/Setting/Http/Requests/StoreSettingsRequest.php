@@ -32,9 +32,7 @@ class StoreSettingsRequest extends FormRequest
             'pos_walk_in_customer_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('customers', 'id')->where(static function ($query) use ($currentSettingId) {
-                    $query->where('setting_id', $currentSettingId);
-                }),
+                Rule::exists('customers', 'id'),
             ],
             'footer_text' => 'nullable|string|max:255',
         ];

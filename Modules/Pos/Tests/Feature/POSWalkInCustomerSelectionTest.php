@@ -12,6 +12,7 @@ use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
@@ -344,6 +345,14 @@ class POSWalkInCustomerSelectionTest extends TestCase
             'broken_quantity_tax' => 0,
             'broken_quantity' => 0,
             'tax_id' => null,
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => $salePrice,
+            'tier_1_price' => null,
+            'tier_2_price' => null,
         ]);
 
         return $product->fresh();

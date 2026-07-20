@@ -81,7 +81,7 @@
                 </td>
                 <td>
                     @php
-                        $customerName = $sale->customer->contact_name ?: $sale->customer->customer_name ?? '-';
+                        $customerName = $sale->customer->canonical_name;
                     @endphp
                     {{ $customerName }}
                 </td>

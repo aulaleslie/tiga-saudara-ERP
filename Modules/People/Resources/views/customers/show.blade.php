@@ -24,7 +24,7 @@
                                 </tr>
                                 <tr>
                                     <th>Nama Pelanggan</th>
-                                    <td>{{ $customer->contact_name }}</td>
+                                    <td>{{ $customer->customer_name }}</td>
                                 </tr>
                                 <tr>
                                     <th>Identitas</th>
@@ -35,8 +35,8 @@
                                     <td>{{ $customer->identity_number ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Nama Perusahaan</th>
-                                    <td>{{ $customer->customer_name }}</td>
+                                    <th>Kontak</th>
+                                    <td>{{ $customer->contact_name ?? '-' }}</td>
                                 </tr>
                                 <tr>
                                     <th>Nomor Handphone</th>

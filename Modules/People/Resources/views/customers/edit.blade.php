@@ -48,7 +48,7 @@
                             </div>
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name', $customer->contact_name) }}"/>
+                                    <x-input label="Nama Kontak (Opsional)" name="contact_name" value="{{ old('contact_name', $customer->contact_name) }}"/>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
@@ -68,7 +68,7 @@
                                     <x-input label="Nomor Identitas" name="identity_number" value="{{ old('identity_number', $customer->identity_number) }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Perusahaan" name="customer_name" value="{{ old('customer_name', $customer->customer_name) }}"/>
+                                    <x-input label="Nama Pelanggan / Perusahaan" name="customer_name" required="true" value="{{ old('customer_name', $customer->customer_name) }}"/>
                                 </div>
                             </div>
 

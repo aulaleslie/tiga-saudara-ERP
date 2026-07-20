@@ -34,10 +34,10 @@
                                 <a href="#" 
                                    onclick="event.preventDefault(); 
                                             const input = this.closest('.position-relative').querySelector('input'); 
-                                            input.value = '{{ addslashes($result->contact_name) }}';
+                                            input.value = '{{ addslashes($result->canonical_name) }}';
                                             input.blur();
                                             @this.selectCustomer({{ $result->id }});">
-                                    {{ $result->contact_name }}
+                                    {{ $result->canonical_name }}
                                 </a>
                             </li>
                         @endforeach

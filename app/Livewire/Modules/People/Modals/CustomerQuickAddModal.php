@@ -50,6 +50,9 @@ class CustomerQuickAddModal extends Component
 
     public function save()
     {
+        $this->customer_name = trim((string)$this->customer_name);
+        $this->contact_name = trim((string)$this->contact_name) ?: null;
+
         $this->validate([
             'customer_name' => 'required|string|max:255',
             'contact_name' => 'nullable|string|max:255',
@@ -69,7 +72,7 @@ class CustomerQuickAddModal extends Component
             $customer = Customer::create([
                 'setting_id' => session('setting_id'),
                 'customer_name' => $this->customer_name,
-                'contact_name' => $this->contact_name ?: $this->customer_name,
+                'contact_name' => $this->contact_name ?: null,
                 'customer_email' => $email,
                 'customer_phone' => $phone,
                 'address' => $this->address ?: '',

@@ -36,7 +36,7 @@ class CustomerLoggingTest extends TestCase
 
         // Store test
         $response = $this->post(route('customers.store'), [
-            'contact_name' => 'Store Error Tester',
+            'customer_name' => 'Dummy Name', 'contact_name' => 'Store Error Tester',
             'customer_phone' => '123123123',
         ]);
         

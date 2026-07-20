@@ -42,16 +42,12 @@ class PosCustomerSearchService
             ->get(['id', 'customer_name', 'contact_name', 'customer_phone']);
 
         $results = $rows->map(function (Customer $customer) {
-            $displayName = $customer->contact_name
-                ? $customer->contact_name . ' - ' . $customer->customer_name
-                : $customer->customer_name;
-
             return [
                 'id' => (int) $customer->id,
                 'customer_name' => (string) ($customer->customer_name ?? ''),
                 'contact_name' => $customer->contact_name !== null ? (string) $customer->contact_name : null,
                 'customer_phone' => $customer->customer_phone !== null ? (string) $customer->customer_phone : null,
-                'display_name' => $displayName,
+                'display_name' => $customer->canonical_name,
             ];
         })->values();
 

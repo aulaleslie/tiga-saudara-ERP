@@ -13,7 +13,13 @@
 
                         <div class="modal-body">
                             <div class="form-group">
-                                <label>Nama Kontak</label>
+                                <label>Nama Pelanggan / Perusahaan <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" wire:model.defer="customer_name">
+                                @error('customer_name') <small class="text-danger">{{ $message }}</small> @enderror
+                            </div>
+
+                            <div class="form-group">
+                                <label>Nama Kontak (Opsional)</label>
                                 <input type="text" class="form-control" wire:model.defer="contact_name">
                                 @error('contact_name') <small class="text-danger">{{ $message }}</small> @enderror
                             </div>

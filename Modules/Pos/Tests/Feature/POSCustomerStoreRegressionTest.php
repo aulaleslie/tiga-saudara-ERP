@@ -7,7 +7,7 @@ use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
 class POSCustomerStoreRegressionTest extends PosTransactionFeatureTestCase
 {
-    public function test_pos_customer_store_copies_customer_name_into_contact_name(): void
+    public function test_pos_customer_store_keeps_contact_name_null_and_customer_name_canonical(): void
     {
         $setting = $this->createSetting('POS Customer Store Regression');
         [$terminal] = $this->createTerminalWithLocation($setting);
@@ -31,12 +31,13 @@ class POSCustomerStoreRegressionTest extends PosTransactionFeatureTestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('contact_name', $responseCustomerName)
-            ->assertJsonPath('display_name', $responseCustomerName . ' - ' . $responseCustomerName);
+            ->assertJsonPath('contact_name', null)
+            ->assertJsonPath('display_name', $responseCustomerName);
 
         $customer = Customer::query()->where('setting_id', $setting->id)->sole();
 
-        $this->assertSame($responseCustomerName, $responseContactName);
-        $this->assertSame($customer->customer_name, $customer->contact_name);
+        $this->assertNull($responseContactName);
+        $this->assertNull($customer->contact_name);
+        $this->assertSame($responseCustomerName, $customer->customer_name);
     }
 }

@@ -52,9 +52,7 @@ class PosCheckoutCustomerResolverService
      */
     private function mapCustomer(Customer $customer): array
     {
-        $displayName = $customer->contact_name
-            ? $customer->contact_name . ' - ' . $customer->customer_name
-            : $customer->customer_name;
+        $displayName = $customer->canonical_name;
 
         return [
             'id' => (int) $customer->id,

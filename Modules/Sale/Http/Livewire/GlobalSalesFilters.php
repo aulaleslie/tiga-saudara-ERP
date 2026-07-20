@@ -73,10 +73,10 @@ class GlobalSalesFilters extends Component
         try {
             // Load customers (limit to recent/active ones)
             $this->customers = Customer::query()
-                ->where('setting_id', $this->settingId)
                 ->orderBy('customer_name')
                 ->limit(100)
-                ->get(['id', 'customer_name']);
+                ->get(['id', 'customer_name', 'contact_name'])
+                ->map(fn($c) => ['id' => $c->id, 'canonical_name' => $c->canonical_name]);
 
             // Load products
             $this->products = Product::query()

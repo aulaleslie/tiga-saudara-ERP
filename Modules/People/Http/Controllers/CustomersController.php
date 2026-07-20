@@ -52,7 +52,8 @@ class CustomersController extends Controller
         // Validate the request data
         $settingId = session('setting_id');
         $request->validate([
-            'contact_name' => 'required|string|max:255',
+            'customer_name' => 'required|string|max:255',
+            'contact_name' => 'nullable|string|max:255',
             'customer_phone' => [
                 'required',
                 'string',
@@ -77,7 +78,7 @@ class CustomersController extends Controller
             'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
             'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
 
-            'customer_name' => 'nullable|string|max:255',
+            // customer_name already validated above
             'customer_email' => [
                 'nullable',
                 'email',
@@ -133,7 +134,7 @@ class CustomersController extends Controller
             'additional_info' => 'nullable|string|max:1000',
             'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ], [
-            'contact_name.required' => 'Nama kontak wajib diisi.',
+            'customer_name.required' => 'Nama pelanggan / perusahaan wajib diisi.',
             'customer_phone.required' => 'Nomor telepon wajib diisi.',
 
             'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
@@ -157,8 +158,8 @@ class CustomersController extends Controller
             Customer::create([
                 'setting_id' => $settingId,
                 'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
-                'contact_name' => $request->contact_name,
-                'customer_name' => $request->customer_name ?? '',
+                'contact_name' => $this->nullableInput($request->contact_name),
+                'customer_name' => $request->customer_name,
                 'customer_phone' => $request->customer_phone,
                 'customer_email' => $this->nullableInput($request->customer_email),
                 'identity' => $request->identity,
@@ -237,7 +238,8 @@ class CustomersController extends Controller
 
         $settingId = session('setting_id');
         $request->validate([
-            'contact_name' => 'required|string|max:255',
+            'customer_name' => 'required|string|max:255',
+            'contact_name' => 'nullable|string|max:255',
             'customer_phone' => [
                 'required',
                 'string',
@@ -326,7 +328,8 @@ class CustomersController extends Controller
             ]);
 
             $customer->update([
-                'contact_name' => $request->contact_name,
+                'customer_name' => $request->customer_name,
+                'contact_name' => $this->nullableInput($request->contact_name),
                 'customer_phone' => $request->customer_phone,
                 'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
                 'customer_email' => $request->customer_email ?? '',

@@ -105,7 +105,7 @@
                             <select wire:model="filters.customer_id" class="form-control">
                                 <option value="">All Customers</option>
                                 @foreach($customers ?? [] as $customer)
-                                    <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                                    <option value="{{ $customer['id'] }}">{{ $customer['canonical_name'] }}</option>
                                 @endforeach
                             </select>
                         </div>

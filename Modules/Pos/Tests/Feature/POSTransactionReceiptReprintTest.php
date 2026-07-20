@@ -462,14 +462,18 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
             ->get(route('pos.transactions.receipt', $transaction))
             ->assertStatus(200)
             ->assertSee('Pelanggan')
-            ->assertSee('BUDI SANTOSO - CV MAJU JAYA');
+            ->assertSee('BUDI SANTOSO - CV MAJU JAYA')
+            ->assertDontSee('Fallback Name')
+            ->assertDontSee('Budi Santoso - CV Maju Jaya');
 
         // Reprint receipt
         $this->actingAs($user)->withSession(['setting_id' => $setting->id])
             ->post(route('pos.transactions.receipt.reprint', $transaction))
             ->assertStatus(200)
             ->assertSee('Pelanggan')
-            ->assertSee('BUDI SANTOSO - CV MAJU JAYA');
+            ->assertSee('BUDI SANTOSO - CV MAJU JAYA')
+            ->assertDontSee('Fallback Name')
+            ->assertDontSee('Budi Santoso - CV Maju Jaya');
     }
 
     public function test_transaction_receipt_reprint_displays_only_company_when_contact_is_empty(): void
@@ -485,7 +489,7 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
             'setting_id' => $setting->id,
             'contact_name' => '',
             'company_name' => 'PT Sukses Bersama',
-            'customer_name' => 'Fallback Name',
+            'customer_name' => 'PT SUKSES BERSAMA',
         ]);
 
         $transaction = $this->createDraftTransaction($setting, $user);

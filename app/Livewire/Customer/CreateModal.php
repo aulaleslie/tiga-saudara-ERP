@@ -9,6 +9,7 @@ use Modules\People\Entities\Customer;
 class CreateModal extends Component
 {
     public $showModal = false;
+    public $customer_name;
     public $contact_name;
     public $tier = null;
 
@@ -17,7 +18,8 @@ class CreateModal extends Component
     protected function rules()
     {
         return [
-            'contact_name' => 'required|string|max:255',
+            'customer_name' => 'required|string|max:255',
+            'contact_name' => 'nullable|string|max:255',
             'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ];
     }
@@ -25,12 +27,15 @@ class CreateModal extends Component
     public function open()
     {
         $this->resetValidation();
-        $this->reset(); // Clears contact_name
+        $this->reset(); // Clears inputs
         $this->showModal = true;
     }
 
     public function save()
     {
+        $this->customer_name = trim((string)$this->customer_name);
+        $this->contact_name = trim((string)$this->contact_name) ?: null;
+
         $this->validate();
 
         // Generate unique placeholder values for optional unique fields
@@ -40,8 +45,8 @@ class CreateModal extends Component
 
         $customer = Customer::create([
             'setting_id'     => session('setting_id'),
-            'contact_name'   => $this->contact_name,
-            'customer_name'  => $this->contact_name,
+            'contact_name'   => $this->contact_name ?: null,
+            'customer_name'  => $this->customer_name,
             'customer_phone' => $phone,
             'customer_email' => $email,
             'identity'       => null,
