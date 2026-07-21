@@ -43,6 +43,9 @@ class PosTransactionSnapshotMapper
                     'bundle_name' => $line['bundle_name'] ?? null,
                     'bundle_price' => $line['bundle_price'] ?? null,
                     'bundle_items' => $line['bundle_items'] ?? null,
+                    'breakdown' => $line['breakdown'] ?? null,
+                    'pricing_basis' => $line['pricing_basis'] ?? null,
+                    'line_total' => $line['line_total'] ?? null,
                 ];
 
                 $dbLine = PosTransactionLine::create([
@@ -116,6 +119,11 @@ class PosTransactionSnapshotMapper
                 ->all();
         }
 
+        $tier = null;
+        if ($transaction->customer) {
+            $tier = (string) $transaction->customer->tier;
+        }
+
         $lines = [];
         $nextLineId = 1;
 
@@ -139,7 +147,7 @@ class PosTransactionSnapshotMapper
                 'tax_id' => $dbLine->tax_id,
                 'tax_name' => $dbLine->tax_name_snapshot,
                 'tax_rate' => (float) $dbLine->tax_rate_snapshot,
-                'merge_key' => $lineMeta['merge_key'] ?? $this->computeMergeKey($dbLine),
+                'merge_key' => $lineMeta['merge_key'] ?? $this->computeMergeKey($dbLine, $tier),
                 'price_source' => 'DRAFT_RESTORED',
                 'price_valid' => true,
                 'price_error' => null,
@@ -149,6 +157,9 @@ class PosTransactionSnapshotMapper
                 'bundle_name' => $lineMeta['bundle_name'] ?? null,
                 'bundle_price' => $lineMeta['bundle_price'] ?? null,
                 'bundle_items' => $lineMeta['bundle_items'] ?? [],
+                'breakdown' => $lineMeta['breakdown'] ?? null,
+                'pricing_basis' => $lineMeta['pricing_basis'] ?? null,
+                'line_total' => $lineMeta['line_total'] ?? null,
             ];
 
             $nextLineId++;
@@ -271,14 +282,22 @@ class PosTransactionSnapshotMapper
 
     /**
      * Compute merge_key from transaction line fields.
-     * Must match PosCartService logic: "{product_id}:{unit_price}:{tax_id}:{conversion_id}"
+     * Uses PosMergeKeyGenerator for parity with PosCartService.
      */
-    private function computeMergeKey(PosTransactionLine $line): string
+    private function computeMergeKey(PosTransactionLine $line, ?string $tier = null): string
     {
-        $taxId = $line->tax_id ?? 'null';
-        $conversionId = $line->conversion_id ?? 'null';
-        $unitPrice = round((float) $line->unit_price, 2);
+        $lineMeta = $line->line_meta ?? [];
+        $priceSource = $lineMeta['price_source'] ?? 'BASE';
+        $bundleId = $lineMeta['bundle_id'] ?? null;
 
-        return "{$line->product_id}:{$unitPrice}:{$taxId}:{$conversionId}";
+        return \Modules\Pos\Support\PosMergeKeyGenerator::build(
+            (int) $line->product_id,
+            (float) $line->unit_price,
+            $line->tax_id !== null ? (int) $line->tax_id : null,
+            $line->conversion_id !== null ? (int) $line->conversion_id : null,
+            $bundleId !== null ? (int) $bundleId : null,
+            $tier,
+            $priceSource
+        );
     }
 }

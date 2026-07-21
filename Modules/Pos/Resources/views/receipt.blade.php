@@ -264,8 +264,15 @@
                         <td>
                             {{ $line['product_name'] }}
                             @if(!empty($line['unit_breakdown']))
-                                <br>
-                                <span class="small">{{ $line['unit_breakdown'] }}</span>
+                                @if(is_array($line['unit_breakdown']))
+                                    @foreach($line['unit_breakdown'] as $ub)
+                                        <br>
+                                        <span class="small">{{ $ub }}</span>
+                                    @endforeach
+                                @else
+                                    <br>
+                                    <span class="small">{{ $line['unit_breakdown'] }}</span>
+                                @endif
                             @endif
                             @if(($line['discount'] ?? 0) > 0)
                                 <br>
@@ -281,6 +288,7 @@
                                 <br>
                                 <span class="small" style="font-weight: 400;">&nbsp;&nbsp;SN: {{ implode(', ', $line['assigned_serials']) }}</span>
                             @endif
+
                         </td>
                         <td style="text-align:right">{{ number_format((float) $line['sub_total'], 0, ',', '.') }}</td>
                     </tr>
@@ -338,7 +346,7 @@
         
         {{-- Task 2.3, 2.4, 2.5: Footer updates --}}
         <div class="tail-print-history" style="margin-top: 2mm;">
-            Harga Sudah Termasuk PPN
+            Harga sudah termasuk PPN
             <br>
             Terima Kasih Telah Berbelanja
         </div>

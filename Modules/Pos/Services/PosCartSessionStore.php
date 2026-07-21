@@ -13,6 +13,7 @@ class PosCartSessionStore
      *     bill_discount_type:string,
      *     bill_discount_value:float,
      *     selected_customer_id:int|null,
+     *     selected_customer_tier:string|null,
      *     active_transaction_id:int|null,
      *     staged_payment_token:string|null
      * }
@@ -41,6 +42,9 @@ class PosCartSessionStore
             'selected_customer_id' => isset($stored['selected_customer_id'])
                 ? (int) $stored['selected_customer_id']
                 : null,
+            'selected_customer_tier' => isset($stored['selected_customer_tier'])
+                ? (string) $stored['selected_customer_tier']
+                : null,
             'active_transaction_id' => isset($stored['active_transaction_id'])
                 ? (int) $stored['active_transaction_id']
                 : null,
@@ -59,6 +63,7 @@ class PosCartSessionStore
      *     bill_discount_type?:string,
      *     bill_discount_value?:float|int|string,
      *     selected_customer_id?:int|null,
+     *     selected_customer_tier?:string|null,
      *     active_transaction_id?:int|null,
      *     staged_payment_token?:string|null
      * }  $cart
@@ -76,6 +81,9 @@ class PosCartSessionStore
             'bill_discount_value' => (float) ($cart['bill_discount_value'] ?? 0),
             'selected_customer_id' => isset($cart['selected_customer_id'])
                 ? (int) $cart['selected_customer_id']
+                : null,
+            'selected_customer_tier' => isset($cart['selected_customer_tier'])
+                ? (string) $cart['selected_customer_tier']
                 : null,
             'active_transaction_id' => isset($cart['active_transaction_id'])
                 ? (int) $cart['active_transaction_id']
@@ -100,6 +108,7 @@ class PosCartSessionStore
      *     bill_discount_type:string,
      *     bill_discount_value:float,
      *     selected_customer_id:int|null,
+     *     selected_customer_tier:string|null,
      *     active_transaction_id:int|null,
      *     staged_payment_token:string|null
      * }
@@ -114,6 +123,7 @@ class PosCartSessionStore
             'bill_discount_type' => 'fixed',
             'bill_discount_value' => 0.0,
             'selected_customer_id' => null,
+            'selected_customer_tier' => null,
             'active_transaction_id' => null,
             'staged_payment_token' => null,
         ];

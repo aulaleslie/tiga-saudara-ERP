@@ -67,7 +67,20 @@ class PosReceiptService
                     $factor = 1.0;
                 }
 
-                if ($unitName) {
+                $priceSource = $line->line_meta['price_source'] ?? 'BASE';
+                $breakdown = $line->line_meta['breakdown'] ?? null;
+                
+                if ($priceSource === 'PACKED' && is_array($breakdown)) {
+                    $unitBreakdown = [];
+                    $baseUnitName = $line->product->unit->short_name ?? $line->product->unit->name ?? 'Unit';
+                    
+                    if ($breakdown['box_count'] > 0) {
+                        $unitBreakdown[] = sprintf("[K] x%d @ %s", $breakdown['box_count'], format_currency($breakdown['box_price_applied']));
+                    }
+                    if ($breakdown['loose_count'] > 0) {
+                        $unitBreakdown[] = sprintf("[%s] x%d @ %s", substr($baseUnitName, 0, 1), $breakdown['loose_count'], format_currency($breakdown['loose_price_applied']));
+                    }
+                } elseif ($unitName) {
                     $pricePerUnit = $line->unit_price / $factor;
                     $unitBreakdown = sprintf(
                         "%s %s(S) @ %s",
@@ -78,7 +91,12 @@ class PosReceiptService
                 }
 
                 // Simple subtotal calculation for receipt display
-                $lineSubtotal = ($line->qty * $line->unit_price) - (float)($line->line_discount_value ?? 0);
+                if (isset($line->line_meta['line_total'])) {
+                    $lineGross = (float) $line->line_meta['line_total'] / 100;
+                } else {
+                    $lineGross = $line->qty * $line->unit_price;
+                }
+                $lineSubtotal = $lineGross - (float)($line->line_discount_value ?? 0);
 
                 $composition = $bundleCompositionByLine[(int) $line->id] ?? [];
 
@@ -93,6 +111,8 @@ class PosReceiptService
                     'assigned_serials' => $line->serials->count() > 0 
                         ? $line->serials->pluck('serial_number')->toArray() 
                         : ($line->line_meta['assigned_serials'] ?? []),
+                    'price_source' => $line->line_meta['price_source'] ?? 'BASE',
+                    'breakdown' => $line->line_meta['breakdown'] ?? null,
                 ];
             }
         }
@@ -433,9 +453,32 @@ class PosReceiptService
             $unitName = null;
             $factor = 1.0;
 
-            if ($line->conversion && $line->conversion->unit) {
+            $priceSource = $line->line_meta['price_source'] ?? 'BASE';
+            $breakdown = $line->line_meta['breakdown'] ?? null;
+
+            if ($priceSource === 'PACKED' && is_array($breakdown)) {
+                $unitBreakdown = [];
+                $baseUnitName = $line->product && $line->product->unit ? ($line->product->unit->short_name ?? $line->product->unit->name) : 'Unit';
+
+                if ($breakdown['box_count'] > 0) {
+                    $unitBreakdown[] = sprintf("[K] x%d @ %s", $breakdown['box_count'], format_currency($breakdown['box_price_applied']));
+                }
+                if ($breakdown['loose_count'] > 0) {
+                    $unitBreakdown[] = sprintf("[%s] x%d @ %s", substr($baseUnitName, 0, 1), $breakdown['loose_count'], format_currency($breakdown['loose_price_applied']));
+                }
+            } elseif ($line->conversion && $line->conversion->unit) {
                 $unitName = $line->conversion->unit->short_name ?? $line->conversion->unit->name;
                 $factor = (float)($line->conversion->conversion_factor ?? 1);
+
+                if ($unitName) {
+                    $pricePerUnit = $line->unit_price / $factor;
+                    $unitBreakdown = sprintf(
+                        "%s %s(S) @ %s",
+                        (float)$line->qty,
+                        $unitName,
+                        format_currency($pricePerUnit)
+                    );
+                }
             } elseif ($line->product) {
                 $unitName = $line->product->unit->short_name
                             ?? $line->product->unit->name
@@ -443,20 +486,25 @@ class PosReceiptService
                             ?? $line->product->baseUnit->name
                             ?? $line->product->product_unit;
                 $factor = 1.0;
-            }
 
-            if ($unitName) {
-                $pricePerUnit = $line->unit_price / $factor;
-                $unitBreakdown = sprintf(
-                    "%s %s(S) @ %s",
-                    (float)$line->qty,
-                    $unitName,
-                    format_currency($pricePerUnit)
-                );
+                if ($unitName) {
+                    $pricePerUnit = $line->unit_price / $factor;
+                    $unitBreakdown = sprintf(
+                        "%s %s(S) @ %s",
+                        (float)$line->qty,
+                        $unitName,
+                        format_currency($pricePerUnit)
+                    );
+                }
             }
 
             // Simple subtotal calculation for receipt display
-            $lineSubtotal = ($line->qty * $line->unit_price) - (float)($line->line_discount_value ?? 0);
+            if (isset($line->line_meta['line_total'])) {
+                $lineGross = (float) $line->line_meta['line_total'] / 100;
+            } else {
+                $lineGross = $line->qty * $line->unit_price;
+            }
+            $lineSubtotal = $lineGross - (float)($line->line_discount_value ?? 0);
 
             // Task 1.3: Draft/loaded transaction bundle context
             $composition = [];
@@ -480,6 +528,8 @@ class PosReceiptService
                 'assigned_serials' => $line->serials->count() > 0 
                     ? $line->serials->pluck('serial_number')->toArray() 
                     : ($line->line_meta['assigned_serials'] ?? []),
+                'price_source' => $line->line_meta['price_source'] ?? 'BASE',
+                'breakdown' => $line->line_meta['breakdown'] ?? null,
             ];
         }
 

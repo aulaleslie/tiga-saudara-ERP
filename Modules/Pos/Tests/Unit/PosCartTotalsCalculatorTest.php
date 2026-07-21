@@ -156,4 +156,34 @@ class PosCartTotalsCalculatorTest extends TestCase
         $this->assertSame($forward['totals'], $reverse['totals']);
         $this->assertSame($forward['lines'], $reverse['lines']);
     }
+
+    public function test_authoritative_line_total_is_used_when_present(): void
+    {
+        $calculator = new PosCartTotalsCalculator();
+
+        $snapshot = $calculator->calculate(
+            lines: [
+                [
+                    'line_id' => 1,
+                    'qty' => 3,
+                    'unit_price' => 33333.33,
+                    'line_total' => 10000000, // 100,000.00 minor units
+                    'line_discount_type' => 'fixed',
+                    'line_discount_value' => 0,
+                    'tax_rate' => 0,
+                    'tax_id' => null,
+                ],
+            ],
+            billDiscount: [
+                'type' => 'fixed',
+                'value' => 0,
+            ],
+            isPkp: true
+        );
+
+        $this->assertSame(100000.0, $snapshot['lines'][0]['line_gross']);
+        $this->assertSame(100000.0, $snapshot['lines'][0]['line_subtotal']);
+        $this->assertSame(100000.0, $snapshot['totals']['subtotal']);
+        $this->assertSame(100000.0, $snapshot['totals']['grand_total']);
+    }
 }

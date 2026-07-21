@@ -25,7 +25,11 @@ class PosCartTotalsCalculator
             $lineId = (int) ($line['line_id'] ?? 0);
             $qty = max(0, (int) ($line['qty'] ?? 0));
             $unitPriceCents = $this->toMinor((float) ($line['unit_price'] ?? 0));
-            $lineGrossCents = $qty * $unitPriceCents;
+            if (isset($line['line_total'])) {
+                $lineGrossCents = (int) $line['line_total'];
+            } else {
+                $lineGrossCents = $qty * $unitPriceCents;
+            }
 
             $discountType = $this->normalizeDiscountType((string) ($line['line_discount_type'] ?? 'fixed'));
             $discountValue = (float) ($line['line_discount_value'] ?? 0);

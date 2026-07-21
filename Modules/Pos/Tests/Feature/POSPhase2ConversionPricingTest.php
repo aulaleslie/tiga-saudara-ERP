@@ -208,14 +208,15 @@ class POSPhase2ConversionPricingTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('product.conversion.id', $conversion->id)
-            ->assertJsonPath('product.conversion.price_source', 'base_fallback')
-            ->assertJsonPath('product.conversion.price_for_setting', 75000.0); // Falls back to product.product_price
+            ->assertJsonPath('product.conversion.price_source', 'base_fallback');
+            
+        $this->assertEquals(75000, $response->json('product.conversion.price_for_setting'));
     }
 
     /**
-     * WI-7: Cart add with conversion_id uses conversion price
+     * WI-7: Cart add with conversion_id uses packed pricing
      */
-    public function test_cart_add_with_conversion_uses_conversion_price(): void
+    public function test_cart_add_with_conversion_uses_packed_pricing(): void
     {
         $setting = $this->createSetting('PHASE2-CART-CONV');
         [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-CART-CONV');
@@ -253,9 +254,11 @@ class POSPhase2ConversionPricingTest extends TestCase
 
         $this->assertCount(1, $snapshot['lines']);
         $line = reset($snapshot['lines']);
-        $this->assertEquals(1050000, (int) ($line['unit_price'] * 100)); // Check price matches conversion price
+        
+        $this->assertEquals(1050000, $line['line_total']); // line_total is in minor units (1050000)
         $this->assertEquals($conversion->id, $line['conversion_id']);
-        $this->assertStringContainsString('CONVERSION', $line['price_source']);
+        $this->assertEquals('PACKED', $line['price_source']);
+        $this->assertEquals(12, $line['qty']); // seeded to 12
     }
 
     /**
@@ -281,20 +284,20 @@ class POSPhase2ConversionPricingTest extends TestCase
 
         $this->assertCount(1, $snapshot['lines']);
         $line = reset($snapshot['lines']);
-        $this->assertEquals(80000, (int) ($line['unit_price'] * 100)); // Check price matches base product price
+        $this->assertEquals(80000, $line['unit_price']); // Check price matches base product price
         $this->assertNull($line['conversion_id']);
         $this->assertEquals('BASE', $line['price_source']);
     }
 
     /**
-     * WI-7: Base and conversion lines don't merge (separate line items)
+     * WI-7: Base and conversion lines merge (re-pack into single line)
      */
-    public function test_base_and_conversion_lines_do_not_merge(): void
+    public function test_base_and_conversion_lines_merge_into_repacked_line(): void
     {
-        $setting = $this->createSetting('PHASE2-NO-MERGE');
-        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-NO-MERGE');
+        $setting = $this->createSetting('PHASE2-MERGE');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-MERGE');
 
-        $product = $this->createStockedProduct($setting, $location, 'SKU-NO-MERGE-001', 'Produk No Merge', 60000, $cashier->id);
+        $product = $this->createStockedProduct($setting, $location, 'SKU-MERGE-001', 'Produk Merge', 60000, $cashier->id);
 
         $unit = Unit::firstOrCreate(['name' => 'Bundle', 'short_name' => 'BDL']);
 
@@ -303,7 +306,7 @@ class POSPhase2ConversionPricingTest extends TestCase
             'unit_id' => $unit->id,
             'base_unit_id' => $product->base_unit_id,
             'conversion_factor' => 5,
-            'barcode' => 'CONV-NO-MERGE-001',
+            'barcode' => 'CONV-MERGE-001',
         ]);
 
         ProductUnitConversionPrice::create([
@@ -324,7 +327,7 @@ class POSPhase2ConversionPricingTest extends TestCase
         $snapshot1 = $response1->json('cart_snapshot');
         $this->assertCount(1, $snapshot1['lines']);
 
-        // Add same product via conversion
+        // Add same product via conversion (qty 1 * factor 5 = 5 base units)
         $response2 = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.cart.lines.store'), [
@@ -336,11 +339,16 @@ class POSPhase2ConversionPricingTest extends TestCase
         $response2->assertOk();
         $snapshot2 = $response2->json('cart_snapshot');
 
-        // Should have 2 separate lines (not merged)
-        $this->assertCount(2, $snapshot2['lines']);
-        $lines = $snapshot2['lines'];
-        $this->assertEquals(60000, (int) ($lines[0]['unit_price'] * 100)); // Base price
-        $this->assertEquals(280000, (int) ($lines[1]['unit_price'] * 100)); // Conversion price
+        // Should have 1 merged line
+        $this->assertCount(1, $snapshot2['lines']);
+        $lines = array_values($snapshot2['lines']);
+        $line = $lines[0];
+        
+        $this->assertEquals(7, $line['qty']);
+        $this->assertEquals('PACKED', $line['price_source']);
+        
+        // 1 box * 280k + 2 loose * 60k = 400000
+        $this->assertEquals(400000, $line['line_total']);
     }
 
     // --- Helpers ---
@@ -484,6 +492,11 @@ class POSPhase2ConversionPricingTest extends TestCase
             'product_id' => $product->id,
             'location_id' => $location->id,
             'quantity' => 1000,
+            'quantity_non_tax' => 1000, // Pre-existing schema constraint fix
+            'quantity_tax' => 0, // Additional schema constraint fix
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
         ]);
 
         return $product;

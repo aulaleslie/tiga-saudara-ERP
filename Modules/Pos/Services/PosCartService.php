@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
+use Modules\Pos\Support\PosMergeKeyGenerator;
 
 class PosCartService
 {
@@ -94,44 +95,25 @@ class PosCartService
 
         // Resolve pricing: conversion price (if provided) or base product price
         $unitPrice = 0.0;
+        $lineTotal = 0;
         $bundlePrice = 0.0;
         $priceSource = 'BASE';
         $taxId = null;
         $taxName = null;
         $taxRate = 0.0;
         $conversionUnitName = null;
+        $pricingBasis = null;
+        $breakdown = null;
+
+        $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
+        $selectedCustomerTier = $cart['selected_customer_tier'] ?? null;
 
         if ($conversion !== null) {
-            // Use conversion-specific pricing
-            $conversionPrice = ProductUnitConversionPrice::query()
-                ->where('product_unit_conversion_id', $conversion->id)
-                ->where('setting_id', $settingId)
-                ->first();
-
-            if ($conversionPrice) {
-                $unitPrice = (float) $conversionPrice->price;
-                $priceSource = 'CONVERSION';
-            } else {
-                // Fallback to base product price if conversion price not found
-                $unitPrice = (float) ($product->product_price ?? 0);
-                $priceSource = 'CONVERSION_FALLBACK';
-            }
-
+            $qty = $qty * max(1, (int) $conversion->conversion_factor);
             $conversionUnitName = $conversion->unit ? (string) $conversion->unit->name : 'Unit';
+        }
 
-            // For conversion lines, use base product tax (conversions don't have separate tax)
-            $priceRow = ProductPrice::query()
-                ->forProduct($product->id)
-                ->forSetting($settingId)
-                ->first();
-            $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
-            $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
-            $taxId = $tax ? (int) $tax->id : null;
-            $taxName = $tax ? (string) $tax->name : null;
-            $taxRate = $tax ? (float) $tax->value : 0.0;
-        } elseif ($bundle !== null) {
-            $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
-
+        if ($bundle !== null) {
             // Use the final bundle_sale_price instead of legacy parent + add-on price.
             $unitPrice = round((float) ($bundle->bundle_sale_price ?? 0), 2);
             $bundlePrice = round((float) ($bundle->price ?? 0), 2);
@@ -142,23 +124,50 @@ class PosCartService
             $taxName = $priceResolution['tax_name'];
             $taxRate = (float) ($priceResolution['tax_rate'] ?? 0.0);
         } else {
-            // Use base product pricing
-            $priceRow = ProductPrice::query()
-                ->forProduct($product->id)
-                ->forSetting($settingId)
-                ->first();
+            // Check if product has box conversion - if so, use packing pricing
+            $pricingBasis = $this->buildPricingBasis($settingId, $product->id, $selectedCustomerId);
 
-            $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
-            $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
-            $unitPrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
-            $taxId = $tax ? (int) $tax->id : null;
-            $taxName = $tax ? (string) $tax->name : null;
-            $taxRate = $tax ? (float) $tax->value : 0.0;
+            if ($pricingBasis !== null) {
+                // Product has box conversion - use packing pricing
+                // Use cached tier to avoid DB query
+                $pricingService = new PackedLinePricingService();
+                $priceResult = $pricingService->price($qty, $selectedCustomerTier, $pricingBasis);
+
+                $lineTotal = $priceResult['line_total_minor'];
+                $unitPrice = $priceResult['blended_unit_price'] / 100.0;
+                $breakdown = $priceResult['breakdown'];
+                $priceSource = 'PACKED';
+
+                $taxId = $pricingBasis['tax_id'];
+                $taxName = $pricingBasis['tax_name'];
+                $taxRate = $pricingBasis['tax_rate'];
+            } else {
+                // Use base product pricing
+                $priceRow = ProductPrice::query()
+                    ->forProduct($product->id)
+                    ->forSetting($settingId)
+                    ->first();
+
+                $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
+                $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
+                $unitPrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
+                $taxId = $tax ? (int) $tax->id : null;
+                $taxName = $tax ? (string) $tax->name : null;
+                $taxRate = $tax ? (float) $tax->value : 0.0;
+            }
         }
 
         // Build merge key to determine if we should merge with existing line
-        // Include conversion_id and bundle_id in key so different options don't merge
-        $mergeKey = $this->buildMergeKey($product->id, $unitPrice, $taxId, $conversionId, $bundleId);
+        // Use cached tier to avoid DB query
+        $mergeKey = PosMergeKeyGenerator::build(
+            $product->id,
+            $unitPrice,
+            $taxId,
+            $conversionId,
+            $bundleId,
+            $selectedCustomerTier,
+            $priceSource
+        );
 
         // Look for existing line with matching merge key (handles backwards compat + new format)
         $existingLineId = null;
@@ -180,10 +189,23 @@ class PosCartService
                 throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
-            $cart['lines'][$existingLineId] = array_merge($existingLine, [
+            // For packed lines, re-pack the total quantity
+            $updatedLine = array_merge($existingLine, [
                 'qty' => $newQty,
                 'available_qty' => $availableQty,
             ]);
+
+            if ($priceSource === 'PACKED' && $pricingBasis !== null) {
+                // Use cached tier to avoid DB query
+                $pricingService = new PackedLinePricingService();
+                $priceResult = $pricingService->price($newQty, $selectedCustomerTier, $pricingBasis);
+
+                $updatedLine['unit_price'] = round($priceResult['blended_unit_price'] / 100.0, 2);
+                $updatedLine['line_total'] = $priceResult['line_total_minor'];
+                $updatedLine['breakdown'] = $priceResult['breakdown'];
+            }
+
+            $cart['lines'][$existingLineId] = $updatedLine;
         } else {
             // No matching line - create new line with next_line_id
             $newLineId = $cart['next_line_id']++;
@@ -192,7 +214,7 @@ class PosCartService
                 throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
-            $cart['lines'][$newLineId] = [
+            $lineData = [
                 'line_id' => $newLineId,
                 'product_id' => (int) $product->id,
                 'product_name' => (string) $product->product_name,
@@ -227,6 +249,15 @@ class PosCartService
                     'informational_item_price' => (float) ($item->informational_item_price ?? 0),
                 ])->toArray() : [],
             ];
+
+            // Add packed pricing data if applicable
+            if ($priceSource === 'PACKED' && $lineTotal > 0 && $breakdown !== null) {
+                $lineData['line_total'] = $lineTotal;
+                $lineData['breakdown'] = $breakdown;
+                $lineData['pricing_basis'] = $pricingBasis;
+            }
+
+            $cart['lines'][$newLineId] = $lineData;
         }
 
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
@@ -298,12 +329,27 @@ class PosCartService
         $discountValue = (float) ($payload['line_discount_value'] ?? $line['line_discount_value'] ?? 0);
 
         // Preserve assigned serials across qty changes. Serial/qty mismatch is validated at checkout time.
-        $cart['lines'][$lineId] = array_merge($line, [
+        $updatedLine = array_merge($line, [
             'qty' => $qty,
             'assigned_serials' => $assignedSerials,
             'line_discount_type' => $this->normalizeDiscountType((string) $discountType),
             'line_discount_value' => round(max(0.0, $discountValue), 2),
         ]);
+
+        // For packed lines, re-pack the total quantity from cached pricing_basis
+        if (($line['price_source'] ?? null) === 'PACKED' && isset($line['pricing_basis'])) {
+            $pricingBasis = $line['pricing_basis'];
+            // Use cached tier to avoid DB query
+            $tier = $cart['selected_customer_tier'] ?? null;
+            $pricingService = new PackedLinePricingService();
+            $priceResult = $pricingService->price($qty, $tier, $pricingBasis);
+
+            $updatedLine['unit_price'] = round($priceResult['blended_unit_price'] / 100.0, 2);
+            $updatedLine['line_total'] = $priceResult['line_total_minor'];
+            $updatedLine['breakdown'] = $priceResult['breakdown'];
+        }
+
+        $cart['lines'][$lineId] = $updatedLine;
 
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
@@ -382,17 +428,22 @@ class PosCartService
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
 
+        $customerTier = null;
         if ($customerId !== null) {
-            $isValidCustomer = Customer::query()
+            $customer = Customer::query()
                 ->whereKey($customerId)
-                ->exists();
+                ->select(['id', 'tier'])
+                ->first();
 
-            if (! $isValidCustomer) {
+            if (! $customer) {
                 throw new DomainException('Pelanggan yang dipilih tidak valid.');
             }
+
+            $customerTier = (string) ($customer->tier ?? '');
         }
 
         $cart['selected_customer_id'] = $customerId;
+        $cart['selected_customer_tier'] = $customerTier;
 
         // Reprice all non-OVERRIDE lines based on new customer tier
         $repricedLines = [];
@@ -402,6 +453,21 @@ class PosCartService
             // Skip OVERRIDE or BUNDLE lines - keep existing price.
             // Bundled row prices are authoritative and bypass customer tier repricing.
             if ($priceSource === 'OVERRIDE' || $priceSource === 'BUNDLE') {
+                $repricedLines[$lineId] = $line;
+                continue;
+            }
+
+            // For PACKED lines, re-pack using cached pricing_basis with new tier
+            if ($priceSource === 'PACKED' && isset($line['pricing_basis'])) {
+                $pricingBasis = $line['pricing_basis'];
+                $qty = (int) ($line['qty'] ?? 0);
+                // Use cached tier to avoid DB query
+                $pricingService = new PackedLinePricingService();
+                $priceResult = $pricingService->price($qty, $customerTier, $pricingBasis);
+
+                $line['unit_price'] = round($priceResult['blended_unit_price'] / 100.0, 2);
+                $line['line_total'] = $priceResult['line_total_minor'];
+                $line['breakdown'] = $priceResult['breakdown'];
                 $repricedLines[$lineId] = $line;
                 continue;
             }
@@ -1159,8 +1225,73 @@ class PosCartService
      * @param  int|null  $bundleId  Optional bundle ID to include in key
      * @return string
      */
+
+    private function buildPricingBasis(int $settingId, int $productId, ?int $selectedCustomerId): ?array
+    {
+        $priceRow = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting($settingId)
+            ->first();
+
+        if (!$priceRow) {
+            return null;
+        }
+
+        $product = Product::query()->whereKey($productId)->first();
+        if (!$product) {
+            return null;
+        }
+
+        $boxConversion = ProductUnitConversion::query()
+            ->where('product_id', $productId)
+            ->first();
+
+        if (!$boxConversion) {
+            return null;
+        }
+
+        $conversionPrice = ProductUnitConversionPrice::query()
+            ->where('product_unit_conversion_id', $boxConversion->id)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (!$conversionPrice) {
+            return null;
+        }
+
+        $customerTier = null;
+        if ($selectedCustomerId !== null && $selectedCustomerId > 0) {
+            $customer = Customer::query()
+                ->whereKey($selectedCustomerId)
+                ->select(['id', 'tier'])
+                ->first();
+            $customerTier = $customer ? (string) ($customer->tier ?? '') : null;
+        }
+
+        $basePrice = (int) round((float) ($priceRow->sale_price ?? 0) * 100);
+        $tier1Price = (int) round((float) ($priceRow->tier_1_price ?? 0) * 100);
+        $tier2Price = (int) round((float) ($priceRow->tier_2_price ?? 0) * 100);
+        $boxPrice = (int) round((float) $conversionPrice->price * 100);
+
+        $saleTaxId = (int) ($priceRow->sale_tax_id ?? 0);
+        $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
+
+        return [
+            'factor' => (int) $boxConversion->conversion_factor,
+            'box_price' => $boxPrice,
+            'base_price' => $basePrice,
+            'tier_1_price' => $tier1Price,
+            'tier_2_price' => $tier2Price,
+            'tax_id' => $tax ? (int) $tax->id : null,
+            'tax_name' => $tax ? (string) $tax->name : null,
+            'tax_rate' => $tax ? (float) $tax->value : 0.0,
+        ];
+    }
+
+
+
     private function buildMergeKey(int $productId, float $unitPrice, ?int $taxId, ?int $conversionId = null, ?int $bundleId = null): string
     {
-        return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}:{$conversionId}:{$bundleId}";
+        return PosMergeKeyGenerator::build($productId, $unitPrice, $taxId, $conversionId, $bundleId);
     }
 }

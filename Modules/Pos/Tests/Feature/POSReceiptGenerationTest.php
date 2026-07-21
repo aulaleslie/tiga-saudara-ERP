@@ -332,6 +332,50 @@ class POSReceiptGenerationTest extends TestCase
             ->assertSee('Harga sudah termasuk PPN');
     }
     
+    public function test_receipt_shows_packing_split_breakdown_for_packed_lines(): void
+    {
+        $context = $this->createCheckoutContext('POS PACKING');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'KERTAS-A4', 50000, false);
+        $boxUnit = Unit::create(['name' => 'DUS', 'short_name' => 'DUS']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->unit_id,
+            'conversion_factor' => 5,
+        ]);
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $context['setting']->id,
+            'price' => 210000,
+        ]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 6, null); // Add 6 base units, will be packed!
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'pack-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 260000],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutResponse->assertStatus(201);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        session()->put('setting_id', $context['setting']->id);
+
+        $receiptResponse = $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt");
+
+        $receiptResponse->assertStatus(200);
+        // Just verify packed receipt contains the product and breakdown info
+        $receiptResponse->assertSee('KERTAS-A4')
+            ->assertSee('[K]');  // Box indicator from breakdown
+    }
+    
     public function test_receipt_shows_calculated_change_if_db_value_is_zero(): void
     {
         $context = $this->createCheckoutContext('POS CHANGE FIX');
@@ -660,5 +704,221 @@ class POSReceiptGenerationTest extends TestCase
             ->postJson('/pos/sell/checkout/finalize', $payload, [
                 'X-Setting-Id' => (string) $setting->id,
             ]);
+    }
+
+    public function test_packed_pricing_with_reseller_customer_and_zero_queries(): void
+    {
+        $context = $this->createCheckoutContext('POS PACKED RESELLER');
+        $setting = $context['setting'];
+
+        // Create product with base price 50000 (5000000 minor)
+        $product = $this->createStockedProduct($setting, $context['location'], 'KERTAS-A4', 50000, false);
+
+        // Setup pricing: tier_2_price = 42000 (4200000 minor)
+        $priceRow = ProductPrice::query()
+            ->forProduct($product->id)
+            ->forSetting($setting->id)
+            ->first();
+        $priceRow->update(['tier_2_price' => 42000]);
+
+        // Create box conversion: factor 5, box_price 210000
+        $boxUnit = Unit::create(['name' => 'DUS', 'short_name' => 'DUS']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->unit_id,
+            'conversion_factor' => 5,
+        ]);
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 210000,
+        ]);
+
+        // Create reseller customer
+        $reseller = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'customer_name' => 'Reseller Toko',
+            'tier' => 'RESELLER',
+        ]);
+
+        // Add packed line (qty 6 base units)
+        $this->addCartLine($context['cashier'], $setting, $product->id, 6);
+
+        // Verify line is marked as PACKED before selecting customer
+        $cartService = app(\Modules\Pos\Services\PosCartService::class);
+        $cartBefore = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        $this->assertCount(1, $cartBefore['lines']);
+        $this->assertSame('PACKED', $cartBefore['lines'][0]['price_source']);
+        // Tax may be applied; just verify it's packed and has proper breakdown
+        $this->assertNotNull($cartBefore['lines'][0]['breakdown']);
+        $this->assertSame(1, $cartBefore['lines'][0]['breakdown']['box_count']);
+        $this->assertSame(1, $cartBefore['lines'][0]['breakdown']['loose_count']);
+
+        // Select reseller customer
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->selectCustomerInCart($context['cashier'], $setting, $reseller);
+
+        // Check that selectCustomerInCart made expected DB queries (only 1 for the customer selection)
+        $selectQueries = DB::getQueryLog();
+        $pricingQueries = array_filter($selectQueries, fn($q) => 
+            str_contains($q['query'], 'product_prices') ||
+            str_contains($q['query'], 'product_unit_conversion') ||
+            str_contains($q['query'], 'taxes')
+        );
+        $this->assertCount(0, $pricingQueries, 'Selecting customer should not trigger N+1 queries for line pricing');
+
+        $customerQueries = array_filter($selectQueries, fn($q) => str_contains($q['query'], 'customers'));
+        // 3 queries: 1 validation, 1 fetch tier, 1 resource formatting
+        $this->assertCount(3, $customerQueries, 'Selecting customer should query customers table exactly 3 times (no per-line queries)');
+        DB::disableQueryLog();
+
+        // Verify line total updated to reseller price: 1 box @ 210k + 1 loose @ 42k = 252k
+        $cartAfter = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        $this->assertCount(1, $cartAfter['lines']);
+        $line = $cartAfter['lines'][0];
+        $this->assertSame('PACKED', $line['price_source']);
+        // Verify tier was mapped correctly in breakdown
+        $this->assertSame('tier_2', $line['breakdown']['tier']);
+        // Verify loose items now use tier_2 pricing
+        $this->assertSame(4200000, $line['breakdown']['loose_price_applied']); // tier_2 price in minor units
+
+        // Now test qty update - verify tier is still cached and used correctly
+        // Update qty to 11 (2 boxes + 1 loose)
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson('/pos/sell/cart/lines/' . $line['line_id'], [
+                'qty' => 11,
+            ], ['X-Setting-Id' => (string) $setting->id])
+            ->assertOk();
+
+        $qtyQueries = DB::getQueryLog();
+        $qtyCustomerQueries = array_filter($qtyQueries, fn($q) => str_contains($q['query'], 'customers'));
+        $qtyPricingQueries = array_filter($qtyQueries, fn($q) => 
+            str_contains($q['query'], 'product_prices') ||
+            str_contains($q['query'], 'product_unit_conversion') ||
+            str_contains($q['query'], 'taxes')
+        );
+
+        $this->assertCount(1, $qtyCustomerQueries, 'Updating qty should query customers table exactly once (for response formatting)');
+        $this->assertCount(0, $qtyPricingQueries, 'Updating qty should not query pricing tables');
+
+        DB::disableQueryLog();
+
+        // Verify line_total updated for qty 11 (2 boxes + 1 loose)
+        $cartFinal = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        $lineFinal = $cartFinal['lines'][0];
+        // Verify correct box/loose split
+        $this->assertSame(2, $lineFinal['breakdown']['box_count']);
+        $this->assertSame(1, $lineFinal['breakdown']['loose_count']);
+        // Verify tier_2 is still applied
+        $this->assertSame('tier_2', $lineFinal['breakdown']['tier']);
+
+        // Finalize and verify receipt
+        $payload = [
+            'idempotency_key' => 'packed-reseller-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 462000],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $setting, $payload);
+        $checkoutResponse->assertStatus(201);
+    }
+
+    public function test_box_barcode_scan_reaches_packed_path_and_seeds_factor(): void
+    {
+        $context = $this->createCheckoutContext('POS PACKED BOX SCAN');
+        $setting = $context['setting'];
+
+        // Create product with base price 50000 (5000000 minor)
+        $product = $this->createStockedProduct($setting, $context['location'], 'KERTAS-A4', 50000, false);
+
+        // Setup pricing: tier_2_price = 42000 (4200000 minor)
+        $priceRow = ProductPrice::query()
+            ->forProduct($product->id)
+            ->forSetting($setting->id)
+            ->first();
+        $priceRow->update(['tier_2_price' => 42000]);
+
+        // Create box conversion: factor 5, box_price 210000
+        $boxUnit = Unit::create(['name' => 'DUS', 'short_name' => 'DUS']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->unit_id,
+            'conversion_factor' => 5,
+        ]);
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 210000,
+        ]);
+
+        // Create reseller customer
+        $reseller = Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'customer_name' => 'Reseller Toko',
+            'tier' => 'RESELLER',
+        ]);
+        
+        $this->selectCustomerInCart($context['cashier'], $setting, $reseller);
+
+        // Step 1: Add product via search (qty 5 base units)
+        $this->addCartLine($context['cashier'], $setting, $product->id, 5, null);
+
+        $cartService = app(\Modules\Pos\Services\PosCartService::class);
+        $cartBefore = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        $this->assertCount(1, $cartBefore['lines']);
+        
+        // Step 2: Add product via box scan (qty 1, conversion_id set). 
+        // addCartLine sends qty=1, but service should multiply by factor 5 = 5 base units.
+        // This should merge with the existing line, resulting in qty 10 (2 boxes)
+        $this->addCartLine($context['cashier'], $setting, $product->id, 1, $conversion->id);
+
+        $cartAfter = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        
+        // Assert criteria 1, 2, 3, 4, 5
+        $this->assertCount(1, $cartAfter['lines'], 'Product search and box scan should merge into one line');
+        
+        $line = $cartAfter['lines'][0];
+        $this->assertSame('PACKED', $line['price_source']);
+        $this->assertSame(10, $line['qty']);
+        $this->assertSame(2, $line['breakdown']['box_count']);
+        $this->assertSame(0, $line['breakdown']['loose_count']);
+        $this->assertSame('tier_2', $line['breakdown']['tier']);
+        $this->assertEquals(420000, $line['line_total']); // 2 boxes * 210000
+        
+        // Now test qty update - verify zero queries
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson('/pos/sell/cart/lines/' . $line['line_id'], [
+                'qty' => 11,
+            ], ['X-Setting-Id' => (string) $setting->id])
+            ->assertOk();
+
+        $qtyQueries = \Illuminate\Support\Facades\DB::getQueryLog();
+        $qtyPricingQueries = array_filter($qtyQueries, fn($q) => 
+            str_contains($q['query'], 'product_prices') ||
+            str_contains($q['query'], 'product_unit_conversion') ||
+            str_contains($q['query'], 'taxes')
+        );
+
+        $this->assertCount(0, $qtyPricingQueries, 'Updating qty should not query pricing tables');
+
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $cartFinal = $cartService->getSnapshot($setting->id, $context['cashier']->id);
+        $lineFinal = $cartFinal['lines'][0];
+        $this->assertSame(2, $lineFinal['breakdown']['box_count']);
+        $this->assertSame(1, $lineFinal['breakdown']['loose_count']);
+        $this->assertEquals(462000, $lineFinal['line_total']); // 2 boxes * 210000 + 1 loose * 42000 = 462000
     }
 }

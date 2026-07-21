@@ -1176,12 +1176,25 @@
                        </div>`
                     : '';
 
+                let packedInfo = '';
+                if (line.price_source === 'PACKED' && Array.isArray(line.breakdown)) {
+                    const breakdownLines = line.breakdown.map(b => 
+                        `<div>${b.qty} × ${formatPrice(b.unit_price)}</div>`
+                    ).join('');
+                    
+                    packedInfo = `<div class="text-info mt-1 small" style="line-height: 1.2;">
+                        <div class="font-weight-bold"><i class="fas fa-box mr-1"></i> Harga Kemasan:</div>
+                        ${breakdownLines}
+                    </div>`;
+                }
+
                 return `
                     <tr data-line-id="${lineId}" class="${rowClass}">
                         <td class="pos-cart-product align-middle">
                             ${priceWarning}
                             <div class="name">${productName}${serialBadge}</div>
                             ${bundleInfo}
+                            ${packedInfo}
                             <div class="meta">${productCode} | ${barcode}</div>
                         </td>
                         <td class="text-right align-middle">
