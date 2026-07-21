@@ -38,6 +38,14 @@ window.PosStagedPayment = (function () {
     let stagedProcessingSpinner = null;
     let stagedErrorAlert = null;
 
+    // Confirmation Modal DOM elements
+    let confirmModalElement = null;
+    let confirmMethodLabel = null;
+    let confirmRemainingLabel = null;
+    let confirmEnteredLabel = null;
+    let confirmAlertContainer = null;
+    let confirmProceedButton = null;
+
     // Cached data
     let cachedPaymentMethods = [];
     let selectedPaymentMethod = null;
@@ -66,6 +74,14 @@ window.PosStagedPayment = (function () {
         stagedSubmitButton = config.submitButton || document.getElementById('staged-payment-submit');
         stagedProcessingSpinner = config.spinner || document.getElementById('staged-payment-spinner');
         stagedErrorAlert = config.errorAlert || document.getElementById('staged-payment-error');
+        
+        confirmModalElement = document.getElementById('pos-payment-confirmation-modal');
+        confirmMethodLabel = document.getElementById('confirm-payment-method');
+        confirmRemainingLabel = document.getElementById('confirm-remaining-balance');
+        confirmEnteredLabel = document.getElementById('confirm-entered-amount');
+        confirmAlertContainer = document.getElementById('confirm-payment-alert');
+        confirmProceedButton = document.getElementById('confirm-payment-proceed-btn');
+
         canUsePaymentFlow = config.canUsePaymentFlow !== false;
         paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
 
@@ -106,7 +122,11 @@ window.PosStagedPayment = (function () {
         }
 
         if (stagedSubmitButton) {
-            stagedSubmitButton.addEventListener('click', submitStagePayment);
+            stagedSubmitButton.addEventListener('click', confirmStagePayment);
+        }
+
+        if (confirmProceedButton) {
+            confirmProceedButton.addEventListener('click', executeStagePayment);
         }
 
         // Close dropdown when clicking outside
@@ -420,8 +440,8 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    // Task 4.1 & 4.3: Submit stage payment
-    async function submitStagePayment(event) {
+    // Task 2.1 & 4.1 & 4.3: Confirm stage payment before submit
+    async function confirmStagePayment(event) {
         event.preventDefault();
 
         if (!ensurePaymentFlowAvailable()) {
@@ -437,6 +457,46 @@ window.PosStagedPayment = (function () {
         }
 
         if (!validateBeforeSubmit()) return;
+
+        // Populate Confirmation Modal (Task 2.2)
+        const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value);
+        
+        if (confirmMethodLabel) confirmMethodLabel.textContent = selectedPaymentMethod?.name || '-';
+        if (confirmRemainingLabel) confirmRemainingLabel.textContent = formatPrice(remainder);
+        if (confirmEnteredLabel) confirmEnteredLabel.textContent = formatPrice(amount);
+
+        // Warning Logic and Alerts (Task 3.1 & 3.2)
+        if (confirmAlertContainer) {
+            confirmAlertContainer.className = 'alert'; // reset classes
+            
+            if (amount === remainder) {
+                confirmAlertContainer.classList.add('alert-success');
+                confirmAlertContainer.textContent = 'Pembayaran Pas';
+            } else if (amount > remainder) {
+                const change = amount - remainder;
+                confirmAlertContainer.classList.add('alert-info');
+                confirmAlertContainer.textContent = `Kembalian: ${formatPrice(change)}`;
+            } else {
+                const short = remainder - amount;
+                confirmAlertContainer.classList.add('alert-warning');
+                confirmAlertContainer.textContent = `Pembayaran Kurang (Sisa: ${formatPrice(short)})`;
+            }
+            confirmAlertContainer.classList.remove('d-none');
+        }
+
+        // Show Confirmation Modal (Task 3.3)
+        if (confirmModalElement) {
+            $(confirmModalElement).modal('show');
+        }
+    }
+
+    // Task 4.2: Execute stage payment (previously submitStagePayment)
+    async function executeStagePayment(event) {
+        if (event) event.preventDefault();
+        
+        if (confirmModalElement) {
+            $(confirmModalElement).modal('hide');
+        }
 
         setProcessing(true);
         clearErrors();

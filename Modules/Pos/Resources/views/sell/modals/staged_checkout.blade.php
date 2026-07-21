@@ -89,3 +89,43 @@
             </div>
         </div>
     </div>
+
+    <!-- Confirmation Modal for Staged Checkout (Task 1.1, 1.2, 1.3) -->
+    <div class="modal fade" id="pos-payment-confirmation-modal" tabindex="-1" role="dialog" aria-labelledby="pos-payment-confirmation-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-payment-confirmation-modal-label">Konfirmasi Pembayaran</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="mb-3">Silakan periksa kembali detail pembayaran berikut sebelum melanjutkan:</p>
+                    
+                    <ul class="list-group mb-4">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Metode Pembayaran</strong>
+                            <span id="confirm-payment-method">-</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Sisa Tagihan Sebelumnya</strong>
+                            <span id="confirm-remaining-balance" class="text-danger font-weight-bold">Rp0</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Jumlah yang Dimasukkan</strong>
+                            <span id="confirm-entered-amount" class="text-primary font-weight-bold">Rp0</span>
+                        </li>
+                    </ul>
+
+                    <!-- Dynamic Alert Container -->
+                    <div id="confirm-payment-alert" class="alert d-none" role="alert"></div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <!-- Task 1.3 -->
+                    <button type="button" id="confirm-payment-cancel-btn" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" id="confirm-payment-proceed-btn" class="btn btn-primary btn-lg px-5">Lanjutkan</button>
+                </div>
+            </div>
+        </div>
+    </div>
