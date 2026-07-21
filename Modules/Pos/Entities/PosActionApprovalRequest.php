@@ -21,6 +21,7 @@ class PosActionApprovalRequest extends BaseModel
     public const ACTION_QTY_REDUCE = 'QTY_REDUCE';
     public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
     public const ACTION_TRANSACTION_CANCEL = 'TRANSACTION_CANCEL';
+    public const ACTION_CHECKOUT_AS_DEBT = 'CHECKOUT_AS_DEBT';
 
     protected $table = 'pos_action_approval_requests';
 

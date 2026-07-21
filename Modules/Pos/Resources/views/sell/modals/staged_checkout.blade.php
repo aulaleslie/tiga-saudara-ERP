@@ -27,8 +27,22 @@
                         </div>
                     </div>
 
+                    <!-- Task 5.1: Debt Checkout Toggle -->
+                    <div class="custom-control custom-switch mb-3">
+                        <input type="checkbox" class="custom-control-input" id="staged-payment-is-debt">
+                        <label class="custom-control-label font-weight-bold text-danger" for="staged-payment-is-debt">Bayar sebagai Piutang / Kasbon</label>
+                    </div>
+
+                    <!-- Task 5.2: Payment Terms Dropdown -->
+                    <div class="form-group mb-3 d-none" id="staged-payment-debt-terms-container">
+                        <label class="font-weight-bold d-block mb-1">Jangka Waktu (Payment Term)</label>
+                        <select class="form-control" id="staged-payment-term">
+                            <option value="">-- Pilih Jangka Waktu --</option>
+                        </select>
+                    </div>
+
                     <!-- Task 3.2: Payment Method Selection -->
-                    <div class="form-group mb-3">
+                    <div class="form-group mb-3" id="staged-method-container">
                         <label class="font-weight-bold d-block mb-1">Metode Pembayaran</label>
                         <small class="text-info d-block mb-2">Catatan: Untuk multi payment, silakan masukkan pembayaran non-tunai (transfer/debit/kredit) terlebih dahulu, dan pembayaran tunai (cash) di akhir.</small>
                         <div class="position-relative">

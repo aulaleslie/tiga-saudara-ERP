@@ -5,6 +5,9 @@ namespace Modules\Pos\Services;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\User;
+use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Services\PosCartActionAuthorizationService;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosCheckoutPaymentAllocation;
@@ -30,7 +33,8 @@ class FinalizePosCheckoutService
         private readonly PosReceiptNumberGenerator $receiptNumberGenerator,
         private readonly PosCashDrawerService $cashDrawerService,
         private readonly ?PosTransactionService $transactionService = null,
-        private readonly ?PosCheckoutPaymentNormalizationService $paymentNormalizationService = null
+        private readonly ?PosCheckoutPaymentNormalizationService $paymentNormalizationService = null,
+        private readonly ?PosCartActionAuthorizationService $authorizationService = null
     ) {
     }
 
@@ -93,17 +97,40 @@ class FinalizePosCheckoutService
         // Determine if legacy single-payment or multi-payment path
         $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
 
+        $isDebt = (bool) ($paymentPayload['is_debt'] ?? false);
+        $paymentTermId = isset($paymentPayload['payment_term_id']) ? (int) $paymentPayload['payment_term_id'] : null;
+        $approvalToken = $paymentPayload['approval_token'] ?? null;
+
         if ($isMultiPayment) {
             $payment = $this->normalizeMultiPayment($settingId, $paymentPayload['payments']);
         } else {
-            $payment = $this->normalizePayment($settingId, $paymentPayload['payment'] ?? $paymentPayload);
+            $payment = $this->normalizePayment($settingId, $paymentPayload['payment'] ?? $paymentPayload, $isDebt);
+        }
+
+        if ($isDebt) {
+            if ($paymentTermId === null || $paymentTermId <= 0) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Syarat pembayaran (Term) harus dipilih untuk utang.');
+            }
+            if ($this->authorizationService) {
+                $user = User::find($cashierUserId);
+                if ($user) {
+                    $authResult = $this->authorizationService->authorize(
+                        $user,
+                        PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT,
+                        $approvalToken
+                    );
+                    if (!$authResult['authorized']) {
+                        throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Otorisasi diperlukan untuk checkout sebagai utang.');
+                    }
+                }
+            }
         }
 
         $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
 
         $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
         $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
-        $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId);
+        $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId, $isDebt);
 
         $payloadHash = $this->payloadHash(
             $settingId,
@@ -112,7 +139,9 @@ class FinalizePosCheckoutService
             $cashierUserId,
             (int) $resolvedCustomerId,
             $cartSnapshot,
-            $payment
+            $payment,
+            $isDebt,
+            $paymentTermId
         );
 
         $paidTotal = $payment['amount_paid'];
@@ -140,7 +169,9 @@ class FinalizePosCheckoutService
             $paidTotal,
             $changeTotal,
             $clientContext,
-            $cartSnapshot
+            $cartSnapshot,
+            $isDebt,
+            $paymentTermId
         );
 
         $replayPayload = $checkoutResolution['replay_payload'];
@@ -243,7 +274,8 @@ class FinalizePosCheckoutService
     private function validateCartAndPayment(
         array $cartSnapshot,
         array $payment,
-        ?int $resolvedCustomerId
+        ?int $resolvedCustomerId,
+        bool $isDebt = false
     ): array {
         $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
         if ($lines === []) {
@@ -280,8 +312,14 @@ class FinalizePosCheckoutService
             $amountPaid = $payment['amount_paid'];
             $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
 
-            if ($amountPaid + 0.0001 < $totals['grand_total']) {
-                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Pembayaran harus dibayar sepenuhnya.');
+            if ($isDebt) {
+                if ($amountPaid >= $totals['grand_total']) {
+                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Uang muka (Down Payment) utang harus kurang dari total akhir.');
+                }
+            } else {
+                if ($amountPaid + 0.0001 < $totals['grand_total']) {
+                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Pembayaran harus dibayar sepenuhnya.');
+                }
             }
 
             return $totals;
@@ -292,16 +330,22 @@ class FinalizePosCheckoutService
         $isCash = $payment['is_cash'];
         $requiresReference = $payment['requires_reference'];
 
-        if (! $isCash && $amountPaid + 0.0001 < $totals['grand_total']) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment must be fully paid.');
-        }
+        if ($isDebt) {
+            if ($amountPaid >= $totals['grand_total']) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Uang muka (Down Payment) utang harus kurang dari total akhir.');
+            }
+        } else {
+            if (! $isCash && $amountPaid + 0.0001 < $totals['grand_total']) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment must be fully paid.');
+            }
 
-        if (! $isCash) {
-            if (abs($amountPaid - $totals['grand_total']) > 0.0001) {
-                throw new PosCheckoutValidationException(
-                    'PAYMENT_INVALID',
-                    'Non-cash payments must match the grand total exactly.'
-                );
+            if (! $isCash) {
+                if (abs($amountPaid - $totals['grand_total']) > 0.0001) {
+                    throw new PosCheckoutValidationException(
+                        'PAYMENT_INVALID',
+                        'Non-cash payments must match the grand total exactly.'
+                    );
+                }
             }
         }
 
@@ -321,39 +365,43 @@ class FinalizePosCheckoutService
      * @param  array<string, mixed>  $paymentPayload
      * @return array{payment_method_id:int,amount_paid:float,reference:?string,is_cash:bool,requires_reference:bool}
      */
-    private function normalizePayment(int $settingId, array $paymentPayload): array
+    private function normalizePayment(int $settingId, array $paymentPayload, bool $isDebt = false): array
     {
         $paymentMethodId = isset($paymentPayload['payment_method_id']) ? (int) $paymentPayload['payment_method_id'] : null;
         $amountPaid = round((float) ($paymentPayload['amount_paid'] ?? 0), 2);
         $reference = isset($paymentPayload['reference']) ? trim((string) $paymentPayload['reference']) : null;
         $reference = $reference !== '' ? $reference : null;
 
-        if ($amountPaid <= 0) {
+        if ($amountPaid <= 0 && !$isDebt) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Jumlah pembayaran harus lebih besar dari nol.');
         }
 
-        if (! $paymentMethodId || $paymentMethodId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
-        }
+        if ($amountPaid > 0 || !$isDebt) {
+            if (! $paymentMethodId || $paymentMethodId <= 0) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
+            }
 
-        $paymentMethod = PaymentMethod::query()
-            ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
-            ->where('setting_pos_payment_methods.setting_id', $settingId)
-            ->where('setting_pos_payment_methods.is_enabled', true)
-            ->where('payment_methods.id', $paymentMethodId)
-            ->select('payment_methods.*')
-            ->first();
+            $paymentMethod = PaymentMethod::query()
+                ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
+                ->where('setting_pos_payment_methods.setting_id', $settingId)
+                ->where('setting_pos_payment_methods.is_enabled', true)
+                ->where('payment_methods.id', $paymentMethodId)
+                ->select('payment_methods.*')
+                ->first();
 
-        if (! $paymentMethod) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan atau tidak diaktifkan untuk pengaturan ini.');
+            if (! $paymentMethod) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan atau tidak diaktifkan untuk pengaturan ini.');
+            }
+        } else {
+            $paymentMethod = null;
         }
 
         return [
             'payment_method_id' => $paymentMethodId,
             'amount_paid' => $amountPaid,
             'reference' => $reference,
-            'is_cash' => (bool) $paymentMethod->is_cash,
-            'requires_reference' => (bool) $paymentMethod->requires_reference,
+            'is_cash' => (bool) ($paymentMethod?->is_cash ?? false),
+            'requires_reference' => (bool) ($paymentMethod?->requires_reference ?? false),
         ];
     }
 
@@ -420,7 +468,9 @@ class FinalizePosCheckoutService
         float $paidTotal,
         float $changeTotal,
         ?array $clientContext,
-        array $cartSnapshot
+        array $cartSnapshot,
+        bool $isDebt = false,
+        ?int $paymentTermId = null
     ): array {
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
@@ -437,7 +487,9 @@ class FinalizePosCheckoutService
                     $paidTotal,
                     $changeTotal,
                     $clientContext,
-                    $cartSnapshot
+                    $cartSnapshot,
+                    $isDebt,
+                    $paymentTermId
                 ) {
                     $existing = PosCheckout::query()
                         ->where('setting_id', $settingId)
@@ -472,6 +524,8 @@ class FinalizePosCheckoutService
                         'metadata' => [
                             'client_context' => $clientContext,
                             'cart_meta' => $cartSnapshot['meta'] ?? null,
+                            'is_debt' => $isDebt,
+                            'payment_term_id' => $paymentTermId,
                         ],
                     ]);
 
@@ -635,6 +689,8 @@ class FinalizePosCheckoutService
                     'payment' => $payment,
                     'cart_snapshot' => $cartSnapshot,
                     'allocations' => $resolution['allocations'],
+                    'is_debt' => (bool) ($lockedCheckout->metadata['is_debt'] ?? false),
+                    'payment_term_id' => $lockedCheckout->metadata['payment_term_id'] ?? null,
                 ]);
 
                 $dispatchIds = array_values(array_map(
@@ -1379,7 +1435,9 @@ class FinalizePosCheckoutService
         int $cashierUserId,
         int $customerId,
         array $snapshot,
-        array $payment
+        array $payment,
+        bool $isDebt = false,
+        ?int $paymentTermId = null
     ): string {
         $normalized = [
             'setting_id' => $settingId,
@@ -1387,6 +1445,8 @@ class FinalizePosCheckoutService
             'terminal_id' => $terminalId,
             'cashier_user_id' => $cashierUserId,
             'customer_id' => $customerId,
+            'is_debt' => $isDebt,
+            'payment_term_id' => $paymentTermId,
             'cart' => $this->normalizeSnapshotForHash([
                 'lines' => $snapshot['lines'] ?? [],
                 'totals' => $snapshot['totals'] ?? [],

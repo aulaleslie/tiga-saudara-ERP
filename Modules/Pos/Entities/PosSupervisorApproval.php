@@ -22,6 +22,8 @@ class PosSupervisorApproval extends BaseModel
 
     public const ACTION_TRANSACTION_CANCEL_APPROVAL = 'TRANSACTION_CANCEL_APPROVAL';
 
+    public const ACTION_CHECKOUT_AS_DEBT_APPROVAL = 'CHECKOUT_AS_DEBT_APPROVAL';
+
     public const RESULT_APPROVED = 'APPROVED';
 
     public const RESULT_REJECTED = 'REJECTED';

@@ -60,6 +60,7 @@ final class PosPermissionMatrix
                     'pos.returns.receive',
                     'pos.returns.settle',
                     'pos.returns.dispatch',
+                    'pos.checkout.debt',
                 ],
             ],
             'cashier' => [
@@ -140,6 +141,7 @@ final class PosPermissionMatrix
                     'pos.overrides.price',
                     'pos.overrides.discount',
                     'pos.void',
+                    'pos.checkout.debt',
                 ],
             ],
             'returns' => [

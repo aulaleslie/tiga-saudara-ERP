@@ -133,6 +133,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
 
     Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
+    Route::get('/pos/sell/payment-terms/search', [PosSellController::class, 'paymentTermsSearch'])->name('pos.sell.payment-terms.search');
 
     Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
         ->name('pos.sell.checkout.stage-payment');

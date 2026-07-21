@@ -649,7 +649,7 @@
                 return body;
             }
 
-            const ApprovalManager = {
+            const ApprovalManager = window.ApprovalManager = {
                 async wrapAction(btn, originalText, actionType, targetType, targetId, payload, actionFn) {
                     const pendingRequestId = btn.getAttribute('data-approval-pending');
                     if (pendingRequestId) {
@@ -3693,10 +3693,11 @@
                         }
 
                         const grandTotal = currentSnapshot.totals.grand_total || 0;
-                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal);
+                        const hasCustomer = currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
+                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal, 'hasCustomer:', hasCustomer);
 
                         if (typeof PosStagedPayment !== 'undefined') {
-                            PosStagedPayment.openModal(cartToken, grandTotal);
+                            PosStagedPayment.openModal(cartToken, grandTotal, hasCustomer);
                         } else {
                             console.error('[CHECKOUT] PosStagedPayment module not loaded');
                         }

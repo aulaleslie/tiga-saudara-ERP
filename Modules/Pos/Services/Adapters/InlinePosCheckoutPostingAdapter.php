@@ -47,18 +47,28 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Pelanggan tidak dapat ditentukan untuk checkout.');
         }
 
+        $isDebt = (bool) ($context['is_debt'] ?? false);
+        $paymentTermId = isset($context['payment_term_id']) ? (int) $context['payment_term_id'] : null;
+        $downPaymentAmount = round((float) ($payment['amount_paid'] ?? 0), 2);
+
         // Handle both single-payment and multi-payment contexts
         $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
+
+        $paymentMethodId = null;
+        $paymentReference = null;
+        $paymentMethod = null;
 
         if ($isMultiPayment) {
             // For multi-payment: use first payment method for sale_payment row
             $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
-            if (empty($payments)) {
+            if (empty($payments) && (!$isDebt || $downPaymentAmount > 0)) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Array pembayaran kosong.');
             }
-            $firstPayment = $payments[0];
-            $paymentMethodId = (int) ($firstPayment['payment_method_id'] ?? 0);
-            $paymentReference = $firstPayment['reference'] ?? null;
+            if (!empty($payments)) {
+                $firstPayment = $payments[0];
+                $paymentMethodId = (int) ($firstPayment['payment_method_id'] ?? 0);
+                $paymentReference = $firstPayment['reference'] ?? null;
+            }
         } else {
             // For single-payment: use existing logic
             $paymentReference = isset($payment['reference']) ? trim((string) $payment['reference']) : null;
@@ -68,13 +78,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $paymentReference = isset($paymentReference) ? trim((string) $paymentReference) : null;
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
 
-        if ($paymentMethodId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
-        }
+        if ($downPaymentAmount > 0 || !$isDebt) {
+            if ($paymentMethodId <= 0) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
+            }
 
-        $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
-        if (! $paymentMethod) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan.');
+            $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
+            if (! $paymentMethod) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan.');
+            }
         }
 
         $grandTotal = round((float) ($totals['grand_total'] ?? 0), 2);
@@ -82,9 +94,31 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
         $totalPostedTaxTotal = 0.0;
 
+        $paidAmount = $grandTotal;
+        $dueAmount = 0;
+        $paymentStatus = 'Paid';
+        $salePaymentTermId = PaymentTerm::defaultCodTermId();
+        $dueDate = now()->toDateString();
+        $salePaymentMethodStr = strtoupper($paymentMethod->name ?? 'CUSTOM');
+
+        if ($isDebt) {
+            $paidAmount = $downPaymentAmount;
+            $dueAmount = round($grandTotal - $paidAmount, 2);
+            $paymentStatus = $paidAmount > 0 ? 'Partial' : 'Unpaid';
+            $salePaymentTermId = $paymentTermId;
+
+            $term = PaymentTerm::query()->find($paymentTermId);
+            if ($term) {
+                $dueDate = now()->addDays((int) $term->longevity)->toDateString();
+            }
+            if ($paidAmount == 0) {
+                $salePaymentMethodStr = 'DEBT';
+            }
+        }
+
         $sale = Sale::query()->create([
             'date' => now()->toDateString(),
-            'due_date' => now()->toDateString(),
+            'due_date' => $dueDate,
             'customer_id' => $customer->id,
             'customer_name' => (string) ($customer->customer_name ?? ''),
             'tax_id' => null,
@@ -94,15 +128,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'discount_amount' => $discountTotal,
             'shipping_amount' => 0,
             'total_amount' => $grandTotal,
-            'paid_amount' => $grandTotal,
-            'due_amount' => 0,
+            'paid_amount' => $paidAmount,
+            'due_amount' => $dueAmount,
             'status' => Sale::STATUS_DISPATCHED,
-            'payment_status' => 'Paid',
-            'payment_term_id' => PaymentTerm::defaultCodTermId(),
+            'payment_status' => $paymentStatus,
+            'payment_term_id' => $salePaymentTermId,
             'note' => 'POS checkout #' . $checkoutId,
             'setting_id' => $settingId,
             'is_tax_included' => false,
-            'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
+            'payment_method' => $salePaymentMethodStr,
             'tax_ref_no' => null,
         ]);
 
@@ -313,7 +347,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $sale->update([
             'tax_amount' => $totalPostedTaxTotal,
             'total_amount' => $totalPostedGrandTotal,
-            'paid_amount' => $totalPostedGrandTotal,
+            'paid_amount' => $paidAmount,
             'is_tax_included' => $totalPostedTaxTotal > 0,
         ]);
 
@@ -349,17 +383,19 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             }
         } else {
             // Single-payment: keep existing logic (one SalePayment per sale)
-            $salePayment = SalePayment::query()->create([
-                'sale_id' => $sale->id,
-                'amount' => $totalPostedGrandTotal,
-                'date' => now()->toDateString(),
-                'reference' => $sale->reference,
-                'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
-                'note' => $paymentReference,
-                'payment_method_id' => $paymentMethodId,
-            ]);
+            if ($downPaymentAmount > 0 || !$isDebt) {
+                $salePayment = SalePayment::query()->create([
+                    'sale_id' => $sale->id,
+                    'amount' => $paidAmount,
+                    'date' => now()->toDateString(),
+                    'reference' => $sale->reference,
+                    'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
+                    'note' => $paymentReference,
+                    'payment_method_id' => $paymentMethodId,
+                ]);
 
-            $lastSalePaymentId = (int) $salePayment->id;
+                $lastSalePaymentId = (int) $salePayment->id;
+            }
         }
 
         return [

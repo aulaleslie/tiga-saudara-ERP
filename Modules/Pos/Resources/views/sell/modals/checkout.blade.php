@@ -34,8 +34,22 @@
                         <div class="col-lg-5 p-4">
                             <div id="pos-checkout-error" class="alert alert-danger d-none"></div>
 
+                            <!-- Task 5.1: Debt Checkout Toggle -->
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="pos-checkout-is-debt">
+                                <label class="custom-control-label font-weight-bold text-danger" for="pos-checkout-is-debt">Bayar sebagai Utang (Debt)</label>
+                            </div>
+
+                            <!-- Task 5.2: Payment Terms Dropdown -->
+                            <div class="form-group mb-3 d-none" id="pos-checkout-debt-terms-container">
+                                <label class="font-weight-bold d-block mb-1">Syarat Pembayaran (Term)</label>
+                                <select class="form-control" id="pos-checkout-payment-term">
+                                    <option value="">-- Pilih Syarat Pembayaran --</option>
+                                </select>
+                            </div>
+
                             <!-- Task 4.1: Payment Composer Section -->
-                            <div class="form-group mb-3">
+                            <div class="form-group mb-3" id="pos-checkout-method-container">
                                 <label class="font-weight-bold d-block mb-1">Metode Pembayaran</label>
                                 <small class="text-info d-block mb-2">Catatan: Untuk multi payment, silakan masukkan pembayaran non-tunai (transfer/debit/kredit) terlebih dahulu, dan pembayaran tunai (cash) di akhir.</small>
                                 <!-- Payment method search/picker -->

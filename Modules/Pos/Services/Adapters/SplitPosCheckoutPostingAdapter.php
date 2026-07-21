@@ -25,6 +25,10 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $cartSnapshot = is_array($context['cart_snapshot'] ?? null) ? $context['cart_snapshot'] : [];
         $checkoutGrandTotal = round((float) ($cartSnapshot['totals']['grand_total'] ?? 0), 2);
 
+        $isDebt = (bool) ($context['is_debt'] ?? false);
+        $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
+        $downPaymentAmount = round((float) ($payment['amount_paid'] ?? 0), 2);
+
         $plan = $this->splitPlanner->plan([
             'setting_id' => (int) ($context['setting_id'] ?? 0),
             'cart_snapshot' => $cartSnapshot,
@@ -40,7 +44,6 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         // Determine payment allocation strategy: multi-payment ownership-priority or simple proportional
-        $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
         $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
 
         // Extract original (reordered) payment array for slicing
@@ -96,7 +99,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'split_key' => (string) ($group['split_key'] ?? ''),
                     'grand_total' => (float) ($group['grand_total'] ?? 0),
                 ], $groups),
-                $checkoutGrandTotal
+                $isDebt ? $downPaymentAmount : $checkoutGrandTotal
             );
             $paymentSlices = [];
         }
@@ -220,10 +223,11 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             );
         }
 
-        if ($allocatedPaidMinor !== $expectedGrandMinor) {
+        $expectedPaidMinor = $isDebt ? $this->toMinor($downPaymentAmount) : $expectedGrandMinor;
+        if ($allocatedPaidMinor !== $expectedPaidMinor) {
             throw new PosCheckoutPostingException(
                 'POSTING_RECONCILIATION_MISMATCH',
-                'Split payment allocation does not reconcile with checkout total.'
+                'Split payment allocation does not reconcile with checkout total paid amount.'
             );
         }
 

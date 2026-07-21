@@ -23,6 +23,7 @@ window.PosStagedPayment = (function () {
     let paymentChain = null;
     let currentStageData = null;
     let onCompleteCallback = null;
+    let currentHasCustomer = false;
 
     // DOM elements
     let stagedModalElement = null;
@@ -45,6 +46,13 @@ window.PosStagedPayment = (function () {
     let confirmEnteredLabel = null;
     let confirmAlertContainer = null;
     let confirmProceedButton = null;
+
+    // Debt variables
+    let stagedIsDebtToggle = null;
+    let stagedDebtTermsContainer = null;
+    let stagedPaymentTermSelect = null;
+    let stagedMethodContainer = null;
+    let cachedPaymentTerms = [];
 
     // Cached data
     let cachedPaymentMethods = [];
@@ -81,6 +89,11 @@ window.PosStagedPayment = (function () {
         confirmEnteredLabel = document.getElementById('confirm-entered-amount');
         confirmAlertContainer = document.getElementById('confirm-payment-alert');
         confirmProceedButton = document.getElementById('confirm-payment-proceed-btn');
+
+        stagedIsDebtToggle = document.getElementById('staged-payment-is-debt');
+        stagedDebtTermsContainer = document.getElementById('staged-payment-debt-terms-container');
+        stagedPaymentTermSelect = document.getElementById('staged-payment-term');
+        stagedMethodContainer = document.getElementById('staged-method-container');
 
         canUsePaymentFlow = config.canUsePaymentFlow !== false;
         paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
@@ -138,11 +151,38 @@ window.PosStagedPayment = (function () {
                 stagedMethodResultsDropdown.style.display = 'none';
             }
         });
+
+        if (stagedIsDebtToggle) {
+            stagedIsDebtToggle.addEventListener('change', handleDebtToggle);
+        }
+        if (stagedPaymentTermSelect) {
+            stagedPaymentTermSelect.addEventListener('change', updateStageValidation);
+        }
+    }
+
+    function handleDebtToggle() {
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        if (isDebt) {
+            if (!currentHasCustomer) {
+                showError('Pilih pelanggan terlebih dahulu untuk menggunakan fitur Utang/Kasbon.');
+                stagedIsDebtToggle.checked = false;
+                // Re-evaluate without debt
+                const recursiveDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+                if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.add('d-none');
+                updateStageValidation();
+                return;
+            }
+            if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.remove('d-none');
+            if (cachedPaymentTerms.length === 0) loadPaymentTerms();
+        } else {
+            if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.add('d-none');
+        }
+        updateStageValidation();
     }
 
     // Task 5.1 & 5.2: Open modal with cart token and grand total
-    async function openModal(cartToken, grandTotal) {
-        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal });
+    async function openModal(cartToken, grandTotal, hasCustomer = true) {
+        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer });
 
         if (!ensurePaymentFlowAvailable()) {
             return;
@@ -153,6 +193,7 @@ window.PosStagedPayment = (function () {
             return;
         }
 
+        currentHasCustomer = hasCustomer;
         state = States.SELECTING_METHOD;
         clearErrors();
         
@@ -404,33 +445,58 @@ window.PosStagedPayment = (function () {
     function updateStageValidation() {
         let isValid = true;
         const remainder = paymentChain?.remainder || 0;
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
 
         // If remainder is 0, allow finalization without additional payment entry
         if (remainder === 0) {
             // Payment is complete, button should be enabled to finalize
             isValid = true;
         } else {
-            // Need to add more payments
-            if (!selectedPaymentMethod) {
-                isValid = false;
-            }
-
             const amount = Number(stagedAmountInput?.dataset.rawValue || 0);
-            if (amount <= 0) {
-                isValid = false;
-            }
-
-            // Task 2.4: Call validation function to check method-specific amount rules
-            if (isValid && selectedPaymentMethod && paymentChain) {
-                if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+            
+            if (isDebt) {
+                if (!stagedPaymentTermSelect || !stagedPaymentTermSelect.value) {
                     isValid = false;
                 }
-            }
-
-            if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
-                const reference = stagedEdcReferenceInput?.value.trim() || '';
-                if (!reference) {
+                
+                if (amount > 0) {
+                    if (!selectedPaymentMethod) {
+                        isValid = false;
+                    }
+                    if (isValid && selectedPaymentMethod && paymentChain) {
+                        if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+                            isValid = false;
+                        }
+                    }
+                    if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
+                        const reference = stagedEdcReferenceInput?.value.trim() || '';
+                        if (!reference) {
+                            isValid = false;
+                        }
+                    }
+                }
+            } else {
+                // Need to add more payments
+                if (!selectedPaymentMethod) {
                     isValid = false;
+                }
+
+                if (amount <= 0) {
+                    isValid = false;
+                }
+
+                // Task 2.4: Call validation function to check method-specific amount rules
+                if (isValid && selectedPaymentMethod && paymentChain) {
+                    if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+                        isValid = false;
+                    }
+                }
+
+                if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
+                    const reference = stagedEdcReferenceInput?.value.trim() || '';
+                    if (!reference) {
+                        isValid = false;
+                    }
                 }
             }
         }
@@ -449,6 +515,8 @@ window.PosStagedPayment = (function () {
         }
 
         const remainder = paymentChain?.remainder || 0;
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value || 0);
 
         // If remainder is 0, finalize checkout instead of adding another payment
         if (remainder === 0) {
@@ -458,9 +526,12 @@ window.PosStagedPayment = (function () {
 
         if (!validateBeforeSubmit()) return;
 
+        if (isDebt && amount === 0) {
+            await finalizeCheckout();
+            return;
+        }
+
         // Populate Confirmation Modal (Task 2.2)
-        const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value);
-        
         if (confirmMethodLabel) confirmMethodLabel.textContent = selectedPaymentMethod?.name || '-';
         if (confirmRemainingLabel) confirmRemainingLabel.textContent = formatPrice(remainder);
         if (confirmEnteredLabel) confirmEnteredLabel.textContent = formatPrice(amount);
@@ -512,6 +583,11 @@ window.PosStagedPayment = (function () {
                 edc_reference: stagedEdcReferenceInput?.value.trim() || null,
                 grand_total: paymentChain.original_grand_total,  // Send original, not (remainder + amount)
             };
+
+            if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
+                payload.is_debt = true;
+                payload.payment_term_id = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
+            }
 
             console.log('[PosStagedPayment] Submitting stage payment:', payload);
 
@@ -615,6 +691,11 @@ window.PosStagedPayment = (function () {
             stagedAmountInput.dataset.rawValue = '';
         }
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
+        
+        if (stagedIsDebtToggle) stagedIsDebtToggle.checked = false;
+        if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
+        handleDebtToggle();
+        
         updateEdcReferenceVisibility();
         updateAmountHint();
         updateStageValidation();
@@ -659,30 +740,66 @@ window.PosStagedPayment = (function () {
                 idempotency_key: `FINALIZE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             };
 
-            console.log('[PosStagedPayment] Finalizing checkout:', payload);
-
-            const response = await fetch('/pos/sell/checkout/finalize', {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            });
-
-            const data = await response.json();
-            console.log('[PosStagedPayment] Finalize response:', { status: response.status, ok: response.ok, data });
-
-            if (!response.ok) {
-                showError(data.message || 'Gagal menyelesaikan pembayaran');
-                return;
+            if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
+                payload.is_debt = true;
+                payload.payment_term_id = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
             }
 
-            // Get change amount from response
-            const changeAmount = Math.abs(data.change_total || 0);
-            console.log('[PosStagedPayment] Checkout finalized! Change:', changeAmount);
+            console.log('[PosStagedPayment] Finalizing checkout:', payload);
 
-            handlePaymentComplete(changeAmount, data);
+            const performFinalize = async (token) => {
+                if (token) {
+                    payload.approval_token = token;
+                }
+                const response = await fetch('/pos/sell/checkout/finalize', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('[PosStagedPayment] Finalize response:', { status: response.status, ok: response.ok, data });
+
+                if (!response.ok) {
+                    if (data.code === 'APPROVAL_REQUIRED' || (data.message && data.message.includes('otorisasi'))) {
+                        throw new Error('APPROVAL_REQUIRED');
+                    }
+                    throw new Error(data.message || 'Gagal menyelesaikan pembayaran');
+                }
+
+                const changeAmount = Math.abs(data.change_total || 0);
+                console.log('[PosStagedPayment] Checkout finalized! Change:', changeAmount);
+                handlePaymentComplete(changeAmount, data);
+            };
+
+            if (payload.is_debt && window.ApprovalManager) {
+                // stagedSubmitButton is the one that stays visible if they don't use confirmation modal
+                // confirmProceedButton is hidden if we bypassed confirmStagePayment. But wait, we always use confirmStagePayment?
+                // No, if remainder == 0 we bypass it. But debt has amount == 0 so we bypass it too. 
+                // So stagedSubmitButton is the right button.
+                const btn = stagedSubmitButton;
+                const originalText = btn.innerHTML;
+                const targetId = (typeof window.posSessionId !== 'undefined') ? window.posSessionId : 0;
+                
+                const success = await window.ApprovalManager.wrapAction(
+                    btn,
+                    originalText,
+                    'CHECKOUT_AS_DEBT',
+                    'pos_session',
+                    targetId,
+                    payload,
+                    performFinalize
+                );
+                
+                if (!success) {
+                    return; // Stopped by approval flow
+                }
+            } else {
+                await performFinalize(null);
+            }
         } catch (error) {
             console.error('[PosStagedPayment] Finalize error:', error);
             showError('Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message);
@@ -774,6 +891,33 @@ window.PosStagedPayment = (function () {
             }
         } catch (error) {
             console.error('[PosStagedPayment] Failed to load payment methods:', error);
+        }
+    }
+
+    async function loadPaymentTerms() {
+        try {
+            const response = await fetch('/pos/sell/payment-terms/search', {
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Accept': 'application/json',
+                },
+            });
+            if (response.ok) {
+                const data = await response.json();
+                cachedPaymentTerms = data.terms || [];
+                
+                if (stagedPaymentTermSelect) {
+                    stagedPaymentTermSelect.innerHTML = '<option value="">-- Pilih Jangka Waktu --</option>';
+                    cachedPaymentTerms.forEach(term => {
+                        const opt = document.createElement('option');
+                        opt.value = term.id;
+                        opt.textContent = `${term.name} (${term.longevity} Hari)`;
+                        stagedPaymentTermSelect.appendChild(opt);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load payment terms:', error);
         }
     }
 

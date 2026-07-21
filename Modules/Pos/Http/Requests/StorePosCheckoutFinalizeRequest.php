@@ -62,10 +62,15 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
         $hasMultiPayments = $multiPayments !== null && is_array($multiPayments);
         $hasCartToken = ! empty($cartToken);
 
+        $isDebt = (bool) $this->input('is_debt', false);
+
         $rules = [
             'idempotency_key' => ['required', 'string', 'max:100'],
             'cart_token' => ['nullable', 'string', 'uuid'],
             'client_context' => ['nullable', 'array'],
+            'is_debt' => ['nullable', 'boolean'],
+            'payment_term_id' => ['nullable', 'integer', 'exists:payment_terms,id'],
+            'approval_token' => ['nullable', 'string'],
         ];
 
         // If cart_token is provided, we'll fetch payments from session, so payment fields are optional
@@ -73,24 +78,27 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
             return $rules;
         }
 
+        $minAmountRule = $isDebt ? 'gte:0' : 'gt:0';
+        $paymentMethodRule = $isDebt ? 'nullable' : 'required';
+
         // Support legacy single-payment path
         if ($hasLegacyPayment && ! $hasMultiPayments) {
             $rules['payment'] = ['required', 'array'];
-            $rules['payment.payment_method_id'] = ['required', 'integer', 'exists:payment_methods,id'];
-            $rules['payment.amount_paid'] = ['required', 'numeric', 'gt:0'];
+            $rules['payment.payment_method_id'] = [$paymentMethodRule, 'integer', 'exists:payment_methods,id'];
+            $rules['payment.amount_paid'] = ['required', 'numeric', $minAmountRule];
             $rules['payment.reference'] = ['nullable', 'string', 'max:255'];
         }
         // Support new multi-payment path
         elseif ($hasMultiPayments && ! $hasLegacyPayment) {
             $rules['payments'] = ['required', 'array', 'min:1'];
-            $rules['payments.*.payment_method_id'] = ['required', 'integer', 'exists:payment_methods,id'];
-            $rules['payments.*.amount_paid'] = ['required', 'numeric', 'gt:0'];
+            $rules['payments.*.payment_method_id'] = [$paymentMethodRule, 'integer', 'exists:payment_methods,id'];
+            $rules['payments.*.amount_paid'] = ['required', 'numeric', $minAmountRule];
             $rules['payments.*.reference'] = ['nullable', 'string', 'max:255'];
         } else {
             // Must provide exactly one: either payment or payments[]
             $rules['payment'] = ['required_without:payments', 'array'];
-            $rules['payment.payment_method_id'] = ['required', 'integer', 'exists:payment_methods,id'];
-            $rules['payment.amount_paid'] = ['required', 'numeric', 'gt:0'];
+            $rules['payment.payment_method_id'] = [$paymentMethodRule, 'integer', 'exists:payment_methods,id'];
+            $rules['payment.amount_paid'] = ['required', 'numeric', $minAmountRule];
             $rules['payment.reference'] = ['nullable', 'string', 'max:255'];
             $rules['payments'] = ['required_without:payment', 'array'];
         }

@@ -175,6 +175,21 @@ class PosSellController extends Controller
         ]);
     }
 
+    public function paymentTermsSearch(Request $request): JsonResponse
+    {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
+        $terms = \Modules\Setting\Entities\PaymentTerm::query()
+            ->orderBy('longevity', 'asc')
+            ->get(['id', 'name', 'longevity']);
+
+        return response()->json([
+            'terms' => $terms,
+        ]);
+    }
+
     public function cartShow(Request $request, PosCartService $cartService): JsonResponse
     {
         $settingId = $this->currentSettingId();
@@ -713,8 +728,12 @@ class PosSellController extends Controller
             }
             $cartToken = (string) $request->input('cart_token', '');
 
+            $paymentPayload['is_debt'] = $request->boolean('is_debt');
+            $paymentPayload['payment_term_id'] = $request->input('payment_term_id');
+            $paymentPayload['approval_token'] = $request->input('approval_token');
+
             // If no payments in request, check if there's a staged payment chain in session
-            if (empty($paymentPayload) && ! empty($cartToken)) {
+            if (empty($request->input('payment')) && empty($request->input('payments')) && ! empty($cartToken)) {
                 $sessionKey = "payment_chain_{$cartToken}";
                 $sessionPaymentChain = $request->session()->get($sessionKey);
 
@@ -730,9 +749,7 @@ class PosSellController extends Controller
                         ];
                     }
 
-                    $paymentPayload = [
-                        'payments' => $mappedPayments,
-                    ];
+                    $paymentPayload['payments'] = $mappedPayments;
                 }
             }
 
