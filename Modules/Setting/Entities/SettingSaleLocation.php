@@ -26,6 +26,12 @@ class SettingSaleLocation extends BaseModel
 
     protected static function booted(): void
     {
+        static::creating(function (SettingSaleLocation $assignment) {
+            if (is_null($assignment->position)) {
+                $maxPosition = static::where('setting_id', $assignment->setting_id)->max('position');
+                $assignment->position = ($maxPosition ?? 0) + 1;
+            }
+        });
         static::created(function (SettingSaleLocation $assignment) {
             SalesLocationResolver::forget($assignment->setting_id);
         });

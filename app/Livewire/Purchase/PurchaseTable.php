@@ -62,6 +62,11 @@ class PurchaseTable extends Component
         $this->resetPage();
     }
 
+    public function updatedPerPage()
+    {
+        $this->resetPage();
+    }
+
     public function searchSubmit()
     {
         $this->search = $this->searchText;

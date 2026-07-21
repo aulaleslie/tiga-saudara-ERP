@@ -220,4 +220,55 @@ class SaleLocationConfigurationTest extends TestCase
         $this->assertNotEmpty($cachedIdsAfter);
         $this->assertContains($ownedLocation->id, $cachedIdsAfter->toArray());
     }
+
+    public function test_enabling_location_without_position_assigns_correct_max_position(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
+
+        $this->actingAsSuperAdminForSetting($settingA);
+
+        $borrowable1 = Location::create([
+            'name'       => 'TIT 1',
+            'setting_id' => $settingB->id,
+        ]);
+
+        $borrowable2 = Location::create([
+            'name'       => 'TIT 2',
+            'setting_id' => $settingB->id,
+        ]);
+
+        // Scenario 1: First location, max position is 0 (null in DB). It should get position 1.
+        $assignment1 = SettingSaleLocation::updateOrCreate(
+            ['location_id' => $borrowable1->id, 'setting_id' => $settingA->id],
+            ['is_enabled' => true]
+        );
+
+        $this->assertEquals(1, $assignment1->position);
+
+        // Scenario 2: Second location, max position is now 1. It should get position 2.
+        $assignment2 = SettingSaleLocation::updateOrCreate(
+            ['location_id' => $borrowable2->id, 'setting_id' => $settingA->id],
+            ['is_enabled' => true]
+        );
+
+        $this->assertEquals(2, $assignment2->position);
+        
+        // Scenario 3: Manually set a max position of 0 and test the ?: vs ?? fix.
+        // Even if max position is 0, the next one should be 0 + 1 = 1.
+        $assignment2->update(['position' => 0]);
+        $assignment1->delete(); // clear out the other one so max is 0
+        
+        $borrowable3 = Location::create([
+            'name'       => 'TIT 3',
+            'setting_id' => $settingB->id,
+        ]);
+        
+        $assignment3 = SettingSaleLocation::updateOrCreate(
+            ['location_id' => $borrowable3->id, 'setting_id' => $settingA->id],
+            ['is_enabled' => true]
+        );
+
+        $this->assertEquals(1, $assignment3->position);
+    }
 }
