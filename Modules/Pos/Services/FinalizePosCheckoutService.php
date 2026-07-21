@@ -111,18 +111,20 @@ class FinalizePosCheckoutService
             if ($paymentTermId === null || $paymentTermId <= 0) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Syarat pembayaran (Term) harus dipilih untuk utang.');
             }
-            if ($this->authorizationService) {
-                $user = User::find($cashierUserId);
-                if ($user) {
-                    $authResult = $this->authorizationService->authorize(
-                        $user,
-                        PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT,
-                        $approvalToken
-                    );
-                    if (!$authResult['authorized']) {
-                        throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Otorisasi diperlukan untuk checkout sebagai utang.');
-                    }
-                }
+            if (!$this->authorizationService) {
+                throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Layanan otorisasi tidak tersedia, tidak dapat memproses utang.');
+            }
+            $user = User::find($cashierUserId);
+            if (!$user) {
+                throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Kasir tidak valid, otorisasi ditolak.');
+            }
+            $authResult = $this->authorizationService->authorize(
+                $user,
+                PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT,
+                $approvalToken
+            );
+            if (!$authResult['authorized']) {
+                throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Otorisasi diperlukan untuk checkout sebagai utang.');
             }
         }
 
@@ -130,6 +132,10 @@ class FinalizePosCheckoutService
 
         $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
         $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
+
+        if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0)) {
+            throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
+        }
         $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId, $isDebt);
 
         $payloadHash = $this->payloadHash(

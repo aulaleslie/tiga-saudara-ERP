@@ -145,15 +145,14 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             ];
             $groupContext['allocations'] = is_array($group['allocations'] ?? null) ? $group['allocations'] : [];
 
+            // Unconditionally override the amount_paid to the allocated slice
+            $groupPayment = is_array($context['payment']) ? $context['payment'] : [];
+            $groupPayment['amount_paid'] = $paymentAllocations[$splitKey] ?? 0.0;
+
             // Task 3.2 & 3.3: Inject per-group payment slices into groupContext for multi-payment
             if ($isMultiPayment && isset($paymentSlices[$splitKey])) {
-                // Create a new payment array for this group with only its allocated payments
-                $groupPayment = is_array($payment) ? $payment : [];
                 $groupPayment['payments'] = $paymentSlices[$splitKey];
-                // Preserve required fields from original payment
                 $groupPayment['is_multi_payment'] = true;
-                $groupPayment['amount_paid'] = (float) ($payment['amount_paid'] ?? 0);
-                $groupPayment['total_cash_minor_units'] = (int) ($payment['total_cash_minor_units'] ?? 0);
                 // Use first payment's method and reference for backward compatibility
                 if (isset($paymentSlices[$splitKey][0])) {
                     $firstPayment = $paymentSlices[$splitKey][0];
@@ -161,8 +160,8 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     $groupPayment['reference'] = $firstPayment['reference'] ?? null;
                     $groupPayment['is_cash'] = (bool) ($firstPayment['is_cash'] ?? false);
                 }
-                $groupContext['payment'] = $groupPayment;
             }
+            $groupContext['payment'] = $groupPayment;
 
             $result = $this->inlinePostingAdapter->post($groupContext);
             $dispatchIds = array_values(array_map(

@@ -78,6 +78,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $paymentReference = isset($paymentReference) ? trim((string) $paymentReference) : null;
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
 
+        $paymentMethod = null;
+
         if ($downPaymentAmount > 0 || !$isDebt) {
             if ($paymentMethodId <= 0) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
@@ -361,7 +363,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             foreach ($payments as $paymentEntry) {
                 $entryAmount = (float) ($paymentEntry['amount_minor_units'] ?? 0) / 100;
 
-                // Task 3.4: Skip creating SalePayment for any payment entry with amount ≤ 0
+                // Task 3.4: Skip creating SalePayment for any payment entry with amount <= 0
                 if ($entryAmount <= 0) {
                     continue;
                 }
