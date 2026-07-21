@@ -37,7 +37,7 @@
 
 - [x] 6.1 Surface `breakdown` on each line in the cart snapshot (`buildSnapshot`)
 - [x] 6.2 Render a read-only breakdown panel in `Modules/Pos/Resources/views/sell.blade.php`: packing split, both price ways compared with winner marked, tier badge
-- [ ] 6.3 Nice-to-have: show a customer-tier badge on customer selection
+- [x] 6.3 Nice-to-have: show a customer-tier badge on customer selection
 
 ## 7. Receipt packing split
 
@@ -48,4 +48,4 @@
 ## 8. Verification
 
 - [x] 8.1 Run focused POS pricing tests via `php artisan test` (packing, totals, cart, receipt) and fix failures
-- [ ] 8.2 Manual/regression check: quantity 6 for Kertas A4 yields 255000 (non-tier) and 252000 (reseller); price updates live on quantity and customer change
+- [x] 8.2 Manual/regression check: quantity 6 for Kertas A4 yields 255000 (non-tier) and 252000 (reseller); price updates live on quantity and customer change

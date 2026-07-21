@@ -911,11 +911,12 @@
 
                     const displayName = escapeHtml(customer.display_name || customer.customer_name || '-');
                     const phone = escapeHtml(customer.customer_phone || '-');
+                    const tier = customer.tier ? `<span class="badge badge-primary ml-2">${escapeHtml(customer.tier)}</span>` : '';
 
                     button.innerHTML = `
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <div class="font-weight-bold">${displayName}</div>
+                                <div class="font-weight-bold">${displayName}${tier}</div>
                                 <div class="small text-muted">${phone}</div>
                             </div>
                         </div>
