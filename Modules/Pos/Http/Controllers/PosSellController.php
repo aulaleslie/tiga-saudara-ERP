@@ -181,7 +181,7 @@ class PosSellController extends Controller
             return $denied;
         }
 
-        $terms = \Modules\Setting\Entities\PaymentTerm::query()
+        $terms = \Modules\Purchase\Entities\PaymentTerm::query()
             ->orderBy('longevity', 'asc')
             ->get(['id', 'name', 'longevity']);
 
@@ -535,7 +535,7 @@ class PosSellController extends Controller
             'edc_reference' => ['nullable', 'string', 'max:255'],
             'grand_total' => ['required', 'numeric', 'min:0.01'],
             'is_debt' => ['nullable', 'boolean'],
-            'payment_term_id' => ['nullable', 'integer'],
+            'payment_term_id' => ['nullable', 'integer', 'required_if:is_debt,true'],
         ]);
 
         $cartToken = $validated['cart_token'];

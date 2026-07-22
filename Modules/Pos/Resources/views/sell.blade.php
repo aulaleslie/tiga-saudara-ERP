@@ -3853,30 +3853,6 @@
                     }
                 });
 
-                // Wire close button to clear payment chain
-                const closeBtn = document.getElementById('staged-payment-close-btn');
-                if (closeBtn) {
-                    closeBtn.addEventListener('click', async function() {
-                        if (currentSnapshot?.staged_payment_token) {
-                            try {
-                                await fetch('/pos/sell/checkout/payment-chain', {
-                                    method: 'DELETE',
-                                    headers: {
-                                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                                        'Content-Type': 'application/json',
-                                    },
-                                    body: JSON.stringify({
-                                        cart_token: currentSnapshot.staged_payment_token,
-                                    }),
-                                });
-                            } catch (error) {
-                                console.error('Error clearing payment chain:', error);
-                            }
-                        }
-                        document.getElementById('pos-staged-checkout-modal').modal('hide');
-                    });
-                }
-
                 // Check for reload recovery on page load
                 if (canCheckoutByRole && currentSnapshot && currentSnapshot.staged_payment_token) {
                     fetch(`/pos/sell/checkout/payment-chain?cart_token=${encodeURIComponent(currentSnapshot.staged_payment_token)}`)

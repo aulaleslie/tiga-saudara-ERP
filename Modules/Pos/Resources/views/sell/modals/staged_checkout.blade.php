@@ -3,7 +3,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="pos-staged-checkout-modal-label">Pembayaran Bertahap</h5>
-                    <button type="button" id="staged-payment-close-btn" class="close" aria-label="Tutup">
+                    <button type="button" id="staged-payment-close-btn" class="close" data-dismiss="modal" aria-label="Tutup">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -36,9 +36,14 @@
                     <!-- Task 5.2: Payment Terms Dropdown -->
                     <div class="form-group mb-3 d-none" id="staged-payment-debt-terms-container">
                         <label class="font-weight-bold d-block mb-1">Jangka Waktu (Payment Term)</label>
-                        <select class="form-control" id="staged-payment-term">
-                            <option value="">-- Pilih Jangka Waktu --</option>
-                        </select>
+                        <div class="d-flex gap-2">
+                            <select class="form-control" id="staged-payment-term">
+                                <option value="">-- Pilih Jangka Waktu --</option>
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary d-none" id="staged-payment-term-retry" title="Coba lagi muat ulang">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Task 3.2: Payment Method Selection -->
@@ -95,6 +100,9 @@
                     </div>
                 </div>
                 <div class="modal-footer bg-light">
+                    <button type="button" id="staged-payment-reset-btn" class="btn btn-outline-danger btn-lg" title="Hapus semua pembayaran yang sudah diproses">
+                        Batalkan Seluruh Pembayaran
+                    </button>
                     <button type="button" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
                     <button type="button" id="staged-payment-submit" class="btn btn-primary btn-lg px-5" disabled>
                         Lanjut Pembayaran

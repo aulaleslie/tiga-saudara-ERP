@@ -74,13 +74,17 @@ window.PosStagedPayment = (function () {
     let stagedDebtTermsContainer = null;
     let stagedPaymentTermSelect = null;
     let stagedMethodContainer = null;
-    let cachedPaymentTerms = [];
+    let stagedPaymentTermRetryBtn = null;
+    let cachedPaymentTerms = null;
 
     // Cached data
     let cachedPaymentMethods = [];
     let selectedPaymentMethod = null;
     let canUsePaymentFlow = true;
     let paymentFlowBlockedMessage = 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.';
+
+    // Reset button DOM element
+    let stagedPaymentResetBtn = null;
 
     // Task 3.1: Initialize state machine
     function initialize(config = {}) {
@@ -129,7 +133,9 @@ window.PosStagedPayment = (function () {
         stagedIsDebtToggle = document.getElementById('staged-payment-is-debt');
         stagedDebtTermsContainer = document.getElementById('staged-payment-debt-terms-container');
         stagedPaymentTermSelect = document.getElementById('staged-payment-term');
+        stagedPaymentTermRetryBtn = document.getElementById('staged-payment-term-retry');
         stagedMethodContainer = document.getElementById('staged-method-container');
+        stagedPaymentResetBtn = document.getElementById('staged-payment-reset-btn');
 
         canUsePaymentFlow = config.canUsePaymentFlow !== false;
         paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
@@ -208,6 +214,13 @@ window.PosStagedPayment = (function () {
                 syncDebtState();
             });
         }
+        if (stagedPaymentTermRetryBtn) {
+            stagedPaymentTermRetryBtn.addEventListener('click', loadPaymentTerms);
+        }
+
+        if (stagedPaymentResetBtn) {
+            stagedPaymentResetBtn.addEventListener('click', handleResetPaymentChain);
+        }
     }
 
     async function handleDebtToggle() {
@@ -217,13 +230,12 @@ window.PosStagedPayment = (function () {
                 showError('Pilih pelanggan terlebih dahulu untuk menggunakan fitur Utang/Kasbon.');
                 stagedIsDebtToggle.checked = false;
                 // Re-evaluate without debt
-                const recursiveDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
                 if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.add('d-none');
                 updateStageValidation();
                 return;
             }
             if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.remove('d-none');
-            if (cachedPaymentTerms.length === 0) await loadPaymentTerms();
+            if (cachedPaymentTerms === null) await loadPaymentTerms();
         } else {
             if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.add('d-none');
         }
@@ -811,7 +823,67 @@ window.PosStagedPayment = (function () {
         handleDebtToggle();
     }
 
-    // Task 3.4: Handle modal lock during processing
+    // Handle payment chain reset with confirmation
+    async function handleResetPaymentChain() {
+        if (!paymentChain || state === States.PROCESSING) {
+            return;
+        }
+
+        // Show confirmation
+        if (!confirm('Anda yakin ingin menghapus semua pembayaran yang sudah diproses? Tindakan ini tidak dapat dibatalkan.')) {
+            // User declined reset - keep state intact
+            return;
+        }
+
+        setProcessing(true);
+
+        try {
+            const response = await fetch('/pos/sell/checkout/payment-chain', {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cart_token: currentCartToken,
+                }),
+            });
+
+            if (!response.ok) {
+                let errorMessage = 'Gagal menghapus pembayaran. Silakan coba lagi.';
+                try {
+                    const data = await response.json();
+                    errorMessage = data.message || errorMessage;
+                } catch (e) {
+                    // Could not parse error response
+                }
+                showError(errorMessage);
+                setProcessing(false);
+                return;
+            }
+
+            // Success - clear local state and close modal
+            paymentChain = null;
+            currentStageData = null;
+            resetCheckoutContext();
+            resetStageForm();
+
+            // Restore processing state
+            setProcessing(false);
+
+            // Close the modal using Bootstrap
+            if (stagedModalElement) {
+                $(stagedModalElement).modal('hide');
+            }
+        } catch (error) {
+            console.error('Failed to reset payment chain:', error);
+            showError('Gagal menghapus pembayaran. Silakan coba lagi.');
+            setProcessing(false);
+        }
+    }
+
+    // Task 3.4: Handle modal lock during processing - disable all dismiss and reset controls
     function setProcessing(isProcessing) {
         state = isProcessing ? States.PROCESSING : States.SELECTING_METHOD;
 
@@ -824,9 +896,24 @@ window.PosStagedPayment = (function () {
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.disabled = isProcessing;
         if (stagedSubmitButton) stagedSubmitButton.disabled = isProcessing;
 
-        // Disable close button during processing
-        const closeButton = stagedModalElement?.querySelector('[data-dismiss="modal"]');
-        if (closeButton) closeButton.style.display = isProcessing ? 'none' : 'block';
+        // Disable all dismiss controls (header close ×, footer Batal)
+        const dismissControls = stagedModalElement?.querySelectorAll('[data-dismiss="modal"]');
+        if (dismissControls) {
+            dismissControls.forEach(control => {
+                control.disabled = isProcessing;
+                control.style.opacity = isProcessing ? '0.5' : '1';
+                control.style.cursor = isProcessing ? 'not-allowed' : 'pointer';
+                control.style.pointerEvents = isProcessing ? 'none' : 'auto';
+            });
+        }
+
+        // Disable reset control
+        if (stagedPaymentResetBtn) {
+            stagedPaymentResetBtn.disabled = isProcessing;
+            stagedPaymentResetBtn.style.opacity = isProcessing ? '0.5' : '1';
+            stagedPaymentResetBtn.style.cursor = isProcessing ? 'not-allowed' : 'pointer';
+            stagedPaymentResetBtn.style.pointerEvents = isProcessing ? 'none' : 'auto';
+        }
     }
 
     // Show final transaction confirmation before completing (Task 2.1 & 2.2)
@@ -1080,6 +1167,13 @@ window.PosStagedPayment = (function () {
     }
 
     async function loadPaymentTerms() {
+        if (stagedPaymentTermSelect) {
+            stagedPaymentTermSelect.innerHTML = '<option value="">-- Memuat Jangka Waktu... --</option>';
+            stagedPaymentTermSelect.disabled = true;
+        }
+        if (stagedPaymentTermRetryBtn) stagedPaymentTermRetryBtn.classList.add('d-none');
+        clearErrors();
+
         try {
             const response = await fetch('/pos/sell/payment-terms/search', {
                 headers: {
@@ -1087,11 +1181,48 @@ window.PosStagedPayment = (function () {
                     'Accept': 'application/json',
                 },
             });
-            if (response.ok) {
-                const data = await response.json();
-                cachedPaymentTerms = data.terms || [];
-                
-                if (stagedPaymentTermSelect) {
+
+            // Check HTTP status - non-2xx responses are treated as load failures
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: Gagal memuat jangka waktu pembayaran.`);
+            }
+
+            // Validate response payload
+            let data;
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                throw new Error('Format data jangka waktu pembayaran tidak valid.');
+            }
+
+            if (!data || !Array.isArray(data.terms)) {
+                throw new Error('Format data jangka waktu pembayaran tidak valid.');
+            }
+
+            // Validate each term entry has required fields
+            const validTerms = data.terms.filter(term => {
+                return term &&
+                    typeof term === 'object' &&
+                    term.id != null &&
+                    typeof term.name === 'string' &&
+                    typeof term.longevity === 'number' &&
+                    term.longevity >= 0;
+            });
+
+            if (validTerms.length !== data.terms.length) {
+                throw new Error('Beberapa data jangka waktu pembayaran tidak valid.');
+            }
+
+            // Successfully loaded terms
+            cachedPaymentTerms = validTerms;
+
+            if (stagedPaymentTermSelect) {
+                if (cachedPaymentTerms.length === 0) {
+                    // Empty successful result - display "No terms available"
+                    stagedPaymentTermSelect.innerHTML = '<option value="">-- Tidak ada Jangka Waktu tersedia --</option>';
+                    stagedPaymentTermSelect.disabled = true;
+                } else {
+                    // Populate with returned terms
                     stagedPaymentTermSelect.innerHTML = '<option value="">-- Pilih Jangka Waktu --</option>';
                     cachedPaymentTerms.forEach(term => {
                         const opt = document.createElement('option');
@@ -1099,10 +1230,27 @@ window.PosStagedPayment = (function () {
                         opt.textContent = `${term.name} (${term.longevity} Hari)`;
                         stagedPaymentTermSelect.appendChild(opt);
                     });
+                    stagedPaymentTermSelect.disabled = false;
                 }
             }
         } catch (error) {
             console.error('Failed to load payment terms:', error);
+
+            // Do NOT cache failures - distinguish from successful empty result
+            cachedPaymentTerms = null;
+
+            if (stagedPaymentTermSelect) {
+                stagedPaymentTermSelect.innerHTML = '<option value="">-- Gagal memuat Jangka Waktu --</option>';
+                stagedPaymentTermSelect.disabled = true;
+            }
+
+            // Show retry button to allow retry without page reload
+            if (stagedPaymentTermRetryBtn) stagedPaymentTermRetryBtn.classList.remove('d-none');
+
+            // Route error to staged-modal error surface
+            showError('Gagal memuat jangka waktu pembayaran. Silakan coba lagi.');
+        } finally {
+            updateStageValidation();
         }
     }
 
