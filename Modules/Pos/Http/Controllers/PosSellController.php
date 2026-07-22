@@ -783,6 +783,11 @@ class PosSellController extends Controller
                 'code' => $exception->errorCode(),
                 'message' => 'Checkout posting failed due to an internal error.',
             ], 500);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'code' => $exception->getMessage(),
+                'message' => $exception->getMessage(),
+            ], 422);
         }
 
         // Clear session payment chain after successful finalization

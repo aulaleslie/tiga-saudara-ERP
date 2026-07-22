@@ -733,13 +733,15 @@ class FinalizePosCheckoutService
 
                 $receiptNumber = $this->receiptNumberGenerator->generate($settingId);
 
+                $salePaymentId = (int) ($postingResult['sale_payment_id'] ?? 0);
+
                 $responsePayload = [
                     'pos_checkout_id' => $checkoutId,
                     'status' => PosCheckout::STATUS_POSTED,
                     'receipt_number' => $receiptNumber,
                     'sale_id' => (int) ($postingResult['sale_id'] ?? 0),
                     'dispatch_ids' => $dispatchIds,
-                    'sale_payment_id' => (int) ($postingResult['sale_payment_id'] ?? 0),
+                    'sale_payment_id' => $salePaymentId > 0 ? $salePaymentId : null,
                     'paid_total' => $paidTotal,
                     'change_total' => $actualChangeTotal,
                     'idempotent_replay' => false,
