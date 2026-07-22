@@ -17,6 +17,7 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
+use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -395,7 +396,13 @@ class POSPaymentValidationRulesTest extends TestCase
         $context = $this->createCheckoutContext('CASH-UNDER-DEBT');
         $methods = $context['methods'];
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
-        
+
+        // Create a payment term for debt checkout
+        $paymentTerm = PaymentTerm::create([
+            'name' => 'Net 30',
+            'longevity' => 30,
+        ]);
+
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-U-DEBT', 50000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -419,6 +426,7 @@ class POSPaymentValidationRulesTest extends TestCase
                 'amount' => 45000,
                 'grand_total' => $grandTotal,
                 'is_debt' => true,
+                'payment_term_id' => $paymentTerm->id,
             ])
             ->assertStatus(201)
             ->assertJsonPath('payment_chain.remainder', 5000)

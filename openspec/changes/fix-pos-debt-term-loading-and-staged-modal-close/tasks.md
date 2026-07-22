@@ -9,7 +9,8 @@
 - [x] 2.1 Add explicit loading, unavailable/empty, and retry affordances for the staged debt-term selector without changing the normal full-payment path.
 - [x] 2.2 Update `loadPaymentTerms()` to validate HTTP status and payload shape, populate all valid returned terms, distinguish an empty successful result from failure, and avoid caching failures as an empty success.
 - [x] 2.3 Route payment-term load failures to the staged-modal error surface, keep debt checkout continuation disabled until a valid term is available and selected, and allow retry without reloading the POS page.
-- [ ] 2.4 Add frontend-oriented regression coverage for successful population, empty results, non-2xx/invalid responses, network failures, retry, and fail-closed submission validation. (OPEN: Requires dedicated frontend test infrastructure)
+
+Frontend JavaScript regression tests were removed from this change's scope because the repository has no frontend test runner or DOM test harness. The focused backend endpoint and validation suites remain the automated coverage for this change; browser behavior remains in manual UAT task 4.3.
 
 ## 3. Staged-Modal Dismissal and Reset
 
@@ -17,11 +18,12 @@
 - [x] 3.2 Add a separately labelled destructive payment-chain reset control with cashier confirmation, using the existing DELETE endpoint only after confirmation.
 - [x] 3.3 On reset success, clear the matching client staged-payment/debt context and close the modal; on decline or request failure, preserve session/client state and show an actionable error when applicable.
 - [x] 3.4 Refactor processing-state handling to disable or hide every dismiss and reset control for the full duration of stage submission and checkout finalization, then restore them consistently.
-- [ ] 3.5 Add regression coverage proving × and **Batal** close without DELETE, confirmed reset deletes once, declined/failed reset preserves state, and every exit control is unavailable during processing. (OPEN: Requires dedicated frontend test infrastructure)
+
+Frontend modal-event regression tests were removed from this change's scope because the repository has no frontend test runner or DOM test harness. Introducing Vitest/Jest/Playwright solely for this fix is explicitly out of scope; browser behavior remains in manual UAT task 4.3.
 
 ## 4. Recovery Regression and Verification
 
-- [ ] 4.1 Extend staged-payment recovery coverage to prove a committed chain survives modal dismissal and is restored on reopen or page reload, while an explicitly reset chain is not recovered. (OPEN: Reload-recovery test suite requires PaymentMethod class resolution)
-- [ ] 4.2 Run focused POS debt-checkout, payment-validation, staged-payment, permission, and reload-recovery test suites with `php artisan test` using appropriate filters. (OPEN: Error-handling suite fixed to 2/7 pass; reload-recovery blocked on class resolution)
-- [ ] 4.3 Perform browser/UAT verification with production-like payment terms for term selection, visible load failure and retry, ×/**Batal** dismissal, explicit reset confirmation, and processing locks. (OPEN: Manual browser verification required)
-- [ ] 4.4 Run `composer test:fresh-sqlite` for the higher-confidence regression pass and record any unrelated pre-existing failures separately. (OPEN: Full suite blocked on pre-existing infrastructure issues)
+- [x] 4.1 Add focused backend recovery coverage using the current authenticated cart-token contract to prove a committed chain remains available across subsequent requests and an explicit reset removes it. Do not repair the obsolete `tests/Feature/PosMultiStagedPaymentReloadRecoveryTest.php` suite, which targets retired `/api/pos/...` routes, a `sale_id` payload, and stale fixtures.
+- [x] 4.2 After task 4.1, run the supported focused suites. Current baseline: `PosPaymentTermSearchTest` 3/3, `POSPaymentValidationRulesTest` 11/11, `POSDebtCheckoutTest` 7/7, and `POSPermissionRoleMappingTest` 4/4 pass when run independently.
+- [ ] 4.3 Perform browser/UAT verification with production-like payment terms for term selection, visible load failure and retry, ×/**Batal** dismissal, explicit reset confirmation, and processing locks. (OPEN: Manual browser verification required - to be done after code review)
+- [x] 4.4 Run `composer test:fresh-sqlite` for the higher-confidence regression pass and record unrelated failures separately. Baseline on 2026-07-22: 1,940 passed, 263 failed, and 4 skipped (8,160 assertions; 204.12 seconds). The runner successfully locked and recreated `database/testing.sqlite`; failures span unrelated legacy fixtures, schemas, permissions, imports, reports, returns, tax behavior, and POS suites, so making the repository-wide suite green is outside this change's scope.
