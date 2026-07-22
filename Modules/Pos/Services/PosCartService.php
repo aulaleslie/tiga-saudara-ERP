@@ -1237,13 +1237,14 @@ class PosCartService
             return null;
         }
 
-        $product = Product::query()->whereKey($productId)->first();
+        $product = Product::query()->whereKey($productId)->with('unit')->first();
         if (!$product) {
             return null;
         }
 
         $boxConversion = ProductUnitConversion::query()
             ->where('product_id', $productId)
+            ->with(['unit', 'baseUnit'])
             ->first();
 
         if (!$boxConversion) {
@@ -1276,6 +1277,9 @@ class PosCartService
         $saleTaxId = (int) ($priceRow->sale_tax_id ?? 0);
         $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
 
+        $conversionUnitLabel = $boxConversion->unit ? ($boxConversion->unit->short_name ?: $boxConversion->unit->name) : 'Box';
+        $baseUnitLabel = $product->unit ? ($product->unit->short_name ?: $product->unit->name) : 'Unit';
+
         return [
             'factor' => (int) $boxConversion->conversion_factor,
             'box_price' => $boxPrice,
@@ -1285,6 +1289,8 @@ class PosCartService
             'tax_id' => $tax ? (int) $tax->id : null,
             'tax_name' => $tax ? (string) $tax->name : null,
             'tax_rate' => $tax ? (float) $tax->value : 0.0,
+            'conversion_unit_label' => $conversionUnitLabel,
+            'base_unit_label' => $baseUnitLabel,
         ];
     }
 

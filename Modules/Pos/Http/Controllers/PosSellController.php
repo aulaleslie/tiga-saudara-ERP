@@ -534,6 +534,8 @@ class PosSellController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'edc_reference' => ['nullable', 'string', 'max:255'],
             'grand_total' => ['required', 'numeric', 'min:0.01'],
+            'is_debt' => ['nullable', 'boolean'],
+            'payment_term_id' => ['nullable', 'integer'],
         ]);
 
         $cartToken = $validated['cart_token'];
@@ -566,6 +568,8 @@ class PosSellController extends Controller
                 ], 422);
             }
 
+            $isDebt = (bool)($validated['is_debt'] ?? false);
+
             // Validate amount based on payment method type
             // Non-cash: amount cannot exceed remainder (no overpayment)
             if (! $paymentMethod->is_cash && $amount > $remainder) {
@@ -575,8 +579,8 @@ class PosSellController extends Controller
                 ], 422);
             }
 
-            // Cash: amount cannot be less than remainder (must cover full balance)
-            if ($paymentMethod->is_cash && $amount < $remainder) {
+            // Cash: amount cannot be less than remainder (must cover full balance) - UNLESS it is a debt payment
+            if ($paymentMethod->is_cash && $amount < $remainder && !$isDebt) {
                 return response()->json([
                     'code' => 'CASH_UNDERPAYMENT',
                     'message' => "Cash payment must be at least {$remainder}.",
@@ -594,6 +598,8 @@ class PosSellController extends Controller
 
             // Update remainder
             $chain['remainder'] = round($remainder - $amount, 2);
+            $chain['is_debt'] = $isDebt;
+            $chain['payment_term_id'] = $validated['payment_term_id'] ?? null;
             $request->session()->put($sessionKey, $chain);
 
             return response()->json([
@@ -623,17 +629,50 @@ class PosSellController extends Controller
 
         $chain = $request->session()->get($sessionKey);
 
-        if (! $chain) {
+        if ($chain) {
             return response()->json([
-                'has_chain' => false,
-                'payment_chain' => null,
+                'has_chain' => true,
+                'payment_chain' => $chain,
             ]);
         }
 
         return response()->json([
-            'has_chain' => true,
-            'payment_chain' => $chain,
+            'has_chain' => false,
+            'payment_chain' => null,
         ]);
+    }
+
+    public function syncDebtState(Request $request): JsonResponse
+    {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'cart_token' => ['required', 'string', 'uuid'],
+            'grand_total' => ['required', 'numeric', 'min:0.01'],
+            'is_debt' => ['required', 'boolean'],
+            'payment_term_id' => ['nullable', 'integer'],
+        ]);
+
+        $cartToken = $validated['cart_token'];
+        $sessionKey = "payment_chain_{$cartToken}";
+
+        // Initialize chain if not exists
+        if (! $request->session()->has($sessionKey)) {
+            $request->session()->put($sessionKey, [
+                'payments' => [],
+                'remainder' => (float)$validated['grand_total'],
+                'staged_at' => now()->toIso8601String(),
+            ]);
+        }
+
+        $chain = $request->session()->get($sessionKey);
+        $chain['is_debt'] = $validated['is_debt'];
+        $chain['payment_term_id'] = $validated['payment_term_id'] ?? null;
+        $request->session()->put($sessionKey, $chain);
+
+        return response()->json(['success' => true]);
     }
 
     public function resetPaymentChain(Request $request): JsonResponse

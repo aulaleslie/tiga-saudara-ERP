@@ -143,3 +143,56 @@
             </div>
         </div>
     </div>
+
+    <!-- Final Transaction Confirmation Modal (Task 2.1, 2.2, 2.3) -->
+    <div class="modal fade" id="pos-final-confirmation-modal" tabindex="-1" role="dialog" aria-labelledby="pos-final-confirmation-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-primary">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="pos-final-confirmation-modal-label">Konfirmasi Final Transaksi</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="mb-3">Transaksi ini sudah siap diselesaikan. Silakan periksa ringkasan transaksi:</p>
+                    
+                    <ul class="list-group mb-4">
+                        <li class="list-group-item d-flex justify-content-between align-items-center bg-light">
+                            <strong>Total Tagihan</strong>
+                            <span id="final-grand-total" class="font-weight-bold">Rp0</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Total Dibayar</strong>
+                            <span id="final-paid-amount" class="text-success font-weight-bold">Rp0</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center" id="final-change-container">
+                            <strong>Kembalian</strong>
+                            <span id="final-change-amount" class="text-info font-weight-bold">Rp0</span>
+                        </li>
+                        <li class="list-group-item d-none justify-content-between align-items-center list-group-item-warning" id="final-debt-container">
+                            <strong>Sisa Utang/Kasbon</strong>
+                            <span id="final-debt-amount" class="text-danger font-weight-bold">Rp0</span>
+                        </li>
+                        <li class="list-group-item d-none flex-column" id="final-debt-details-container">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>Pelanggan:</strong>
+                                <span id="final-debt-customer">-</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong>Jatuh Tempo:</strong>
+                                <span id="final-debt-term">-</span>
+                            </div>
+                        </li>
+                    </ul>
+
+                    <!-- Dynamic Alert Container -->
+                    <div id="final-payment-alert" class="alert d-none" role="alert"></div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" id="final-payment-cancel-btn" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" id="final-payment-proceed-btn" class="btn btn-primary btn-lg px-5">Selesaikan Transaksi</button>
+                </div>
+            </div>
+        </div>
+    </div>

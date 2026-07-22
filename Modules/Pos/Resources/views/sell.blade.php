@@ -3694,10 +3694,11 @@
 
                         const grandTotal = currentSnapshot.totals.grand_total || 0;
                         const hasCustomer = currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
-                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal, 'hasCustomer:', hasCustomer);
+                        const customerName = hasCustomer && currentSnapshot.customer.selected_customer ? currentSnapshot.customer.selected_customer.customer_name : '-';
+                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal, 'hasCustomer:', hasCustomer, 'customerName:', customerName);
 
                         if (typeof PosStagedPayment !== 'undefined') {
-                            PosStagedPayment.openModal(cartToken, grandTotal, hasCustomer);
+                            PosStagedPayment.openModal(cartToken, grandTotal, hasCustomer, customerName);
                         } else {
                             console.error('[CHECKOUT] PosStagedPayment module not loaded');
                         }
@@ -3882,9 +3883,13 @@
                         .then(r => r.json())
                         .then(data => {
                             if (data.has_chain && data.payment_chain) {
+                                const hasCustomer = currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
+                                const customerName = hasCustomer && currentSnapshot.customer.selected_customer ? currentSnapshot.customer.selected_customer.customer_name : '-';
                                 PosStagedPayment.openModal(
                                     currentSnapshot.staged_payment_token,
-                                    currentSnapshot.totals?.grand_total || 0
+                                    currentSnapshot.totals?.grand_total || 0,
+                                    hasCustomer,
+                                    customerName
                                 );
                             }
                         })

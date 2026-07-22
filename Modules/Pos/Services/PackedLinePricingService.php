@@ -35,7 +35,9 @@ class PackedLinePricingService
             'tier_base_price' => $tierBasePrice,
             'factor_by_tier_base_price' => $factor * $tierBasePrice,
             'tier' => $normalizedTier,
-            'factor' => $factor
+            'factor' => $factor,
+            'conversion_unit_label' => $pricingBasis['conversion_unit_label'] ?? 'Box',
+            'base_unit_label' => $pricingBasis['base_unit_label'] ?? 'Unit',
         ];
 
         return [

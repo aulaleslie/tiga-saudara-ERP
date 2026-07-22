@@ -47,6 +47,24 @@ window.PosStagedPayment = (function () {
     let confirmAlertContainer = null;
     let confirmProceedButton = null;
 
+    // Final Confirmation Modal DOM elements
+    let finalModalElement = null;
+    let finalGrandTotalLabel = null;
+    let finalPaidAmountLabel = null;
+    let finalChangeContainer = null;
+    let finalChangeLabel = null;
+    let finalDebtContainer = null;
+    let finalDebtLabel = null;
+    let finalDebtDetailsContainer = null;
+    let finalDebtCustomerLabel = null;
+    let finalDebtTermLabel = null;
+    let finalAlertContainer = null;
+    let finalProceedButton = null;
+    let finalCancelButton = null;
+
+    // Finalization Idempotency
+    let currentFinalizeIdempotencyKey = null;
+
     // Debt variables
     let stagedIsDebtToggle = null;
     let stagedDebtTermsContainer = null;
@@ -89,6 +107,20 @@ window.PosStagedPayment = (function () {
         confirmEnteredLabel = document.getElementById('confirm-entered-amount');
         confirmAlertContainer = document.getElementById('confirm-payment-alert');
         confirmProceedButton = document.getElementById('confirm-payment-proceed-btn');
+
+        finalModalElement = document.getElementById('pos-final-confirmation-modal');
+        finalGrandTotalLabel = document.getElementById('final-grand-total');
+        finalPaidAmountLabel = document.getElementById('final-paid-amount');
+        finalChangeContainer = document.getElementById('final-change-container');
+        finalChangeLabel = document.getElementById('final-change-amount');
+        finalDebtContainer = document.getElementById('final-debt-container');
+        finalDebtLabel = document.getElementById('final-debt-amount');
+        finalDebtDetailsContainer = document.getElementById('final-debt-details-container');
+        finalDebtCustomerLabel = document.getElementById('final-debt-customer');
+        finalDebtTermLabel = document.getElementById('final-debt-term');
+        finalAlertContainer = document.getElementById('final-payment-alert');
+        finalProceedButton = document.getElementById('final-payment-proceed-btn');
+        finalCancelButton = document.getElementById('final-payment-cancel-btn');
 
         stagedIsDebtToggle = document.getElementById('staged-payment-is-debt');
         stagedDebtTermsContainer = document.getElementById('staged-payment-debt-terms-container');
@@ -142,6 +174,14 @@ window.PosStagedPayment = (function () {
             confirmProceedButton.addEventListener('click', executeStagePayment);
         }
 
+        if (finalProceedButton) {
+            finalProceedButton.addEventListener('click', finalizeCheckout);
+        }
+
+        if (finalCancelButton) {
+            finalCancelButton.addEventListener('click', finalCancelCheckout);
+        }
+
         // Close dropdown when clicking outside
         document.addEventListener('click', function (e) {
             if (stagedMethodResultsDropdown &&
@@ -153,10 +193,16 @@ window.PosStagedPayment = (function () {
         });
 
         if (stagedIsDebtToggle) {
-            stagedIsDebtToggle.addEventListener('change', handleDebtToggle);
+            stagedIsDebtToggle.addEventListener('change', () => {
+                handleDebtToggle();
+                syncDebtState();
+            });
         }
         if (stagedPaymentTermSelect) {
-            stagedPaymentTermSelect.addEventListener('change', updateStageValidation);
+            stagedPaymentTermSelect.addEventListener('change', () => {
+                updateStageValidation();
+                syncDebtState();
+            });
         }
     }
 
@@ -180,9 +226,34 @@ window.PosStagedPayment = (function () {
         updateStageValidation();
     }
 
+    async function syncDebtState() {
+        if (!currentCartToken || !paymentChain || paymentChain.remainder === undefined) return;
+
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const termId = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
+
+        try {
+            await fetch('/pos/sell/checkout/sync-debt-state', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cart_token: currentCartToken,
+                    grand_total: paymentChain.original_grand_total || paymentChain.remainder,
+                    is_debt: isDebt,
+                    payment_term_id: termId
+                })
+            });
+        } catch (e) {
+            console.error('[PosStagedPayment] Error syncing debt state:', e);
+        }
+    }
+
     // Task 5.1 & 5.2: Open modal with cart token and grand total
-    async function openModal(cartToken, grandTotal, hasCustomer = true) {
-        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer });
+    async function openModal(cartToken, grandTotal, hasCustomer = true, customerName = '-') {
+        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer, customerName });
 
         if (!ensurePaymentFlowAvailable()) {
             return;
@@ -194,10 +265,18 @@ window.PosStagedPayment = (function () {
         }
 
         currentHasCustomer = hasCustomer;
+        currentCustomerName = customerName;
         state = States.SELECTING_METHOD;
         clearErrors();
         
+        // Only reset checkout context if it's a completely new checkout (different token)
+        if (currentCartToken !== cartToken) {
+            resetCheckoutContext();
+        }
+        
         resetStageForm();
+
+        currentFinalizeIdempotencyKey = null;
 
         // Try to recover payment chain from session
         const recovered = await checkReloadRecovery(cartToken, grandTotal);
@@ -242,6 +321,15 @@ window.PosStagedPayment = (function () {
                 remainder: data.payment_chain.remainder || 0,
                 payments: data.payment_chain.payments || [],
             };
+
+            // Recover debt state
+            if (data.payment_chain.is_debt) {
+                if (stagedIsDebtToggle) stagedIsDebtToggle.checked = true;
+                if (stagedPaymentTermSelect && data.payment_chain.payment_term_id) {
+                    stagedPaymentTermSelect.value = data.payment_chain.payment_term_id;
+                }
+                handleDebtToggle();
+            }
 
             renderPaymentChain();
             updateRemainderDisplay();
@@ -464,7 +552,7 @@ window.PosStagedPayment = (function () {
                         isValid = false;
                     }
                     if (isValid && selectedPaymentMethod && paymentChain) {
-                        if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+                        if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod, isDebt)) {
                             isValid = false;
                         }
                     }
@@ -487,7 +575,7 @@ window.PosStagedPayment = (function () {
 
                 // Task 2.4: Call validation function to check method-specific amount rules
                 if (isValid && selectedPaymentMethod && paymentChain) {
-                    if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+                    if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod, isDebt)) {
                         isValid = false;
                     }
                 }
@@ -520,14 +608,14 @@ window.PosStagedPayment = (function () {
 
         // If remainder is 0, finalize checkout instead of adding another payment
         if (remainder === 0) {
-            await finalizeCheckout();
+            showFinalConfirmation();
             return;
         }
 
         if (!validateBeforeSubmit()) return;
 
         if (isDebt && amount === 0) {
-            await finalizeCheckout();
+            showFinalConfirmation();
             return;
         }
 
@@ -615,15 +703,15 @@ window.PosStagedPayment = (function () {
             console.log('[PosStagedPayment] Updated chain:', { remainder: paymentChain.remainder, payments: paymentChain.payments.length });
 
             // Check remainder and proceed
-            if (data.remainder > 0) {
+            if (data.remainder > 0 && !payload.is_debt) {
                 // More payments needed
                 resetStageForm();
                 renderPaymentChain();
                 updateRemainderDisplay();
             } else {
-                // Payment complete or overpaid (data.remainder <= 0), proceed to authoritative finalization
-                console.log('[PosStagedPayment] Payment complete/overpaid, initiating checkout finalization', { remainder: data.remainder });
-                await finalizeCheckout();
+                // Payment complete or overpaid (data.remainder <= 0), or it's a debt down payment, proceed to authoritative finalization
+                console.log('[PosStagedPayment] Payment complete/overpaid or debt down payment, initiating checkout finalization', { remainder: data.remainder, is_debt: payload.is_debt });
+                showFinalConfirmation();
             }
         } catch (error) {
             console.error('[PosStagedPayment] Error:', error);
@@ -634,8 +722,13 @@ window.PosStagedPayment = (function () {
     }
 
     // Task 2.1: Create validateAmountForMethod() function that checks is_cash flag
-    function validateAmountForMethod(amount, remainder, method) {
+    function validateAmountForMethod(amount, remainder, method, isDebt) {
         if (!method) return false;
+
+        // Debt validation rule - amount must be strictly less than remainder
+        if (isDebt) {
+            return amount < remainder;
+        }
 
         // Task 2.2: Cash validation rule - amount >= remainder (allow overpayment)
         if (method.is_cash) {
@@ -651,16 +744,24 @@ window.PosStagedPayment = (function () {
         // Task 2.5: Use raw value from dataset
         const amount = Number(stagedAmountInput?.dataset.rawValue || stagedAmountInput?.value || 0);
         const remainder = paymentChain?.remainder || 0;
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
 
-        if (amount <= 0) {
+        if (!isDebt && amount <= 0) {
             showError('Jumlah pembayaran harus lebih dari 0');
             return false;
         }
 
+        if (isDebt && amount < 0) {
+            showError('Jumlah pembayaran tidak boleh negatif');
+            return false;
+        }
+
         // Task 2.4 & 2.5: Call validation function with method-specific error messages
-        if (selectedPaymentMethod) {
-            if (!validateAmountForMethod(amount, remainder, selectedPaymentMethod)) {
-                if (selectedPaymentMethod.is_cash) {
+        if (selectedPaymentMethod && amount > 0) {
+            if (!validateAmountForMethod(amount, remainder, selectedPaymentMethod, isDebt)) {
+                if (isDebt) {
+                    showError(`Pembayaran utang/kasbon harus kurang dari sisa tagihan ${formatPrice(remainder)}`);
+                } else if (selectedPaymentMethod.is_cash) {
                     showError(`Jumlah pembayaran tunai harus minimal ${formatPrice(remainder)} untuk melunasi`);
                 } else {
                     showError(`Jumlah pembayaran tidak boleh lebih dari sisa ${formatPrice(remainder)}`);
@@ -682,7 +783,7 @@ window.PosStagedPayment = (function () {
         return true;
     }
 
-    // Reset form for next stage
+    // Reset form for next stage (payment inputs only)
     function resetStageForm() {
         selectedPaymentMethod = null;
         if (stagedMethodSearchInput) stagedMethodSearchInput.value = '';
@@ -692,14 +793,17 @@ window.PosStagedPayment = (function () {
         }
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
         
-        if (stagedIsDebtToggle) stagedIsDebtToggle.checked = false;
-        if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
-        handleDebtToggle();
-        
         updateEdcReferenceVisibility();
         updateAmountHint();
         updateStageValidation();
         if (stagedMethodSearchInput) stagedMethodSearchInput.focus();
+    }
+
+    // Reset full checkout context (debt state, etc)
+    function resetCheckoutContext() {
+        if (stagedIsDebtToggle) stagedIsDebtToggle.checked = false;
+        if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
+        handleDebtToggle();
     }
 
     // Task 3.4: Handle modal lock during processing
@@ -720,6 +824,69 @@ window.PosStagedPayment = (function () {
         if (closeButton) closeButton.style.display = isProcessing ? 'none' : 'block';
     }
 
+    // Show final transaction confirmation before completing (Task 2.1 & 2.2)
+    function showFinalConfirmation() {
+        if (!paymentChain) return;
+
+        if (stagedModalElement) {
+            $(stagedModalElement).modal('hide');
+        }
+
+        // Generate one canonical idempotency key for this finalization attempt (Task 2.4)
+        if (!currentFinalizeIdempotencyKey) {
+            currentFinalizeIdempotencyKey = `FINALIZE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+
+        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const totalPaid = paymentChain.original_grand_total - paymentChain.remainder;
+
+        if (finalGrandTotalLabel) finalGrandTotalLabel.textContent = formatPrice(paymentChain.original_grand_total);
+        if (finalPaidAmountLabel) finalPaidAmountLabel.textContent = formatPrice(totalPaid);
+
+        if (isDebt) {
+            if (finalChangeContainer) finalChangeContainer.classList.add('d-none');
+            if (finalDebtContainer) finalDebtContainer.classList.remove('d-none');
+            if (finalDebtDetailsContainer) finalDebtDetailsContainer.classList.remove('d-none');
+            
+            if (finalDebtLabel) finalDebtLabel.textContent = formatPrice(paymentChain.remainder);
+            
+            // Get selected term text
+            let termName = '-';
+            if (stagedPaymentTermSelect && stagedPaymentTermSelect.options.length > 0) {
+                const selectedOpt = stagedPaymentTermSelect.options[stagedPaymentTermSelect.selectedIndex];
+                if (selectedOpt && selectedOpt.value) {
+                    termName = selectedOpt.textContent;
+                }
+            }
+            if (finalDebtTermLabel) finalDebtTermLabel.textContent = termName;
+
+            // Customer name from parameter
+            if (finalDebtCustomerLabel) finalDebtCustomerLabel.textContent = currentCustomerName || '-';
+        } else {
+            if (finalChangeContainer) finalChangeContainer.classList.remove('d-none');
+            if (finalDebtContainer) finalDebtContainer.classList.add('d-none');
+            if (finalDebtDetailsContainer) finalDebtDetailsContainer.classList.add('d-none');
+            
+            const change = totalPaid - paymentChain.original_grand_total;
+            if (finalChangeLabel) finalChangeLabel.textContent = formatPrice(Math.max(0, change));
+        }
+
+        if (finalModalElement) {
+            $(finalModalElement).modal('show');
+        }
+    }
+
+    // Task 2.3: Handle cancel on final confirmation
+    function finalCancelCheckout() {
+        if (finalModalElement) {
+            $(finalModalElement).modal('hide');
+        }
+        // Restore focus to staged checkout surface without clearing debt/payments
+        if (stagedModalElement) {
+            $(stagedModalElement).modal('show');
+        }
+    }
+
     // Finalize checkout when all payments are received
     async function finalizeCheckout() {
         if (!ensurePaymentFlowAvailable()) {
@@ -732,12 +899,13 @@ window.PosStagedPayment = (function () {
         }
 
         setProcessing(true);
+        if (finalProceedButton) finalProceedButton.disabled = true;
         clearErrors();
 
         try {
             const payload = {
                 cart_token: paymentChain.cart_token,
-                idempotency_key: `FINALIZE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                idempotency_key: currentFinalizeIdempotencyKey,
             };
 
             if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
@@ -776,11 +944,8 @@ window.PosStagedPayment = (function () {
             };
 
             if (payload.is_debt && window.ApprovalManager) {
-                // stagedSubmitButton is the one that stays visible if they don't use confirmation modal
-                // confirmProceedButton is hidden if we bypassed confirmStagePayment. But wait, we always use confirmStagePayment?
-                // No, if remainder == 0 we bypass it. But debt has amount == 0 so we bypass it too. 
-                // So stagedSubmitButton is the right button.
-                const btn = stagedSubmitButton;
+                // Task 2.5: Integrate ApprovalManager with the final confirmation modal
+                const btn = finalProceedButton || stagedSubmitButton;
                 const originalText = btn.innerHTML;
                 const targetId = (typeof window.posSessionId !== 'undefined') ? window.posSessionId : 0;
                 
@@ -795,16 +960,24 @@ window.PosStagedPayment = (function () {
                 );
                 
                 if (!success) {
-                    return; // Stopped by approval flow
+                    setProcessing(false);
+                    return; // Stopped by approval flow, modal stays open for token retry
                 }
             } else {
                 await performFinalize(null);
             }
         } catch (error) {
             console.error('[PosStagedPayment] Finalize error:', error);
-            showError('Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message);
+            if (finalAlertContainer) {
+                finalAlertContainer.className = 'alert alert-danger mt-3';
+                finalAlertContainer.textContent = 'Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message;
+                finalAlertContainer.classList.remove('d-none');
+            } else {
+                showError('Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message);
+            }
         } finally {
             setProcessing(false);
+            if (finalProceedButton) finalProceedButton.disabled = false;
         }
     }
 
@@ -816,6 +989,13 @@ window.PosStagedPayment = (function () {
         if (stagedModalElement) {
             $(stagedModalElement).modal('hide');
         }
+        if (finalModalElement) {
+            $(finalModalElement).modal('hide');
+        }
+        
+        currentFinalizeIdempotencyKey = null; // Clear key on success
+
+        resetCheckoutContext();
 
         // Show gratitude modal with change amount
         showGratitudeModal(changeAmount);

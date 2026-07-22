@@ -138,6 +138,36 @@
             cursor: pointer;
         }
 
+        table.items-table, table.totals-table, table.payment-table {
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        /* Task 4.1 & 4.2: Fixed layout columns (3 columns) */
+        .items-table th.col-qty, .items-table td.col-qty,
+        .totals-table th.col-qty, .totals-table td.col-qty,
+        .payment-table th.col-qty, .payment-table td.col-qty { width: 15%; text-align: left; }
+        
+        .items-table th.col-product, .items-table td.col-product,
+        .totals-table th.col-product, .totals-table td.col-product,
+        .payment-table th.col-product, .payment-table td.col-product { width: 60%; text-align: left; }
+        
+        .items-table th.col-total, .items-table td.col-total,
+        .totals-table th.col-total, .totals-table td.col-total,
+        .payment-table th.col-total, .payment-table td.col-total { width: 25%; text-align: right; }
+        
+        .items-table td, .items-table th {
+            vertical-align: top;
+            padding: 3px 2px;
+        }
+
+        /* Task 4.3: Bounded compact amount styling */
+        .compact-amount {
+            white-space: nowrap;
+            letter-spacing: -0.5px;
+            font-size: 10.5px;
+        }
+
         @media print {
             html,
             body {
@@ -252,52 +282,51 @@
         <table class="items-table" style="margin-top: 5px; margin-bottom: 5px;">
             <thead>
                 <tr>
-                    <th style="text-align:left; width: 30px;">Qty</th>
-                    <th style="text-align:left">Nama Barang</th>
-                    <th style="text-align:right">Total</th>
+                    <th class="col-qty">Qty</th>
+                    <th class="col-product">Barang</th>
+                    <th class="col-total">Total</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($receiptData['lines'] as $line)
                     <tr>
-                        <td style="width: 30px;">{{ rtrim(rtrim(number_format((float) $line['qty'], 2, '.', ''), '0'), '.') }}</td>
-                        <td>
+                        <td class="col-qty">{{ rtrim(rtrim(number_format((float) $line['qty'], 2, '.', ''), '0'), '.') }}</td>
+                        <td class="col-product">
                             {{ $line['product_name'] }}
                             @if(!empty($line['unit_breakdown']))
                                 @if(is_array($line['unit_breakdown']))
                                     @foreach($line['unit_breakdown'] as $ub)
-                                        <br>
-                                        <span class="small">{{ $ub }}</span>
+                                        <div class="small">{{ $ub }}</div>
                                     @endforeach
                                 @else
-                                    <br>
-                                    <span class="small">{{ $line['unit_breakdown'] }}</span>
+                                    <div class="small">{{ $line['unit_breakdown'] }}</div>
                                 @endif
                             @endif
                             @if(($line['discount'] ?? 0) > 0)
-                                <br>
-                                <span class="small">Diskon: -{{ format_currency($line['discount']) }}</span>
+                                <div class="small">Diskon: -{{ format_currency($line['discount']) }}</div>
                             @endif
                             @if(!empty($line['bundle_composition']))
                                 @foreach($line['bundle_composition'] as $item)
-                                    <br>
-                                    <span class="small" style="font-weight: 400;">&nbsp;&nbsp;- {{ $item['name'] }} x{{ (float)$item['qty'] }}</span>
+                                    <div class="small" style="font-weight: 400;">&nbsp;&nbsp;- {{ $item['name'] }} x{{ (float)$item['qty'] }}</div>
                                 @endforeach
                             @endif
                             @if(!empty($line['assigned_serials']))
-                                <br>
-                                <span class="small" style="font-weight: 400;">&nbsp;&nbsp;SN: {{ implode(', ', $line['assigned_serials']) }}</span>
+                                <div class="small" style="font-weight: 400;">&nbsp;&nbsp;SN: {{ implode(', ', $line['assigned_serials']) }}</div>
                             @endif
-
                         </td>
-                        <td style="text-align:right">{{ number_format((float) $line['sub_total'], 0, ',', '.') }}</td>
+                        @php
+                            $formattedTotal = number_format((float) $line['sub_total'], 0, ',', '.');
+                            $totalLength = strlen($formattedTotal);
+                            $fontSize = $totalLength > 9 ? '9px' : ($totalLength > 7 ? '10px' : '11px');
+                        @endphp
+                        <td class="col-total compact-amount" style="font-size: {{ $fontSize }};">{{ $formattedTotal }}</td>
                     </tr>
                 @endforeach
 
                 @if(($receiptData['discount'] ?? 0) > 0)
                     <tr>
-                        <th colspan="2" style="text-align:left">Diskon</th>
-                        <th style="text-align:right">{{ number_format((float) $receiptData['discount'], 0, ',', '.') }}</th>
+                        <th colspan="3" style="text-align:left">Diskon</th>
+                        <th class="compact-amount" style="text-align:right">{{ number_format((float) $receiptData['discount'], 0, ',', '.') }}</th>
                     </tr>
                 @endif
             </tbody>
@@ -305,37 +334,54 @@
 
         <table class="totals-table">
             <tbody>
+                @php
+                    $formattedGrandTotal = number_format((float) ($receiptData['totals']['grand_total'] ?? 0), 0, ',', '.');
+                    $grandTotalLength = strlen($formattedGrandTotal);
+                    $grandTotalFontSize = $grandTotalLength > 9 ? '9px' : ($grandTotalLength > 7 ? '10px' : '11px');
+                @endphp
                 <tr>
-                    <th colspan="2" style="text-align:left">Total</th>
-                    <th style="text-align:right">{{ number_format((float) $receiptData['grand_total'], 0, ',', '.') }}</th>
+                    <th colspan="2" class="col-product" style="text-align:left">Total</th>
+                    <th class="col-total compact-amount" style="text-align:right; font-size: {{ $grandTotalFontSize }};">{{ $formattedGrandTotal }}</th>
                 </tr>
             </tbody>
         </table>
 
         <table class="payment-table">
             <tbody>
-                @if(!empty($receiptData['payment_breakdown']) && count($receiptData['payment_breakdown']) > 0)
-                    @foreach($receiptData['payment_breakdown'] as $payment)
+                @if(!empty($receiptData['payments']))
+                    @foreach($receiptData['payments'] as $payment)
+                        @php
+                            $formattedPaymentAmount = number_format((float) $payment['amount'], 0, ',', '.');
+                            $paymentLength = strlen($formattedPaymentAmount);
+                            $paymentFontSize = $paymentLength > 9 ? '9px' : ($paymentLength > 7 ? '10px' : '11px');
+                        @endphp
                         <tr style="background-color:#ddd;">
-                            <th colspan="2" style="text-align:left; padding: 4px;">
-                                Bayar: {{ $payment['method_name'] }}
+                            <th colspan="2" class="col-product" style="text-align:left; padding: 4px;">
+                                Bayar: {{ $payment['method_name'] ?? 'Tunai' }}
                             </th>
-                            <th style="text-align:right; padding: 4px;">{{ number_format((float) $payment['amount'], 0, ',', '.') }}</th>
+                            <th class="col-total compact-amount" style="text-align:right; padding: 4px; font-size: {{ $paymentFontSize }};">{{ $formattedPaymentAmount }}</th>
                         </tr>
                     @endforeach
-                @else
-                    <tr style="background-color:#ddd;">
-                        <th colspan="2" style="text-align:left; padding: 4px;">
-                            Bayar: {{ $receiptData['payment_method'] }}
-                        </th>
-                        <th style="text-align:right; padding: 4px;">{{ number_format((float) $receiptData['amount_paid'], 0, ',', '.') }}</th>
-                    </tr>
                 @endif
-
-                @if(($receiptData['change'] ?? 0) > 0)
+                @if(isset($receiptData['totals']['change_amount']) && $receiptData['totals']['change_amount'] > 0)
+                    @php
+                        $formattedChangeAmount = number_format((float) $receiptData['totals']['change_amount'], 0, ',', '.');
+                        $changeLength = strlen($formattedChangeAmount);
+                        $changeFontSize = $changeLength > 9 ? '9px' : ($changeLength > 7 ? '10px' : '11px');
+                    @endphp
                     <tr>
-                        <th colspan="2" style="text-align:left">Kembalian</th>
-                        <th style="text-align:right">{{ number_format((float) $receiptData['change'], 0, ',', '.') }}</th>
+                        <th colspan="2" class="col-product" style="text-align:left">Kembalian</th>
+                        <th class="col-total compact-amount" style="text-align:right; font-size: {{ $changeFontSize }};">{{ $formattedChangeAmount }}</th>
+                    </tr>
+                @elseif(isset($receiptData['totals']['outstanding_debt']) && $receiptData['totals']['outstanding_debt'] > 0)
+                    @php
+                        $formattedDebtAmount = number_format((float) $receiptData['totals']['outstanding_debt'], 0, ',', '.');
+                        $debtLength = strlen($formattedDebtAmount);
+                        $debtFontSize = $debtLength > 9 ? '9px' : ($debtLength > 7 ? '10px' : '11px');
+                    @endphp
+                    <tr>
+                        <th colspan="2" class="col-product" style="text-align:left">Sisa Utang</th>
+                        <th class="col-total compact-amount" style="text-align:right; font-size: {{ $debtFontSize }};">{{ $formattedDebtAmount }}</th>
                     </tr>
                 @endif
             </tbody>

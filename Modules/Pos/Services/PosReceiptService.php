@@ -71,15 +71,7 @@ class PosReceiptService
                 $breakdown = $line->line_meta['breakdown'] ?? null;
                 
                 if ($priceSource === 'PACKED' && is_array($breakdown)) {
-                    $unitBreakdown = [];
-                    $baseUnitName = $line->product->unit->short_name ?? $line->product->unit->name ?? 'Unit';
-                    
-                    if ($breakdown['box_count'] > 0) {
-                        $unitBreakdown[] = sprintf("[K] x%d @ %s", $breakdown['box_count'], format_currency($breakdown['box_price_applied']));
-                    }
-                    if ($breakdown['loose_count'] > 0) {
-                        $unitBreakdown[] = sprintf("[%s] x%d @ %s", substr($baseUnitName, 0, 1), $breakdown['loose_count'], format_currency($breakdown['loose_price_applied']));
-                    }
+                    $unitBreakdown = $this->buildPackedUnitBreakdown($breakdown, $line);
                 } elseif ($unitName) {
                     $pricePerUnit = $line->unit_price / $factor;
                     $unitBreakdown = sprintf(
@@ -457,15 +449,7 @@ class PosReceiptService
             $breakdown = $line->line_meta['breakdown'] ?? null;
 
             if ($priceSource === 'PACKED' && is_array($breakdown)) {
-                $unitBreakdown = [];
-                $baseUnitName = $line->product && $line->product->unit ? ($line->product->unit->short_name ?? $line->product->unit->name) : 'Unit';
-
-                if ($breakdown['box_count'] > 0) {
-                    $unitBreakdown[] = sprintf("[K] x%d @ %s", $breakdown['box_count'], format_currency($breakdown['box_price_applied']));
-                }
-                if ($breakdown['loose_count'] > 0) {
-                    $unitBreakdown[] = sprintf("[%s] x%d @ %s", substr($baseUnitName, 0, 1), $breakdown['loose_count'], format_currency($breakdown['loose_price_applied']));
-                }
+                $unitBreakdown = $this->buildPackedUnitBreakdown($breakdown, $line);
             } elseif ($line->conversion && $line->conversion->unit) {
                 $unitName = $line->conversion->unit->short_name ?? $line->conversion->unit->name;
                 $factor = (float)($line->conversion->conversion_factor ?? 1);
@@ -560,5 +544,45 @@ class PosReceiptService
             'is_draft' => in_array($transaction->status, [PosTransaction::STATUS_DRAFT, PosTransaction::STATUS_LOADED], true),
             'print_history' => $printHistory,
         ];
+    }
+
+    /**
+     * Build packed unit breakdown presentation (Task 3.3 & 3.4).
+     */
+    private function buildPackedUnitBreakdown(array $breakdown, $line): array
+    {
+        $unitBreakdown = [];
+        
+        $conversionLabel = $breakdown['conversion_unit_label'] ?? null;
+        $baseLabel = $breakdown['base_unit_label'] ?? null;
+        
+        if (!$conversionLabel || !$baseLabel) {
+            $fallbackConv = $line->conversion 
+                ?? \Modules\Product\Entities\ProductUnitConversion::where('product_id', $line->product_id)->with(['unit', 'baseUnit'])->first();
+                
+            if (!$conversionLabel) {
+                $conversionLabel = $fallbackConv?->unit?->short_name 
+                                ?? $fallbackConv?->unit?->name 
+                                ?? 'Dus';
+            }
+            if (!$baseLabel) {
+                $baseLabel = $fallbackConv?->baseUnit?->short_name 
+                            ?? $fallbackConv?->baseUnit?->name 
+                            ?? $line->product?->unit?->short_name 
+                            ?? $line->product?->unit?->name 
+                            ?? 'Pcs';
+            }
+        }
+
+        if (($breakdown['box_count'] ?? 0) > 0) {
+            $boxPriceRupiah = (float)($breakdown['box_price_applied'] ?? 0) / 100;
+            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['box_count'], $conversionLabel, format_currency($boxPriceRupiah));
+        }
+        if (($breakdown['loose_count'] ?? 0) > 0) {
+            $loosePriceRupiah = (float)($breakdown['loose_price_applied'] ?? 0) / 100;
+            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['loose_count'], $baseLabel, format_currency($loosePriceRupiah));
+        }
+        
+        return $unitBreakdown;
     }
 }

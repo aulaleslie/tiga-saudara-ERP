@@ -387,6 +387,81 @@ class POSPaymentValidationRulesTest extends TestCase
             ->assertJsonPath('code', 'CASH_UNDERPAYMENT');
     }
 
+    /**
+     * POS-TM-XXX: Allow cash underpayment at stage payment endpoint if is_debt is true
+     */
+    public function test_cash_underpayment_allowed_when_debt_true(): void
+    {
+        $context = $this->createCheckoutContext('CASH-UNDER-DEBT');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-U-DEBT', 50000);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Get cart token
+        $snapshot = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot');
+
+        $cartToken = (string) ($snapshot['staged_payment_token'] ?? '');
+        $grandTotal = (float) ($snapshot['totals']['grand_total'] ?? 50000);
+
+        // Stage a cash underpayment with is_debt true
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $methods['cash']->id,
+                'amount' => 45000,
+                'grand_total' => $grandTotal,
+                'is_debt' => true,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('payment_chain.remainder', 5000)
+            ->assertJsonPath('payment_chain.is_debt', true);
+    }
+
+    public function test_sync_debt_state(): void
+    {
+        $context = $this->createCheckoutContext('SYNC-DEBT');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-SYNC', 50000);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Get cart token
+        $snapshot = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot');
+
+        $cartToken = (string) ($snapshot['staged_payment_token'] ?? '');
+        
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.sync-debt-state'), [
+                'cart_token' => $cartToken,
+                'grand_total' => 50000,
+                'is_debt' => true,
+                'payment_term_id' => 1
+            ])
+            ->assertOk();
+            
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.checkout.payment-chain', ['cart_token' => $cartToken]))
+            ->assertOk()
+            ->assertJsonPath('has_chain', true)
+            ->assertJsonPath('payment_chain.is_debt', true)
+            ->assertJsonPath('payment_chain.payment_term_id', 1);
+    }
+
     // --- Helpers ---
 
     private function createCheckoutContext(string $name): array

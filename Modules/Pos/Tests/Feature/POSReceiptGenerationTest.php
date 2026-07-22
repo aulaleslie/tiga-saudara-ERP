@@ -316,11 +316,11 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse = $this->actingAs($context['cashier'])
             ->get("/pos/sell/checkout/{$checkoutId}/receipt");
         
-        $receiptResponse->assertStatus(200)
-            ->assertSee('PROD-CONV')
-            ->assertSee('1 RIM(S)')
+        $receiptResponse->assertStatus(200);
+        $receiptResponse->assertSee('PROD-CONV')
+            ->assertSee('[RIM]')
             ->assertSee('PROD-STD')
-            ->assertSee('1 PUNIT(S)') // Base unit short name
+            ->assertSee('PUNIT(S)') // Base unit short name
             ->assertSee('Bayar: CASH POS')
             ->assertSee('300.000')
             ->assertSee('Kembalian')
@@ -373,7 +373,7 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse->assertStatus(200);
         // Just verify packed receipt contains the product and breakdown info
         $receiptResponse->assertSee('KERTAS-A4')
-            ->assertSee('[K]');  // Box indicator from breakdown
+            ->assertSee('[DUS]');  // Box indicator from breakdown (now uses actual unit short_name)
     }
     
     public function test_receipt_shows_calculated_change_if_db_value_is_zero(): void

@@ -137,6 +137,8 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 
     Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
         ->name('pos.sell.checkout.stage-payment');
+    Route::post('/pos/sell/checkout/sync-debt-state', [PosSellController::class, 'syncDebtState'])
+        ->name('pos.sell.checkout.sync-debt-state');
     Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
         ->name('pos.sell.checkout.payment-chain');
     Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
