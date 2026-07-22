@@ -1278,7 +1278,7 @@ class PosCartService
         $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
 
         $conversionUnitLabel = $boxConversion->unit ? ($boxConversion->unit->short_name ?: $boxConversion->unit->name) : 'Box';
-        $baseUnitLabel = $product->unit ? ($product->unit->short_name ?: $product->unit->name) : 'Unit';
+        $baseUnitLabel = $boxConversion->baseUnit ? ($boxConversion->baseUnit->short_name ?: $boxConversion->baseUnit->name) : ($product->unit ? ($product->unit->short_name ?: $product->unit->name) : 'Unit');
 
         return [
             'factor' => (int) $boxConversion->conversion_factor,

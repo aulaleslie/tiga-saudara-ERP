@@ -1,3 +1,9 @@
+## Purpose
+
+The system SHALL display distinct confirmation phases for checkout transactions: confirmation of individual staged payments and a final transaction confirmation that precedes the irreversible finalization request. Payment-stage confirmation intercepts payment submission and details the entered amount and remaining balance. Final transaction confirmation is displayed for every path to checkout finalization and requires explicit cashier confirmation before the irreversible checkout-finalize request is submitted.
+
+## Requirements
+
 ## MODIFIED Requirements
 
 ### Requirement: Staged Checkout Confirmation Modal
@@ -34,4 +40,3 @@ The system SHALL distinguish confirmation of an individual staged payment from c
 #### Scenario: Proceeding with final transaction confirmation
 - **WHEN** the cashier explicitly proceeds from the final transaction confirmation
 - **THEN** the system dismisses the confirmation and submits exactly one idempotent checkout-finalize request
-

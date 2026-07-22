@@ -1,3 +1,9 @@
+## Purpose
+
+POS receipts SHALL display transaction details and product serial numbers for customer and accounting records, with packed lines expressing their conversion/base-unit splits using snapshotted labels at correct Rupiah values without placeholder initials.
+
+## Requirements
+
 ## MODIFIED Requirements
 
 ### Requirement: Receipt expresses packing split for conversion lines
@@ -26,4 +32,3 @@ The POS receipt SHALL express a packed line as its packing split using the actua
 #### Scenario: Historical packed snapshot lacks unit labels
 - **WHEN** an older packed transaction snapshot does not contain the new unit-label fields
 - **THEN** the receipt SHALL resolve the best available configured conversion and base-unit names without emitting placeholder initials or changing persisted historical data
-

@@ -325,8 +325,8 @@
 
                 @if(($receiptData['discount'] ?? 0) > 0)
                     <tr>
-                        <th colspan="3" style="text-align:left">Diskon</th>
-                        <th class="compact-amount" style="text-align:right">{{ number_format((float) $receiptData['discount'], 0, ',', '.') }}</th>
+                        <th colspan="2" class="col-product" style="text-align:left">Diskon</th>
+                        <th class="col-total compact-amount" style="text-align:right">{{ number_format((float) $receiptData['discount'], 0, ',', '.') }}</th>
                     </tr>
                 @endif
             </tbody>
@@ -335,7 +335,7 @@
         <table class="totals-table">
             <tbody>
                 @php
-                    $formattedGrandTotal = number_format((float) ($receiptData['totals']['grand_total'] ?? 0), 0, ',', '.');
+                    $formattedGrandTotal = number_format((float) ($receiptData['grand_total'] ?? 0), 0, ',', '.');
                     $grandTotalLength = strlen($formattedGrandTotal);
                     $grandTotalFontSize = $grandTotalLength > 9 ? '9px' : ($grandTotalLength > 7 ? '10px' : '11px');
                 @endphp
@@ -348,8 +348,8 @@
 
         <table class="payment-table">
             <tbody>
-                @if(!empty($receiptData['payments']))
-                    @foreach($receiptData['payments'] as $payment)
+                @if(!empty($receiptData['payment_breakdown']))
+                    @foreach($receiptData['payment_breakdown'] as $payment)
                         @php
                             $formattedPaymentAmount = number_format((float) $payment['amount'], 0, ',', '.');
                             $paymentLength = strlen($formattedPaymentAmount);
@@ -363,9 +363,9 @@
                         </tr>
                     @endforeach
                 @endif
-                @if(isset($receiptData['totals']['change_amount']) && $receiptData['totals']['change_amount'] > 0)
+                @if(isset($receiptData['change']) && $receiptData['change'] > 0)
                     @php
-                        $formattedChangeAmount = number_format((float) $receiptData['totals']['change_amount'], 0, ',', '.');
+                        $formattedChangeAmount = number_format((float) $receiptData['change'], 0, ',', '.');
                         $changeLength = strlen($formattedChangeAmount);
                         $changeFontSize = $changeLength > 9 ? '9px' : ($changeLength > 7 ? '10px' : '11px');
                     @endphp
@@ -373,9 +373,9 @@
                         <th colspan="2" class="col-product" style="text-align:left">Kembalian</th>
                         <th class="col-total compact-amount" style="text-align:right; font-size: {{ $changeFontSize }};">{{ $formattedChangeAmount }}</th>
                     </tr>
-                @elseif(isset($receiptData['totals']['outstanding_debt']) && $receiptData['totals']['outstanding_debt'] > 0)
+                @elseif(isset($receiptData['outstanding_debt']) && $receiptData['outstanding_debt'] > 0)
                     @php
-                        $formattedDebtAmount = number_format((float) $receiptData['totals']['outstanding_debt'], 0, ',', '.');
+                        $formattedDebtAmount = number_format((float) $receiptData['outstanding_debt'], 0, ',', '.');
                         $debtLength = strlen($formattedDebtAmount);
                         $debtFontSize = $debtLength > 9 ? '9px' : ($debtLength > 7 ? '10px' : '11px');
                     @endphp

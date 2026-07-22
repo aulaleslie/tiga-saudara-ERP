@@ -45,3 +45,30 @@ The POS receipt SHALL express a packed line's unit breakdown as its packing spli
 - **WHEN** a packed line has quantity 3 with no full box group
 - **THEN** the receipt line's unit breakdown shows only loose base units and no box
 
+### Requirement: Packed receipt prices use correct Rupiah values and snapshotted unit labels
+The POS receipt SHALL express packed line prices in Rupiah using snapshotted conversion and base unit labels without placeholder initials like `[K]` or `[P]`.
+
+#### Scenario: Receipt shows box plus loose base-unit split with correct prices
+- **WHEN** a packed line has quantity 6 decomposed into 1 DUS at Rp210,000 plus 1 RIM at Rp45,000
+- **THEN** the receipt displays `1 DUS @ Rp210.000` and `1 RIM @ Rp45.000` using the snapshotted unit labels
+
+#### Scenario: Pure packed line displays the configured conversion unit
+- **WHEN** a packed line consists only of one or more full conversion groups
+- **THEN** the receipt displays the configured conversion-unit label and does not display `[K]` or a hardcoded generic box label
+
+#### Scenario: Pure loose line shows the configured base unit
+- **WHEN** a packed line contains only loose base units
+- **THEN** the receipt displays the full configured base-unit label and does not display a first-letter placeholder
+
+#### Scenario: Packed price remains in Rupiah on completed receipt
+- **WHEN** a completed transaction snapshot stores `box_price_applied = 21000000` minor units
+- **THEN** the completed receipt displays Rp210,000 and MUST NOT display Rp21,000,000 for that breakdown price
+
+#### Scenario: Packed price remains in Rupiah on draft receipt
+- **WHEN** a draft or loaded transaction snapshot stores packed breakdown prices in minor units
+- **THEN** its receipt preview applies the same unit labels and minor-to-Rupiah conversion as a completed receipt
+
+#### Scenario: Historical packed snapshot lacks unit labels
+- **WHEN** an older packed transaction snapshot does not contain the new unit-label fields
+- **THEN** the receipt SHALL resolve the best available configured conversion and base-unit names without emitting placeholder initials or changing persisted historical data
+

@@ -1,3 +1,9 @@
+## Purpose
+
+The 72 mm POS receipt layout SHALL keep large monetary values legible and unbroken within the thermal print width. Formatted amounts for line totals, grand totals, payment amounts, and change SHALL remain on a single right-aligned line without wrapping, truncation, or digit clipping. Descriptive labels and product names absorb wrapping before monetary values do, ensuring payment and receipt accuracy confidence.
+
+## Requirements
+
 ## ADDED Requirements
 
 ### Requirement: Thermal receipt monetary values SHALL remain intact

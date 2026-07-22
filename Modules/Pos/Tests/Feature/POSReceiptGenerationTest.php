@@ -318,7 +318,7 @@ class POSReceiptGenerationTest extends TestCase
         
         $receiptResponse->assertStatus(200);
         $receiptResponse->assertSee('PROD-CONV')
-            ->assertSee('[RIM]')
+            ->assertSee('1 RIM')
             ->assertSee('PROD-STD')
             ->assertSee('PUNIT(S)') // Base unit short name
             ->assertSee('Bayar: CASH POS')
@@ -373,7 +373,9 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse->assertStatus(200);
         // Just verify packed receipt contains the product and breakdown info
         $receiptResponse->assertSee('KERTAS-A4')
-            ->assertSee('[DUS]');  // Box indicator from breakdown (now uses actual unit short_name)
+            ->assertSee('1 DUS')  // Box indicator from breakdown (now uses actual unit short_name)
+            ->assertSee('210.000') // Proves x100 regression is fixed for base_price and box_price
+            ->assertDontSee('21.000.000');
     }
     
     public function test_receipt_shows_calculated_change_if_db_value_is_zero(): void
@@ -442,6 +444,37 @@ class POSReceiptGenerationTest extends TestCase
             ->assertStatus(200)
             ->assertSee('Pelanggan')
             ->assertSee($expectedCustomerName);
+    }
+
+    public function test_receipt_compact_amount_for_large_totals(): void
+    {
+        $context = $this->createCheckoutContext('POS RECEIPT LARGE');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        // 21.000.000
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-LARGE', 21000000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'receipt-large-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 21000000,
+            ],
+        ]);
+
+        $checkoutId = $response->json('pos_checkout_id');
+
+        session()->put('setting_id', $context['setting']->id);
+
+        $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt")
+            ->assertStatus(200)
+            ->assertSee('21.000.000') // should be formatted with thousand separators
+            ->assertSee('font-size: 9px'); // > 9 chars 
     }
 
     // --- Helper Methods adapted from POSCheckoutFinalizeIdempotencyTest ---

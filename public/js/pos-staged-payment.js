@@ -65,6 +65,10 @@ window.PosStagedPayment = (function () {
     // Finalization Idempotency
     let currentFinalizeIdempotencyKey = null;
 
+    // Checkout Context State
+    let currentCartToken = null;
+    let currentCustomerName = null;
+
     // Debt variables
     let stagedIsDebtToggle = null;
     let stagedDebtTermsContainer = null;
@@ -206,7 +210,7 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    function handleDebtToggle() {
+    async function handleDebtToggle() {
         const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
         if (isDebt) {
             if (!currentHasCustomer) {
@@ -219,7 +223,7 @@ window.PosStagedPayment = (function () {
                 return;
             }
             if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.remove('d-none');
-            if (cachedPaymentTerms.length === 0) loadPaymentTerms();
+            if (cachedPaymentTerms.length === 0) await loadPaymentTerms();
         } else {
             if (stagedDebtTermsContainer) stagedDebtTermsContainer.classList.add('d-none');
         }
@@ -270,10 +274,11 @@ window.PosStagedPayment = (function () {
         clearErrors();
         
         // Only reset checkout context if it's a completely new checkout (different token)
-        if (currentCartToken !== cartToken) {
+        if (currentCartToken && currentCartToken !== cartToken) {
             resetCheckoutContext();
         }
         
+        currentCartToken = cartToken;
         resetStageForm();
 
         currentFinalizeIdempotencyKey = null;
@@ -325,10 +330,10 @@ window.PosStagedPayment = (function () {
             // Recover debt state
             if (data.payment_chain.is_debt) {
                 if (stagedIsDebtToggle) stagedIsDebtToggle.checked = true;
+                await handleDebtToggle();
                 if (stagedPaymentTermSelect && data.payment_chain.payment_term_id) {
                     stagedPaymentTermSelect.value = data.payment_chain.payment_term_id;
                 }
-                handleDebtToggle();
             }
 
             renderPaymentChain();

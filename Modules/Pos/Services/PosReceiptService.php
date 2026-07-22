@@ -176,6 +176,7 @@ class PosReceiptService
             'amount_paid' => $amountPaid,
             'payment_breakdown' => $paymentBreakdown, // Task 5.3: Multi-payment breakdown
             'change' => $checkout->change_total > 0 ? $checkout->change_total : max(0, $checkout->paid_total - $checkout->grand_total),
+            'outstanding_debt' => $checkout->debt_amount ?? max(0, $checkout->grand_total - $checkout->paid_total),
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
         ];

@@ -1,3 +1,9 @@
+## Purpose
+
+Debt checkout through the POS staged-payment modal SHALL support zero and partial down payments that remain stable through authorization and finalization, preserving the customer, payment term, debt mode, and payment chain context until posting.
+
+## Requirements
+
 ## MODIFIED Requirements
 
 ### Requirement: POS SHALL offer a finish-as-debt checkout path
