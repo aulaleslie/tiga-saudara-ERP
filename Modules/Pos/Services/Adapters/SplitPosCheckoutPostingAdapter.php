@@ -139,6 +139,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'tax_total' => $groupTax,
                     'grand_total' => $groupGrand,
                 ],
+                'note' => $cartSnapshot['note'] ?? null,
                 'meta' => [
                     'split_key' => $splitKey,
                 ],
@@ -185,6 +186,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'tax_total' => $groupActualTax,
                 'grand_total' => $groupActualGrand,
                 'paid_total' => $groupPaidTotal,
+                'stage_mappings' => is_array($result['stage_mappings'] ?? null) ? $result['stage_mappings'] : [],
             ];
 
             $splitGroups[] = $entry;
@@ -203,6 +205,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'sale_id' => (int) ($result['sale_id'] ?? 0),
                 'sale_payment_id' => (int) ($result['sale_payment_id'] ?? 0),
                 'amount' => $groupPaidTotal,
+                'stage_mappings' => is_array($result['stage_mappings'] ?? null) ? $result['stage_mappings'] : [],
             ];
 
             $actualTaxMinor += $this->toMinor($groupActualTax);
@@ -316,6 +319,9 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'amount_minor_units' => $totalAmountMinor,
                     'is_cash' => (bool) ($originalPayment['is_cash'] ?? false),
                     'reference' => $originalPayment['reference'] ?? null,
+                    'edc_reference' => $originalPayment['edc_reference'] ?? null,
+                    'stage_order' => $originalPayment['stage_order'] ?? null,
+                    'payment_image_token' => $originalPayment['payment_image_token'] ?? null,
                 ];
             }
         }

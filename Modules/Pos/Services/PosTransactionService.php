@@ -84,6 +84,7 @@ class PosTransactionService
                     'customer_id' => $cart['selected_customer_id'] ?? null,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $snapshotTotals,
+                    'note' => $cart['note'] ?? null,
                 ]);
             } else {
                 $code = $this->codeGenerator->generate($settingId);
@@ -98,6 +99,7 @@ class PosTransactionService
                     'customer_id' => $cart['selected_customer_id'] ?? null,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $snapshotTotals,
+                    'note' => $cart['note'] ?? null,
                 ]);
             }
 
@@ -354,6 +356,7 @@ class PosTransactionService
                     'customer_id' => $customerId,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $totals,
+                    'note' => $cartSnapshot['note'] ?? null,
                 ]);
             } else {
                 $transaction->update([
@@ -361,6 +364,7 @@ class PosTransactionService
                     'customer_id' => $customerId,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $totals,
+                    'note' => $cartSnapshot['note'] ?? null,
                 ]);
             }
 

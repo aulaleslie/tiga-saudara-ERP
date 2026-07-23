@@ -39,6 +39,20 @@ window.PosStagedPayment = (function () {
     let stagedProcessingSpinner = null;
     let stagedErrorAlert = null;
 
+    // Image Upload DOM elements
+    let stagedPaymentImageContainer = null;
+    let stagedPaymentImageUploadState = null;
+    let stagedPaymentImageFile = null;
+    let stagedPaymentImageError = null;
+    let stagedPaymentImageUploadingState = null;
+    let stagedPaymentImageSuccessState = null;
+    let stagedPaymentImageFilename = null;
+    let stagedPaymentImageRemoveBtn = null;
+    
+    // Image Upload State
+    let currentImageToken = null;
+    let currentImageName = null;
+
     // Confirmation Modal DOM elements
     let confirmModalElement = null;
     let confirmMethodLabel = null;
@@ -94,6 +108,8 @@ window.PosStagedPayment = (function () {
         paymentChain = null;
         currentStageData = null;
         selectedPaymentMethod = null;
+        currentImageToken = null;
+        currentImageName = null;
 
         // Cache DOM elements
         stagedModalElement = config.modalElement || document.getElementById('pos-staged-checkout-modal');
@@ -108,6 +124,15 @@ window.PosStagedPayment = (function () {
         stagedSubmitButton = config.submitButton || document.getElementById('staged-payment-submit');
         stagedProcessingSpinner = config.spinner || document.getElementById('staged-payment-spinner');
         stagedErrorAlert = config.errorAlert || document.getElementById('staged-payment-error');
+        
+        stagedPaymentImageContainer = document.getElementById('staged-payment-image-container');
+        stagedPaymentImageUploadState = document.getElementById('staged-payment-image-upload-state');
+        stagedPaymentImageFile = document.getElementById('staged-payment-image-file');
+        stagedPaymentImageError = document.getElementById('staged-payment-image-error');
+        stagedPaymentImageUploadingState = document.getElementById('staged-payment-image-uploading-state');
+        stagedPaymentImageSuccessState = document.getElementById('staged-payment-image-success-state');
+        stagedPaymentImageFilename = document.getElementById('staged-payment-image-filename');
+        stagedPaymentImageRemoveBtn = document.getElementById('staged-payment-image-remove-btn');
         
         confirmModalElement = document.getElementById('pos-payment-confirmation-modal');
         confirmMethodLabel = document.getElementById('confirm-payment-method');
@@ -178,6 +203,14 @@ window.PosStagedPayment = (function () {
 
         if (stagedSubmitButton) {
             stagedSubmitButton.addEventListener('click', confirmStagePayment);
+        }
+
+        if (stagedPaymentImageFile) {
+            stagedPaymentImageFile.addEventListener('change', handlePaymentImageUpload);
+        }
+
+        if (stagedPaymentImageRemoveBtn) {
+            stagedPaymentImageRemoveBtn.addEventListener('click', handlePaymentImageRemove);
         }
 
         if (confirmProceedButton) {
@@ -398,6 +431,9 @@ window.PosStagedPayment = (function () {
             if (payment.edc_reference) {
                 content += `<div style="font-size: 0.75rem; opacity: 0.8;">Ref: ${escapeHtml(payment.edc_reference)}</div>`;
             }
+            if (payment.payment_image && payment.payment_image.original_name) {
+                content += `<div style="font-size: 0.75rem; margin-top: 0.25rem; opacity: 0.9;"><i class="fas fa-file-image mr-1"></i> ${escapeHtml(payment.payment_image.original_name)}</div>`;
+            }
             content += `</div>`;
 
             item.innerHTML = content;
@@ -420,6 +456,125 @@ window.PosStagedPayment = (function () {
         } else {
             stagedEdcReferenceContainer.style.display = 'none';
         }
+    }
+
+    function updatePaymentImageVisibility() {
+        if (!stagedPaymentImageContainer) return;
+
+        if (selectedPaymentMethod && !selectedPaymentMethod.is_cash) {
+            stagedPaymentImageContainer.style.display = 'block';
+        } else {
+            stagedPaymentImageContainer.style.display = 'none';
+            if (currentImageToken) {
+                handlePaymentImageRemove();
+            }
+        }
+    }
+
+    function resetPaymentImageState() {
+        currentImageToken = null;
+        currentImageName = null;
+        if (stagedPaymentImageFile) stagedPaymentImageFile.value = '';
+        if (stagedPaymentImageError) stagedPaymentImageError.textContent = '';
+        if (stagedPaymentImageUploadState) stagedPaymentImageUploadState.classList.remove('d-none');
+        if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.add('d-none');
+        if (stagedPaymentImageSuccessState) {
+            stagedPaymentImageSuccessState.classList.add('d-none');
+            stagedPaymentImageSuccessState.classList.remove('d-flex');
+        }
+    }
+
+    async function handlePaymentImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!['image/jpeg', 'image/png'].includes(file.type)) {
+            if (stagedPaymentImageError) stagedPaymentImageError.textContent = 'Format harus JPEG/PNG';
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            if (stagedPaymentImageError) stagedPaymentImageError.textContent = 'Ukuran maksimal 5MB';
+            return;
+        }
+
+        if (stagedPaymentImageError) stagedPaymentImageError.textContent = '';
+        if (stagedPaymentImageUploadState) stagedPaymentImageUploadState.classList.add('d-none');
+        if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.remove('d-none');
+        
+        if (stagedSubmitButton) stagedSubmitButton.disabled = true;
+
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('cart_token', paymentChain?.cart_token || currentCartToken);
+
+        try {
+            const response = await fetch('/pos/sell/payment-image', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Accept': 'application/json'
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Gagal mengunggah gambar');
+            }
+
+            currentImageToken = data.token;
+            currentImageName = data.original_name;
+
+            if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.add('d-none');
+            if (stagedPaymentImageSuccessState) {
+                stagedPaymentImageSuccessState.classList.remove('d-none');
+                stagedPaymentImageSuccessState.classList.add('d-flex');
+            }
+            if (stagedPaymentImageFilename) {
+                stagedPaymentImageFilename.textContent = currentImageName;
+            }
+        } catch (error) {
+            if (stagedPaymentImageError) stagedPaymentImageError.textContent = error.message;
+            if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.add('d-none');
+            if (stagedPaymentImageUploadState) stagedPaymentImageUploadState.classList.remove('d-none');
+            if (stagedPaymentImageFile) stagedPaymentImageFile.value = '';
+        } finally {
+            updateStageValidation();
+        }
+    }
+
+    async function handlePaymentImageRemove() {
+        if (!currentImageToken) return;
+
+        if (stagedPaymentImageSuccessState) {
+            stagedPaymentImageSuccessState.classList.add('d-none');
+            stagedPaymentImageSuccessState.classList.remove('d-flex');
+        }
+        if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.remove('d-none');
+        
+        if (stagedSubmitButton) stagedSubmitButton.disabled = true;
+
+        try {
+            await fetch('/pos/sell/payment-image', {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    token: currentImageToken,
+                    cart_token: paymentChain?.cart_token || currentCartToken
+                })
+            });
+        } catch (e) {
+            console.error('Failed to delete image', e);
+        }
+
+        resetPaymentImageState();
+        updateStageValidation();
     }
 
     // Task 3.6: Real-time EDC reference validation - only check "not empty"
@@ -498,6 +653,7 @@ window.PosStagedPayment = (function () {
         }
 
         updateEdcReferenceVisibility();
+        updatePaymentImageVisibility();
         updateAmountHint();
         if (stagedAmountInput) {
             stagedAmountInput.focus();
@@ -687,6 +843,7 @@ window.PosStagedPayment = (function () {
                 amount: amount,
                 edc_reference: stagedEdcReferenceInput?.value.trim() || null,
                 grand_total: paymentChain.original_grand_total,  // Send original, not (remainder + amount)
+                payment_image_token: currentImageToken || null,
             };
 
             if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
@@ -811,6 +968,8 @@ window.PosStagedPayment = (function () {
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
         
         updateEdcReferenceVisibility();
+        updatePaymentImageVisibility();
+        resetPaymentImageState();
         updateAmountHint();
         updateStageValidation();
         if (stagedMethodSearchInput) stagedMethodSearchInput.focus();

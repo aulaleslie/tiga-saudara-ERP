@@ -37,6 +37,8 @@
 
                 @include('pos::sell.shell.customer')
 
+                @include('pos::sell.shell.note')
+
                 @include('pos::sell.shell.payment')
             </div>
         </div>
@@ -109,6 +111,10 @@
             const newCustomerPhone = document.getElementById('pos-new-customer-phone');
             const newCustomerTier = document.getElementById('pos-new-customer-tier');
             const saveDraftButton = document.getElementById('pos-save-draft');
+
+            const transactionNote = document.getElementById('pos-transaction-note');
+            const transactionNoteStatus = document.getElementById('pos-transaction-note-status');
+            const transactionNoteCount = document.getElementById('pos-transaction-note-count');
 
             const btnCheckout = document.getElementById('pos-checkout-final');
 
@@ -202,6 +208,7 @@
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const saveAndNewEndpoint = @json(route('pos.sell.transactions.save-and-new'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
+            const cartNoteEndpoint = @json(route('pos.sell.cart.note.update'));
             const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
             const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
@@ -236,6 +243,9 @@
             let latestRequestId = 0;
             let customerDebounceHandle = null;
             let latestCustomerRequestId = 0;
+
+            let noteDebounceHandle = null;
+            let latestNoteRequestId = 0;
             let currentSnapshot = null;
             let cachedPaymentMethods = [];
 
@@ -877,6 +887,52 @@
                 customerResolutionElement.innerHTML = '<div class="text-muted small">Belum ada pelanggan dipilih.</div>';
             }
 
+            function setNoteStatus(message, tone) {
+                if (!transactionNoteStatus) return;
+                transactionNoteStatus.textContent = message || '';
+                transactionNoteStatus.classList.remove('text-muted', 'text-danger', 'text-success');
+                transactionNoteStatus.classList.add(tone || 'text-muted');
+            }
+
+            async function submitNoteUpdate() {
+                if (!transactionNote) return;
+                const note = transactionNote.value;
+                const reqId = ++latestNoteRequestId;
+                
+                setNoteStatus('Menyimpan...', 'text-muted');
+
+                try {
+                    const response = await jsonRequest(cartNoteEndpoint, 'PATCH', { note });
+                    if (reqId === latestNoteRequestId) {
+                        setNoteStatus('Tersimpan', 'text-success');
+                        setTimeout(() => {
+                            if (reqId === latestNoteRequestId) setNoteStatus('', 'text-muted');
+                        }, 2000);
+                        if (response.cart_snapshot) {
+                            renderCart(response.cart_snapshot);
+                        }
+                    }
+                    return true;
+                } catch (err) {
+                    if (reqId === latestNoteRequestId) {
+                        setNoteStatus('Gagal menyimpan.', 'text-danger');
+                    }
+                    return false;
+                }
+            }
+
+            function renderNote(snapshot) {
+                if (!transactionNote) return;
+                const note = snapshot && snapshot.note ? snapshot.note : '';
+                
+                if (document.activeElement !== transactionNote) {
+                    transactionNote.value = note;
+                    if (transactionNoteCount) {
+                        transactionNoteCount.textContent = note.length;
+                    }
+                }
+            }
+
             async function updateCustomerSelection(customerId) {
                 const payload = customerId === null ? { customer_id: null } : { customer_id: Number(customerId) };
 
@@ -1241,6 +1297,7 @@
 
                 renderTotals(snapshot);
                 renderCustomer(snapshot);
+                renderNote(snapshot);
 
                 // Phase 3B: Enhanced checkout button guards
                 const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
@@ -2323,6 +2380,22 @@
                     if (newCustomerPhone) newCustomerPhone.value = '';
                     if (newCustomerTier) newCustomerTier.selectedIndex = 0;
                     $(customerCreateModal).modal('show');
+                });
+            }
+
+            if (transactionNote) {
+                transactionNote.addEventListener('input', function () {
+                    if (transactionNoteCount) {
+                        transactionNoteCount.textContent = this.value.length;
+                    }
+                    clearTimeout(noteDebounceHandle);
+                    setNoteStatus('Menunggu...', 'text-muted');
+                    noteDebounceHandle = setTimeout(submitNoteUpdate, 500);
+                });
+
+                transactionNote.addEventListener('blur', function () {
+                    clearTimeout(noteDebounceHandle);
+                    submitNoteUpdate();
                 });
             }
 
@@ -3642,6 +3715,15 @@
                     if (!hasCheckoutAuthority) {
                         setCartStatus('Anda tidak memiliki izin pembayaran POS.', 'text-danger');
                         return;
+                    }
+
+                    if (noteDebounceHandle) {
+                        clearTimeout(noteDebounceHandle);
+                        const saved = await submitNoteUpdate();
+                        if (!saved) {
+                            setCartStatus('Gagal menyimpan catatan, pembayaran dibatalkan.', 'text-danger');
+                            return;
+                        }
                     }
 
                     console.log('[CHECKOUT] Preflight check initiated');

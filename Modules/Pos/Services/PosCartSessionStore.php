@@ -15,7 +15,8 @@ class PosCartSessionStore
      *     selected_customer_id:int|null,
      *     selected_customer_tier:string|null,
      *     active_transaction_id:int|null,
-     *     staged_payment_token:string|null
+     *     staged_payment_token:string|null,
+     *     note:string|null
      * }
      */
     public function getCart(int $settingId, int $sessionId): array
@@ -51,6 +52,9 @@ class PosCartSessionStore
             'staged_payment_token' => isset($stored['staged_payment_token'])
                 ? (string) $stored['staged_payment_token']
                 : null,
+            'note' => isset($stored['note'])
+                ? (string) $stored['note']
+                : null,
         ];
     }
 
@@ -65,7 +69,8 @@ class PosCartSessionStore
      *     selected_customer_id?:int|null,
      *     selected_customer_tier?:string|null,
      *     active_transaction_id?:int|null,
-     *     staged_payment_token?:string|null
+     *     staged_payment_token?:string|null,
+     *     note?:string|null
      * }  $cart
      */
     public function putCart(int $settingId, int $sessionId, array $cart): void
@@ -91,6 +96,9 @@ class PosCartSessionStore
             'staged_payment_token' => isset($cart['staged_payment_token'])
                 ? (string) $cart['staged_payment_token']
                 : null,
+            'note' => isset($cart['note'])
+                ? (string) $cart['note']
+                : null,
         ]);
     }
 
@@ -110,7 +118,8 @@ class PosCartSessionStore
      *     selected_customer_id:int|null,
      *     selected_customer_tier:string|null,
      *     active_transaction_id:int|null,
-     *     staged_payment_token:string|null
+     *     staged_payment_token:string|null,
+     *     note:string|null
      * }
      */
     public function emptyCart(int $settingId, int $sessionId): array
@@ -126,6 +135,7 @@ class PosCartSessionStore
             'selected_customer_tier' => null,
             'active_transaction_id' => null,
             'staged_payment_token' => null,
+            'note' => null,
         ];
     }
 

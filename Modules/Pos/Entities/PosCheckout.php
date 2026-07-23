@@ -52,6 +52,7 @@ class PosCheckout extends BaseModel
         'failure_message',
         'metadata',
         'finalized_at',
+        'note',
     ];
 
     protected $casts = [

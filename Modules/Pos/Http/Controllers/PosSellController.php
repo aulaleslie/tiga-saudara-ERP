@@ -387,6 +387,29 @@ class PosSellController extends Controller
         return response()->json(['cart_snapshot' => $snapshot]);
     }
 
+    public function cartUpdateNote(
+        \Modules\Pos\Http\Requests\UpdatePosCartNoteRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+        $note = $request->input('note');
+
+        try {
+            $snapshot = $cartService->updateNote(
+                $settingId,
+                $sessionId,
+                $note
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
     public function cartAssignSerials(
         int $lineId,
         StorePosCartSerialAssignmentRequest $request,
@@ -515,7 +538,7 @@ class PosSellController extends Controller
         return response()->json($result);
     }
 
-    public function stagePayment(Request $request): JsonResponse
+    public function stagePayment(Request $request, \Modules\Pos\Services\PosTemporaryPaymentImageService $imageService): JsonResponse
     {
         if ($denied = $this->ensureCheckoutPermission($request)) {
             return $denied;
@@ -536,6 +559,7 @@ class PosSellController extends Controller
             'grand_total' => ['required', 'numeric', 'min:0.01'],
             'is_debt' => ['nullable', 'boolean'],
             'payment_term_id' => ['nullable', 'integer', 'required_if:is_debt,true'],
+            'payment_image_token' => ['nullable', 'string', 'max:255'],
         ]);
 
         $cartToken = $validated['cart_token'];
@@ -543,6 +567,7 @@ class PosSellController extends Controller
         $amount = (float) $validated['amount'];
         $edcReference = $validated['edc_reference'] ?? null;
         $grandTotal = (float) $validated['grand_total'];
+        $paymentImageToken = $validated['payment_image_token'] ?? null;
 
         try {
             $sessionKey = "payment_chain_{$cartToken}";
@@ -587,11 +612,37 @@ class PosSellController extends Controller
                 ], 422);
             }
 
+            // Image token validation
+            $imageMeta = null;
+            if ($paymentImageToken) {
+                if ($paymentMethod->is_cash) {
+                    return response()->json([
+                        'code' => 'CASH_NO_IMAGE_ALLOWED',
+                        'message' => 'Bukti pembayaran tidak diperbolehkan untuk metode tunai.',
+                    ], 422);
+                }
+
+                $image = $imageService->getActiveImage($paymentImageToken, $settingId, $activeSession->id, $cartToken);
+                if (!$image) {
+                    return response()->json([
+                        'code' => 'INVALID_IMAGE_TOKEN',
+                        'message' => 'Bukti pembayaran tidak valid atau sudah kedaluwarsa.',
+                    ], 422);
+                }
+
+                $imageMeta = [
+                    'token' => $image->token,
+                    'original_name' => $image->original_name,
+                    'size' => $image->size,
+                ];
+            }
+
             // Add payment to chain
             $chain['payments'][] = [
                 'method_id' => $paymentMethodId,
                 'amount' => $amount,
                 'edc_reference' => $edcReference,
+                'payment_image' => $imageMeta,
                 'stage_order' => count($chain['payments']) + 1,
                 'created_at' => now()->toIso8601String(),
             ];
@@ -690,6 +741,13 @@ class PosSellController extends Controller
 
         $request->session()->forget($sessionKey);
 
+        $context = $this->resolveSettingAndSession($request);
+        app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)->deleteAllByCartToken(
+            $cartToken,
+            (int) $context['setting_id'],
+            (int) $context['pos_session_id']
+        );
+
         return response()->json([
             'message' => 'Payment chain cleared.',
         ], 200);
@@ -785,6 +843,7 @@ class PosSellController extends Controller
                             'amount_paid' => $payment['amount'] ?? 0,
                             'reference' => $payment['edc_reference'] ?? null,
                             'stage_order' => $payment['stage_order'] ?? null,
+                            'payment_image_token' => $payment['payment_image']['token'] ?? null,
                         ];
                     }
 

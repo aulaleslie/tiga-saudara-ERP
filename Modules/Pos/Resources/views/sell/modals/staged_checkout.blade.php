@@ -91,6 +91,24 @@
                         <small class="form-text text-muted">Format: Alphanumeric, maksimal 20 karakter</small>
                     </div>
 
+                    <!-- Task 5.1: Payment Image Upload (Conditional) -->
+                    <div id="staged-payment-image-container" class="form-group mb-3" style="display: none;">
+                        <label class="font-weight-bold">Bukti Pembayaran (Opsional)</label>
+                        <div id="staged-payment-image-upload-state">
+                            <input type="file" id="staged-payment-image-file" class="form-control-file" accept="image/jpeg,image/png">
+                            <small class="form-text text-muted">Format: JPEG/PNG, maksimal 5 MB</small>
+                            <div id="staged-payment-image-error" class="small text-danger mt-1"></div>
+                        </div>
+                        <div id="staged-payment-image-uploading-state" class="d-none">
+                            <div class="small text-muted"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Mengunggah gambar...</div>
+                        </div>
+                        <div id="staged-payment-image-success-state" class="d-none align-items-center">
+                            <i class="fas fa-file-image text-primary mr-2"></i>
+                            <span id="staged-payment-image-filename" class="font-weight-bold mr-2"></span>
+                            <button type="button" id="staged-payment-image-remove-btn" class="btn btn-sm btn-link text-danger p-0">Hapus</button>
+                        </div>
+                    </div>
+
                     <!-- Processing Spinner -->
                     <div id="staged-payment-spinner" class="text-center" style="display: none;">
                         <div class="spinner-border mb-3" role="status">

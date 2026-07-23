@@ -11,6 +11,7 @@ use Modules\Pos\Http\Controllers\PosCartApprovalController;
 use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
 use Modules\Pos\Http\Controllers\PosTransactionController;
 use Modules\Pos\Http\Controllers\PosReturnController;
+use Modules\Pos\Http\Controllers\PosPaymentImageController;
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.returns.view']], function () {
     Route::get('/pos/returns', [PosReturnController::class, 'index'])->name('pos.returns.index');
@@ -131,6 +132,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->name('pos.sell.cart.lines.price-override');
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
+    Route::patch('/pos/sell/cart/note', [PosSellController::class, 'cartUpdateNote'])->name('pos.sell.cart.note.update');
 
     Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
     Route::get('/pos/sell/payment-terms/search', [PosSellController::class, 'paymentTermsSearch'])->name('pos.sell.payment-terms.search');
@@ -139,6 +141,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->name('pos.sell.checkout.stage-payment');
     Route::post('/pos/sell/checkout/sync-debt-state', [PosSellController::class, 'syncDebtState'])
         ->name('pos.sell.checkout.sync-debt-state');
+
+    Route::post('/pos/sell/payment-image', [PosPaymentImageController::class, 'upload'])->name('pos.sell.payment-image.upload');
+    Route::delete('/pos/sell/payment-image', [PosPaymentImageController::class, 'delete'])->name('pos.sell.payment-image.delete');
     Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
         ->name('pos.sell.checkout.payment-chain');
     Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])

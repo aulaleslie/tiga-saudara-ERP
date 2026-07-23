@@ -19,7 +19,10 @@ class PosCheckoutPaymentNormalizationService
      *         reference: ?string,
      *         is_cash: bool,
      *         requires_reference: bool,
-     *         sequence_order: int
+     *         sequence_order: int,
+     *         stage_order: ?int,
+     *         edc_reference: ?string,
+     *         payment_image_token: ?string
      *     }>,
      *     total_amount_minor_units: int,
      *     total_cash_minor_units: int
@@ -41,6 +44,11 @@ class PosCheckoutPaymentNormalizationService
             $amountPaid = round((float) ($paymentData['amount_paid'] ?? 0), 2);
             $reference = isset($paymentData['reference']) ? trim((string) $paymentData['reference']) : null;
             $reference = $reference !== '' ? $reference : null;
+            $stageOrder = isset($paymentData['stage_order']) ? (int) $paymentData['stage_order'] : null;
+            $edcReference = isset($paymentData['edc_reference']) ? trim((string) $paymentData['edc_reference']) : null;
+            $edcReference = $edcReference !== '' ? $edcReference : null;
+            $paymentImageToken = isset($paymentData['payment_image_token']) ? trim((string) $paymentData['payment_image_token']) : null;
+            $paymentImageToken = $paymentImageToken !== '' ? $paymentImageToken : null;
 
             // Validate amount
             if ($amountPaid <= 0) {
@@ -75,6 +83,9 @@ class PosCheckoutPaymentNormalizationService
                 'is_cash' => $isCash,
                 'requires_reference' => (bool) $paymentMethod['requires_reference'],
                 'sequence_order' => count($normalizedPayments), // Preserve input order initially
+                'stage_order' => $stageOrder,
+                'edc_reference' => $edcReference,
+                'payment_image_token' => $paymentImageToken,
             ];
 
             $totalAmountMinor += $amountMinorUnits;
@@ -110,6 +121,8 @@ class PosCheckoutPaymentNormalizationService
                 (int) $payment['payment_method_id'],
                 (int) $payment['amount_minor_units'],
                 $payment['reference'] ?? '',
+                $payment['stage_order'] ?? 0,
+                $payment['payment_image_token'] ?? '',
             ];
         }
 

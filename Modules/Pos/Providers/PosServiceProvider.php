@@ -26,6 +26,10 @@ class PosServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.pos.pos-terminal-search-dropdown', \Modules\Pos\Livewire\PosTerminalSearchDropdown::class);
         \Livewire\Livewire::component('pos-return.pos-return-create-form', \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::class);
         \Livewire\Livewire::component('pos-return.pos-return-edit-form', \Modules\Pos\Livewire\PosReturn\PosReturnEditForm::class);
+
+        $this->commands([
+            \Modules\Pos\Console\CleanupPosTemporaryImagesCommand::class,
+        ]);
     }
 
     public function register(): void

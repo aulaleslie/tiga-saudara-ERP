@@ -733,6 +733,21 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
+    public function updateNote(int $settingId, int $sessionId, ?string $note): array
+    {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
+
+        $cart['note'] = $note;
+
+        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+        return $this->buildSnapshot($settingId, $sessionId, $cart);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function clear(int $settingId, int $sessionId, ?string $approvalToken = null, ?User $user = null): array
     {
         if ($user) {
@@ -862,6 +877,7 @@ class PosCartService
             'active_transaction_id' => $cart['active_transaction_id'] ?? null,
             'pending_approvals' => $cartPendingApprovals,
             'staged_payment_token' => $cart['staged_payment_token'] ?? null,
+            'note' => $cart['note'] ?? null,
         ];
     }
 

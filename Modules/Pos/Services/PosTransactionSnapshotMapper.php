@@ -90,7 +90,8 @@ class PosTransactionSnapshotMapper
      *     bill_discount_type: string,
      *     bill_discount_value: float,
      *     selected_customer_id: int|null,
-     *     active_transaction_id: int
+     *     active_transaction_id: int,
+     *     note: string|null
      * }
      */
     public function hydrateCart(PosTransaction $transaction): array
@@ -172,6 +173,7 @@ class PosTransactionSnapshotMapper
             'bill_discount_value' => 0.0,
             'selected_customer_id' => $transaction->customer_id,
             'active_transaction_id' => $transaction->id,
+            'note' => $transaction->note,
         ];
     }
 
@@ -231,6 +233,7 @@ class PosTransactionSnapshotMapper
             'setting_id' => (int) $transaction->setting_id,
             'owner_user_id' => (int) $transaction->owner_user_id,
             'customer_id' => $transaction->customer_id !== null ? (int) $transaction->customer_id : null,
+            'note' => $transaction->note !== null ? (string) $transaction->note : null,
             'lines' => $lines,
             'snapshot_totals' => [
                 'subtotal' => round((float) ($totals['subtotal'] ?? 0), 2),

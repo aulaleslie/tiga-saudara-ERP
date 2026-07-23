@@ -527,6 +527,7 @@ class FinalizePosCheckoutService
                         'change_total' => $changeTotal,
                         'payment_method_id' => $payment['payment_method_id'],
                         'payment_reference' => $payment['reference'],
+                        'note' => $cartSnapshot['note'] ?? null,
                         'metadata' => [
                             'client_context' => $clientContext,
                             'cart_meta' => $cartSnapshot['meta'] ?? null,
@@ -1459,6 +1460,7 @@ class FinalizePosCheckoutService
                 'lines' => $snapshot['lines'] ?? [],
                 'totals' => $snapshot['totals'] ?? [],
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
+                'note' => $snapshot['note'] ?? null,
             ]),
         ];
 

@@ -118,6 +118,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             }
         }
 
+        $cartNote = $cartSnapshot['note'] ?? null;
+        $saleNote = 'POS checkout #' . $checkoutId;
+        if ($cartNote !== null && $cartNote !== '') {
+            $saleNote .= "\n" . $cartNote;
+        }
+
         $sale = Sale::query()->create([
             'date' => now()->toDateString(),
             'due_date' => $dueDate,
@@ -135,7 +141,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'status' => Sale::STATUS_DISPATCHED,
             'payment_status' => $paymentStatus,
             'payment_term_id' => $salePaymentTermId,
-            'note' => 'POS checkout #' . $checkoutId,
+            'note' => $saleNote,
             'setting_id' => $settingId,
             'is_tax_included' => false,
             'payment_method' => $salePaymentMethodStr,
@@ -360,6 +366,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             // Create one SalePayment per payment method
             $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
 
+            $stageMappings = [];
+
             foreach ($payments as $paymentEntry) {
                 $entryAmount = (float) ($paymentEntry['amount_minor_units'] ?? 0) / 100;
 
@@ -379,9 +387,20 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'payment_method' => strtoupper($entryPaymentMethod?->name ?? 'CUSTOM'),
                     'note' => $paymentEntry['reference'] ?? null,
                     'payment_method_id' => $entryPaymentMethodId,
+                    'stage_order' => $paymentEntry['stage_order'] ?? null,
+                    'edc_reference' => $paymentEntry['edc_reference'] ?? null,
                 ]);
 
                 $lastSalePaymentId = (int) $salePayment->id;
+                
+                if (isset($paymentEntry['stage_order'])) {
+                    $stageMappings[(int) $paymentEntry['stage_order']] = $lastSalePaymentId;
+                }
+
+                if (!empty($paymentEntry['payment_image_token'])) {
+                    app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)
+                        ->consumeAndAttach($paymentEntry['payment_image_token'], $salePayment);
+                }
             }
         } else {
             // Single-payment: keep existing logic (one SalePayment per sale)
@@ -397,6 +416,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 ]);
 
                 $lastSalePaymentId = (int) $salePayment->id;
+                
+                if (isset($payment['stage_order'])) {
+                    $stageMappings[(int) $payment['stage_order']] = $lastSalePaymentId;
+                }
+
+                if (!empty($payment['payment_image_token'])) {
+                    app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)
+                        ->consumeAndAttach($payment['payment_image_token'], $salePayment);
+                }
             }
         }
 
@@ -407,6 +435,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'receipt_number' => (string) $sale->reference,
             'actual_tax_total' => (float) $totalPostedTaxTotal,
             'actual_grand_total' => (float) $totalPostedGrandTotal,
+            'stage_mappings' => $stageMappings ?? [],
         ];
     }
 

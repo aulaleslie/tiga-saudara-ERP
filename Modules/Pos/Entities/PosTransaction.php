@@ -33,6 +33,7 @@ class PosTransaction extends BaseModel
         'snapshot_totals',
         'snapshot_hash',
         'metadata',
+        'note',
     ];
 
     protected $casts = [
