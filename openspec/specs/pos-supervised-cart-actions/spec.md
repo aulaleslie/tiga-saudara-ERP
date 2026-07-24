@@ -2,10 +2,7 @@
 
 ## Purpose
 TBD
-
 ## Requirements
-
-
 ### Requirement: Qty Column Controls MUST Use Compact Semantic Spinner Styling
 The POS sell UI SHALL render quantity controls using a compact spinner composition for both privileged and non-privileged cart rows, with semantic directional styling for decrease and increase actions.
 
@@ -22,7 +19,7 @@ The POS sell UI SHALL render quantity controls using a compact spinner compositi
 - **THEN** the decrease control MUST use danger-outline styling and the increase control MUST use primary-outline styling while preserving existing button radius and size conventions.
 
 ### Requirement: Supervised Qty Slot MUST Preserve Existing Approval Semantics Under Compact Layout
-For users without direct quantity-reduction permission, compact spinner rendering MUST NOT alter existing supervised approval slot behavior.
+For users without direct quantity-reduction permission, compact spinner rendering MUST NOT alter existing supervised approval slot behavior. The quantity-reduce slot MUST reflect only QTY_REDUCE approval requests for that line; approval requests of other action types (such as PRICE_OVERRIDE) for the same line MUST NOT change the quantity-reduce slot state.
 
 #### Scenario: Pending supervised request keeps Periksa state in left slot
 - **WHEN** a non-privileged row has a pending qty-reduction request
@@ -31,6 +28,16 @@ For users without direct quantity-reduction permission, compact spinner renderin
 #### Scenario: Approved supervised request keeps proceed state in left slot
 - **WHEN** a non-privileged row has an approved qty-reduction request
 - **THEN** the left spinner slot MUST render approved proceed state with token/approved-qty context without changing the compact row order.
+
+#### Scenario: Pending price override does not alter the quantity-reduce slot
+- **WHEN** a non-privileged row has a pending or approved PRICE_OVERRIDE request but no QTY_REDUCE request
+- **THEN** the quantity-reduce slot MUST render its normal reduce (−) control
+- **AND** the quantity-reduce slot MUST NOT render `Periksa` or an approved proceed state
+
+#### Scenario: Independent quantity and price approval states coexist on one line
+- **WHEN** a non-privileged row has both a pending QTY_REDUCE request and a pending PRICE_OVERRIDE request
+- **THEN** the quantity-reduce slot MUST reflect only the QTY_REDUCE request state
+- **AND** the price control MUST reflect only the PRICE_OVERRIDE request state
 
 ### Requirement: Restricted Cart Mutations MUST Require Supervisory Approval For Non-Authorized Users
 The POS system SHALL require supervisory approval before executing `clear cart`, `remove line`, or `reduce quantity` actions when the acting user lacks direct permission for the action, UNLESS the user has Super Admin role.
@@ -155,6 +162,7 @@ The cart snapshot builder SHALL extract `unit_price` from PRICE_OVERRIDE approva
 - **WHEN** a cart line has a pending QTY_REDUCE approval request
 - **THEN** the snapshot's `pending_approvals` entry MUST include `requested_qty` as before
 - **AND** MUST NOT include `requested_unit_price`
+
 ### Requirement: Finish-as-debt checkout MUST require supervisory approval for non-authorized users
 The POS system SHALL treat finishing a transaction as debt as a supervised action that follows the same request → approve → token-consume flow as restricted cart mutations. When the acting user lacks direct permission for the action, the system MUST create an approval request and MUST NOT post the debt sale, UNLESS the user has Super Admin role.
 
@@ -173,3 +181,4 @@ The POS system SHALL treat finishing a transaction as debt as a supervised actio
 #### Scenario: Approved debt request issues execution token consumed at finalize
 - **WHEN** a supervisor approves a pending debt-checkout request and the requester finalizes the debt checkout with the issued token
 - **THEN** the system MUST validate and consume the one-time token for the debt-checkout action before posting the sale, and MUST reject finalize if the token is missing, expired, or for a different action
+

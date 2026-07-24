@@ -197,8 +197,10 @@
             const bundleDetailItems = document.getElementById('pos-bundle-detail-items');
             const bundleDetailEmptyItems = document.getElementById('pos-bundle-detail-empty-items');
 
-            // Track pending approval requests on the client side
-            const clientPendingApprovals = {}; // { lineId: { requestId, requestedQty, status, token } }
+            // Track pending approval requests on the client side, scoped by action type per line.
+            // Shape: { [lineId]: { QTY_REDUCE: { requestId, requestedQty, status }, PRICE_OVERRIDE: { requestId, requestedPrice, status } } }
+            // Only the matching action key is written/read so actions cannot bleed into each other.
+            const clientPendingApprovals = {};
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
@@ -1073,7 +1075,7 @@
                         .slice()
                         .sort((a, b) => b.request_id - a.request_id)
                         .find(a => a.action_type === 'QTY_REDUCE');
-                    const clientPending = clientPendingApprovals[lineId];
+                    const clientPending = clientPendingApprovals[lineId]?.QTY_REDUCE;
                     const qtyReduceRaw = backendQtyReduceReq || clientPending;
                     const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
 
@@ -1149,7 +1151,7 @@
                         .slice()
                         .sort((a, b) => b.request_id - a.request_id)
                         .find(a => a.action_type === 'QTY_REDUCE');
-                    const clientPending = clientPendingApprovals[lineId];
+                    const clientPending = clientPendingApprovals[lineId]?.QTY_REDUCE;
                     const qtyReduceRaw = backendQtyReduceReq || clientPending;
                     const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
 
@@ -2695,8 +2697,13 @@
                                 throw new Error('Gagal memperbarui qty.');
                             }
 
-                            // Task 2.3: Clear client-side pending before re-render so we don't show stale state
-                            delete clientPendingApprovals[lineId];
+                            // Clear only the QTY_REDUCE action key so unrelated actions on the same line are preserved
+                            if (clientPendingApprovals[lineId]) {
+                                delete clientPendingApprovals[lineId].QTY_REDUCE;
+                                if (Object.keys(clientPendingApprovals[lineId]).length === 0) {
+                                    delete clientPendingApprovals[lineId];
+                                }
+                            }
 
                             renderCart(response.cart_snapshot || null);
                             setCartStatus('Qty berhasil diperbarui.', 'text-success');
@@ -2738,7 +2745,13 @@
                                 throw new Error('Gagal memperbarui harga.');
                             }
 
-                            delete clientPendingApprovals[lineId];
+                            // Clear only the PRICE_OVERRIDE action key so unrelated actions on the same line are preserved
+                            if (clientPendingApprovals[lineId]) {
+                                delete clientPendingApprovals[lineId].PRICE_OVERRIDE;
+                                if (Object.keys(clientPendingApprovals[lineId]).length === 0) {
+                                    delete clientPendingApprovals[lineId];
+                                }
+                            }
                             renderCart(response.cart_snapshot || null);
                             setCartStatus('Harga berhasil diperbarui.', 'text-success');
                         };
@@ -2952,8 +2965,11 @@
                         // to immediately show the "Periksa" button
                         const pendingRequestId = buttonForApproval.getAttribute('data-approval-pending');
                         if (pendingRequestId) {
-                            // Store in client-side pending approvals
-                            clientPendingApprovals[lineIdForStorage] = {
+                            // Store in client-side pending approvals scoped to QTY_REDUCE action key only
+                            if (!clientPendingApprovals[lineIdForStorage]) {
+                                clientPendingApprovals[lineIdForStorage] = {};
+                            }
+                            clientPendingApprovals[lineIdForStorage].QTY_REDUCE = {
                                 requestId: pendingRequestId,
                                 requestedQty: requestedQtyForStorage,
                                 status: 'PENDING'
@@ -3030,7 +3046,11 @@
 
                         const pendingRequestId = buttonForApproval.getAttribute('data-approval-pending');
                         if (pendingRequestId) {
-                            clientPendingApprovals[lineIdForStorage] = {
+                            // Store in client-side pending approvals scoped to PRICE_OVERRIDE action key only
+                            if (!clientPendingApprovals[lineIdForStorage]) {
+                                clientPendingApprovals[lineIdForStorage] = {};
+                            }
+                            clientPendingApprovals[lineIdForStorage].PRICE_OVERRIDE = {
                                 requestId: pendingRequestId,
                                 requestedPrice: requestedPriceForStorage,
                                 status: 'PENDING'

@@ -83,8 +83,9 @@ class PosReceiptService
                 }
 
                 // Simple subtotal calculation for receipt display
+                // line_meta['line_total'] is persisted in Rupiah by PosCartTotalsCalculator — no /100 needed.
                 if (isset($line->line_meta['line_total'])) {
-                    $lineGross = (float) $line->line_meta['line_total'] / 100;
+                    $lineGross = (float) $line->line_meta['line_total'];
                 } else {
                     $lineGross = $line->qty * $line->unit_price;
                 }
@@ -484,8 +485,9 @@ class PosReceiptService
             }
 
             // Simple subtotal calculation for receipt display
+            // line_meta['line_total'] is persisted in Rupiah by PosCartTotalsCalculator — no /100 needed.
             if (isset($line->line_meta['line_total'])) {
-                $lineGross = (float) $line->line_meta['line_total'] / 100;
+                $lineGross = (float) $line->line_meta['line_total'];
             } else {
                 $lineGross = $line->qty * $line->unit_price;
             }

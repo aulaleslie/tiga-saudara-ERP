@@ -954,4 +954,127 @@ class POSReceiptGenerationTest extends TestCase
         $this->assertSame(1, $lineFinal['breakdown']['loose_count']);
         $this->assertEquals(462000, $lineFinal['line_total']); // 2 boxes * 210000 + 1 loose * 42000 = 462000
     }
+
+    /**
+     * Regression: receipt line total must print in Rupiah, not 1/100 of it.
+     * A qty-1 product priced at Rp335.000 must show "335.000" in the sub_total
+     * column, not "3.350" (which would be caused by a /100 on line_meta['line_total']).
+     *
+     * @group pos-receipt-subtotal
+     */
+    public function test_receipt_line_total_prints_correct_rupiah_not_divided_by_100(): void
+    {
+        $context = $this->createCheckoutContext('POS SUBTOTAL FIX');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        // Rp335.000 product — the exact value from the bug report
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-335K', 335000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'subtotal-fix-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 335000],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutResponse->assertStatus(201);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        session()->put('setting_id', $context['setting']->id);
+
+        // Verify via the receipt service directly so we test the data layer, not just the view
+        $checkout = \Modules\Pos\Entities\PosCheckout::with([
+            'setting.currency', 'terminal', 'cashier', 'customer', 'paymentMethod',
+            'sale.customer', 'sale.saleDetails.product.unit', 'sale.saleDetails.product.baseUnit',
+            'transaction.lines.conversion.unit', 'transaction.lines.product.unit',
+            'transaction.lines.product.baseUnit', 'payments.paymentMethod',
+        ])->findOrFail($checkoutId);
+
+        /** @var \Modules\Pos\Services\PosReceiptService $receiptService */
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        $this->assertNotEmpty($receiptData['lines'], 'Receipt must have at least one line');
+        $line = $receiptData['lines'][0];
+
+        // sub_total must be 335000 (Rupiah), NOT 3350 (which /100 would produce)
+        $this->assertEquals(335000.0, $line['sub_total'],
+            'Line sub_total must equal the Rupiah line_total persisted by the snapshot, not 1/100 of it');
+
+        // Grand total is unaffected (sanity check)
+        $this->assertEquals(335000.0, $receiptData['grand_total'],
+            'Grand total must be unaffected by the line-subtotal fix');
+    }
+
+    /**
+     * Regression: packed-line receipt must show correct Rupiah per-unit breakdown
+     * AND correct Rupiah line total after the /100 fix.
+     * buildPackedUnitBreakdown() still applies /100 to box/loose cents — verify
+     * those remain correct while line sub_total now reads Rupiah directly.
+     *
+     * @group pos-receipt-subtotal
+     */
+    public function test_packed_line_receipt_shows_correct_rupiah_per_unit_and_line_total(): void
+    {
+        $context = $this->createCheckoutContext('POS PACKED SUBTOTAL FIX');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        // Base price Rp50.000, box conversion factor 5, box price Rp210.000
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'KERTAS-B4-FIX', 50000, false);
+
+        $boxUnit = Unit::create(['name' => 'DUS FIX', 'short_name' => 'DUSF']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->unit_id,
+            'conversion_factor' => 5,
+        ]);
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $context['setting']->id,
+            'price' => 210000, // Rp210.000 per box
+        ]);
+
+        // Add 6 base units → 1 box (210k) + 1 loose (50k) = Rp260.000
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 6);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'packed-subtotal-fix-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 260000],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutResponse->assertStatus(201);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        /** @var \Modules\Pos\Services\PosReceiptService $receiptService */
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutId);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        $this->assertNotEmpty($receiptData['lines'], 'Receipt must have at least one line');
+        $line = $receiptData['lines'][0];
+
+        // Line subtotal must be 260000 (1 box @ 210k + 1 loose @ 50k), not 2600 (÷100 regression)
+        $this->assertEquals(260000.0, $line['sub_total'],
+            'Packed line sub_total must equal the Rupiah line_total, not 1/100 of it');
+
+        // Per-unit breakdown (via buildPackedUnitBreakdown) must still show Rupiah prices
+        $this->assertIsArray($line['unit_breakdown'], 'Packed line must have a unit breakdown array');
+        $this->assertNotEmpty($line['unit_breakdown'], 'Packed unit breakdown must not be empty');
+
+        // The breakdown strings must contain the Rupiah box price (210.000) not a cents artifact
+        $breakdownText = implode(' ', $line['unit_breakdown']);
+        $this->assertStringContainsString('210.000', $breakdownText,
+            'Per-unit breakdown must show Rp210.000 box price (not a /100 regression value)');
+        $this->assertStringNotContainsString('21.000.000', $breakdownText,
+            'Per-unit breakdown must not show 100x inflated box price');
+    }
 }

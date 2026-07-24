@@ -632,4 +632,127 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
         $this->assertEquals('PENDING', $reloadedQtyReduce['status']);
         $this->assertEquals($requestId, $reloadedQtyReduce['request_id']);
     }
+
+    /**
+     * Regression: a pending/approved PRICE_OVERRIDE request on a line must NOT appear
+     * in the QTY_REDUCE slot of pending_approvals. The server snapshot must filter
+     * pending_approvals by action_type so a price-override entry never drives the
+     * qty − / "Periksa" button state for the cashier.
+     *
+     * @group pos-approval-leak
+     */
+    public function test_price_override_approval_does_not_appear_in_qty_reduce_slot(): void
+    {
+        $setting = $this->createSetting('BIZ POS PRICE OVERRIDE LEAK', false);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'PRICE LEAK CASHIER', []);
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-PRICE-LEAK', 'Price Leak Product', 50000, $cashier->id);
+
+        // Add a cart line
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 3]);
+        $resStore->assertStatus(200);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // Submit a PRICE_OVERRIDE approval request (non-privileged cashier cannot set price directly)
+        $resApproval = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'PRICE_OVERRIDE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => ['unit_price' => 45000],
+            ]);
+        $resApproval->assertStatus(201);
+
+        // Now read the cart snapshot
+        $resCart = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+        $resCart->assertStatus(200);
+
+        $pendingApprovals = $resCart->json('cart_snapshot.lines.0.pending_approvals');
+
+        // There MUST be a PRICE_OVERRIDE pending entry
+        $priceOverrideApproval = collect($pendingApprovals)->firstWhere('action_type', 'PRICE_OVERRIDE');
+        $this->assertNotNull($priceOverrideApproval,
+            'PRICE_OVERRIDE approval must appear in pending_approvals');
+        $this->assertEquals('PENDING', $priceOverrideApproval['status']);
+
+        // There must be NO QTY_REDUCE entry (we never submitted one)
+        $qtyReduceApproval = collect($pendingApprovals)->firstWhere('action_type', 'QTY_REDUCE');
+        $this->assertNull($qtyReduceApproval,
+            'A PRICE_OVERRIDE request must NOT appear in the QTY_REDUCE slot of pending_approvals — ' .
+            'the server snapshot must filter by action_type so the qty −/"Periksa" button is not affected');
+    }
+
+    /**
+     * Regression: when both QTY_REDUCE and PRICE_OVERRIDE requests coexist on one line,
+     * the server snapshot must expose them as independent entries in pending_approvals
+     * so the client can render each slot (qty-control and price button) independently.
+     *
+     * @group pos-approval-leak
+     */
+    public function test_coexisting_qty_reduce_and_price_override_appear_as_independent_entries(): void
+    {
+        $setting = $this->createSetting('BIZ POS COEXIST APPROVALS', false);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'COEXIST CASHIER', []);
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-COEXIST', 'Coexist Product', 100000, $cashier->id);
+
+        // Add a cart line with enough qty to reduce
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 5]);
+        $resStore->assertStatus(200);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // Submit a QTY_REDUCE approval request
+        $resQtyApproval = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'QTY_REDUCE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => ['qty' => 2],
+            ]);
+        $resQtyApproval->assertStatus(201);
+        $qtyRequestId = $resQtyApproval->json('request_id');
+
+        // Submit a PRICE_OVERRIDE approval request on the same line
+        $resPriceApproval = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'PRICE_OVERRIDE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => ['unit_price' => 90000],
+            ]);
+        $resPriceApproval->assertStatus(201);
+        $priceRequestId = $resPriceApproval->json('request_id');
+
+        // Read cart snapshot
+        $resCart = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+        $resCart->assertStatus(200);
+
+        $pendingApprovals = $resCart->json('cart_snapshot.lines.0.pending_approvals');
+
+        // Both action types must have independent PENDING entries
+        $qtyReduceEntry = collect($pendingApprovals)->firstWhere('action_type', 'QTY_REDUCE');
+        $priceOverrideEntry = collect($pendingApprovals)->firstWhere('action_type', 'PRICE_OVERRIDE');
+
+        $this->assertNotNull($qtyReduceEntry,
+            'QTY_REDUCE entry must appear independently in pending_approvals');
+        $this->assertEquals('PENDING', $qtyReduceEntry['status'],
+            'QTY_REDUCE entry must be PENDING');
+        $this->assertEquals($qtyRequestId, $qtyReduceEntry['request_id'],
+            'QTY_REDUCE entry must match its own request_id');
+
+        $this->assertNotNull($priceOverrideEntry,
+            'PRICE_OVERRIDE entry must appear independently in pending_approvals');
+        $this->assertEquals('PENDING', $priceOverrideEntry['status'],
+            'PRICE_OVERRIDE entry must be PENDING');
+        $this->assertEquals($priceRequestId, $priceOverrideEntry['request_id'],
+            'PRICE_OVERRIDE entry must match its own request_id');
+
+        // They must be separate entries (different request_ids)
+        $this->assertNotEquals($qtyRequestId, $priceRequestId,
+            'QTY_REDUCE and PRICE_OVERRIDE must be distinct approval requests');
+    }
 }
