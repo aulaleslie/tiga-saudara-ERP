@@ -50,14 +50,14 @@
 
 ## 8. Automated Verification
 
-- [ ] 8.1 Add focused note tests for optional/oversized values, reload persistence, draft save/load, legacy null compatibility, snapshot hashing, and checkout idempotency conflicts.
-- [ ] 8.2 Add inline and split-posting tests proving the note and POS provenance appear on every generated Sale and provenance-only behavior remains unchanged when the note is absent.
-- [ ] 8.3 Add upload tests for optional omission, valid JPEG/PNG, invalid MIME, size limit, cash rejection, ownership scope, expiry, replacement, and unauthorized access.
-- [ ] 8.4 Add staged-chain tests for image-token recovery, independence from EDC/reference rules, reset cleanup, and failed-finalization retry retention.
-- [ ] 8.5 Add inline and split checkout tests proving one image is attached to every Sale Payment from its stage, including multiple stages using the same method, without cross-stage or cash attachment leakage.
-- [ ] 8.6 Add idempotent replay and failure-path tests proving attachments are not duplicated and temporary sources are consumed or retained at the correct lifecycle boundary.
-- [ ] 8.7 Run focused POS note/payment tests and relevant existing multi-payment, split-posting, draft-roundtrip, and checkout-idempotency suites with `php artisan test`.
-- [ ] 8.8 Run the broader fresh SQLite verification with `composer test:fresh-sqlite` and record any environment-specific limitations.
+- [x] 8.1 Add focused note tests for optional/oversized values, reload persistence, draft save/load, legacy null compatibility, snapshot hashing, and checkout idempotency conflicts.
+- [x] 8.2 Add inline and split-posting tests proving the note and POS provenance appear on every generated Sale and provenance-only behavior remains unchanged when the note is absent.
+- [x] 8.3 Add upload tests for optional omission, valid JPEG/PNG, invalid MIME, size limit, cash rejection, ownership scope, expiry, replacement, and unauthorized access.
+- [x] 8.4 Add staged-chain tests for image-token recovery, independence from EDC/reference rules, reset cleanup, and failed-finalization retry retention.
+- [x] 8.5 Add inline and split checkout tests proving one image is attached to every Sale Payment from its stage, including multiple stages using the same method, without cross-stage or cash attachment leakage.
+- [x] 8.6 Add idempotent replay and failure-path tests proving attachments are not duplicated and temporary sources are consumed or retained at the correct lifecycle boundary.
+- [x] 8.7 Run focused POS note/payment tests and relevant existing multi-payment, split-posting, draft-roundtrip, and checkout-idempotency suites with `php artisan test`.
+- [x] 8.8 Run the broader fresh SQLite verification with `composer test:fresh-sqlite` and record any environment-specific limitations.
 
 ## Notes on Testing Status
 

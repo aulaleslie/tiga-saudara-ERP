@@ -313,6 +313,103 @@ class POSCheckoutSplitPostingTest extends TestCase
         ]);
     }
 
+    public function test_split_posting_copies_note_to_every_sale(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.note.update'), ['note' => 'Split posting test note'])
+            ->assertOk();
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'test-split-note-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        
+        $splitGroups = $response->json('split_groups');
+        $this->assertCount(2, $splitGroups);
+
+        $checkoutId = $response->json('pos_checkout_id');
+        $expectedNote = mb_strtoupper('POS CHECKOUT #' . $checkoutId . "\nSplit posting test note", 'UTF-8');
+
+        foreach ($splitGroups as $group) {
+            $sale = Sale::findOrFail($group['sale_id']);
+            $this->assertEquals($expectedNote, $sale->note);
+        }
+    }
+
+    public function test_one_staged_image_attached_to_every_sale_payment_in_split_posting(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        
+        // Upload image
+        \Illuminate\Support\Facades\Storage::fake();
+        $image = \Illuminate\Http\UploadedFile::fake()->image('split.jpg');
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image,
+                'cart_token' => 'split-token',
+            ])->assertStatus(201);
+            
+        $imageToken = $uploadResponse->json('token');
+
+        // Transfer method (non-cash)
+        $transferMethod = \Modules\Setting\Entities\PaymentMethod::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'is_cash' => false,
+            'requires_reference' => true,
+        ]);
+        
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $context['setting']->id, 'payment_method_id' => $transferMethod->id],
+            ['is_enabled' => true]
+        );
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'test-split-image-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $transferMethod->id,
+                'amount_paid' => 200000,
+                'reference' => 'SPLIT123',
+                'payment_image_token' => $imageToken,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        
+        $splitGroups = $response->json('split_groups');
+        $this->assertCount(2, $splitGroups);
+
+        foreach ($splitGroups as $group) {
+            $sale = Sale::findOrFail($group['sale_id']);
+            $payment = $sale->salePayments()->first();
+            $this->assertNotNull($payment, 'Sale payment missing');
+            
+            $attachments = collect($payment->attachments ?? []);
+            $this->assertNotEmpty($attachments);
+            
+            $fileId = $attachments->first()['file_id'] ?? null;
+            $this->assertNotNull($fileId);
+            
+            $fileModel = \Modules\System\Entities\File::findOrFail($fileId);
+            $this->assertEquals($imageToken . '.jpg', $fileModel->original_name);
+            $this->assertStringContainsString('sale_payment_attachments', $fileModel->path);
+        }
+    }
+
     private function createSplitCheckoutContext(bool $configureSourceWalkIn = true): array
     {
         $setting = $this->createSetting('POS SPLIT TERMINAL BIZ', 'TNC', 'JL');

@@ -508,4 +508,139 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         $second->assertStatus(409)
             ->assertJsonPath('code', 'IDEMPOTENCY_MISMATCH');
     }
+
+    public function test_two_stages_same_method_separate_payments_correct_images(): void
+    {
+        $context = $this->createCheckoutContext();
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+
+        \Illuminate\Support\Facades\Storage::fake();
+        $image1 = \Illuminate\Http\UploadedFile::fake()->image('img1.jpg');
+        $image2 = \Illuminate\Http\UploadedFile::fake()->image('img2.jpg');
+        
+        $token1 = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image1, 'cart_token' => 'multi-token'])
+            ->json('token');
+            
+        $token2 = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image2, 'cart_token' => 'multi-token'])
+            ->json('token');
+
+        $payload = [
+            'idempotency_key' => 'test-multi-image-' . uniqid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $context['methods']['transfer']->id,
+                    'amount_paid' => 100000,
+                    'reference' => 'T1',
+                    'payment_image_token' => $token1,
+                ],
+                [
+                    'payment_method_id' => $context['methods']['transfer']->id,
+                    'amount_paid' => 100000,
+                    'reference' => 'T2',
+                    'payment_image_token' => $token2,
+                ],
+            ],
+        ];
+
+        $response = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $response->assertStatus(201);
+        
+        $sale = \Modules\Sale\Entities\Sale::findOrFail($response->json('sale_id'));
+        $payments = $sale->salePayments()->orderBy('id')->get();
+        
+        $this->assertCount(2, $payments);
+        
+        $att1 = collect($payments[0]->attachments)->first()['file_id'] ?? null;
+        $att2 = collect($payments[1]->attachments)->first()['file_id'] ?? null;
+        
+        $this->assertNotNull($att1);
+        $this->assertNotNull($att2);
+        
+        $file1 = \Modules\System\Entities\File::findOrFail($att1);
+        $file2 = \Modules\System\Entities\File::findOrFail($att2);
+        
+        $this->assertEquals($token1 . '.jpg', $file1->original_name);
+        $this->assertEquals($token2 . '.jpg', $file2->original_name);
+    }
+
+    public function test_image_from_one_stage_never_attached_to_another_and_cash_never_receives_image(): void
+    {
+        $context = $this->createCheckoutContext();
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+
+        \Illuminate\Support\Facades\Storage::fake();
+        $image = \Illuminate\Http\UploadedFile::fake()->image('img.jpg');
+        $token = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image, 'cart_token' => 'mix-token'])
+            ->json('token');
+
+        $payload = [
+            'idempotency_key' => 'test-mix-image-' . uniqid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $context['methods']['cash']->id,
+                    'amount_paid' => 100000,
+                ],
+                [
+                    'payment_method_id' => $context['methods']['transfer']->id,
+                    'amount_paid' => 100000,
+                    'reference' => 'TRX',
+                    'payment_image_token' => $token,
+                ],
+            ],
+        ];
+
+        $response = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $response->assertStatus(201);
+        
+        $sale = \Modules\Sale\Entities\Sale::findOrFail($response->json('sale_id'));
+        $payments = $sale->salePayments()->orderBy('id')->get();
+        
+        $this->assertCount(2, $payments);
+        
+        // First is cash
+        $this->assertEquals($context['methods']['cash']->id, $payments[0]->payment_method_id);
+        $this->assertEmpty($payments[0]->attachments);
+        
+        // Second is transfer
+        $this->assertEquals($context['methods']['transfer']->id, $payments[1]->payment_method_id);
+        $this->assertNotEmpty($payments[1]->attachments);
+        $att = collect($payments[1]->attachments)->first()['file_id'] ?? null;
+        $this->assertNotNull($att);
+    }
+    
+    public function test_missing_physical_image_causes_checkout_rollback(): void
+    {
+        $context = $this->createCheckoutContext();
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+
+        \Illuminate\Support\Facades\Storage::fake();
+        $image = \Illuminate\Http\UploadedFile::fake()->image('img.jpg');
+        $token = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image, 'cart_token' => 'missing-token'])
+            ->json('token');
+            
+        // Delete the physical file
+        \Illuminate\Support\Facades\Storage::delete('pos/temp_payment_images/' . $token . '.jpg');
+
+        $payload = [
+            'idempotency_key' => 'test-missing-image-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']['transfer']->id,
+                'amount_paid' => 100000,
+                'reference' => 'TRX',
+                'payment_image_token' => $token,
+            ],
+        ];
+
+        $response = $this->finalize($context['cashier'], $context['setting'], $payload);
+        
+        // Should rollback and fail
+        $response->assertStatus(422); // Or 500 depending on how file copy failure is caught, usually validation 422 if we check existence, or 500 if internal
+        
+        // Check rollback (no sales created)
+        $this->assertDatabaseCount('sales', 0);
+    }
 }

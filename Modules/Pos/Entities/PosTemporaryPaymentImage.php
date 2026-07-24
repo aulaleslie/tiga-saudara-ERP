@@ -11,6 +11,7 @@ use Modules\Setting\Entities\Setting;
 class PosTemporaryPaymentImage extends BaseModel
 {
     protected $table = 'pos_temporary_payment_images';
+    protected bool $uppercaseAllText = false;
 
     protected $fillable = [
         'token',

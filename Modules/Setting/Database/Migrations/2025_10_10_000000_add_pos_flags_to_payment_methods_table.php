@@ -10,8 +10,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('payment_methods', function (Blueprint $table) {
-            $table->boolean('is_cash')->default(false)->after('coa_id');
-            $table->boolean('is_available_in_pos')->default(false)->after('is_cash');
+            if (!Schema::hasColumn('payment_methods', 'is_cash')) {
+                $table->boolean('is_cash')->default(false)->after('coa_id');
+            }
+            if (!Schema::hasColumn('payment_methods', 'is_available_in_pos')) {
+                $table->boolean('is_available_in_pos')->default(false)->after('is_cash');
+            }
         });
 
         DB::table('payment_methods')->update([

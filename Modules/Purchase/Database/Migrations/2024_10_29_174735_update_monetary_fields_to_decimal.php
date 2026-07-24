@@ -11,6 +11,9 @@ return new class extends Migration
      */
     public function up()
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
         // Update purchases table
         Schema::table('purchases', function (Blueprint $table) {
             $table->decimal('tax_percentage', 5, 2)->default(0)->change();

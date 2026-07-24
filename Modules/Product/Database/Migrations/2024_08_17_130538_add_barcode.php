@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('product_unit_conversions', function (Blueprint $table) {
-            $table->string('barcode')->nullable()->after('conversion_factor');
-        });
+        if (!Schema::hasColumn('product_unit_conversions', 'barcode')) {
+            Schema::table('product_unit_conversions', function (Blueprint $table) {
+                $table->string('barcode')->nullable()->after('conversion_factor');
+            });
+        }
     }
 
     /**

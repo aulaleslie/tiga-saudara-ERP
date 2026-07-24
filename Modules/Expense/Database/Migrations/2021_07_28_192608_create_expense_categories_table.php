@@ -13,12 +13,14 @@ class CreateExpenseCategoriesTable extends Migration
      */
     public function up()
     {
-        Schema::create('expense_categories', function (Blueprint $table) {
-            $table->id();
-            $table->string('category_name');
-            $table->text('category_description')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('expense_categories')) {
+            Schema::create('expense_categories', function (Blueprint $table) {
+                $table->id();
+                $table->string('category_name');
+                $table->text('category_description')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
     /**
