@@ -112,6 +112,74 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $this->assertDatabaseCount('dispatch_details', 1);
     }
 
+    public function test_identical_replay_after_cart_clearing_returns_200(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT CART CLEAR');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-CART-CLEAR-001', 50000, false);
+        
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'K-REPLAY-CART-CLEAR',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 50000,
+            ],
+        ];
+
+        // 1. Initial checkout
+        $first = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $first->assertStatus(201);
+
+        // 2. Ensure cart is cleared (pos.sell.checkout.finalize already does this upon success, but explicit here for clarity)
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->deleteJson(route('pos.sell.cart.clear'))
+            ->assertOk();
+
+        // 3. Replay with identical payload should succeed (cart is empty, fallback to stored snapshot)
+        $second = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $second->assertStatus(200)
+            ->assertJsonPath('idempotent_replay', true);
+    }
+
+    public function test_reusing_key_after_adding_different_cart_returns_409(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT DIFF CART');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product1 = $this->createStockedProduct($context['setting'], $context['location'], 'POS-DIFF-CART-001', 50000, false);
+        
+        $this->addCartLine($context['cashier'], $context['setting'], $product1->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'K-REPLAY-DIFF-CART',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 50000,
+            ],
+        ];
+
+        // 1. Initial checkout
+        $first = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $first->assertStatus(201);
+
+        // 2. Add different cart contents
+        $product2 = $this->createStockedProduct($context['setting'], $context['location'], 'POS-DIFF-CART-002', 30000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product2->id, 1);
+
+        // 3. Replay using the same idempotency key
+        $second = $this->finalize($context['cashier'], $context['setting'], $payload);
+        
+        // Since there is a new cart, it compares the current cart to the original checkout, which doesn't match
+        $second->assertStatus(409)
+            ->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
+    }
+
     public function test_duplicate_with_finalizing_status_returns_conflict(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT FINALIZING');
@@ -1194,6 +1262,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
                 'lines' => $snapshot['lines'] ?? [],
                 'totals' => $snapshot['totals'] ?? [],
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
+                'note' => $snapshot['note'] ?? null,
             ]),
         ];
 

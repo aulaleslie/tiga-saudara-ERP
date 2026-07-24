@@ -34,6 +34,7 @@ class PosCheckout extends BaseModel
         'status',
         'idempotency_key',
         'payload_hash',
+        'original_cart_snapshot',
         'subtotal',
         'discount_total',
         'tax_total',
@@ -66,6 +67,7 @@ class PosCheckout extends BaseModel
         'response_payload' => 'array',
         'split_summary' => 'array',
         'metadata' => 'array',
+        'original_cart_snapshot' => 'array',
         'finalized_at' => 'datetime',
     ];
 

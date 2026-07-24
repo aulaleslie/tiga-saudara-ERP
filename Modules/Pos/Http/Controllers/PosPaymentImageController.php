@@ -5,7 +5,7 @@ namespace Modules\Pos\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
-use Modules\Pos\Exceptions\PosException;
+use Illuminate\Validation\ValidationException;
 use Modules\Pos\Http\Requests\DeletePosPaymentImageRequest;
 use Modules\Pos\Http\Requests\UploadPosPaymentImageRequest;
 use Modules\Pos\Services\PosTemporaryPaymentImageService;
@@ -66,7 +66,7 @@ class PosPaymentImageController extends Controller
                 'size' => $image->size,
                 'expires_at' => $image->expires_at->toIso8601String(),
             ]);
-        } catch (PosException $e) {
+        } catch (ValidationException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }

@@ -17,6 +17,7 @@ use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\PosCashDrawerService;
+use Modules\Pos\Services\PosTemporaryPaymentImageService;
 use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -81,18 +82,93 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Kunci idempotency diperlukan.');
         }
 
-        $postedCheckout = PosCheckout::query()
+        // Get cart snapshot early (immutable state before any operations)
+        $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
+
+        $cartToken = (string) ($cartSnapshot['staged_payment_token'] ?? '');
+
+        // Check for existing checkout early to handle idempotent replays
+        // This must happen BEFORE any mutable operations (normalization, authorization, etc)
+        $existingCheckout = PosCheckout::query()
             ->where('setting_id', $settingId)
             ->where('idempotency_key', $normalizedIdempotencyKey)
-            ->where('status', PosCheckout::STATUS_POSTED)
             ->first();
 
-        if ($postedCheckout) {
+        $isIdempotentReplay = $existingCheckout !== null;
+
+        // For confirmed replays, verify the payload matches before any mutable operations.
+        // This protects against disabled payment methods, expired approvals, changed configuration, etc.
+        if ($existingCheckout && $existingCheckout->status === PosCheckout::STATUS_POSTED) {
+            // Extract immutable request fields to compute the replay fingerprint
+            $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
+            $isDebt = (bool) ($paymentPayload['is_debt'] ?? false);
+            $paymentTermId = isset($paymentPayload['payment_term_id']) ? (int) $paymentPayload['payment_term_id'] : null;
+
+            // Build a minimal payment object for fingerprint computation (no validation/normalization)
+            if ($isMultiPayment) {
+                // For multi-payment, extract raw payment data and compute canonical hash
+                $paymentsRaw = $paymentPayload['payments'] ?? [];
+                $payment = $this->buildRawMultiPaymentForReplayFingerprint($paymentsRaw);
+            } else {
+                // For single-payment, extract raw payment data
+                $payment = $this->buildRawSinglePaymentForReplayFingerprint(
+                    $paymentPayload['payment'] ?? $paymentPayload,
+                    $isDebt
+                );
+            }
+
+            // Use the stored original cart snapshot from the initial checkout, not the current cart
+            // This ensures the fingerprint matches the original checkout regardless of current cart state
+            if (! empty($cartSnapshot['lines'])) {
+                // Compare using current cart and current customer.
+                $originalCartSnapshot = $cartSnapshot;
+            } else {
+                // Cleared cart: compare using stored snapshot and stored customer.
+                $originalCartSnapshot = $existingCheckout->original_cart_snapshot;
+                if (! is_array($originalCartSnapshot)) {
+                    throw new PosCheckoutConflictException(
+                        'IDEMPOTENCY_PAYLOAD_MISMATCH',
+                        'Idempotency key was already used with a different payload.'
+                    );
+                }
+            }
+
+            // Extract customer from stored snapshot for idempotent replay verification
+            $originalCustomerId = (int) ($originalCartSnapshot['customer']['resolved_customer_id'] ?? 0);
+            $originalCustomerId = $originalCustomerId > 0 ? $originalCustomerId : null;
+
+            // Compute the fingerprint using the exact same method as original checkout
+            $replayFingerprint = $this->computeReplayFingerprint(
+                $settingId,
+                $sessionId,
+                $terminalId,
+                $cashierUserId,
+                $originalCustomerId,
+                $originalCartSnapshot,
+                $payment,
+                $isDebt,
+                $paymentTermId
+            );
+
+            if ((string) $existingCheckout->payload_hash !== $replayFingerprint) {
+                throw new PosCheckoutConflictException(
+                    'IDEMPOTENCY_PAYLOAD_MISMATCH',
+                    'Idempotency key was already used with a different payload.'
+                );
+            }
+
             return [
                 'http_status' => 200,
-                'payload' => $this->buildReplayPayload($postedCheckout),
+                'payload' => $this->buildReplayPayload($existingCheckout),
             ];
         }
+
+        // Extract customer from current cart for new checkout or in-progress replay
+        $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
+        $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
+
+        // Not a confirmed replay - proceed with normal checkout flow
+        // Now we can safely run mutable operations (validation, authorization, etc)
 
         // Determine if legacy single-payment or multi-payment path
         $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
@@ -128,16 +204,13 @@ class FinalizePosCheckoutService
             }
         }
 
-        $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
-
-        $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
-        $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
-
         if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0)) {
             throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
         }
-        $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId, $isDebt);
 
+        $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId, $isDebt, $settingId, $sessionId, $cartToken, $isIdempotentReplay);
+
+        // Compute full payload hash after validation for storage
         $payloadHash = $this->payloadHash(
             $settingId,
             $sessionId,
@@ -281,7 +354,11 @@ class FinalizePosCheckoutService
         array $cartSnapshot,
         array $payment,
         ?int $resolvedCustomerId,
-        bool $isDebt = false
+        bool $isDebt = false,
+        int $settingId = 0,
+        int $sessionId = 0,
+        string $cartToken = '',
+        bool $isIdempotentReplay = false
     ): array {
         $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
         if ($lines === []) {
@@ -328,6 +405,23 @@ class FinalizePosCheckoutService
                 }
             }
 
+            // Validate image tokens for multi-payment (only for new checkouts, not idempotent replays)
+            if (!$isIdempotentReplay && $settingId > 0 && $sessionId > 0 && $cartToken !== '') {
+                $imageTokens = $payment['image_tokens'] ?? [];
+                if (!empty($imageTokens)) {
+                    $imageService = app(PosTemporaryPaymentImageService::class);
+                    foreach ($imageTokens as $imageToken) {
+                        $image = $imageService->resolveImage($imageToken, $settingId, $sessionId, $cartToken);
+                        if (!$image) {
+                            throw new PosCheckoutValidationException(
+                                'PAYMENT_INVALID',
+                                'Gambar pembayaran tidak ditemukan atau telah kadaluarsa.'
+                            );
+                        }
+                    }
+                }
+            }
+
             return $totals;
         }
 
@@ -364,19 +458,126 @@ class FinalizePosCheckoutService
             }
         }
 
+        // Only validate image tokens for new checkouts, not idempotent replays.
+        // Idempotent replays may have consumed the image in a previous request.
+        $paymentImageToken = $payment['payment_image_token'] ?? null;
+        if (!$isIdempotentReplay && $paymentImageToken !== null && $settingId > 0 && $sessionId > 0 && $cartToken !== '') {
+            $imageService = app(PosTemporaryPaymentImageService::class);
+            $image = $imageService->resolveImage($paymentImageToken, $settingId, $sessionId, $cartToken);
+            if (!$image) {
+                throw new PosCheckoutValidationException(
+                    'PAYMENT_INVALID',
+                    'Gambar pembayaran tidak ditemukan atau telah kadaluarsa.'
+                );
+            }
+        }
+
         return $totals;
     }
 
     /**
      * @param  array<string, mixed>  $paymentPayload
-     * @return array{payment_method_id:int,amount_paid:float,reference:?string,is_cash:bool,requires_reference:bool}
+     * @return array{payment_method_id:int,amount_paid:float,reference:?string,payment_image_token:?string,is_cash:bool,requires_reference:bool}
      */
+    /**
+     * Build a minimal payment structure from raw request data for replay fingerprint computation.
+     * Does NOT validate or normalize - just extracts and structures fields.
+     * Used only during replay fingerprint verification before mutable operations.
+     *
+     * @param  array{payment_method_id?:int,amount_paid?:float,reference?:string,payment_image_token?:string}  $paymentPayload
+     * @param  bool  $isDebt
+     * @return array{payment_method_id:int,amount_paid:float,reference:?string,payment_image_token:?string,is_multi_payment:false}
+     */
+    private function buildRawSinglePaymentForReplayFingerprint(array $paymentPayload, bool $isDebt = false): array
+    {
+        return [
+            'is_multi_payment' => false,
+            'payment_method_id' => isset($paymentPayload['payment_method_id']) ? (int) $paymentPayload['payment_method_id'] : 0,
+            'amount_paid' => round((float) ($paymentPayload['amount_paid'] ?? 0), 2),
+            'reference' => isset($paymentPayload['reference']) ? trim((string) $paymentPayload['reference']) ?: null : null,
+            'payment_image_token' => isset($paymentPayload['payment_image_token']) ? trim((string) $paymentPayload['payment_image_token']) ?: null : null,
+        ];
+    }
+
+    /**
+     * Build a minimal multi-payment structure from raw request data for replay fingerprint computation.
+     * Computes canonical payment hash without validation or configuration checks.
+     * Used only during replay fingerprint verification before mutable operations.
+     *
+     * @param  array<int, array{payment_method_id:int,amount_paid:float,reference?:string,edc_reference?:string,stage_order?:int,payment_image_token?:string}>  $paymentsRaw
+     * @return array{is_multi_payment:true,payments:array,amount_paid:float,canonical_payment_hash:string}
+     */
+    private function buildRawMultiPaymentForReplayFingerprint(array $paymentsRaw): array
+    {
+        $payments = [];
+        $totalAmount = 0;
+
+        foreach ($paymentsRaw as $paymentData) {
+            $methodId = (int) ($paymentData['payment_method_id'] ?? 0);
+            $amountMinor = round((float) ($paymentData['amount_paid'] ?? 0) * 100);
+            $reference = isset($paymentData['reference']) ? trim((string) $paymentData['reference']) ?: null : null;
+            $edcReference = isset($paymentData['edc_reference']) ? trim((string) $paymentData['edc_reference']) ?: null : null;
+            $stageOrder = isset($paymentData['stage_order']) ? (int) $paymentData['stage_order'] : null;
+            $imageToken = isset($paymentData['payment_image_token']) ? trim((string) $paymentData['payment_image_token']) ?: null : null;
+
+            $totalAmount += $amountMinor;
+
+            $payments[] = [
+                'payment_method_id' => $methodId,
+                'amount_minor_units' => (int) $amountMinor,
+                'reference' => $reference,
+                'edc_reference' => $edcReference,
+                'stage_order' => $stageOrder,
+                'payment_image_token' => $imageToken,
+            ];
+        }
+
+        // Compute canonical hash using exact same method as PosCheckoutPaymentNormalizationService
+        // Order: method_id, amount, reference, edc_reference, stage_order, image_token
+        $canonicalPayments = [];
+        foreach ($payments as $p) {
+            $canonicalPayments[] = [
+                (int) $p['payment_method_id'],
+                (int) $p['amount_minor_units'],
+                $p['reference'] ?? '',
+                $p['edc_reference'] ?? '',
+                $p['stage_order'] ?? 0,
+                $p['payment_image_token'] ?? '',
+            ];
+        }
+
+        // Sort for deterministic ordering (matching production normalizer)
+        usort($canonicalPayments, function (array $a, array $b) {
+            if ($a[0] !== $b[0]) return $a[0] <=> $b[0];  // method_id
+            if ($a[1] !== $b[1]) return $a[1] <=> $b[1];  // amount
+            if ($a[2] !== $b[2]) return strcmp($a[2], $b[2]);  // reference
+            if ($a[3] !== $b[3]) return strcmp($a[3], $b[3]);  // edc_reference
+            if ($a[4] !== $b[4]) return $a[4] <=> $b[4];  // stage_order
+            return strcmp($a[5], $b[5]);  // image_token
+        });
+
+        // Use same JSON encoding flags for consistency with production normalizer
+        $canonicalHash = hash('sha256', json_encode(
+            $canonicalPayments,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        ));
+
+        return [
+            'is_multi_payment' => true,
+            'payments' => $payments,
+            'amount_paid' => round($totalAmount / 100, 2),
+            'canonical_payment_hash' => $canonicalHash,
+        ];
+    }
+
     private function normalizePayment(int $settingId, array $paymentPayload, bool $isDebt = false): array
     {
         $paymentMethodId = isset($paymentPayload['payment_method_id']) ? (int) $paymentPayload['payment_method_id'] : null;
         $amountPaid = round((float) ($paymentPayload['amount_paid'] ?? 0), 2);
         $reference = isset($paymentPayload['reference']) ? trim((string) $paymentPayload['reference']) : null;
         $reference = $reference !== '' ? $reference : null;
+        $paymentImageToken = isset($paymentPayload['payment_image_token']) ? trim((string) $paymentPayload['payment_image_token']) : null;
+        $paymentImageToken = $paymentImageToken !== '' ? $paymentImageToken : null;
 
         if ($amountPaid <= 0 && !$isDebt) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Jumlah pembayaran harus lebih besar dari nol.');
@@ -398,6 +599,10 @@ class FinalizePosCheckoutService
             if (! $paymentMethod) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan atau tidak diaktifkan untuk pengaturan ini.');
             }
+
+            if ((bool) ($paymentMethod->is_cash ?? false) && $paymentImageToken !== null) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tunai tidak boleh menyertakan gambar pembayaran.');
+            }
         } else {
             $paymentMethod = null;
         }
@@ -406,6 +611,7 @@ class FinalizePosCheckoutService
             'payment_method_id' => $paymentMethodId,
             'amount_paid' => $amountPaid,
             'reference' => $reference,
+            'payment_image_token' => $paymentImageToken,
             'is_cash' => (bool) ($paymentMethod?->is_cash ?? false),
             'requires_reference' => (bool) ($paymentMethod?->requires_reference ?? false),
         ];
@@ -446,6 +652,7 @@ class FinalizePosCheckoutService
             'payment_method_id' => $firstPayment['payment_method_id'] ?? null,
             'reference' => $firstPayment['reference'] ?? null,
             'is_cash' => $firstPayment['is_cash'] ?? false,
+            'image_tokens' => array_filter(array_map(fn($p) => $p['payment_image_token'] ?? null, $normalized['payments'])),
         ];
     }
 
@@ -510,6 +717,26 @@ class FinalizePosCheckoutService
                         ];
                     }
 
+                    $checkoutMetadata = [
+                        'client_context' => $clientContext,
+                        'cart_meta' => $cartSnapshot['meta'] ?? null,
+                        'is_debt' => $isDebt,
+                        'payment_term_id' => $paymentTermId,
+                    ];
+
+                    // Persist image token for single-payment fingerprint verification
+                    if (isset($payment['payment_image_token'])) {
+                        $checkoutMetadata['payment_image_token'] = $payment['payment_image_token'];
+                    }
+
+                    // Persist multi-payment composition and image tokens for fingerprint verification
+                    if ((bool) ($payment['is_multi_payment'] ?? false)) {
+                        $checkoutMetadata['canonical_payment_hash'] = $payment['canonical_payment_hash'] ?? null;
+                        if (isset($payment['image_tokens']) && !empty($payment['image_tokens'])) {
+                            $checkoutMetadata['image_tokens'] = array_values($payment['image_tokens']);
+                        }
+                    }
+
                     $checkout = PosCheckout::query()->create([
                         'setting_id' => $settingId,
                         'pos_session_id' => $sessionId,
@@ -519,6 +746,13 @@ class FinalizePosCheckoutService
                         'status' => PosCheckout::STATUS_FINALIZING,
                         'idempotency_key' => $idempotencyKey,
                         'payload_hash' => $payloadHash,
+                        'original_cart_snapshot' => [
+                            'lines' => $cartSnapshot['lines'] ?? [],
+                            'totals' => $cartSnapshot['totals'] ?? [],
+                            'bill_discount' => $cartSnapshot['bill_discount'] ?? [],
+                            'note' => $cartSnapshot['note'] ?? null,
+                            'customer' => $cartSnapshot['customer'] ?? [],
+                        ],
                         'subtotal' => $totals['subtotal'],
                         'discount_total' => $totals['discount_total'],
                         'tax_total' => $totals['tax_total'],
@@ -528,12 +762,7 @@ class FinalizePosCheckoutService
                         'payment_method_id' => $payment['payment_method_id'],
                         'payment_reference' => $payment['reference'],
                         'note' => $cartSnapshot['note'] ?? null,
-                        'metadata' => [
-                            'client_context' => $clientContext,
-                            'cart_meta' => $cartSnapshot['meta'] ?? null,
-                            'is_debt' => $isDebt,
-                            'payment_term_id' => $paymentTermId,
-                        ],
+                        'metadata' => $checkoutMetadata,
                     ]);
 
                     return [
@@ -1434,6 +1663,74 @@ class FinalizePosCheckoutService
     }
 
     /**
+     * Compute the canonical replay fingerprint from request data (before any mutations).
+     * This is the same computation as payloadHash() but extracted so it can be called
+     * early on replay, before any mutable authorization/validation.
+     *
+     * @param  int  $settingId
+     * @param  int  $sessionId
+     * @param  int  $terminalId
+     * @param  int  $cashierUserId
+     * @param  int  $customerId
+     * @param  array<string, mixed>  $cartSnapshot
+     * @param  array<string, mixed>  $payment
+     * @param  bool  $isDebt
+     * @param  int|null  $paymentTermId
+     * @return string SHA256 hex digest
+     */
+    private function computeReplayFingerprint(
+        int $settingId,
+        int $sessionId,
+        int $terminalId,
+        int $cashierUserId,
+        int $customerId,
+        array $cartSnapshot,
+        array $payment,
+        bool $isDebt = false,
+        ?int $paymentTermId = null
+    ): string {
+        $normalized = [
+            'setting_id' => $settingId,
+            'pos_session_id' => $sessionId,
+            'terminal_id' => $terminalId,
+            'cashier_user_id' => $cashierUserId,
+            'customer_id' => $customerId,
+            'is_debt' => $isDebt,
+            'payment_term_id' => $paymentTermId,
+            'cart' => $this->normalizeSnapshotForHash([
+                'lines' => $cartSnapshot['lines'] ?? [],
+                'totals' => $cartSnapshot['totals'] ?? [],
+                'bill_discount' => $cartSnapshot['bill_discount'] ?? [],
+                'note' => $cartSnapshot['note'] ?? null,
+            ]),
+        ];
+
+        // Include payment hash - either canonical multi-payment or legacy single payment
+        if ((bool) ($payment['is_multi_payment'] ?? false)) {
+            $normalized['payment'] = [
+                'is_multi_payment' => true,
+                'canonical_hash' => $payment['canonical_payment_hash'] ?? '',
+            ];
+        } else {
+            $normalized['payment'] = [
+                'is_multi_payment' => false,
+                'payment_method_id' => (int) ($payment['payment_method_id'] ?? 0),
+                'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
+                'reference' => $payment['reference'] ?? null,
+                'payment_image_token' => $payment['payment_image_token'] ?? null,
+            ];
+        }
+
+        return hash(
+            'sha256',
+            json_encode(
+                $this->canonicalize($normalized),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+            )
+        );
+    }
+
+    /**
      * @param  array<string, mixed>  $snapshot
      * @param  array{method_code:string,amount_paid:float,reference:string|null}  $payment
      */
@@ -1448,43 +1745,18 @@ class FinalizePosCheckoutService
         bool $isDebt = false,
         ?int $paymentTermId = null
     ): string {
-        $normalized = [
-            'setting_id' => $settingId,
-            'pos_session_id' => $sessionId,
-            'terminal_id' => $terminalId,
-            'cashier_user_id' => $cashierUserId,
-            'customer_id' => $customerId,
-            'is_debt' => $isDebt,
-            'payment_term_id' => $paymentTermId,
-            'cart' => $this->normalizeSnapshotForHash([
-                'lines' => $snapshot['lines'] ?? [],
-                'totals' => $snapshot['totals'] ?? [],
-                'bill_discount' => $snapshot['bill_discount'] ?? [],
-                'note' => $snapshot['note'] ?? null,
-            ]),
-        ];
-
-        // Include payment hash - either canonical multi-payment or legacy single payment
-        if ((bool) ($payment['is_multi_payment'] ?? false)) {
-            $normalized['payment'] = [
-                'is_multi_payment' => true,
-                'canonical_hash' => $payment['canonical_payment_hash'] ?? '',
-            ];
-        } else {
-            $normalized['payment'] = [
-                'is_multi_payment' => false,
-                'method_code' => strtolower((string) ($payment['method_code'] ?? '')),
-                'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
-                'reference' => $payment['reference'] ?? null,
-            ];
-        }
-
-        return hash(
-            'sha256',
-            json_encode(
-                $this->canonicalize($normalized),
-                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
-            )
+        // Use the same canonical replay fingerprint computation
+        // This ensures original checkout hash and replay verification use identical logic
+        return $this->computeReplayFingerprint(
+            $settingId,
+            $sessionId,
+            $terminalId,
+            $cashierUserId,
+            $customerId,
+            $snapshot,
+            $payment,
+            $isDebt,
+            $paymentTermId
         );
     }
 

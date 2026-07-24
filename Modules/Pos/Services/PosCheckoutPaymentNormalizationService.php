@@ -76,6 +76,14 @@ class PosCheckoutPaymentNormalizationService
             $amountMinorUnits = (int) round($amountPaid * 100);
             $isCash = (bool) $paymentMethod['is_cash'];
 
+            // Validate cash payment cannot have image token
+            if ($isCash && $paymentImageToken !== null) {
+                throw new PosCheckoutValidationException(
+                    'PAYMENT_INVALID',
+                    "Payment #{$index}: cash payment method cannot include a payment image."
+                );
+            }
+
             $normalizedPayments[] = [
                 'payment_method_id' => $paymentMethodId,
                 'amount_minor_units' => $amountMinorUnits,
@@ -114,30 +122,35 @@ class PosCheckoutPaymentNormalizationService
      */
     public function getCanonicalPaymentHash(array $normalizedPayments): string
     {
-        // Create canonical representation (deterministic order: by payment_method_id, then amount)
+        // Create canonical representation with all idempotency-relevant fields
+        // Order: method_id, amount, reference, edc_reference, stage_order, image_token
         $canonical = [];
         foreach ($normalizedPayments as $payment) {
             $canonical[] = [
                 (int) $payment['payment_method_id'],
                 (int) $payment['amount_minor_units'],
                 $payment['reference'] ?? '',
+                $payment['edc_reference'] ?? '',
                 $payment['stage_order'] ?? 0,
                 $payment['payment_image_token'] ?? '',
             ];
         }
 
-        // Sort by payment_method_id, then amount for deterministic ordering
+        // Sort for deterministic ordering
         usort($canonical, function (array $a, array $b) {
-            if ($a[0] !== $b[0]) {
-                return $a[0] <=> $b[0];
-            }
-            if ($a[1] !== $b[1]) {
-                return $a[1] <=> $b[1];
-            }
-            return strcmp($a[2], $b[2]);
+            if ($a[0] !== $b[0]) return $a[0] <=> $b[0];  // method_id
+            if ($a[1] !== $b[1]) return $a[1] <=> $b[1];  // amount
+            if ($a[2] !== $b[2]) return strcmp($a[2], $b[2]);  // reference
+            if ($a[3] !== $b[3]) return strcmp($a[3], $b[3]);  // edc_reference
+            if ($a[4] !== $b[4]) return $a[4] <=> $b[4];  // stage_order
+            return strcmp($a[5], $b[5]);  // image_token
         });
 
-        return hash('sha256', json_encode($canonical));
+        // Use same JSON encoding flags as replay builder for consistency
+        return hash('sha256', json_encode(
+            $canonical,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        ));
     }
 
     /**

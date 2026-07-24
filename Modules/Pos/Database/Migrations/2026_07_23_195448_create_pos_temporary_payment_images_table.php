@@ -20,12 +20,12 @@ return new class extends Migration
             $table->unsignedBigInteger('pos_session_id')->nullable();
             $table->unsignedBigInteger('cashier_id')->nullable();
             $table->string('cart_token', 64)->nullable();
-            
+
             $table->string('path');
             $table->string('original_name')->nullable();
             $table->string('mime_type')->nullable();
             $table->unsignedBigInteger('size')->nullable();
-            
+
             $table->timestamp('expires_at');
             $table->timestamp('consumed_at')->nullable();
 

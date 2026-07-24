@@ -6,7 +6,8 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Modules\Pos\Entities\PosTemporaryPaymentImage;
-use Modules\Pos\Exceptions\PosException;
+use Illuminate\Validation\ValidationException;
+use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Carbon\Carbon;
 
 class PosTemporaryPaymentImageService
@@ -16,12 +17,12 @@ class PosTemporaryPaymentImageService
      */
     public function uploadImage(UploadedFile $file, int $settingId, int $sessionId, int $cashierId, string $cartToken): PosTemporaryPaymentImage
     {
-        if (!in_array($file->getClientMimeType(), ['image/jpeg', 'image/png'])) {
-            throw new PosException('Hanya gambar JPEG atau PNG yang diperbolehkan.');
+        if (!in_array($file->getMimeType(), ['image/jpeg', 'image/png'])) {
+            throw ValidationException::withMessages(['image' => 'Hanya gambar JPEG atau PNG yang diperbolehkan.']);
         }
 
         if ($file->getSize() > 5 * 1024 * 1024) {
-            throw new PosException('Ukuran gambar tidak boleh melebihi 5 MB.');
+            throw ValidationException::withMessages(['image' => 'Ukuran gambar tidak boleh melebihi 5 MB.']);
         }
 
         // Generate unique token for this upload
@@ -36,7 +37,7 @@ class PosTemporaryPaymentImageService
             'cart_token' => $cartToken,
             'path' => $path,
             'original_name' => $file->getClientOriginalName(),
-            'mime_type' => $file->getClientMimeType(),
+            'mime_type' => $file->getMimeType(),
             'size' => $file->getSize(),
             'expires_at' => Carbon::now()->addHours(24),
         ]);
@@ -53,6 +54,15 @@ class PosTemporaryPaymentImageService
             ->where('pos_session_id', $sessionId)
             ->where('cart_token', $cartToken)
             ->first();
+    }
+
+    /**
+     * Resolve and validate an image token in the context of a checkout.
+     * Used during finalization validation to ensure the token is valid and in scope.
+     */
+    public function resolveImage(string $token, int $settingId, int $sessionId, string $cartToken): ?PosTemporaryPaymentImage
+    {
+        return $this->getActiveImage($token, $settingId, $sessionId, $cartToken);
     }
 
     /**
@@ -103,16 +113,20 @@ class PosTemporaryPaymentImageService
             ->first();
 
         if (!$image) {
-            return false;
+            \Illuminate\Support\Facades\Log::error('PosCheckout: Payment image token not found or expired', ['token' => $token]);
+            throw new PosCheckoutPostingException('MISSING_PAYMENT_IMAGE', 'Gambar pembayaran tidak ditemukan atau sudah kadaluarsa.');
         }
 
-        if (Storage::exists($image->path)) {
-            $model->addMediaFromDisk($image->path)
-                ->preservingOriginal() // Let the cleanup task handle deletion
-                ->usingName(pathinfo($image->original_name, PATHINFO_FILENAME))
-                ->usingFileName($image->original_name)
-                ->toMediaCollection('attachments');
+        if (!Storage::exists($image->path)) {
+            \Illuminate\Support\Facades\Log::error('PosCheckout: Payment image file missing from storage', ['token' => $token, 'path' => $image->path]);
+            throw new PosCheckoutPostingException('MISSING_PAYMENT_IMAGE_FILE', 'File gambar pembayaran hilang dari penyimpanan.');
         }
+
+        $model->addMediaFromDisk($image->path)
+            ->preservingOriginal() // Let the cleanup task handle deletion
+            ->usingName(pathinfo($image->original_name, PATHINFO_FILENAME))
+            ->usingFileName($image->original_name)
+            ->toMediaCollection('attachments');
 
         $image->update([
             'consumed_at' => Carbon::now(),
