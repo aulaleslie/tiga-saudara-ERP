@@ -46,12 +46,19 @@ class PosTemporaryPaymentImageService
     /**
      * Get an active image by token, ensuring scope matches the current session/cart.
      */
-    public function getActiveImage(string $token, int $settingId, int $sessionId, string $cartToken): ?PosTemporaryPaymentImage
+    public function getActiveImage(
+        string $token,
+        int $settingId,
+        int $sessionId,
+        int $cashierId,
+        string $cartToken
+    ): ?PosTemporaryPaymentImage
     {
         return PosTemporaryPaymentImage::active()
             ->where('token', $token)
             ->where('setting_id', $settingId)
             ->where('pos_session_id', $sessionId)
+            ->where('cashier_id', $cashierId)
             ->where('cart_token', $cartToken)
             ->first();
     }
@@ -60,17 +67,29 @@ class PosTemporaryPaymentImageService
      * Resolve and validate an image token in the context of a checkout.
      * Used during finalization validation to ensure the token is valid and in scope.
      */
-    public function resolveImage(string $token, int $settingId, int $sessionId, string $cartToken): ?PosTemporaryPaymentImage
+    public function resolveImage(
+        string $token,
+        int $settingId,
+        int $sessionId,
+        int $cashierId,
+        string $cartToken
+    ): ?PosTemporaryPaymentImage
     {
-        return $this->getActiveImage($token, $settingId, $sessionId, $cartToken);
+        return $this->getActiveImage($token, $settingId, $sessionId, $cashierId, $cartToken);
     }
 
     /**
      * Delete an active image.
      */
-    public function deleteImage(string $token, int $settingId, int $sessionId, string $cartToken): bool
+    public function deleteImage(
+        string $token,
+        int $settingId,
+        int $sessionId,
+        int $cashierId,
+        string $cartToken
+    ): bool
     {
-        $image = $this->getActiveImage($token, $settingId, $sessionId, $cartToken);
+        $image = $this->getActiveImage($token, $settingId, $sessionId, $cashierId, $cartToken);
 
         if (!$image) {
             return false;

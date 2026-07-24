@@ -622,7 +622,13 @@ class PosSellController extends Controller
                     ], 422);
                 }
 
-                $image = $imageService->getActiveImage($paymentImageToken, $settingId, $activeSession->id, $cartToken);
+                $image = $imageService->getActiveImage(
+                    $paymentImageToken,
+                    $settingId,
+                    (int) $activeSession->id,
+                    (int) $request->user()->id,
+                    $cartToken
+                );
                 if (!$image) {
                     return response()->json([
                         'code' => 'INVALID_IMAGE_TOKEN',
@@ -741,11 +747,15 @@ class PosSellController extends Controller
 
         $request->session()->forget($sessionKey);
 
-        $context = $this->resolveSettingAndSession($request);
+        $activeSession = $request->attributes->get('pos_active_session');
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
         app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)->deleteAllByCartToken(
             $cartToken,
-            (int) $context['setting_id'],
-            (int) $context['pos_session_id']
+            $this->currentSettingId(),
+            (int) $activeSession->id
         );
 
         return response()->json([

@@ -96,6 +96,22 @@ class FinalizePosCheckoutService
 
         $isIdempotentReplay = $existingCheckout !== null;
 
+        // Non-posted attempts are never replayable. Preserve the established
+        // lifecycle error instead of masking it with a payload comparison.
+        if ($existingCheckout && $existingCheckout->status === PosCheckout::STATUS_FINALIZING) {
+            throw new PosCheckoutConflictException(
+                'IDEMPOTENCY_IN_PROGRESS',
+                'Checkout finalization is currently in progress for this idempotency key.'
+            );
+        }
+
+        if ($existingCheckout && $existingCheckout->status === PosCheckout::STATUS_FAILED) {
+            throw new PosCheckoutConflictException(
+                'IDEMPOTENCY_PREVIOUS_FAILED',
+                'A previous attempt failed for this idempotency key. Use a new idempotency key.'
+            );
+        }
+
         // For confirmed replays, verify the payload matches before any mutable operations.
         // This protects against disabled payment methods, expired approvals, changed configuration, etc.
         if ($existingCheckout && $existingCheckout->status === PosCheckout::STATUS_POSTED) {
@@ -208,7 +224,17 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
         }
 
-        $totals = $this->validateCartAndPayment($cartSnapshot, $payment, $resolvedCustomerId, $isDebt, $settingId, $sessionId, $cartToken, $isIdempotentReplay);
+        $totals = $this->validateCartAndPayment(
+            $cartSnapshot,
+            $payment,
+            $resolvedCustomerId,
+            $isDebt,
+            $settingId,
+            $sessionId,
+            $cashierUserId,
+            $cartToken,
+            $isIdempotentReplay
+        );
 
         // Compute full payload hash after validation for storage
         $payloadHash = $this->payloadHash(
@@ -357,6 +383,7 @@ class FinalizePosCheckoutService
         bool $isDebt = false,
         int $settingId = 0,
         int $sessionId = 0,
+        int $cashierUserId = 0,
         string $cartToken = '',
         bool $isIdempotentReplay = false
     ): array {
@@ -411,7 +438,13 @@ class FinalizePosCheckoutService
                 if (!empty($imageTokens)) {
                     $imageService = app(PosTemporaryPaymentImageService::class);
                     foreach ($imageTokens as $imageToken) {
-                        $image = $imageService->resolveImage($imageToken, $settingId, $sessionId, $cartToken);
+                        $image = $imageService->resolveImage(
+                            $imageToken,
+                            $settingId,
+                            $sessionId,
+                            $cashierUserId,
+                            $cartToken
+                        );
                         if (!$image) {
                             throw new PosCheckoutValidationException(
                                 'PAYMENT_INVALID',
@@ -463,7 +496,13 @@ class FinalizePosCheckoutService
         $paymentImageToken = $payment['payment_image_token'] ?? null;
         if (!$isIdempotentReplay && $paymentImageToken !== null && $settingId > 0 && $sessionId > 0 && $cartToken !== '') {
             $imageService = app(PosTemporaryPaymentImageService::class);
-            $image = $imageService->resolveImage($paymentImageToken, $settingId, $sessionId, $cartToken);
+            $image = $imageService->resolveImage(
+                $paymentImageToken,
+                $settingId,
+                $sessionId,
+                $cashierUserId,
+                $cartToken
+            );
             if (!$image) {
                 throw new PosCheckoutValidationException(
                     'PAYMENT_INVALID',
@@ -1131,6 +1170,29 @@ class FinalizePosCheckoutService
             );
 
             throw $exception;
+        } catch (PosCheckoutPostingException $exception) {
+            $this->markCheckoutFailed(
+                checkoutId: $checkoutId,
+                failureCode: $exception->errorCode(),
+                failureMessage: $exception->getMessage(),
+                metadata: [
+                    'setting_id' => $settingId,
+                    'session_id' => $sessionId,
+                    'idempotency_key' => $idempotencyKey,
+                    'exception_class' => $exception::class,
+                ]
+            );
+
+            Log::error('POS checkout posting failed.', [
+                'setting_id' => $settingId,
+                'session_id' => $sessionId,
+                'idempotency_key' => $idempotencyKey,
+                'checkout_id' => $checkoutId,
+                'exception_class' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
         } catch (Throwable $exception) {
             $failureMetadata = [
                 'setting_id' => $settingId,
@@ -1167,7 +1229,7 @@ class FinalizePosCheckoutService
                 'session_id' => $sessionId,
                 'idempotency_key' => $idempotencyKey,
                 'checkout_id' => $checkoutId,
-                'exception' => $exception::class,
+                'exception_class' => $exception::class,
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
@@ -1671,7 +1733,7 @@ class FinalizePosCheckoutService
      * @param  int  $sessionId
      * @param  int  $terminalId
      * @param  int  $cashierUserId
-     * @param  int  $customerId
+     * @param  int|null  $customerId
      * @param  array<string, mixed>  $cartSnapshot
      * @param  array<string, mixed>  $payment
      * @param  bool  $isDebt
@@ -1683,7 +1745,7 @@ class FinalizePosCheckoutService
         int $sessionId,
         int $terminalId,
         int $cashierUserId,
-        int $customerId,
+        ?int $customerId,
         array $cartSnapshot,
         array $payment,
         bool $isDebt = false,
@@ -1739,7 +1801,7 @@ class FinalizePosCheckoutService
         int $sessionId,
         int $terminalId,
         int $cashierUserId,
-        int $customerId,
+        ?int $customerId,
         array $snapshot,
         array $payment,
         bool $isDebt = false,

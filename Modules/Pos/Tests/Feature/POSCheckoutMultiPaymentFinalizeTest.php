@@ -61,14 +61,14 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
             ->where('payment_method_id', $methods['cash']->id)
             ->first();
         $this->assertNotNull($cashPayment);
-        $this->assertEquals(60000, $cashPayment->amount_paid);
+        $this->assertEquals(60000, $cashPayment->amount);
 
         // Verify non-cash payment entry
         $cardPayment = $checkout->payments()
             ->where('payment_method_id', $methods['qris']->id)
             ->first();
         $this->assertNotNull($cardPayment);
-        $this->assertEquals(40000, $cardPayment->amount_paid);
+        $this->assertEquals(40000, $cardPayment->amount);
     }
 
     /**
@@ -100,7 +100,7 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
 
         // Should fail validation
         $response->assertStatus(422)
-            ->assertJsonPath('success', false);
+            ->assertJsonPath('code', 'PAYMENT_INVALID');
     }
 
     /**
@@ -357,10 +357,12 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         $response->assertStatus(201)
             ->assertJsonPath('status', 'POSTED')
             ->assertJsonPath('paid_total', 50000.0)
-            ->assertJsonPath('change_total', 0.0)
-            ->assertJsonPath('sale_id', true) // Top-level compatibility field
-            ->assertJsonPath('sale_payment_id', true)
-            ->assertJsonPath('dispatch_ids', true);
+            ->assertJsonPath('change_total', 0.0);
+
+        $data = $response->json();
+        $this->assertIsInt($data['sale_id']);
+        $this->assertIsInt($data['sale_payment_id']);
+        $this->assertIsArray($data['dispatch_ids']);
     }
 
     /**
@@ -397,9 +399,6 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         // Multi-payment should still include top-level compatibility fields
         $response->assertStatus(201)
             ->assertJsonPath('status', 'POSTED')
-            ->assertJsonPath('sale_id', true) // Mapped from deterministic first split group
-            ->assertJsonPath('sale_payment_id', true)
-            ->assertJsonPath('dispatch_ids', true)
             ->assertJsonPath('paid_total', 100000.0)
             ->assertJsonPath('change_total', 0.0);
 
@@ -461,7 +460,7 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         // Second request with altered composition should return conflict
         $second = $this->finalize($context['cashier'], $context['setting'], $secondPayload);
         $second->assertStatus(409)
-            ->assertJsonPath('code', 'IDEMPOTENCY_MISMATCH');
+            ->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
     }
 
     /**
@@ -506,24 +505,49 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         // Second request with altered methods should return conflict
         $second = $this->finalize($context['cashier'], $context['setting'], $secondPayload);
         $second->assertStatus(409)
-            ->assertJsonPath('code', 'IDEMPOTENCY_MISMATCH');
+            ->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
     }
 
     public function test_two_stages_same_method_separate_payments_correct_images(): void
     {
-        $context = $this->createCheckoutContext();
-        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $context = $this->createCheckoutContext('POS MULTI SAME METHOD IMAGES');
+        $product = $this->createStockedProduct(
+            $context['setting'],
+            $context['location'],
+            'MP-IMAGE-SAME-001',
+            100000,
+            false
+        );
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         \Illuminate\Support\Facades\Storage::fake();
         $image1 = \Illuminate\Http\UploadedFile::fake()->image('img1.jpg');
         $image2 = \Illuminate\Http\UploadedFile::fake()->image('img2.jpg');
-        
-        $token1 = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image1, 'cart_token' => 'multi-token'])
+
+        $cartToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot.staged_payment_token');
+
+        $token1 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image1,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
             ->json('token');
-            
-        $token2 = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image2, 'cart_token' => 'multi-token'])
+
+        $token2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image2,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
             ->json('token');
 
         $payload = [
@@ -533,12 +557,14 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
                     'payment_method_id' => $context['methods']['transfer']->id,
                     'amount_paid' => 100000,
                     'reference' => 'T1',
+                    'stage_order' => 1,
                     'payment_image_token' => $token1,
                 ],
                 [
                     'payment_method_id' => $context['methods']['transfer']->id,
                     'amount_paid' => 100000,
                     'reference' => 'T2',
+                    'stage_order' => 2,
                     'payment_image_token' => $token2,
                 ],
             ],
@@ -548,32 +574,43 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         $response->assertStatus(201);
         
         $sale = \Modules\Sale\Entities\Sale::findOrFail($response->json('sale_id'));
-        $payments = $sale->salePayments()->orderBy('id')->get();
-        
+        $payments = $sale->salePayments()->orderBy('stage_order')->get();
+
         $this->assertCount(2, $payments);
-        
-        $att1 = collect($payments[0]->attachments)->first()['file_id'] ?? null;
-        $att2 = collect($payments[1]->attachments)->first()['file_id'] ?? null;
-        
-        $this->assertNotNull($att1);
-        $this->assertNotNull($att2);
-        
-        $file1 = \Modules\System\Entities\File::findOrFail($att1);
-        $file2 = \Modules\System\Entities\File::findOrFail($att2);
-        
-        $this->assertEquals($token1 . '.jpg', $file1->original_name);
-        $this->assertEquals($token2 . '.jpg', $file2->original_name);
+        $this->assertSame(1, $payments[0]->stage_order);
+        $this->assertSame(2, $payments[1]->stage_order);
+        $this->assertSame(['img1.jpg'], $payments[0]->getMedia('attachments')->pluck('file_name')->all());
+        $this->assertSame(['img2.jpg'], $payments[1]->getMedia('attachments')->pluck('file_name')->all());
     }
 
     public function test_image_from_one_stage_never_attached_to_another_and_cash_never_receives_image(): void
     {
-        $context = $this->createCheckoutContext();
-        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $context = $this->createCheckoutContext('POS MULTI STAGE ISOLATION');
+        $product = $this->createStockedProduct(
+            $context['setting'],
+            $context['location'],
+            'MP-IMAGE-ISOLATION-001',
+            100000,
+            false
+        );
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         \Illuminate\Support\Facades\Storage::fake();
         $image = \Illuminate\Http\UploadedFile::fake()->image('img.jpg');
-        $token = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image, 'cart_token' => 'mix-token'])
+        $cartToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot.staged_payment_token');
+        $token = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
             ->json('token');
 
         $payload = [
@@ -582,11 +619,13 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
                 [
                     'payment_method_id' => $context['methods']['cash']->id,
                     'amount_paid' => 100000,
+                    'stage_order' => 1,
                 ],
                 [
                     'payment_method_id' => $context['methods']['transfer']->id,
                     'amount_paid' => 100000,
                     'reference' => 'TRX',
+                    'stage_order' => 2,
                     'payment_image_token' => $token,
                 ],
             ],
@@ -596,34 +635,49 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         $response->assertStatus(201);
         
         $sale = \Modules\Sale\Entities\Sale::findOrFail($response->json('sale_id'));
-        $payments = $sale->salePayments()->orderBy('id')->get();
-        
+        $payments = $sale->salePayments()->orderBy('stage_order')->get();
+
         $this->assertCount(2, $payments);
-        
-        // First is cash
         $this->assertEquals($context['methods']['cash']->id, $payments[0]->payment_method_id);
-        $this->assertEmpty($payments[0]->attachments);
-        
-        // Second is transfer
+        $this->assertCount(0, $payments[0]->getMedia('attachments'));
         $this->assertEquals($context['methods']['transfer']->id, $payments[1]->payment_method_id);
-        $this->assertNotEmpty($payments[1]->attachments);
-        $att = collect($payments[1]->attachments)->first()['file_id'] ?? null;
-        $this->assertNotNull($att);
+        $this->assertSame(['img.jpg'], $payments[1]->getMedia('attachments')->pluck('file_name')->all());
     }
     
     public function test_missing_physical_image_causes_checkout_rollback(): void
     {
-        $context = $this->createCheckoutContext();
-        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $context = $this->createCheckoutContext('POS MISSING IMAGE ROLLBACK');
+        $product = $this->createStockedProduct(
+            $context['setting'],
+            $context['location'],
+            'MP-MISSING-IMAGE-001',
+            100000,
+            false
+        );
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         \Illuminate\Support\Facades\Storage::fake();
         $image = \Illuminate\Http\UploadedFile::fake()->image('img.jpg');
-        $token = $this->actingAs($context['cashier'])->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), ['image' => $image, 'cart_token' => 'missing-token'])
+        $cartToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot.staged_payment_token');
+        $token = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
             ->json('token');
-            
-        // Delete the physical file
-        \Illuminate\Support\Facades\Storage::delete('pos/temp_payment_images/' . $token . '.jpg');
+
+        $temporaryImage = \Modules\Pos\Entities\PosTemporaryPaymentImage::query()
+            ->where('token', $token)
+            ->firstOrFail();
+        \Illuminate\Support\Facades\Storage::delete($temporaryImage->path);
 
         $payload = [
             'idempotency_key' => 'test-missing-image-' . uniqid(),
@@ -637,10 +691,10 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
 
         $response = $this->finalize($context['cashier'], $context['setting'], $payload);
         
-        // Should rollback and fail
-        $response->assertStatus(422); // Or 500 depending on how file copy failure is caught, usually validation 422 if we check existence, or 500 if internal
-        
-        // Check rollback (no sales created)
+        $response->assertStatus(500)
+            ->assertJsonPath('code', 'MISSING_PAYMENT_IMAGE_FILE');
         $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertNull($temporaryImage->fresh()->consumed_at);
     }
 }

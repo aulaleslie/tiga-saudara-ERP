@@ -14,7 +14,9 @@ use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTemporaryPaymentImage;
+use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\Pos\Services\PosTemporaryPaymentImageService;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Product\Entities\Category;
@@ -61,6 +63,8 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'pos.sessions.open',
             'pos.checkout.payment',
             'pos.sessions.require-terminal',
+            'pos.transactions.save',
+            'pos.transactions.load',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -537,6 +541,8 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'pos.sessions.open',
             'pos.sessions.require-terminal',
             'pos.checkout.payment',
+            'pos.transactions.save',
+            'pos.transactions.load',
         ]);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
@@ -579,6 +585,7 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => true,
+            'pos_transactions_enabled' => true,
             'is_pkp' => false,
         ]);
     }
@@ -803,17 +810,17 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
 
     public function test_note_participates_in_stored_checkout_payload_hash(): void
     {
-        $context = $this->createCheckoutContext('NOTE-HASH');
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-HASH', 50000, false);
+        $context = $this->createCheckoutContext('NOTE-HASH-ID');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-HASH-A', 50000, false);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
-        $note = 'Checkout note for hash test';
+        $noteA = 'Checkout note A';
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->patchJson(route('pos.sell.cart.note.update'), ['note' => $note])
+            ->patchJson(route('pos.sell.cart.note.update'), ['note' => $noteA])
             ->assertOk();
 
         $idempotencyKey = \Illuminate\Support\Str::uuid()->toString();
@@ -823,9 +830,106 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
         ]);
         $response1->assertCreated();
+        $saleId1 = $response1->json('sale_id');
 
-        $checkout = PosCheckout::latest()->first();
-        $this->assertNotNull($checkout->payload_hash, 'Checkout should have payload hash');
+        // Verify the note was persisted
+        $sale1 = Sale::findOrFail($saleId1);
+        $this->assertStringContainsStringIgnoringCase($noteA, $sale1->note);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.note.update'), ['note' => 'Checkout note B'])
+            ->assertOk();
+
+        $response2 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
+        ]);
+
+        $response2->assertStatus(409)
+            ->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
+        $this->assertSame($saleId1, (int) $response1->json('sale_id'));
+    }
+
+    public function test_note_survives_cart_reload(): void
+    {
+        $context = $this->createCheckoutContext('NOTE-RELOAD');
+        $note = 'Cart reload test note';
+
+        $this->addCartLine($context['cashier'], $context['setting'], $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RELOAD-1', 50000, false)->id, 1);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.note.update'), ['note' => $note])
+            ->assertOk();
+
+        $snapshot1 = $this->getCartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals($note, $snapshot1['note'] ?? null);
+
+        $snapshot2 = $this->getCartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals($note, $snapshot2['note'] ?? null);
+    }
+
+    public function test_note_survives_draft_save_and_load(): void
+    {
+        $context = $this->createCheckoutContext('NOTE-DRAFT');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-DRAFT-1', 50000, false);
+        $note = 'Draft save and load note';
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.note.update'), ['note' => $note])
+            ->assertOk();
+
+        $saveResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertCreated();
+
+        $transactionId = (int) $saveResponse->json('transaction.id');
+        $this->assertSame($note, PosTransaction::query()->findOrFail($transactionId)->note);
+        $this->assertNull(
+            $this->getCartSnapshot($context['cashier'], $context['setting'])['note'] ?? null,
+            'Save-and-new should clear the active cart note.'
+        );
+
+        $loadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $this->assertSame($note, $loadResponse->json('cart_snapshot.note'));
+        $this->assertSame(
+            $note,
+            $this->getCartSnapshot($context['cashier'], $context['setting'])['note'] ?? null
+        );
+    }
+
+    public function test_legacy_null_note_is_supported(): void
+    {
+        $context = $this->createCheckoutContext('NOTE-LEGACY-NULL');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-LEGACY-1', 50000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $saveResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertCreated();
+
+        $transactionId = (int) $saveResponse->json('transaction.id');
+        PosTransaction::query()->whereKey($transactionId)->update(['note' => null]);
+
+        $loadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $this->assertNull($loadResponse->json('cart_snapshot.note'));
     }
 
     public function test_inline_posting_places_note_on_generated_sale(): void
@@ -851,6 +955,26 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
 
         $sale = Sale::findOrFail($response->json('sale_id'));
         $this->assertStringContainsStringIgnoringCase($note, $sale->note);
+    }
+
+    public function test_split_posting_without_note_has_provenance_without_blank_suffix(): void
+    {
+        $context = $this->createCheckoutContext('SPLIT-NO-NOTE');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SPLIT-1', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-' . uniqid(),
+            'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
+        ]);
+        $response->assertCreated();
+
+        $sale = Sale::findOrFail($response->json('sale_id'));
+        $this->assertStringContainsStringIgnoringCase('POS CHECKOUT', $sale->note);
+        $this->assertStringNotContainsString('null', $sale->note);
     }
 
     public function test_when_note_is_absent_every_sale_retains_pos_provenance_without_blank_note_line(): void
@@ -982,15 +1106,14 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
     
     public function test_payment_image_token_from_another_cashier_is_rejected(): void
     {
-        // Image tokens are scoped to cashier/session
-        $context = $this->createCheckoutContext('IMAGE-CASHIER-1');
-
+        $context1 = $this->createCheckoutContext('IMAGE-CASHIER-1');
         Storage::fake();
+
         $cartToken = 'test-cart-token-' . uniqid();
         $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
 
-        $response = $this->actingAs($context['cashier'])
-            ->withSession(['setting_id' => $context['setting']->id])
+        $response = $this->actingAs($context1['cashier'])
+            ->withSession(['setting_id' => $context1['setting']->id])
             ->postJson(route('pos.sell.payment-image.upload'), [
                 'image' => $validImage,
                 'cart_token' => $cartToken
@@ -999,9 +1122,30 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
 
         $token = $response->json('token');
 
-        // Verify token was uploaded under this cashier's context
         $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
-        $this->assertEquals($context['cashier']->id, $upload->cashier_id);
+        $this->assertEquals($context1['cashier']->id, $upload->cashier_id);
+
+        $cashier2 = $this->createUserForSetting(
+            $context1['setting'],
+            'IMAGE-CASHIER-2',
+            ['pos.access', 'pos.sell', 'pos.checkout.payment']
+        );
+        $imageService = app(PosTemporaryPaymentImageService::class);
+
+        $this->assertNotNull($imageService->resolveImage(
+            $token,
+            $context1['setting']->id,
+            $context1['session']->id,
+            $context1['cashier']->id,
+            $cartToken
+        ));
+        $this->assertNull($imageService->resolveImage(
+            $token,
+            $context1['setting']->id,
+            $context1['session']->id,
+            $cashier2->id,
+            $cartToken
+        ));
     }
     
     public function test_unauthenticated_upload_is_rejected(): void
@@ -1028,7 +1172,13 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $context = $this->createCheckoutContext('IMAGE-REUPLOAD');
         Storage::fake();
 
-        $cartToken = 'test-cart-token-' . uniqid();
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-REUP', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
         $image1 = \Illuminate\Http\UploadedFile::fake()->image('receipt1.jpg');
 
         $response1 = $this->actingAs($context['cashier'])
@@ -1041,6 +1191,7 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
 
         $token1 = $response1->json('token');
 
+        // Delete token 1
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->deleteJson(route('pos.sell.payment-image.delete'), [
@@ -1049,35 +1200,65 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             ])
             ->assertOk();
 
-        // Token 1 should no longer be valid
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-REUP', 50000, false);
+        // Upload replacement image to get token 2
+        $image2 = \Illuminate\Http\UploadedFile::fake()->image('receipt2.jpg');
+        $response2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image2,
+                'cart_token' => $cartToken
+            ])
+            ->assertOk();
+
+        $token2 = $response2->json('token');
+
+        // Token 2 should differ from token 1
+        $this->assertNotEquals($token1, $token2, 'Reuploaded image should get a different token');
+
+        // Token 1 should now be unusable
+        $response3 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-'.uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-reup',
+                'payment_image_token' => $token1
+            ]
+        ]);
+
+        $response3->assertStatus(422, 'Deleted token 1 should no longer be valid');
+
+        // Token 2 should remain usable (add new product for second checkout)
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $response4 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 100000,
+                'reference' => 'ref-reup-2',
+                'payment_image_token' => $token2
+            ]
+        ]);
+
+        $response4->assertStatus(201, 'New token 2 should remain usable');
+    }
+
+    public function test_reloaded_payment_chain_preserves_payment_image_token(): void
+    {
+        $context = $this->createCheckoutContext('IMAGE-RECOVERY');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RECOVERY', 50000, false);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
-        $response2 = $this->finalize($context['cashier'], $context['setting'], [
-            'idempotency_key' => 'IDEM-'.uniqid(),
-            'payment' => [
-                'payment_method_id' => $context['methods']->transfer->id,
-                'amount_paid' => 50000,
-                'payment_image_token' => $token1
-            ]
-        ]);
-
-        $response2->assertStatus(422);
-    }
-
-    public function test_reloaded_payment_chain_preserves_payment_image_token(): void
-    {
-        // Image tokens persist across payment-page reloads (verified by idempotency)
-        $context = $this->createCheckoutContext('IMAGE-RECOVERY');
-        Storage::fake();
-
-        $cartToken = 'test-cart-token-' . uniqid();
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
         $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
 
-        $response = $this->actingAs($context['cashier'])
+        $uploadResponse = $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.payment-image.upload'), [
                 'image' => $validImage,
@@ -1085,19 +1266,49 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             ])
             ->assertOk();
 
-        $token = $response->json('token');
+        $token = $uploadResponse->json('token');
         $this->assertNotEmpty($token, 'Upload should return token');
 
-        // Verify token exists in database
-        $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
-        $this->assertNotNull($upload);
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount' => 50000,
+                'grand_total' => 50000,
+                'cart_token' => $cartToken,
+                'edc_reference' => 'test-ref',
+                'payment_image_token' => $token
+            ])
+            ->assertStatus(201);
+
+        $recovered = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.checkout.payment-chain', ['cart_token' => $cartToken]))
+            ->assertOk()
+            ->assertJsonPath('has_chain', true);
+
+        $this->assertSame(
+            $token,
+            $recovered->json('payment_chain.payments.0.payment_image.token')
+        );
+        $this->assertSame(
+            'receipt.jpg',
+            $recovered->json('payment_chain.payments.0.payment_image.original_name')
+        );
     }
 
     public function test_image_tokens_do_not_alter_edc_reference_validation(): void
     {
+        // Image tokens are independent from EDC/reference validation rules
+        // This verifies that image upload/token validation does not interfere with payment method requirements
         $context = $this->createCheckoutContext('IMAGE-EDC');
 
-        $cartToken = 'test-cart-token-' . uniqid();
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-EDC', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
         $image = \Illuminate\Http\UploadedFile::fake()->image('receipt.png');
         $response = $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
@@ -1109,69 +1320,84 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
 
         $token = $response->json('token');
 
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-EDC', 50000, false);
-        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        // Checkout with transfer method requires reference. Should still work with image token present.
+        $response2 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-edc-test',
+                'payment_image_token' => $token
+            ]
+        ]);
 
-        // Transfer method requires reference. Should fail if omitted, despite having token.
+        $response2->assertCreated();
+    }
+    
+    public function test_resetting_payment_chain_removes_image_token(): void
+    {
+        $context = $this->createCheckoutContext('IMAGE-RESET');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RESET', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
+
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $validImage,
+                'cart_token' => $cartToken
+            ])
+            ->assertOk();
+
+        $token = $uploadResponse->json('token');
+
+        // Verify upload exists before reset
+        $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
+        $this->assertNotNull($upload, 'Upload should exist');
+        $this->assertNull($upload->consumed_at);
+
+        // Stage payment with image
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.checkout.stage-payment'), [
                 'payment_method_id' => $context['methods']->transfer->id,
                 'amount' => 50000,
                 'grand_total' => 50000,
+                'cart_token' => $cartToken,
+                'edc_reference' => 'test-ref-reset',
                 'payment_image_token' => $token
-                // edc_reference omitted
             ])
-            ->assertStatus(422);
-    }
-    
-    public function test_resetting_payment_chain_removes_image_token(): void
-    {
-        // Payment chain reset should cleanup associated image uploads
-        $context = $this->createCheckoutContext('IMAGE-RESET');
-        Storage::fake();
+            ->assertStatus(201);
 
-        $cartToken = 'test-cart-token-' . uniqid();
-        $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
-
-        $response = $this->actingAs($context['cashier'])
+        $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), [
-                'image' => $validImage,
-                'cart_token' => $cartToken
+            ->deleteJson(route('pos.sell.checkout.payment-chain.reset'), [
+                'cart_token' => $cartToken,
             ])
             ->assertOk();
 
-        $token = $response->json('token');
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.checkout.payment-chain', ['cart_token' => $cartToken]))
+            ->assertOk()
+            ->assertJsonPath('has_chain', false)
+            ->assertJsonPath('payment_chain', null);
 
-        // Verify upload exists
-        $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
-        $this->assertNotNull($upload, 'Upload should exist');
-        $this->assertNull($upload->consumed_at);
+        $this->assertDatabaseMissing('pos_temporary_payment_images', ['token' => $token]);
+        Storage::assertMissing($upload->path);
     }
     
-    public function test_retry_payment_with_valid_image_succeeds_after_failure(): void
+    public function test_failed_checkout_retains_image_for_retry(): void
     {
-        // Failed checkout retains image token for retry
         $context = $this->createCheckoutContext('IMAGE-RETRY');
         Storage::fake();
-
-        $cartToken = 'test-cart-token-' . uniqid();
-        $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
-
-        $response = $this->actingAs($context['cashier'])
-            ->withSession(['setting_id' => $context['setting']->id])
-            ->postJson(route('pos.sell.payment-image.upload'), [
-                'image' => $validImage,
-                'cart_token' => $cartToken
-            ])
-            ->assertOk();
-
-        $token = $response->json('token');
-
-        // Verify token is not consumed before use
-        $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
-        $this->assertNull($upload->consumed_at);
 
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RETRY', 50000, false);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
@@ -1179,19 +1405,54 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
-        // On successful checkout, token should be consumed
-        $response1 = $this->finalize($context['cashier'], $context['setting'], [
-            'idempotency_key' => 'IDEM-'.uniqid(),
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $validImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg');
+
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $validImage,
+                'cart_token' => $cartToken
+            ])
+            ->assertOk();
+
+        $token = $uploadResponse->json('token');
+
+        // Verify token is not consumed before use
+        $upload = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
+        $this->assertNull($upload->consumed_at, 'Token should not be consumed before checkout');
+
+        $idempotencyKey = 'IDEM-' . uniqid();
+        $failed = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
             'payment' => [
-                'payment_method_id' => $context['methods']->cash->id,
-                'amount_paid' => 50000,
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 40000,
+                'reference' => 'ref-retry',
+                'payment_image_token' => $token,
             ]
         ]);
-        $response1->assertCreated();
+        $failed->assertStatus(422);
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertNull(
+            PosTemporaryPaymentImage::query()->where('token', $token)->firstOrFail()->consumed_at
+        );
 
-        // After successful checkout, token should be marked consumed or removed
-        // This verifies the image lifecycle is managed correctly
-        $this->assertTrue(true, 'Token lifecycle managed correctly');
+        $retry = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-retry',
+                'payment_image_token' => $token,
+            ],
+        ]);
+        $retry->assertCreated();
+
+        $uploadAfter = PosTemporaryPaymentImage::query()->where('token', $token)->firstOrFail();
+        $this->assertNotNull($uploadAfter->consumed_at);
+        $salePayment = Sale::findOrFail($retry->json('sale_id'))->salePayments()->firstOrFail();
+        $this->assertCount(1, $salePayment->getMedia('attachments'));
     }
 
     public function test_payment_image_token_from_another_cart_is_rejected(): void
@@ -1232,6 +1493,37 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $response2->assertStatus(422);
     }
 
+    public function test_cash_stage_never_receives_payment_image(): void
+    {
+        $context = $this->createCheckoutContext('CASH-NO-IMG-STAGE');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CASH-STAGE', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->cash->id,
+                'amount_paid' => 50000
+            ]
+        ]);
+        $response->assertCreated();
+
+        $sale = Sale::findOrFail($response->json('sale_id'));
+        $this->assertNotNull($sale->id);
+
+        // Cash payments should never have media attachments
+        $salePayments = $sale->salePayments()->get();
+        $this->assertNotEmpty($salePayments);
+        foreach ($salePayments as $payment) {
+            $this->assertEquals(0, $payment->media()->count(), 'Cash payment should not have attachments');
+        }
+    }
+
     public function test_stage_without_image_remains_attachment_free(): void
     {
         $context = $this->createCheckoutContext('IMAGE-NONE');
@@ -1244,34 +1536,26 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'IDEM-'.uniqid(),
             'payment' => [
-                'payment_method_id' => $context['methods']->cash->id,
-                'amount_paid' => 50000
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'no-image-reference',
             ]
         ]);
         $response->assertCreated();
 
-        $saleId = $response->json('sale_id');
-        $sale = Sale::findOrFail($saleId);
-
-        // Verify sale was created
+        $sale = Sale::findOrFail($response->json('sale_id'));
         $this->assertNotNull($sale->id);
 
-        // If sale has payments, verify they don't have attachments (no images supplied)
-        if ($sale->payments && $sale->payments->count() > 0) {
-            foreach ($sale->payments as $payment) {
-                if ($payment->attachments) {
-                    $this->assertTrue(
-                        $payment->attachments->isEmpty() || $payment->attachments->count() === 0,
-                        'Payment without image should not have attachments'
-                    );
-                }
-            }
+        // Query sale payments and verify no attachments
+        $salePayments = $sale->salePayments()->get();
+        $this->assertNotEmpty($salePayments);
+        foreach ($salePayments as $payment) {
+            $this->assertEquals(0, $payment->media()->count(), 'Payment without image should not have attachments');
         }
     }
 
     public function test_identical_replay_returns_200(): void
     {
-        // Idempotent replay with same payload should return original checkout
         $context = $this->createCheckoutContext('REPLAY-IDENTICAL');
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-REPLAY', 50000, false);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
@@ -1286,22 +1570,39 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
         ]);
         $response1->assertCreated();
+        $checkoutId1 = $response1->json('pos_checkout_id');
+        $saleId1 = $response1->json('sale_id');
+        $mediaCount1 = Sale::findOrFail($saleId1)->salePayments()->first()?->media()->count() ?? 0;
 
-        $sale1Id = $response1->json('sale_id');
-        $checkout1 = PosCheckout::where('sale_id', $sale1Id)->first();
-        $this->assertNotNull($checkout1->payload_hash, 'Checkout should store payload hash for idempotency');
+        // Identical replay with same idempotency key and payload
+        $response2 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
+        ]);
 
-        // Idempotent retry with same idempotency key and payload should succeed
-        // (Framework handles this - returns 200 OK with original result)
+        $response2->assertStatus(200);
+        $this->assertEquals($checkoutId1, $response2->json('pos_checkout_id'), 'Replay should return same checkout');
+        $this->assertEquals($saleId1, $response2->json('sale_id'), 'Replay should return same sale');
+
+        // Verify attachments didn't increase
+        $mediaCount2 = Sale::findOrFail($saleId1)->salePayments()->first()?->media()->count() ?? 0;
+        $this->assertEquals($mediaCount1, $mediaCount2, 'Media count should not increase on replay');
     }
 
     public function test_changed_image_token_returns_409(): void
     {
-        // Idempotent replay with changed image token should return 409 conflict
         $context = $this->createCheckoutContext('REPLAY-IMAGE-CHANGE');
         Storage::fake();
 
-        $cartToken = 'test-cart-token-' . uniqid();
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-IMGCH', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+
+        // Upload two images
         $image1 = \Illuminate\Http\UploadedFile::fake()->image('receipt1.jpg');
         $uploadResponse1 = $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
@@ -1312,24 +1613,92 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             ->assertOk();
         $token1 = $uploadResponse1->json('token');
 
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-IMGCH', 50000, false);
+        $image2 = \Illuminate\Http\UploadedFile::fake()->image('receipt2.jpg');
+        $uploadResponse2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image2,
+                'cart_token' => $cartToken
+            ])
+            ->assertOk();
+        $token2 = $uploadResponse2->json('token');
+
+        $idempotencyKey = \Illuminate\Support\Str::uuid()->toString();
+
+        // First request: uses token1
+        $response1 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-img-change',
+                'payment_image_token' => $token1
+            ]
+        ]);
+        $response1->assertStatus(201);
+        $saleId1 = $response1->json('sale_id');
+        $sale1 = Sale::findOrFail($saleId1);
+        $attachmentCount1 = $sale1->salePayments()->first()?->media()->count() ?? 0;
+
+        // Second request (same key, different token): should fail with 409
+        $response2 = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-img-change',
+                'payment_image_token' => $token2
+            ]
+        ]);
+
+        $response2->assertStatus(409);
+        $this->assertEquals('IDEMPOTENCY_PAYLOAD_MISMATCH', $response2->json('code'));
+
+        // Original sale should be unchanged
+        $sale1Refreshed = Sale::findOrFail($saleId1);
+        $attachmentCount1Refreshed = $sale1Refreshed->salePayments()->first()?->media()->count() ?? 0;
+        $this->assertEquals($attachmentCount1, $attachmentCount1Refreshed, 'Original sale attachments should not change');
+    }
+
+    public function test_missing_physical_image_rolls_back_checkout(): void
+    {
+        $context = $this->createCheckoutContext('IMAGE-MISSING-FILE');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-MISSING-IMG', 50000, false);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
-        $idempotencyKey = \Illuminate\Support\Str::uuid()->toString();
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => \Illuminate\Http\UploadedFile::fake()->image('missing.jpg'),
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk();
 
-        $response1 = $this->finalize($context['cashier'], $context['setting'], [
-            'idempotency_key' => $idempotencyKey,
+        $token = (string) $uploadResponse->json('token');
+        $temporaryImage = PosTemporaryPaymentImage::query()->where('token', $token)->firstOrFail();
+        Storage::delete($temporaryImage->path);
+        Storage::assertMissing($temporaryImage->path);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-' . uniqid(),
             'payment' => [
-                'payment_method_id' => $context['methods']->cash->id,
-                'amount_paid' => 50000
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount_paid' => 50000,
+                'reference' => 'ref-missing-img',
+                'payment_image_token' => $token,
             ]
         ]);
-        $response1->assertCreated();
 
-        $checkout = PosCheckout::latest()->first();
-        $this->assertNotNull($checkout->payload_hash, 'Image token changes should be detected by payload hash');
+        $response->assertStatus(500)
+            ->assertJsonPath('code', 'MISSING_PAYMENT_IMAGE_FILE');
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertNull($temporaryImage->fresh()->consumed_at);
     }
 }

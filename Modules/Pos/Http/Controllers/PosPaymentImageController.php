@@ -86,6 +86,7 @@ class PosPaymentImageController extends Controller
             $token,
             $settingId,
             $sessionId,
+            (int) Auth::id(),
             $cartToken
         );
 

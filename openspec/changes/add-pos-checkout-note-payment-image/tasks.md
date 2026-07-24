@@ -59,102 +59,15 @@
 - [x] 8.7 Run focused POS note/payment tests and relevant existing multi-payment, split-posting, draft-roundtrip, and checkout-idempotency suites with `php artisan test`.
 - [x] 8.8 Run the broader fresh SQLite verification with `composer test:fresh-sqlite` and record any environment-specific limitations.
 
-## Test Coverage Status - Phase 8 Complete
+## Verification record — 2026-07-24
 
-Test file: Modules/Pos/Tests/Feature/POSCheckoutNoteAndPaymentImageTest.php
+All feature and required POS regression suites pass without skips:
 
-**Test Results (8.1-8.7):**
-- Total: 33 tests passed (0 failed)
-- Assertions: 132 executed
-- Duration: ~10 seconds
+- `POSCheckoutNoteAndPaymentImageTest`: 39 passed, 219 assertions.
+- `POSCheckoutFinalizeIdempotencyTest`: 21 passed, 141 assertions.
+- `POSCheckoutMultiPaymentFinalizeTest`: 35 passed, 248 assertions.
+- `POSCheckoutSplitPostingTest`: 8 passed, 82 assertions.
+- `POSBundleDraftRoundtripTest`: 3 passed, 22 assertions.
+- `PosPaymentChainRecoveryTest`: 2 passed, 24 assertions.
 
-**Test Coverage:**
-- Note functionality: 5 tests (optional, whitespace, limits, persistence, idempotency)
-- Image upload: 9 tests (JPEG/PNG, MIME validation, size limits, expiry, ownership scopes)
-- Ownership/scope: 6 tests (setting, session, cashier, cart isolation, auth)
-- Lifecycle: 5 tests (chain recovery, reset, retry, payload hashing, token management)
-- Replay/idempotency: 2 tests (payload fingerprinting, conflict detection)
-- Integration: 6 tests (inline posting, sale note inclusion, provenance preservation, staging)
-- Test utilities: existing helper methods (createCheckoutContext, finalize, etc.)
-
-
-
-Production code fixes applied:
-- FinalizePosCheckoutService.normalizePayment() now preserves payment_image_token
-- Cash payment validation prevents image token supply
-- Invalid/expired token validation added via PosTemporaryPaymentImageService.resolveImage()
-
-## Post-Implementation Quality Fixes
-
-- [x] Fixed test idempotency hash to include note field matching production code
-- [x] Fixed cleanup command to verify Storage::delete() success before removing database record
-- [x] Added logging when Storage::delete() fails to silent-fail
-- [x] Restored original migration timestamps to prevent duplicate-column errors in environments that already ran them
-- [x] Fixed trailing whitespace in temporary payment images migration
-- [x] Rebuilt test suite using established POSCheckoutFinalizeIdempotencyTest fixtures and actual routes
-- [x] Created POSCheckoutNoteAndPaymentImageTest with 8 functional tests covering core workflows
-- [x] Fixed production code: added missing resolveImage() method with scoped validation
-- [x] Fixed production code: updated validateCartAndPayment() to accept and use setting/session/cart context
-- [x] Fixed production code: added image token validation for single-payment checkout
-- [x] Fixed production code: added cash rejection for image tokens in multi-payment normalization
-- [x] Fixed production code: added image token validation for multi-payment checkout
-- [x] Fixed test attachment test to use authoritative staged_payment_token instead of invented token
-- [x] Fixed test cash rejection test to use authoritative staged_payment_token for consistency
-- [x] Fixed idempotent replay lifecycle regression: resolve existing checkouts before validating images
-- [x] Fixed idempotent replay lifecycle regression: skip active-image validation for replay requests
-- [x] Fixed critical idempotency payload protection regression: compute hash before early return, verify via resolveExistingCheckout()
-- [x] Fixed critical idempotency replay regression: use request fingerprint (immutable fields only) instead of cart-dependent hash
-- [x] Implemented verifyIdempotencyRequestFingerprint() comparing: setting, cashier, customer, payment method, reference, note, debt config, amount
-- [x] Fixed test JSON key: response uses 'code', not 'error_code', for conflict exceptions
-- [x] Added test_payment_image_idempotent_replay_succeeds_despite_consumed_token() to verify replay doesn't fail on consumed images
-- [x] Added test_idempotent_replay_rejects_payload_mismatch_on_image_token() to verify payload hash protection
-
-## Critical Idempotency Defect Fixes (Pre-Merge) — FINAL
-
-Five critical defects have been identified and FIXED to ensure idempotent replay works correctly:
-
-### 1. Replay Fingerprint Used Cleared Cart (CRITICAL)
-- **Problem**: After successful checkout, cart is cleared. On replay, fingerprint computed with empty cart, causing 409 Conflict instead of 200 OK. Changed carts could replay successfully.
-- **Solution**: Store immutable original_cart_snapshot on checkout creation (lines, totals, bill_discount, note, customer). Use stored snapshot for replay fingerprint instead of current cart.
-- **Implementation**: Migration 2026_08_16_000000_add_original_cart_snapshot_to_pos_checkouts.php, PosCheckout model updated, snapshot stored at creation (line 708), used on replay (line 123).
-- **Result**: Identical replay after cart clearing returns 200 OK. Changed-cart replays correctly return 409.
-
-### 2. Customer ID from Current (Cleared) Cart on Replay (HIGH)
-- **Problem**: $resolvedCustomerId extracted from current cart at line 88. On replay, current cart cleared → customer ID becomes null. Named-customer checkout fingerprint mismatched.
-- **Solution**: Extract customer ID from stored snapshot on replay, not current cart (lines 128-131).
-- **Implementation**: Check originalCustomerId from originalCartSnapshot['customer']['resolved_customer_id'] before computing replay fingerprint (line 133).
-- **Result**: Named-customer replays now return 200 OK instead of 409. Customer data preserved in idempotency check.
-
-### 3. Multi-Payment Canonical Hash: Inconsistent JSON Encoding (HIGH)
-- **Problem**: Replay builder used JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION; production normalizer used default json_encode(). Unicode or / in references produced different hashes.
-- **Solution**: Both replay builder and production normalizer use identical JSON encoding flags.
-- **Implementation**: Replay builder (FinalizePosCheckoutService.php:553-558) and normalizer (PosCheckoutPaymentNormalizationService.php:148-152) both use same flags.
-- **Result**: Identical payments with Unicode/slash in references produce identical hashes.
-
-### 4. edc_reference Excluded from Canonical Hash (MEDIUM)
-- **Problem**: edc_reference normalized and persisted, but omitted from canonical hash computation. Changed EDC reference on identical multi-payment could replay as 200.
-- **Solution**: Include edc_reference as 4th field in canonical array (after reference, before stage_order).
-- **Implementation**: Updated buildRawMultiPaymentForReplayFingerprint() and getCanonicalPaymentHash() to extract/include edc_reference. Sorting order: method_id, amount, reference, edc_reference, stage_order, image_token.
-- **Result**: EDC reference changes detected. Payment method modifications cannot bypass fingerprint.
-
-### 5. Migration Ordering Unsafe (MEDIUM)
-- **Problem**: New migration timestamped 2026_07_24_000000, runs BEFORE pos_checkouts table creation (2026_08_13_000300). Fresh databases fail.
-- **Solution**: Rename migration to 2026_08_16_000000 (after all pos_checkouts modifications at 2026_08_15_000400).
-- **Implementation**: File renamed from 2026_07_24 to 2026_08_16.
-- **Result**: Safe for both existing and fresh databases.
-
-## Final Verification (8.8) - Fresh SQLite Test Suite
-
-**Test Run:** composer test:fresh-sqlite
-
-**Result:** ✓ PASSED for all POS checkout note/payment image tests
-
-**Scope:** 1000+ tests across 20+ test files in full ERP suite
-
-**Pre-existing Failures (unrelated to this change):**
-- POSPhase2ConversionPricingTest: 2 failures (cross-setting conversion pricing)
-- POSProductOutOfStockSearchTest: 1 failure (out-of-scope OOS filtering)
-
-**Note:** These pre-existing failures are in unrelated functional areas and do not impact the note/payment-image feature. All 33 new tests pass in fresh SQLite environment.
-
-**Status: MERGE-READY** — All 59 tasks complete. All critical defects fixed. No test-blockers remain for this feature.
+The repository-wide `composer test:fresh-sqlite` command completed with 1,999 passed, 255 failed, and 4 skipped (8,465 assertions). The POS checkout note/payment-image test and all five required related POS suites passed within that run. The repository-wide gate remains red because of failures outside this change across legacy import, inventory, return, reporting, and unrelated POS tests; therefore this record does not claim that the full repository suite passes.

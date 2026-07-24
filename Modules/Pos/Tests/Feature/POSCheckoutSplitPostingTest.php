@@ -347,6 +347,32 @@ class POSCheckoutSplitPostingTest extends TestCase
         }
     }
 
+    public function test_split_posting_without_note_keeps_provenance_without_blank_suffix(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'test-split-no-note-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ])->assertCreated();
+
+        $splitGroups = $response->json('split_groups');
+        $this->assertCount(2, $splitGroups);
+        $expectedNote = 'POS CHECKOUT #' . $response->json('pos_checkout_id');
+
+        foreach ($splitGroups as $group) {
+            $sale = Sale::findOrFail($group['sale_id']);
+            $this->assertSame($expectedNote, $sale->note);
+            $this->assertFalse(str_ends_with($sale->note, "\n"));
+        }
+    }
+
     public function test_one_staged_image_attached_to_every_sale_payment_in_split_posting(): void
     {
         $context = $this->createSplitCheckoutContext();
@@ -357,31 +383,24 @@ class POSCheckoutSplitPostingTest extends TestCase
         // Upload image
         \Illuminate\Support\Facades\Storage::fake();
         $image = \Illuminate\Http\UploadedFile::fake()->image('split.jpg');
+        $cartToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot.staged_payment_token');
         $uploadResponse = $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.payment-image.upload'), [
                 'image' => $image,
-                'cart_token' => 'split-token',
-            ])->assertStatus(201);
+                'cart_token' => $cartToken,
+            ])->assertOk();
             
         $imageToken = $uploadResponse->json('token');
-
-        // Transfer method (non-cash)
-        $transferMethod = \Modules\Setting\Entities\PaymentMethod::factory()->create([
-            'setting_id' => $context['setting']->id,
-            'is_cash' => false,
-            'requires_reference' => true,
-        ]);
-        
-        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
-            ['setting_id' => $context['setting']->id, 'payment_method_id' => $transferMethod->id],
-            ['is_enabled' => true]
-        );
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'test-split-image-' . uniqid(),
             'payment' => [
-                'payment_method_id' => $transferMethod->id,
+                'payment_method_id' => $context['methods']['transfer']->id,
                 'amount_paid' => 200000,
                 'reference' => 'SPLIT123',
                 'payment_image_token' => $imageToken,
@@ -398,15 +417,9 @@ class POSCheckoutSplitPostingTest extends TestCase
             $payment = $sale->salePayments()->first();
             $this->assertNotNull($payment, 'Sale payment missing');
             
-            $attachments = collect($payment->attachments ?? []);
-            $this->assertNotEmpty($attachments);
-            
-            $fileId = $attachments->first()['file_id'] ?? null;
-            $this->assertNotNull($fileId);
-            
-            $fileModel = \Modules\System\Entities\File::findOrFail($fileId);
-            $this->assertEquals($imageToken . '.jpg', $fileModel->original_name);
-            $this->assertStringContainsString('sale_payment_attachments', $fileModel->path);
+            $media = $payment->getMedia('attachments');
+            $this->assertCount(1, $media);
+            $this->assertSame('split.jpg', $media->first()->file_name);
         }
     }
 
@@ -660,18 +673,36 @@ class POSCheckoutSplitPostingTest extends TestCase
             'requires_reference' => false,
         ]);
 
+        $transferCoaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'POS SPLIT COA TRANSFER ' . $index,
+            'account_number' => 'POS-SPLIT-TRANSFER-' . $index,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $methods['transfer'] = PaymentMethod::query()->create([
+            'name' => 'TRANSFER SPLIT ' . $index,
+            'coa_id' => $transferCoaId,
+            'is_cash' => false,
+            'requires_reference' => true,
+        ]);
+
         if ($enableForSetting) {
-            DB::table('setting_pos_payment_methods')->updateOrInsert(
-                [
-                    'setting_id' => $setting->id,
-                    'payment_method_id' => $methods['cash']->id,
-                ],
-                [
-                    'is_enabled' => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]
-            );
+            foreach ($methods as $method) {
+                DB::table('setting_pos_payment_methods')->updateOrInsert(
+                    [
+                        'setting_id' => $setting->id,
+                        'payment_method_id' => $method->id,
+                    ],
+                    [
+                        'is_enabled' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
+            }
         }
 
         return $methods;

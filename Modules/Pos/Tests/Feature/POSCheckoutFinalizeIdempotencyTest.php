@@ -134,13 +134,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $first = $this->finalize($context['cashier'], $context['setting'], $payload);
         $first->assertStatus(201);
 
-        // 2. Ensure cart is cleared (pos.sell.checkout.finalize already does this upon success, but explicit here for clarity)
-        $this->actingAs($context['cashier'])
-            ->withSession(['setting_id' => $context['setting']->id])
-            ->deleteJson(route('pos.sell.cart.clear'))
-            ->assertOk();
-
-        // 3. Replay with identical payload should succeed (cart is empty, fallback to stored snapshot)
+        // The finalize endpoint clears the cart. Replay must use the stored
+        // immutable snapshot and return the original result.
         $second = $this->finalize($context['cashier'], $context['setting'], $payload);
         $second->assertStatus(200)
             ->assertJsonPath('idempotent_replay', true);
