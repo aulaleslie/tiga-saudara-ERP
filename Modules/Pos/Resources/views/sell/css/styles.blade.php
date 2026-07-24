@@ -21,7 +21,7 @@
         height: 100%;
         display: grid;
         grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(110px, 14dvh, 138px) clamp(132px, 22dvh, 184px);
+        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) clamp(130px, 17dvh, 160px) minmax(0, 1fr) clamp(132px, 22dvh, 184px);
         grid-template-areas:
             "info     nav"
             "search   search"
@@ -936,7 +936,7 @@
 
         .pos-viewport {
             gap: 0.4rem;
-            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) clamp(96px, 12dvh, 120px) clamp(118px, 21dvh, 164px);
+            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) clamp(114px, 15dvh, 140px) minmax(0, 1fr) clamp(118px, 21dvh, 164px);
         }
 
         .pos-card .card-header {
@@ -986,14 +986,14 @@
     @media (max-width: 991.98px) {
         .pos-viewport {
             grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
-            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) clamp(106px, 14dvh, 132px) clamp(128px, 22dvh, 176px);
+            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) clamp(126px, 17dvh, 156px) minmax(0, 1fr) clamp(128px, 22dvh, 176px);
         }
     }
 
     @media (max-width: 767.98px) and (orientation: landscape) {
         .pos-viewport {
             grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
-            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) clamp(96px, 15dvh, 118px) clamp(118px, 24dvh, 160px);
+            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) clamp(110px, 16dvh, 136px) minmax(0, 1fr) clamp(118px, 24dvh, 160px);
             gap: 0.35rem;
         }
 
