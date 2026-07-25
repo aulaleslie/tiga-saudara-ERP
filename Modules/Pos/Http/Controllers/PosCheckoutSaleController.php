@@ -26,14 +26,16 @@ class PosCheckoutSaleController extends Controller
             ->where('sale_id', $saleId)
             ->first();
 
-        $isReachable = $salePivot || ($checkout->sale_id === $saleId);
+        $isReachable = $salePivot || ((int) $checkout->sale_id === $saleId);
 
         if (! $isReachable) {
             abort(404, 'Sale not found in this checkout.');
         }
 
-        // 6.3 Load the Sale without any current-setting scoping, so cross-setting Sales resolve
-        $sale = Sale::withoutGlobalScope('setting')
+        // 6.3 Load the Sale without any current-setting scoping, so cross-setting Sales resolve.
+        // Bypass ArchivingScope so returned/archived Sales remain viewable. No global setting scope
+        // exists on Sale — isolation is controller-level, which this endpoint intentionally omits per design decision 4.
+        $sale = Sale::withoutGlobalScope(\App\Scopes\ArchivingScope::class)
             ->with(['customer', 'saleDetails.product'])
             ->findOrFail($saleId);
 

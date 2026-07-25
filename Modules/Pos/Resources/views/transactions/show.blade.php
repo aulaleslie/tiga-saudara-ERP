@@ -259,6 +259,7 @@
             const statusElement = document.getElementById('transaction-action-status');
             const transactionId = @json((int) $transaction->id);
             const approvalRequestsBaseUrl = @json(url('/pos/sell/approval-requests'));
+            const checkoutSalesBaseUrl = @json(url('/pos/checkouts'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const defaultStatusMessage = 'Draft dapat dimuat untuk kolaborasi bila Anda memiliki izin muat. Pembatalan draft memerlukan otorisasi void atau persetujuan supervisor.';
 
@@ -476,7 +477,7 @@
                     bodyEl.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>';
 
                     try {
-                        const response = await fetch(`/pos/checkouts/${checkoutId}/sales/${saleId}`, {
+                        const response = await fetch(`${checkoutSalesBaseUrl}/${checkoutId}/sales/${saleId}`, {
                             headers: {
                                 'X-Requested-With': 'XMLHttpRequest'
                             }

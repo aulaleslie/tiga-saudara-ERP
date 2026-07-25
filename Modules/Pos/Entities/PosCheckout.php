@@ -69,6 +69,7 @@ class PosCheckout extends BaseModel
         'metadata' => 'array',
         'original_cart_snapshot' => 'array',
         'finalized_at' => 'datetime',
+        'sale_id' => 'integer',
     ];
 
     public function setting(): BelongsTo
@@ -150,9 +151,11 @@ class PosCheckout extends BaseModel
 
     public function getReachableSales()
     {
-        // Task 1b: Return Sales reachable from this checkout
+        // Task 1b: Return Sales reachable from this checkout.
+        // Bypass ArchivingScope on both pivot and fallback branches so archived Sales appear.
+
         // First check pivot-based sales (split posting)
-        $pivotSales = $this->sales;
+        $pivotSales = $this->sales()->withoutGlobalScope(\App\Scopes\ArchivingScope::class)->get();
 
         if ($pivotSales->isNotEmpty()) {
             return $pivotSales;
@@ -160,7 +163,7 @@ class PosCheckout extends BaseModel
 
         // Fallback to inline path: checkout's sale_id
         if ($this->sale_id) {
-            return Sale::withoutGlobalScope('setting')
+            return Sale::withoutGlobalScope(\App\Scopes\ArchivingScope::class)
                 ->where('id', $this->sale_id)
                 ->get();
         }

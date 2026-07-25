@@ -32,9 +32,9 @@
                     {{ $detail->product_name }} <br>
                     <span class="badge bg-success">{{ $detail->product_code }}</span>
                 </td>
-                <td class="align-middle">{{ format_currency($detail->price ?? $detail->unit_price) }}</td>
-                <td class="align-middle">{{ (float)($detail->quantity ?? $detail->qty) }}</td>
-                <td class="align-middle">{{ format_currency($detail->product_discount_amount ?? $detail->line_discount_amount ?? 0) }}</td>
+                <td class="align-middle">{{ format_currency($detail->price) }}</td>
+                <td class="align-middle">{{ $detail->quantity }}</td>
+                <td class="align-middle">{{ format_currency($detail->product_discount_amount) }}</td>
                 <td class="align-middle">{{ format_currency($detail->sub_total) }}</td>
             </tr>
         @endforeach

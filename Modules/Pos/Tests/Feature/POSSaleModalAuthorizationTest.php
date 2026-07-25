@@ -3,11 +3,25 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\Product\Entities\Category;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
+use Modules\Setting\Entities\Unit;
+use Modules\Currency\Entities\Currency;
+use App\Support\SalesLocationResolver;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -23,18 +37,20 @@ class POSSaleModalAuthorizationTest extends TestCase
     private User $user;
     private Setting $setting;
     private Setting $otherSetting;
+    private int $sequence = 0;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+        $this->withoutMiddleware(VerifyCsrfToken::class);
+
         // Ensure roles/permissions exist
         $role = Role::firstOrCreate(['name' => 'Admin']);
         $permission = Permission::firstOrCreate(['name' => 'pos.access']);
         $viewPermission = Permission::firstOrCreate(['name' => 'pos.transactions.view']);
         $role->givePermissionTo($permission);
         $role->givePermissionTo($viewPermission);
-        
+
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         $this->user = User::factory()->create([
@@ -43,7 +59,7 @@ class POSSaleModalAuthorizationTest extends TestCase
         $this->user->assignRole($role);
         $this->user->givePermissionTo('pos.access');
         $this->user->givePermissionTo('pos.transactions.view');
-        
+
         app(\Spatie\Permission\PermissionRegistrar::class)->registerPermissions();
         
         $this->setting = Setting::factory()->create([
@@ -745,6 +761,149 @@ class POSSaleModalAuthorizationTest extends TestCase
     }
 
     /**
+     * Task 2b: Archived Sale is still reachable — the Task 1 regression guard
+     * Finalize a real inline checkout, then archive the Sale.
+     * Assert the modal route still returns 200 and getReachableSales() includes it.
+     */
+    public function test_archived_inline_sale_is_reachable_in_modal()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-ARCHIVED',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+        ]);
+
+        $sale = Sale::forceCreate([
+            'reference' => 'SALE-ARCHIVED-1',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Archived',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'pos_transaction_id' => $transaction->id,
+            'sale_id' => $sale->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        // Archive the Sale
+        \DB::table('sales')->where('id', $sale->id)->update(['archived_at' => now()]);
+
+        // The modal route should still return 200 (this fails before Task 1's fix)
+        $response = $this->get(route('pos.checkouts.sales.show', [
+            'checkout' => $checkout->id,
+            'sale' => $sale->id
+        ]));
+
+        $response->assertStatus(200)
+            ->assertViewIs('pos::checkouts.sale-readonly')
+            ->assertSee('SALE-ARCHIVED-1');
+
+        // PosCheckout::find($id)->getReachableSales() should still contain the Sale
+        $reachableSales = $checkout->getReachableSales();
+        $this->assertCount(1, $reachableSales, 'getReachableSales should contain the archived Sale');
+        $this->assertEquals($sale->id, $reachableSales->first()->id);
+    }
+
+    /**
+     * Task 2c: Archived Sale appears on POS transaction detail
+     * With the same setup as 2b, load the POS transaction detail page.
+     * Assert the Sale reference appears and the "tidak ada dokumen penjualan" empty-state text does not.
+     */
+    public function test_archived_inline_sale_appears_on_transaction_detail()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-ARCHIVED-2',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+            'completed_checkout_id' => 97,
+        ]);
+
+        $sale = Sale::forceCreate([
+            'reference' => 'SALE-ARCHIVED-2',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Archived',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'id' => 97,
+            'pos_transaction_id' => $transaction->id,
+            'sale_id' => $sale->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        // Archive the Sale
+        \DB::table('sales')->where('id', $sale->id)->update(['archived_at' => now()]);
+
+        // Load the POS transaction detail page
+        $response = $this->get(route('pos.transactions.show', $transaction->id));
+
+        $response->assertStatus(200);
+        $response->assertSee('SALE-ARCHIVED-2');
+        $response->assertDontSee('tidak ada dokumen penjualan yang dihasilkan');
+        $response->assertSee('view-sale-btn');
+    }
+
+    /**
      * Task 2d: Unreachable Sale is still refused
      */
     public function test_unreachable_sale_is_refused()
@@ -823,5 +982,358 @@ class POSSaleModalAuthorizationTest extends TestCase
         ]));
 
         $response->assertStatus(404);
+    }
+
+    /**
+     * Task 2a + real checkout: Real inline checkout — Sale opens in the modal
+     * Drive a real inline checkout (not forceCreate), verify pivot has zero rows, modal opens with 200.
+     */
+    public function test_real_inline_checkout_sale_opens_in_modal()
+    {
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $context = $this->createCheckoutContext('REAL-INLINE-MODAL');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-REAL-INLINE', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Finalize a real inline checkout
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => \Illuminate\Support\Str::uuid()->toString(),
+            'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
+        ]);
+
+        $response->assertCreated();
+        $saleId = $response->json('sale_id');
+
+        // Get the checkout from the sale
+        $sale = Sale::findOrFail($saleId);
+        $checkout = PosCheckout::where('sale_id', $saleId)->firstOrFail();
+
+        // Assert no pivot row exists for inline checkout
+        $pivotRowCount = \DB::table('pos_checkout_sales')
+            ->where('pos_checkout_id', $checkout->id)
+            ->where('sale_id', $saleId)
+            ->count();
+        $this->assertEquals(0, $pivotRowCount, 'Inline checkout should have zero pivot rows');
+
+        // Assert the modal route responds with 200
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->get(route('pos.checkouts.sales.show', ['checkout' => $checkout->id, 'sale' => $saleId]))
+            ->assertStatus(200)
+            ->assertViewIs('pos::checkouts.sale-readonly')
+            ->assertSee($sale->reference);
+    }
+
+    /**
+     * Task 2b + real checkout: Archived Sale is still reachable — the Task 1 regression guard
+     * Drive a real inline checkout, archive the Sale, verify modal still returns 200.
+     */
+    public function test_real_inline_checkout_archived_sale_is_reachable()
+    {
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $context = $this->createCheckoutContext('REAL-INLINE-ARCHIVED');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-REAL-ARCHIVED', 50000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Finalize a real inline checkout
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => \Illuminate\Support\Str::uuid()->toString(),
+            'payment' => ['payment_method_id' => $context['methods']->cash->id, 'amount_paid' => 50000],
+        ]);
+
+        $response->assertCreated();
+        $saleId = $response->json('sale_id');
+
+        // Get the checkout from the sale
+        $checkout = PosCheckout::where('sale_id', $saleId)->firstOrFail();
+
+        // Archive the Sale
+        \DB::table('sales')->where('id', $saleId)->update(['archived_at' => now()]);
+
+        // The modal route should still return 200 (fails before Task 1's fix)
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->get(route('pos.checkouts.sales.show', ['checkout' => $checkout->id, 'sale' => $saleId]))
+            ->assertStatus(200);
+    }
+
+    protected function createCheckoutContext(string $name): array
+    {
+        $setting = $this->createSetting($name);
+        $cashier = $this->createUserForSetting($setting, $name . '-cashier', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $terminal = $this->createTerminalForSetting($setting);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+        $methods = $this->seedPaymentMethods($setting, true);
+
+        $sessionLifecycle = app(PosSessionLifecycleService::class);
+        $session = $sessionLifecycle->openSession(
+            $setting->id,
+            $terminal->id,
+            $cashier->id,
+            100000,
+            ['100000' => 1],
+            $cashier->id
+        );
+
+        return [
+            'setting' => $setting,
+            'cashier' => $cashier,
+            'terminal' => $terminal,
+            'location' => $location,
+            'session' => $session,
+            'methods' => $methods,
+        ];
+    }
+
+    protected function createSetting(string $name): Setting
+    {
+        $suffix = $this->sequence++;
+
+        return Setting::create([
+            'company_name' => $name . ' ' . $suffix,
+            'company_email' => 'pos.sale-modal.' . $suffix . '@example.com',
+            'company_phone' => '0800000000',
+            'company_address' => 'Address',
+            'default_currency_id' => Currency::query()->value('id'),
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+            'document_prefix' => 'DOC',
+            'purchase_prefix_document' => 'PO',
+            'sale_prefix_document' => 'SO',
+            'pos_enabled' => true,
+            'pos_transactions_enabled' => true,
+            'is_pkp' => false,
+        ]);
+    }
+
+    protected function createUserForSetting(Setting $setting, string $roleName, array $permissions): User
+    {
+        // Create permissions if they don't exist
+        foreach ($permissions as $permission) {
+            Permission::firstOrCreate(['name' => $permission]);
+        }
+
+        $role = Role::firstOrCreate(['name' => strtoupper($roleName) . '-' . $setting->id]);
+        $role->syncPermissions($permissions);
+
+        $user = User::factory()->create();
+        $user->assignRole($role);
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
+
+        return $user;
+    }
+
+    protected function createTerminalForSetting(Setting $setting): PosTerminal
+    {
+        $index = $this->sequence++;
+
+        $location = Location::create([
+            'name' => 'POS SALE-MODAL LOC ' . $index,
+            'setting_id' => $setting->id,
+        ]);
+
+        SalesLocationResolver::forget($setting->id);
+
+        $terminal = PosTerminal::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-MODAL-' . str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+            'name' => 'POS Sale Modal Terminal ' . $index,
+            'is_active' => true,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => true,
+            'require_opening_float' => true,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
+        ]);
+
+        return $terminal;
+    }
+
+    protected function assignDefaultWalkInCustomer(Setting $setting): Customer
+    {
+        $customer = Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $setting->update([
+            'pos_walk_in_customer_id' => $customer->id,
+        ]);
+
+        return $customer;
+    }
+
+    protected function seedPaymentMethods(Setting $setting, bool $enableForSetting = false): object
+    {
+        $index = $this->sequence++;
+        $methods = new \stdClass();
+
+        $cashCoaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'POS COA CASH ' . $index,
+            'account_number' => 'POS-CASH-' . $index,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $transferCoaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'POS COA TRANSFER ' . $index,
+            'account_number' => 'POS-TRF-' . $index,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $methods->cash = PaymentMethod::query()->create([
+            'name' => 'CASH POS ' . $index,
+            'coa_id' => $cashCoaId,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+
+        $methods->transfer = PaymentMethod::query()->create([
+            'name' => 'TRANSFER POS ' . $index,
+            'coa_id' => $transferCoaId,
+            'is_cash' => false,
+            'requires_reference' => true,
+        ]);
+
+        if ($enableForSetting) {
+            $timestamp = now();
+            foreach (['cash' => $methods->cash, 'transfer' => $methods->transfer] as $method) {
+                DB::table('setting_pos_payment_methods')->updateOrInsert(
+                    [
+                        'setting_id' => $setting->id,
+                        'payment_method_id' => $method->id,
+                    ],
+                    [
+                        'is_enabled' => true,
+                        'created_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                    ]
+                );
+            }
+        }
+
+        return $methods;
+    }
+
+    protected function createStockedProduct(
+        Setting $setting,
+        Location $location,
+        string $code,
+        float $salePrice,
+        bool $serialRequired
+    ): Product {
+        $createdBy = User::query()->value('id') ?? User::factory()->create()->id;
+
+        $category = Category::firstOrCreate(
+            ['category_code' => $code . '-CAT'],
+            [
+                'category_name' => $code . ' CATEGORY',
+                'created_by' => $createdBy,
+                'setting_id' => $setting->id,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'POS UNIT',
+            'short_name' => 'PUNIT',
+        ]);
+
+        $product = Product::query()->create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'product_name' => $code . ' NAME',
+            'product_code' => $code,
+            'barcode' => $code . '-BAR',
+            'product_quantity' => 20,
+            'product_cost' => 5000,
+            'product_price' => $salePrice,
+            'product_unit' => 'PUNIT',
+            'product_stock_alert' => 1,
+            'stock_managed' => true,
+            'serial_number_required' => $serialRequired,
+        ]);
+
+        ProductStock::query()->create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 20,
+            'quantity_non_tax' => 20,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'tax_id' => null,
+        ]);
+
+        ProductPrice::query()->updateOrCreate([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+        ], [
+            'sale_price' => $salePrice,
+            'tier_1_price' => null,
+            'tier_2_price' => null,
+            'last_purchase_price' => 5000,
+            'average_purchase_price' => 5000,
+            'purchase_tax_id' => null,
+            'sale_tax_id' => null,
+        ]);
+
+        return $product;
+    }
+
+    protected function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $productId,
+                'qty' => $qty,
+            ])
+            ->assertOk();
+    }
+
+    protected function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+    }
+
+    protected function finalize(User $cashier, Setting $setting, array $payload)
+    {
+        return $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), $payload);
     }
 }
