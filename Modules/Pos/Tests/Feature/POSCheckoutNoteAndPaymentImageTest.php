@@ -1705,4 +1705,133 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $this->assertDatabaseCount('sale_payments', 0);
         $this->assertNull($temporaryImage->fresh()->consumed_at);
     }
+
+    public function test_walk_up_checkout_generates_fresh_code(): void
+    {
+        $context = $this->createCheckoutContext('CODE-WALKUP-TEST');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CODE-WALKUP', 25000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'test-code-walkup-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->cash->id,
+                'amount_paid' => 25000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        
+        $checkout = PosCheckout::findOrFail($response->json('pos_checkout_id'));
+        $transaction = PosTransaction::findOrFail($checkout->pos_transaction_id);
+        
+        $this->assertNotEmpty($transaction->code);
+
+        $sale = Sale::findOrFail($response->json('sale_id'));
+        $this->assertStringContainsString($transaction->code, $sale->note);
+        $this->assertStringNotContainsStringIgnoringCase('checkout #', $sale->note);
+    }
+
+    public function test_loaded_draft_reuses_existing_code(): void
+    {
+        $context = $this->createCheckoutContext('CODE-DRAFT-TEST');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CODE-DRAFT', 25000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // 1. Save cart as POS transaction draft
+        $draftResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertCreated();
+            
+        $draftId = (int) $draftResponse->json('transaction.id');
+        $originalCode = PosTransaction::findOrFail($draftId)->code;
+        $this->assertNotEmpty($originalCode);
+        
+        $countBefore = PosTransaction::count();
+
+        // 2. Load that draft into the cart
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $draftId]))
+            ->assertOk();
+
+        // Confirm the cart snapshot now reports active_transaction_id matching the draft
+        $cart = $this->getCartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals($draftId, $cart['active_transaction_id']);
+
+        // 3. Finalize checkout
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'test-code-draft-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']->cash->id,
+                'amount_paid' => 25000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        
+        // 4. Assert completed transaction code is still original
+        $checkout = PosCheckout::findOrFail($response->json('pos_checkout_id'));
+        $transaction = PosTransaction::findOrFail($checkout->pos_transaction_id);
+        $this->assertEquals($originalCode, $transaction->code);
+        $this->assertEquals($draftId, $checkout->pos_transaction_id);
+        
+        // 5. Assert generated Sale's note contains original code
+        $sale = Sale::findOrFail($response->json('sale_id'));
+        $this->assertStringContainsString($originalCode, $sale->note);
+        
+        // 6. Assert total count of PosTransaction rows did not increase
+        $this->assertEquals($countBefore, PosTransaction::count());
+    }
+
+    public function test_active_transaction_id_from_different_setting_ignored_generates_new_code(): void
+    {
+        $context = $this->createCheckoutContext('CODE-CROSS-TEST');
+        $contextOther = $this->createCheckoutContext('CODE-CROSS-OTHER');
+        
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CROSS-THIS', 25000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        // Bump the code generator in the current setting so its first generated code 
+        // won't coincidentally match the first generated code in the other setting.
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertCreated();
+
+        $productOther = $this->createStockedProduct($contextOther['setting'], $contextOther['location'], 'PROD-CROSS-OTHER', 25000, false);
+        $customerOther = $this->assignDefaultWalkInCustomer($contextOther['setting']);
+
+        // Create a draft in OTHER setting
+        $this->addCartLine($contextOther['cashier'], $contextOther['setting'], $productOther->id, 1);
+        $this->selectCustomerInCart($contextOther['cashier'], $contextOther['setting'], $customerOther);
+        $draftResponse = $this->actingAs($contextOther['cashier'])
+            ->withSession(['setting_id' => $contextOther['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertCreated();
+            
+        $otherDraftId = (int) $draftResponse->json('transaction.id');
+        $otherOriginalCode = PosTransaction::findOrFail($otherDraftId)->code;
+
+        // Resolve code with snapshot simulating other transaction id
+        $cartSnapshot = [
+            'active_transaction_id' => $otherDraftId,
+        ];
+        
+        $service = app(\Modules\Pos\Services\PosTransactionService::class);
+        $resolvedCode = $service->resolveCodeFromCartSnapshot($context['setting']->id, $cartSnapshot);
+        
+        $this->assertNotEmpty($resolvedCode);
+        $this->assertNotEquals($otherOriginalCode, $resolvedCode);
+        
+        // Ensure foreign transaction was unmodified
+        $this->assertEquals($otherOriginalCode, PosTransaction::findOrFail($otherDraftId)->code);
+    }
 }
