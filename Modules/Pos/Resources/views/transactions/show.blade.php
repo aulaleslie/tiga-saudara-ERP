@@ -73,10 +73,63 @@
                         <div>{{ optional($transaction->updated_at)->format('Y-m-d H:i:s') ?? '-' }}</div>
                     </div>
                 </div>
+                <hr class="mt-3">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="small text-muted">Catatan</div>
+                        <div>{!! $transaction->note ? nl2br(e($transaction->note)) : '<em class="text-muted">Tidak ada catatan</em>' !!}</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 mb-3">
+            <div class="card-header bg-white">
+                <strong>Dokumen Penjualan</strong>
+            </div>
+            <div class="card-body">
+                @php
+                    $completedCheckout = $transaction->completedCheckout;
+                    $sales = $completedCheckout ? $completedCheckout->sales : collect();
+                @endphp
+                @if(!$completedCheckout)
+                    <div class="text-muted small">Transaksi ini belum diselesaikan. Belum ada dokumen penjualan yang dihasilkan.</div>
+                @elseif($sales->isEmpty())
+                    <div class="text-muted small">Transaksi ini sudah diselesaikan, tetapi tidak ada dokumen penjualan yang dihasilkan (kemungkinan total 0 atau kesalahan sistem).</div>
+                @else
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="thead-light">
+                            <tr>
+                                <th>Referensi</th>
+                                <th>Tanggal</th>
+                                <th>Pelanggan</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                                <th>Aksi</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @foreach($sales as $sale)
+                                <tr>
+                                    <td>{{ $sale->reference }}</td>
+                                    <td>{{ \Carbon\Carbon::parse($sale->date)->format('Y-m-d') }}</td>
+                                    <td>{{ $sale->customer_name ?? '-' }}</td>
+                                    <td>{{ format_currency($sale->total_amount) }}</td>
+                                    <td>{{ $sale->status }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-info view-sale-btn" data-sale-id="{{ $sale->id }}" data-checkout-id="{{ $completedCheckout->id }}">Lihat</button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-3">
             <div class="card-header bg-white">
                 <strong>Baris Transaksi</strong>
             </div>
@@ -167,6 +220,30 @@
                         <div class="small text-muted">Total</div>
                         <div class="font-weight-bold" style="font-size: 18px;">{{ number_format((float) ($transaction->snapshot_totals['grand_total'] ?? 0), 2, ',', '.') }}</div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sale Detail Modal -->
+    <div class="modal fade" id="saleDetailModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Detail Penjualan</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="saleDetailModalBody">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
                 </div>
             </div>
         </div>
@@ -386,6 +463,34 @@
                     cancelButton.disabled = false;
                 });
             }
+
+            // Sale modal viewer logic
+            document.querySelectorAll('.view-sale-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const saleId = e.currentTarget.getAttribute('data-sale-id');
+                    const checkoutId = e.currentTarget.getAttribute('data-checkout-id');
+                    const modalEl = document.getElementById('saleDetailModal');
+                    const bodyEl = document.getElementById('saleDetailModalBody');
+
+                    $(modalEl).modal('show');
+                    bodyEl.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>';
+
+                    try {
+                        const response = await fetch(`/pos/checkouts/${checkoutId}/sales/${saleId}`, {
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!response.ok) {
+                            throw new Error('Gagal memuat detail penjualan.');
+                        }
+                        const html = await response.text();
+                        bodyEl.innerHTML = html;
+                    } catch (error) {
+                        bodyEl.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+                    }
+                });
+            });
         })();
     </script>
 @endpush

@@ -126,6 +126,13 @@ class PosCheckout extends BaseModel
         return $this->hasMany(PosCheckoutSale::class, 'pos_checkout_id', 'id');
     }
 
+    public function sales(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\Modules\Sale\Entities\Sale::class, 'pos_checkout_sales', 'pos_checkout_id', 'sale_id')
+            ->withPivot(['split_key', 'source_setting_id', 'source_location_id', 'tax_bucket'])
+            ->withTimestamps();
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(PosCheckoutPayment::class, 'pos_checkout_id')->orderBy('sequence_order');

@@ -1077,4 +1077,89 @@ class POSReceiptGenerationTest extends TestCase
         $this->assertStringNotContainsString('21.000.000', $breakdownText,
             'Per-unit breakdown must not show 100x inflated box price');
     }
+
+    public function test_receipt_layout_shows_transaction_code(): void
+    {
+        $context = $this->createCheckoutContext('CODE-RCP-VIEW');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RCP-VIEW', 50000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'receipt-k-codeview',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 50000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [
+                [
+                    'payment_method_id' => $context['methods']['cash']->id,
+                    'amount_paid' => 50000,
+                    'reference' => null,
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        if ($checkoutResponse->status() !== 201) {
+            $checkoutResponse->dump();
+        }
+        $checkoutResponse->assertStatus(201);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        $checkout = \Modules\Pos\Entities\PosCheckout::with('transaction')->findOrFail($checkoutId);
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        $view = view('pos::receipt', compact('receiptData'))->render();
+
+        $this->assertStringContainsString('No. Transaksi', $view);
+        $this->assertStringContainsString($checkout->transaction->code, $view);
+        $this->assertStringNotContainsString('<td class="meta-label">No. Struk</td>', $view);
+        $this->assertStringContainsString('<div style="text-align: right; font-size: 7px; color: #888; margin-top: 2mm;">', $view);
+        $this->assertStringContainsString($checkout->receipt_number, $view);
+    }
+
+    public function test_receipt_layout_renders_safely_without_transaction(): void
+    {
+        $context = $this->createCheckoutContext('CODE-RCP-NO-TXN');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-RCP-NO-TXN', 50000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'receipt-k-notxn',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 50000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [
+                [
+                    'payment_method_id' => $context['methods']['cash']->id,
+                    'amount_paid' => 50000,
+                    'reference' => null,
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+
+        $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutId);
+        // Force the checkout to have no transaction (simulating legacy)
+        $checkout->update(['pos_transaction_id' => null]);
+        
+        // Reload without transaction
+        $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutId);
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        // View rendering should not throw error
+        $view = view('pos::receipt', compact('receiptData'))->render();
+
+        $this->assertStringContainsString('No. Transaksi', $view);
+        // Expecting the fallback dash
+        $this->assertStringContainsString('<td>-</td>', $view);
+    }
 }

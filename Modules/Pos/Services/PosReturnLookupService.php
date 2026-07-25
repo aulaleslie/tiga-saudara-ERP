@@ -37,6 +37,7 @@ class PosReturnLookupService
                             ->where('status', PosCheckout::STATUS_POSTED);
                     });
             })
+            ->orderBy('id', 'desc')
             ->first();
 
         if (! $transaction) {

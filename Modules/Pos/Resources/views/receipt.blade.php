@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Struk POS {{ $receiptData['receipt_number'] }}</title>
+    <title>Struk POS {{ $receiptData['pos_transaction_code'] ?? $receiptData['receipt_number'] }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         @page {
@@ -253,9 +253,9 @@
                     <td>{{ $displayDate }}</td>
                 </tr>
                 <tr>
-                    <td class="meta-label">No. Struk</td>
+                    <td class="meta-label">No. Transaksi</td>
                     <td class="meta-separator">:</td>
-                    <td>{{ $receiptData['receipt_number'] }}</td>
+                    <td>{{ $receiptData['pos_transaction_code'] ?? '-' }}</td>
                 </tr>
                 <tr>
                     <td class="meta-label">Pelanggan</td>
@@ -395,6 +395,9 @@
             Harga sudah termasuk PPN
             <br>
             Terima Kasih Telah Berbelanja
+        </div>
+        <div style="text-align: right; font-size: 7px; color: #888; margin-top: 2mm;">
+            {{ $receiptData['receipt_number'] }}
         </div>
     </div>
 </div>

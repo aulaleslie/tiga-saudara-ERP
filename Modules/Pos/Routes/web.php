@@ -72,6 +72,10 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sessions/{session}/checkouts/{checkout}', [PosSessionController::class, 'checkoutDetail'])->name('pos.sessions.checkout-detail');
 });
 
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
+    Route::get('/pos/checkouts/{checkout}/sales/{sale}', [\Modules\Pos\Http\Controllers\PosCheckoutSaleController::class, 'show'])->name('pos.checkouts.sales.show');
+});
+
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.reports.access']], function () {
     Route::get('/pos/reports', [PosReportController::class, 'index'])->name('pos.reports.index');

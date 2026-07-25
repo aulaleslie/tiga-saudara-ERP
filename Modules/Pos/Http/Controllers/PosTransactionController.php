@@ -187,7 +187,8 @@ class PosTransactionController extends Controller
             'lines.serials',
             'owner',
             'customer',
-            'completedCheckout.checkoutSales.sale.saleDetails.bundleItems.product',
+            'completedCheckout.sales.customer',
+            'completedCheckout.sales.saleDetails.bundleItems.product',
         ]);
 
         return view('pos::transactions.show', [

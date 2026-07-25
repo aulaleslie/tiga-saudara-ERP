@@ -164,6 +164,7 @@ class PosReceiptService
             'business_phone' => $setting->company_phone,
             'business_email' => $setting->company_email,
             'receipt_number' => $checkout->receipt_number,
+            'pos_transaction_code' => $checkout->transaction?->code ?? '-',
             'date' => ($checkout->finalized_at ?: $checkout->created_at)->format('d-m-Y H:i'), // Task 1.5
             'customer_name' => $customerName,
             'cashier_name' => $checkout->cashier ? $checkout->cashier->name : 'N/A',
