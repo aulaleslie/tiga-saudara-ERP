@@ -496,4 +496,332 @@ class POSSaleModalAuthorizationTest extends TestCase
         $response2->assertStatus(200);
         $response2->assertSee('Tidak ada catatan');
     }
+
+    /**
+     * Task 2a: Inline checkout's Sale opens in the modal
+     * Verify inline checkouts can reach their Sale via sale_id instead of pivot
+     */
+    public function test_inline_checkout_sale_opens_in_modal()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-INLINE-1',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+        ]);
+
+        $sale = Sale::forceCreate([
+            'reference' => 'SALE-INLINE-1',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Inline',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'pos_transaction_id' => $transaction->id,
+            'sale_id' => $sale->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        // Assert no pivot row exists for inline checkout
+        $pivotRowCount = \DB::table('pos_checkout_sales')
+            ->where('pos_checkout_id', $checkout->id)
+            ->where('sale_id', $sale->id)
+            ->count();
+        $this->assertEquals(0, $pivotRowCount, 'Inline checkout should have zero pivot rows');
+
+        // Assert the modal route responds with 200 (previously would 404)
+        $response = $this->get(route('pos.checkouts.sales.show', [
+            'checkout' => $checkout->id,
+            'sale' => $sale->id
+        ]));
+
+        $response->assertStatus(200)
+            ->assertViewIs('pos::checkouts.sale-readonly')
+            ->assertSee($sale->reference);
+    }
+
+    /**
+     * Task 2b: Inline checkout's Sale is listed on POS transaction detail
+     */
+    public function test_inline_checkout_sale_listed_on_transaction_detail()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-INLINE-2',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+            'completed_checkout_id' => 99,
+        ]);
+
+        $sale = Sale::forceCreate([
+            'reference' => 'SALE-INLINE-2',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Inline',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'id' => 99,
+            'pos_transaction_id' => $transaction->id,
+            'sale_id' => $sale->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        $response = $this->get(route('pos.transactions.show', $transaction->id));
+
+        $response->assertStatus(200);
+        $response->assertSee('SALE-INLINE-2');
+        $response->assertDontSee('tidak ada dokumen penjualan yang dihasilkan');
+        $response->assertSee('view-sale-btn');
+    }
+
+    /**
+     * Task 2c: Split checkout still works (regression guard)
+     */
+    public function test_split_checkout_sales_still_work_regression_guard()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => true]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-SPLIT-REG',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+            'completed_checkout_id' => 98,
+        ]);
+
+        $sale1 = Sale::forceCreate([
+            'reference' => 'SALE-SPLIT-REG-1',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Split',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 25000,
+            'paid_amount' => 25000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $sale2 = Sale::forceCreate([
+            'reference' => 'SALE-SPLIT-REG-2',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test Split',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 25000,
+            'paid_amount' => 25000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'id' => 98,
+            'pos_transaction_id' => $transaction->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        // Create pivot rows for split posting
+        \Modules\Pos\Entities\PosCheckoutSale::forceCreate([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale1->id,
+            'split_key' => 'GROUP-1',
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => 1,
+            'tax_bucket' => 0,
+        ]);
+
+        \Modules\Pos\Entities\PosCheckoutSale::forceCreate([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale2->id,
+            'split_key' => 'GROUP-2',
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => 1,
+            'tax_bucket' => 0,
+        ]);
+
+        // Each Sale should open via modal
+        $response1 = $this->get(route('pos.checkouts.sales.show', [
+            'checkout' => $checkout->id,
+            'sale' => $sale1->id
+        ]));
+        $response1->assertStatus(200)->assertSee($sale1->reference);
+
+        $response2 = $this->get(route('pos.checkouts.sales.show', [
+            'checkout' => $checkout->id,
+            'sale' => $sale2->id
+        ]));
+        $response2->assertStatus(200)->assertSee($sale2->reference);
+
+        // Both should appear on transaction detail, each exactly once
+        $response = $this->get(route('pos.transactions.show', $transaction->id));
+        $response->assertStatus(200);
+        $response->assertSee('SALE-SPLIT-REG-1');
+        $response->assertSee('SALE-SPLIT-REG-2');
+    }
+
+    /**
+     * Task 2d: Unreachable Sale is still refused
+     */
+    public function test_unreachable_sale_is_refused()
+    {
+        $this->actingAs($this->user);
+        $this->withSession(['setting_id' => $this->setting->id]);
+
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $transaction = PosTransaction::forceCreate([
+            'code' => 'TX-UNREACH',
+            'setting_id' => $this->setting->id,
+            'status' => 'COMPLETED',
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => 1,
+        ]);
+
+        $linkedSale = Sale::forceCreate([
+            'reference' => 'SALE-LINKED',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $unlinkedSale = Sale::forceCreate([
+            'reference' => 'SALE-UNLINKED',
+            'date' => now(),
+            'customer_id' => 1,
+            'customer_name' => 'Test',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id
+        ]);
+
+        $checkout = PosCheckout::forceCreate([
+            'pos_transaction_id' => $transaction->id,
+            'sale_id' => $linkedSale->id,
+            'paid_total' => 50000,
+            'status' => 'COMPLETED',
+            'finalized_at' => now(),
+            'setting_id' => $this->setting->id,
+            'pos_session_id' => 1,
+            'terminal_id' => 1,
+            'cashier_user_id' => $this->user->id,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => uniqid(),
+        ]);
+
+        // Try to access unlinked Sale via this checkout — should 404
+        $response = $this->get(route('pos.checkouts.sales.show', [
+            'checkout' => $checkout->id,
+            'sale' => $unlinkedSale->id
+        ]));
+
+        $response->assertStatus(404);
+    }
 }

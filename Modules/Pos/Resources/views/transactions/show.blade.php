@@ -90,7 +90,7 @@
             <div class="card-body">
                 @php
                     $completedCheckout = $transaction->completedCheckout;
-                    $sales = $completedCheckout ? $completedCheckout->sales : collect();
+                    $sales = $completedCheckout ? $completedCheckout->getReachableSales() : collect();
                 @endphp
                 @if(!$completedCheckout)
                     <div class="text-muted small">Transaksi ini belum diselesaikan. Belum ada dokumen penjualan yang dihasilkan.</div>

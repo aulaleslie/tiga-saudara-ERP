@@ -255,7 +255,7 @@
                 <tr>
                     <td class="meta-label">No. Transaksi</td>
                     <td class="meta-separator">:</td>
-                    <td>{{ $receiptData['pos_transaction_code'] ?? '-' }}</td>
+                    <td>{{ $receiptData['pos_transaction_code'] ?? $receiptData['receipt_number'] ?? '-' }}</td>
                 </tr>
                 <tr>
                     <td class="meta-label">Pelanggan</td>

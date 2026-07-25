@@ -17,14 +17,18 @@ class PosCheckoutSaleController extends Controller
             abort(403, 'Unauthorized.');
         }
 
-        // 6.2 Assert the requested sale_id is present in that checkout's pos_checkout_sales rows
         $checkout = PosCheckout::findOrFail($checkoutId);
+
+        // Task 1a: Widen Sale reachability to cover inline path
+        // A Sale is reachable if it appears in pos_checkout_sales rows OR it is checkout's sale_id
         $salePivot = \DB::table('pos_checkout_sales')
             ->where('pos_checkout_id', $checkoutId)
             ->where('sale_id', $saleId)
             ->first();
 
-        if (! $salePivot) {
+        $isReachable = $salePivot || ($checkout->sale_id === $saleId);
+
+        if (! $isReachable) {
             abort(404, 'Sale not found in this checkout.');
         }
 

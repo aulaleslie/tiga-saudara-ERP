@@ -147,4 +147,24 @@ class PosCheckout extends BaseModel
     {
         return $this->hasMany(PosTransaction::class, 'completed_checkout_id');
     }
+
+    public function getReachableSales()
+    {
+        // Task 1b: Return Sales reachable from this checkout
+        // First check pivot-based sales (split posting)
+        $pivotSales = $this->sales;
+
+        if ($pivotSales->isNotEmpty()) {
+            return $pivotSales;
+        }
+
+        // Fallback to inline path: checkout's sale_id
+        if ($this->sale_id) {
+            return Sale::withoutGlobalScope('setting')
+                ->where('id', $this->sale_id)
+                ->get();
+        }
+
+        return collect();
+    }
 }

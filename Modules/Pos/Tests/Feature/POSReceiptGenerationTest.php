@@ -1146,9 +1146,11 @@ class POSReceiptGenerationTest extends TestCase
         $checkoutId = $checkoutResponse->json('pos_checkout_id');
 
         $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutId);
+        $receiptNumber = $checkout->receipt_number;
+
         // Force the checkout to have no transaction (simulating legacy)
         $checkout->update(['pos_transaction_id' => null]);
-        
+
         // Reload without transaction
         $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutId);
 
@@ -1159,7 +1161,7 @@ class POSReceiptGenerationTest extends TestCase
         $view = view('pos::receipt', compact('receiptData'))->render();
 
         $this->assertStringContainsString('No. Transaksi', $view);
-        // Expecting the fallback dash
-        $this->assertStringContainsString('<td>-</td>', $view);
+        // Task 3: When no transaction code exists, fallback to receipt_number instead of dash
+        $this->assertStringContainsString($receiptNumber, $view);
     }
 }
