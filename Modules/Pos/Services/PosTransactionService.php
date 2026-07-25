@@ -314,7 +314,8 @@ class PosTransactionService
         int $actorUserId,
         array $cartSnapshot,
         int $checkoutId,
-        array $allocations = []
+        array $allocations = [],
+        ?string $presetCode = null
     ): PosTransaction {
         $activeTransactionId = (int) ($cartSnapshot['active_transaction_id'] ?? 0);
         $snapshotLines = (array) ($cartSnapshot['lines'] ?? []);
@@ -348,7 +349,7 @@ class PosTransactionService
             if (! $transaction) {
                 $transaction = PosTransaction::query()->create([
                     'setting_id' => $settingId,
-                    'code' => $this->codeGenerator->generate($settingId),
+                    'code' => $presetCode ?? $this->codeGenerator->generate($settingId),
                     'status' => PosTransaction::STATUS_DRAFT,
                     'created_by' => $actorUserId,
                     'owner_user_id' => $actorUserId,
@@ -378,6 +379,29 @@ class PosTransactionService
 
             return $transaction->fresh();
         });
+    }
+
+    /**
+     * Resolve the POS transaction code for a checkout based on the cart snapshot.
+     * If the cart is loaded from a draft in the current setting, returns its existing code.
+     * Otherwise, generates a new code.
+     */
+    public function resolveCodeFromCartSnapshot(int $settingId, array $cartSnapshot): string
+    {
+        $activeTransactionId = (int) ($cartSnapshot['active_transaction_id'] ?? 0);
+
+        if ($activeTransactionId > 0) {
+            $existingCode = PosTransaction::query()
+                ->where('setting_id', $settingId)
+                ->whereKey($activeTransactionId)
+                ->value('code');
+
+            if ($existingCode) {
+                return (string) $existingCode;
+            }
+        }
+
+        return $this->codeGenerator->generate($settingId);
     }
 
     /**

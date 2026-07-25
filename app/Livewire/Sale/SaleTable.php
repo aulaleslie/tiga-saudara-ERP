@@ -113,7 +113,7 @@ class SaleTable extends Component
         }
 
         $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'tags'])
+            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction'])
             ->where('setting_id', $this->settingId)
             ->when($statuses !== null, function ($q) use ($statuses) {
                 $q->whereIn('status', $statuses);
@@ -160,6 +160,18 @@ class SaleTable extends Component
                         })
                         ->orWhereHas('tags', function ($q2) use ($search) {
                             $q2->where('name->en', 'like', "%{$search}%");
+                        })
+                        ->orWhereHas('posCheckout', function ($q2) use ($search) {
+                            $q2->where('receipt_number', 'like', "%{$search}%")
+                               ->orWhereHas('transaction', function ($q3) use ($search) {
+                                   $q3->where('code', 'like', "%{$search}%");
+                               });
+                        })
+                        ->orWhereHas('checkoutSale.checkout', function ($q2) use ($search) {
+                            $q2->where('receipt_number', 'like', "%{$search}%")
+                               ->orWhereHas('transaction', function ($q3) use ($search) {
+                                   $q3->where('code', 'like', "%{$search}%");
+                               });
                         });
                 });
             })

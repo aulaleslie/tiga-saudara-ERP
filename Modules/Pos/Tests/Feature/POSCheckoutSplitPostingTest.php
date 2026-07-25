@@ -339,7 +339,9 @@ class POSCheckoutSplitPostingTest extends TestCase
         $this->assertCount(2, $splitGroups);
 
         $checkoutId = $response->json('pos_checkout_id');
-        $expectedNote = mb_strtoupper('POS CHECKOUT #' . $checkoutId . "\nSplit posting test note", 'UTF-8');
+        $checkout = \Modules\Pos\Entities\PosCheckout::find($checkoutId);
+        $transactionCode = \Modules\Pos\Entities\PosTransaction::find($checkout->pos_transaction_id)->code;
+        $expectedNote = mb_strtoupper('POS ' . $transactionCode . "\nSplit posting test note", 'UTF-8');
 
         foreach ($splitGroups as $group) {
             $sale = Sale::findOrFail($group['sale_id']);
@@ -364,7 +366,10 @@ class POSCheckoutSplitPostingTest extends TestCase
 
         $splitGroups = $response->json('split_groups');
         $this->assertCount(2, $splitGroups);
-        $expectedNote = 'POS CHECKOUT #' . $response->json('pos_checkout_id');
+        $checkoutId = $response->json('pos_checkout_id');
+        $checkout = \Modules\Pos\Entities\PosCheckout::find($checkoutId);
+        $transactionCode = \Modules\Pos\Entities\PosTransaction::find($checkout->pos_transaction_id)->code;
+        $expectedNote = 'POS ' . $transactionCode;
 
         foreach ($splitGroups as $group) {
             $sale = Sale::findOrFail($group['sale_id']);

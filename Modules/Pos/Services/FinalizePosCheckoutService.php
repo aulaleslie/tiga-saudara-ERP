@@ -954,6 +954,11 @@ class FinalizePosCheckoutService
                     );
                 }
 
+                $posTransactionCode = null;
+                if ($this->transactionService) {
+                    $posTransactionCode = $this->transactionService->resolveCodeFromCartSnapshot($settingId, $cartSnapshot);
+                }
+
                 $postingResult = $this->postingAdapter->post([
                     'setting_id' => $settingId,
                     'checkout_id' => $checkoutId,
@@ -966,6 +971,7 @@ class FinalizePosCheckoutService
                     'allocations' => $resolution['allocations'],
                     'is_debt' => (bool) ($lockedCheckout->metadata['is_debt'] ?? false),
                     'payment_term_id' => $lockedCheckout->metadata['payment_term_id'] ?? null,
+                    'pos_transaction_code' => $posTransactionCode,
                 ]);
 
                 $dispatchIds = array_values(array_map(
@@ -1140,7 +1146,8 @@ class FinalizePosCheckoutService
                         $cashierUserId,
                         $cartSnapshot,
                         $lockedCheckout->id,
-                        $resolution['allocations']
+                        $resolution['allocations'],
+                        $posTransactionCode
                     );
 
                     $lockedCheckout->pos_transaction_id = (int) $completedTransaction->id;

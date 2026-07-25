@@ -973,7 +973,9 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $response->assertCreated();
 
         $sale = Sale::findOrFail($response->json('sale_id'));
-        $this->assertStringContainsStringIgnoringCase('POS CHECKOUT', $sale->note);
+        $checkout = \Modules\Pos\Entities\PosCheckout::find($response->json('pos_checkout_id'));
+        $code = \Modules\Pos\Entities\PosTransaction::find($checkout->pos_transaction_id)->code;
+        $this->assertStringContainsStringIgnoringCase('POS ' . $code, $sale->note);
         $this->assertStringNotContainsString('null', $sale->note);
     }
 
@@ -993,7 +995,9 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         $response->assertCreated();
 
         $sale = Sale::findOrFail($response->json('sale_id'));
-        $this->assertStringContainsStringIgnoringCase('POS CHECKOUT', $sale->note);
+        $checkout = \Modules\Pos\Entities\PosCheckout::find($response->json('pos_checkout_id'));
+        $code = \Modules\Pos\Entities\PosTransaction::find($checkout->pos_transaction_id)->code;
+        $this->assertStringContainsStringIgnoringCase('POS ' . $code, $sale->note);
         $this->assertStringNotContainsString('null', $sale->note);
     }
     

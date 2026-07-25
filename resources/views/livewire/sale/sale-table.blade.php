@@ -10,7 +10,7 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, ref import, pelanggan, produk (nama/kode), nomor faktur pajak, tag..."
+                   placeholder="Cari referensi, POS, ref import, pelanggan, produk (nama/kode), nomor faktur pajak, tag..."
                    wire:model.defer="searchText"
                    style="width: 300px;"
                    autocomplete="off"
@@ -32,6 +32,7 @@
             <th wire:click="sortBy('reference')" style="cursor:pointer">
                 Ref {!! $this->sortIcon('reference') !!}
             </th>
+            <th>POS</th>
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
             </th>
@@ -71,9 +72,20 @@
                         <br>
                         <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
                     @endif
-                    @if (!empty($sale->note))
-                        <br>
-                        <small class="text-muted">{{ Str::limit($sale->note, 50) }}</small>
+                </td>
+                <td>
+                    @php
+                        $posCode = '-';
+                        if ($sale->posCheckout && $sale->posCheckout->transaction) {
+                            $posCode = $sale->posCheckout->transaction->code;
+                        } elseif ($sale->checkoutSale && $sale->checkoutSale->checkout && $sale->checkoutSale->checkout->transaction) {
+                            $posCode = $sale->checkoutSale->checkout->transaction->code;
+                        }
+                    @endphp
+                    @if ($posCode !== '-')
+                        <span class="badge bg-info text-dark">{{ $posCode }}</span>
+                    @else
+                        <span class="text-muted">-</span>
                     @endif
                 </td>
                 <td>
@@ -105,7 +117,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="11">Tidak ada data yang ditemukan.</td>
+                <td colspan="12">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

@@ -119,7 +119,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         $cartNote = $cartSnapshot['note'] ?? null;
-        $saleNote = 'POS checkout #' . $checkoutId;
+        $posTransactionCode = $context['pos_transaction_code'] ?? null;
+
+        $saleNote = $posTransactionCode ? 'POS ' . $posTransactionCode : 'POS checkout #' . $checkoutId;
         if ($cartNote !== null && $cartNote !== '') {
             $saleNote .= "\n" . $cartNote;
         }
