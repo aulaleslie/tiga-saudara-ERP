@@ -125,6 +125,18 @@ class ImportBarcodesCommand extends Command
                 }
                 continue;
             }
+            $isTaken = false;
+            if ($canonicalKey) {
+                $isTaken = DB::table('barcode_identities')->where('canonical_key', $canonicalKey)->exists();
+                if (!$isTaken) {
+                    $isTaken = DB::table('products')->where('barcode', $fileBarcode)->exists();
+                }
+            }
+
+            if ($isTaken) {
+                $barcodeTaken[] = $productName;
+                continue;
+            }
 
             try {
                 DB::transaction(function () use ($product, $fileBarcode, $barcodeIdentityService) {
@@ -133,15 +145,17 @@ class ImportBarcodesCommand extends Command
                     
                     if (!$reserveResult['success']) {
                         if (($reserveResult['error'] ?? '') === 'duplicate') {
-                            throw new \Illuminate\Database\QueryException('', [], new \Exception('duplicate_barcode_constraint', 23000));
+                            throw new BarcodeTakenException();
                         }
                         throw new \Exception('Failed to reserve barcode: ' . ($reserveResult['error'] ?? 'unknown'));
                     }
                 });
                 $applied++;
+            } catch (BarcodeTakenException $e) {
+                $barcodeTaken[] = $productName;
             } catch (\Illuminate\Database\QueryException $e) {
                 $errorCode = $e->errorInfo[1] ?? 0;
-                $isDuplicate = $errorCode == 1062 || $errorCode == 19 || $e->getCode() == '23000' || ($e->getPrevious() && $e->getPrevious()->getMessage() === 'duplicate_barcode_constraint');
+                $isDuplicate = $errorCode == 1062 || $errorCode == 19 || $e->getCode() == '23000';
                 
                 if ($isDuplicate) {
                     $barcodeTaken[] = $productName;
@@ -181,3 +195,5 @@ class ImportBarcodesCommand extends Command
         }
     }
 }
+
+class BarcodeTakenException extends \Exception {}

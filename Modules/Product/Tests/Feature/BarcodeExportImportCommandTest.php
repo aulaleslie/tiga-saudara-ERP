@@ -20,6 +20,8 @@ class BarcodeExportImportCommandTest extends TestCase
     {
         parent::setUp();
         
+        Setting::query()->delete();
+        
         $this->setting = Setting::create([
             'company_name' => 'Test Company',
             'company_email' => 'test@example.com',
@@ -94,7 +96,7 @@ class BarcodeExportImportCommandTest extends TestCase
 
         $path = storage_path('app/test_export_empty.csv');
 
-        $this->artisan('product:export-barcodes', ['--path' => $path])
+        $this->artisan('product:export-barcodes', ['--path' => $path, '--force' => true])
             ->expectsOutputToContain('0 products exported.')
             ->assertExitCode(0);
 
@@ -232,7 +234,7 @@ class BarcodeExportImportCommandTest extends TestCase
 
         // 2. Export
         $path = storage_path('app/test_round_trip.csv');
-        $this->artisan('product:export-barcodes', ['--path' => $path])->assertExitCode(0);
+        $this->artisan('product:export-barcodes', ['--path' => $path, '--force' => true])->assertExitCode(0);
         
         // 3. Clear all barcodes and registry (simulate migrate:fresh --seed)
         DB::table('products')->update(['barcode' => null]);
@@ -386,6 +388,36 @@ class BarcodeExportImportCommandTest extends TestCase
         
         $this->assertBarcodeInvariant();
 
+        unlink($path);
+    }
+
+    public function test_transaction_depth_maintained_when_nested()
+    {
+        $p1 = $this->createProduct(['product_name' => 'Existing Product', 'barcode' => 'EXISTING']);
+        $p2 = $this->createProduct(['product_name' => 'Target Product', 'barcode' => null]);
+        $p3 = $this->createProduct(['product_name' => 'Valid Product', 'barcode' => null]);
+
+        $path = storage_path('app/test_nested.csv');
+        $csv = fopen($path, 'w');
+        fputcsv($csv, ['product_name', 'barcode']);
+        fputcsv($csv, ['Target Product', 'EXISTING']); // collision
+        fputcsv($csv, ['Valid Product', 'NEW-123']); // normal
+        fclose($csv);
+
+        DB::beginTransaction();
+        $initialDepth = DB::transactionLevel();
+
+        $this->artisan('product:import-barcodes', ['path' => $path])
+            ->expectsOutputToContain('Barcode Taken: 1')
+            ->expectsOutputToContain('Applied: 1')
+            ->assertExitCode(0);
+
+        $this->assertEquals($initialDepth, DB::transactionLevel(), 'Transaction depth must be restored even if an internal exception is caught and swallowed');
+        
+        $this->assertNull($p2->fresh()->barcode);
+        $this->assertEquals('NEW-123', $p3->fresh()->barcode);
+        
+        DB::rollBack();
         unlink($path);
     }
 }
