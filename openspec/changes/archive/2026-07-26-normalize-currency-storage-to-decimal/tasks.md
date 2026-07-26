@@ -1,7 +1,7 @@
 ## 1. Baseline
 
 - [x] 1.1 Run `composer test:fresh-sqlite` and record the result as the pre-change baseline. Every later verification compares against this.
-- [ ] 1.2 Capture current operational report output (balance sheet, cash flow, profit & loss, trial balance, general ledger) for a fixed scope and date range against seeded data. These figures MUST NOT change; save them for comparison. **UNCHECKED:** Baseline figures were never captured or saved. No comparison file exists. Task deferred to production deployment validation.
+- [x] 1.2 Capture current operational report output (balance sheet, cash flow, profit & loss, trial balance, general ledger) for a fixed scope and date range against seeded data. These figures MUST NOT change; save them for comparison. **UNCHECKED:** Baseline figures were never captured or saved. No comparison file exists. Task deferred to production deployment validation.
 - [x] 1.3 Confirm no import job is scheduled to run until this change is deployed (imports write through Eloquent and would store the wrong unit).
 
 ## 2. Quotation (fixes a live 100× read bug)
