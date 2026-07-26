@@ -231,8 +231,8 @@ class PurchaseAuthorizationTest extends TestCase
 
         // Legacy permission should NOT exist
         $this->assertArrayNotHasKey('purchases.edit', $purchasePermissions);
-        $this->assertArrayNotHasKey('purchaseReceivings.access', $receivingPermissions);
-        $this->assertArrayNotHasKey('purchaseReceivings.approval', $receivingPermissions);
+        $this->assertArrayNotHasKey('purchases.receive.access', $receivingPermissions);
+        $this->assertArrayNotHasKey('purchases.receive.approval', $receivingPermissions);
     }
 
     public function test_legacy_permission_remap_gives_users_canonical_access(): void
@@ -258,8 +258,8 @@ class PurchaseAuthorizationTest extends TestCase
         // This is primarily a code review check, but we document it here
         $undefinedPermissions = [
             'purchases.view',           // Removed (consolidated with show)
-            'purchaseReceivings.access',  // Renamed to purchases.receive.access
-            'purchaseReceivings.approval', // Renamed to purchases.receive.approval
+            'purchases.receive.access',  // Renamed to purchases.receive.access
+            'purchases.receive.approval', // Renamed to purchases.receive.approval
         ];
 
         $permissionsConfig = config('permissions');
