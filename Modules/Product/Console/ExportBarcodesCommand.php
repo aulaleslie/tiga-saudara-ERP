@@ -12,7 +12,7 @@ class ExportBarcodesCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'product:export-barcodes {--path= : The path to save the exported CSV file}';
+    protected $signature = 'product:export-barcodes {--path= : The path to save the exported CSV file} {--force : Overwrite the file if it already exists}';
 
     /**
      * The console command description.
@@ -39,6 +39,14 @@ class ExportBarcodesCommand extends Command
     public function handle()
     {
         $path = $this->option('path') ?: storage_path('app/product_barcodes_export.csv');
+        $force = $this->option('force');
+
+        if (file_exists($path) && !$force) {
+            if (!$this->confirm("File {$path} already exists. Overwrite?", false)) {
+                $this->info('Export cancelled.');
+                return 1;
+            }
+        }
 
         $this->info("Exporting barcodes to {$path}...");
 

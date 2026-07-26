@@ -53,6 +53,10 @@ class ImportBarcodesCommand extends Command
         $ambiguous = [];
         $hasBarcode = [];
         $barcodeTaken = [];
+        $invalidBarcode = [];
+
+        $simulatedBarcodes = [];
+        $simulatedProducts = [];
 
         $isFirstRow = true;
         while (($row = fgetcsv($file)) !== false) {
@@ -64,7 +68,7 @@ class ImportBarcodesCommand extends Command
             // Tolerate header row
             if ($isFirstRow) {
                 $isFirstRow = false;
-                if ($row[0] === 'product_name' || $row[1] === 'barcode') {
+                if (count($row) >= 2 && $row[0] === 'product_name' && $row[1] === 'barcode') {
                     continue;
                 }
             }
@@ -75,6 +79,12 @@ class ImportBarcodesCommand extends Command
 
             $productName = $row[0];
             $fileBarcode = $row[1];
+
+            $canonicalKey = BarcodeUtils::canonicalize($fileBarcode);
+            if (!$canonicalKey) {
+                $invalidBarcode[] = $productName;
+                continue;
+            }
 
             $products = DB::table('products')
                 ->where('product_name', $productName)
@@ -92,36 +102,48 @@ class ImportBarcodesCommand extends Command
 
             $product = $products->first();
 
-            if (!empty($product->barcode)) {
+            if (!empty($product->barcode) || ($dryRun && in_array($product->id, $simulatedProducts))) {
                 $hasBarcode[] = $productName;
                 continue;
             }
 
             // Applicable row
             if ($dryRun) {
-                $applied++;
+                $isTaken = in_array($canonicalKey, $simulatedBarcodes);
+                if (!$isTaken) {
+                    $isTaken = DB::table('barcode_identities')
+                                ->where('canonical_key', $canonicalKey)
+                                ->exists();
+                }
+
+                if ($isTaken) {
+                    $barcodeTaken[] = $productName;
+                } else {
+                    $simulatedProducts[] = $product->id;
+                    $simulatedBarcodes[] = $canonicalKey;
+                    $applied++;
+                }
                 continue;
             }
 
-            DB::beginTransaction();
             try {
-                DB::table('products')->where('id', $product->id)->update(['barcode' => $fileBarcode]);
-                $reserveResult = $barcodeIdentityService->reserve($fileBarcode, $product->id, null);
-                
-                if (!$reserveResult['success']) {
-                    if (($reserveResult['error'] ?? '') === 'duplicate') {
-                        DB::rollBack();
-                        $barcodeTaken[] = $productName;
-                        continue;
+                DB::transaction(function () use ($product, $fileBarcode, $barcodeIdentityService) {
+                    DB::table('products')->where('id', $product->id)->update(['barcode' => $fileBarcode]);
+                    $reserveResult = $barcodeIdentityService->reserve($fileBarcode, $product->id, null);
+                    
+                    if (!$reserveResult['success']) {
+                        if (($reserveResult['error'] ?? '') === 'duplicate') {
+                            throw new \Illuminate\Database\QueryException('', [], new \Exception('duplicate_barcode_constraint', 23000));
+                        }
+                        throw new \Exception('Failed to reserve barcode: ' . ($reserveResult['error'] ?? 'unknown'));
                     }
-                    throw new \Exception('Failed to reserve barcode: ' . ($reserveResult['error'] ?? 'unknown'));
-                }
-                
-                DB::commit();
+                });
                 $applied++;
             } catch (\Illuminate\Database\QueryException $e) {
-                DB::rollBack();
-                if ($e->getCode() == '23000') {
+                $errorCode = $e->errorInfo[1] ?? 0;
+                $isDuplicate = $errorCode == 1062 || $errorCode == 19 || $e->getCode() == '23000' || ($e->getPrevious() && $e->getPrevious()->getMessage() === 'duplicate_barcode_constraint');
+                
+                if ($isDuplicate) {
                     $barcodeTaken[] = $productName;
                 } else {
                     throw $e;
@@ -137,11 +159,13 @@ class ImportBarcodesCommand extends Command
         $this->info("Ambiguous: " . count($ambiguous));
         $this->info("Has Barcode: " . count($hasBarcode));
         $this->info("Barcode Taken: " . count($barcodeTaken));
+        $this->info("Invalid Barcode: " . count($invalidBarcode));
         
         $this->printList('Not Found', $notFound);
         $this->printList('Ambiguous', $ambiguous);
         $this->printList('Has Barcode', $hasBarcode);
         $this->printList('Barcode Taken', $barcodeTaken);
+        $this->printList('Invalid Barcode', $invalidBarcode);
 
         return 0;
     }
