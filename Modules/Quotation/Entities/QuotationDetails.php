@@ -21,28 +21,4 @@ class QuotationDetails extends BaseModel
     {
         return $this->belongsTo(Quotation::class, 'quotation_id', 'id');
     }
-
-    public function getPriceAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getUnitPriceAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getSubTotalAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getProductDiscountAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getProductTaxAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }}
+}

@@ -132,8 +132,8 @@ class OperationalCashFlowReportService
                 $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             });
-            
-        return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
+
+        return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }
 
     protected function getSaleReturnPayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
@@ -143,53 +143,19 @@ class OperationalCashFlowReportService
             $q->whereIn('setting_id', $settingIds)
               ->whereIn('status', ['Completed', 'COMPLETED']);
         });
-        
-        return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
+
+        return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }
 
     protected function getPurchaseReturnPayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
-        $legacyQuery = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+        $query = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
+                  ->whereIn('status', ['Completed', 'COMPLETED']);
             });
-            
-        $legacyPayments = $this->applyDateFilters($legacyQuery, $startDate, $endDate)
-            ->get(['id', 'amount', 'created_at', 'updated_at', 'reference', 'purchase_return_id']);
 
-        $legacyCentsSum = 0;
-        $legacyDecimalSum = 0;
-
-        foreach ($legacyPayments as $payment) {
-            $isInitialPayment = $payment->created_at->diffInSeconds($payment->purchaseReturn->created_at) <= 2;
-            $isSettlementPayment = str_starts_with($payment->reference, 'PAY-RET/');
-            $isEdited = $payment->updated_at->diffInSeconds($payment->created_at) > 0;
-
-            if ($isSettlementPayment || ($isInitialPayment && !$isEdited)) {
-                $legacyCentsSum += $payment->amount;
-            } else {
-                $legacyDecimalSum += $payment->amount;
-            }
-        }
-        
-        $purchaseReturnPaymentsLegacyScaled = ($legacyCentsSum / 100) + $legacyDecimalSum;
-            
-        $livewireQuery = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereHas('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
-            });
-            
-        $purchaseReturnPaymentsLivewire = (float) $this->applyDateFilters($livewireQuery, $startDate, $endDate)->sum('amount');
-            
-        return $purchaseReturnPaymentsLegacyScaled + $purchaseReturnPaymentsLivewire;
+        return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }
 
     protected function getExpenses(int|array $settingScope, ?string $startDate, ?string $endDate): float
@@ -197,7 +163,7 @@ class OperationalCashFlowReportService
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
         $query = Expense::activeApproved()
             ->whereIn('setting_id', $settingIds);
-            
-        return (float) ($this->applyDateFilters($query, $startDate, $endDate)->sum('amount') / 100);
+
+        return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }
 }

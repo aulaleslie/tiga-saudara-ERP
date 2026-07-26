@@ -13,7 +13,7 @@ class AgedPayablesReportQueryService
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
 
         $paymentsSub = DB::table('purchase_payments')
-            ->select('purchase_id', DB::raw('SUM(amount / 100.0) as paid_to_date'))
+            ->select('purchase_id', DB::raw('SUM(amount) as paid_to_date'))
             ->where('status', 'ACTIVE')
             ->where('date', '<=', $filter->asOfDate)
             ->groupBy('purchase_id');

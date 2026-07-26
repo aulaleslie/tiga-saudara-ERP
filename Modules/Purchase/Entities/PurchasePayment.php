@@ -37,15 +37,6 @@ class PurchasePayment extends BaseModel implements HasMedia
         return $this->belongsTo(\App\Models\User::class, 'invalidated_by');
     }
 
-    public function setAmountAttribute($value): void
-    {
-        $this->attributes['amount'] = $value * 100;
-    }
-
-    public function getAmountAttribute($value) {
-        return $value / 100;
-    }
-
     public function scopeActive($query)
     {
         return $query->where('status', self::STATUS_ACTIVE);

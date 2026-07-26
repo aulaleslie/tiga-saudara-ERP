@@ -15,16 +15,6 @@ class SaleReturnPayment extends BaseModel
         return $this->belongsTo(SaleReturn::class, 'sale_return_id', 'id');
     }
 
-    public function setAmountAttribute($value): void
-    {
-        $this->attributes['amount'] = $value * 100;
-    }
-
-    public function getAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
     public function getDateAttribute($value): string
     {
         return Carbon::parse($value)->format('d M, Y');

@@ -40,7 +40,7 @@ class PurchaseOrderCompletionReportQueryService
         return DB::table('purchase_payments')
             ->select('purchase_id')
             ->selectRaw(
-                'SUM(CASE WHEN status = ? THEN amount ELSE 0 END) / 100.0 as active_paid',
+                'SUM(CASE WHEN status = ? THEN amount ELSE 0 END) as active_paid',
                 [PurchasePayment::STATUS_ACTIVE]
             )
             ->selectRaw(

@@ -36,78 +36,33 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
-        $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+        $purchaseReturnPayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
-            })
-            ->whereDate('date', '<=', $asOfDate)
-            ->get(['id', 'amount', 'created_at', 'updated_at', 'reference', 'purchase_return_id']);
-
-        $legacyCentsSum = 0;
-        $legacyDecimalSum = 0;
-
-        foreach ($legacyPayments as $payment) {
-            // Initial payments (cents) are created in the same transaction as the parent return.
-            $isInitialPayment = $payment->created_at->diffInSeconds($payment->purchaseReturn->created_at) <= 2;
-            // Settlement payments (cents) always have 'PAY-RET/' reference.
-            $isSettlementPayment = str_starts_with($payment->reference, 'PAY-RET/');
-
-            // If a cents-scaled payment was later edited through the UI, the controller stores
-            // the new amount in true decimal format, updating the updated_at timestamp.
-            $isEdited = $payment->updated_at->diffInSeconds($payment->created_at) > 0;
-
-            // Settlement payments (PAY-RET/) are always cents, even if incremented (edited) later.
-            // Initial payments are cents only if they haven't been manually edited to decimal via UI.
-            if ($isSettlementPayment || ($isInitialPayment && !$isEdited)) {
-                $legacyCentsSum += $payment->amount;
-            } else {
-                // Manual payments (decimals) are added later by a user and don't have the settlement prefix.
-                // Edited initial cents payments also become decimals.
-                $legacyDecimalSum += $payment->amount;
-            }
-        }
-        
-        $purchaseReturnPaymentsLegacyScaled = ($legacyCentsSum / 100) + $legacyDecimalSum;
-            
-        $purchaseReturnPaymentsLivewire = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereHas('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
+                  ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
             
-        $purchaseReturnPayments = $purchaseReturnPaymentsLegacyScaled + $purchaseReturnPaymentsLivewire;
-            
         // Outflows: Purchase payments, Sale return payments (refunds to customer), Expenses
-        $purchasePaymentsCents = PurchasePayment::active()
+        $purchasePayments = PurchasePayment::active()
             ->whereHas('purchase', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
-        $purchasePayments = $purchasePaymentsCents / 100;
-            
-        $saleReturnPaymentsCents = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
+
+        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
                   ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
-        $saleReturnPayments = $saleReturnPaymentsCents / 100;
-            
-        $expensesCentsTotal = Expense::activeApproved()
+
+        $expensesTotal = Expense::activeApproved()
             ->whereIn('setting_id', $settingIds)
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
-        $expensesTotal = $expensesCentsTotal / 100;
         
         $cashAndBank = $salePayments + $purchaseReturnPayments - $purchasePayments - $saleReturnPayments - $expensesTotal;
 
@@ -133,25 +88,10 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('total_amount');
             
-        $completedPurchaseReturnsRecords = PurchaseReturn::whereIn('setting_id', $settingIds)
+        $completedPurchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
             ->whereIn('status', ['Completed', 'COMPLETED'])
             ->whereDate('date', '<=', $asOfDate)
-            ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
-                $q->whereNotNull('location_id');
-            }])
-            ->get(['id', 'total_amount', 'return_type', 'payment_method']);
-            
-        $completedPurchaseReturns = $completedPurchaseReturnsRecords->sum(function ($pr) {
-            // Legacy records stored total_amount as * 100.
-            // The Livewire flow requires location_id on details, while the Legacy controller never maps it.
-            // Even if a legacy return later gets settlement items, its original amounts remain * 100.
-            // We use the presence of location_id on details as a durable structural discriminator.
-            $isLegacy = ! $pr->is_livewire;
-            if ($isLegacy) {
-                return (float) $pr->total_amount / 100;
-            }
-            return (float) $pr->total_amount;
-        });
+            ->sum('total_amount');
             
         $taxPayable = Sale::whereIn('setting_id', $settingIds)
             ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])

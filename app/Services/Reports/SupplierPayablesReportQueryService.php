@@ -13,9 +13,8 @@ class SupplierPayablesReportQueryService
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
 
         // Subquery for paid_to_date up to endDate using purchase_payments
-        // purchase_payments.amount is stored as cents-like integer; divide by 100.0
         $paymentsSub = DB::table('purchase_payments')
-            ->select('purchase_id', DB::raw('SUM(amount / 100.0) as paid_to_date'))
+            ->select('purchase_id', DB::raw('SUM(amount) as paid_to_date'))
             ->where('status', 'ACTIVE')
             ->where('date', '<=', $filter->endDate)
             ->groupBy('purchase_id');

@@ -54,34 +54,4 @@ class Quotation extends BaseModel
     {
         return Carbon::parse($value)->format('d M, Y');
     }
-
-    public function getShippingAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getPaidAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getTotalAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getDueAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getTaxAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getDiscountAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
 }

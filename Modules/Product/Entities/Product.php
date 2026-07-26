@@ -118,38 +118,6 @@ class Product extends BaseModel implements HasMedia
             ->height(50);
     }
 
-    /**
-     * Mutator to set the product cost.
-     */
-    public function setProductCostAttribute($value): void
-    {
-        $this->attributes['product_cost'] = ($value * 100);
-    }
-
-    /**
-     * Accessor to get the product cost.
-     */
-    public function getProductCostAttribute($value): float|int
-    {
-        return ($value / 100);
-    }
-
-    /**
-     * Mutator to set the product price.
-     */
-    public function setProductPriceAttribute($value): void
-    {
-        $this->attributes['product_price'] = ($value * 100);
-    }
-
-    /**
-     * Accessor to get the product price.
-     */
-    public function getProductPriceAttribute($value): float|int
-    {
-        return ($value / 100);
-    }
-
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);

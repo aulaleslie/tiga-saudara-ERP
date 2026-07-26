@@ -84,7 +84,7 @@ class OperationalMovementEventService
 
         // 3. Sale Returns (No GL impact as per Laba Rugi logic)
 
-        // 4. Sale Return Payments (Stored in cents in DB)
+        // 4. Sale Return Payments
         $saleReturnPayments = DB::table('sale_return_payments')
             ->join('sale_returns', 'sale_returns.id', '=', 'sale_return_payments.sale_return_id')
             ->whereIn('sale_returns.setting_id', $settingIds)
@@ -93,9 +93,8 @@ class OperationalMovementEventService
             ->sum('sale_return_payments.amount');
 
         if ($saleReturnPayments > 0) {
-            $srpAmount = (float)$saleReturnPayments / 100;
-            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, $srpAmount);
-            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $srpAmount, 0);
+            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, (float)$saleReturnPayments);
+            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, (float)$saleReturnPayments, 0);
         }
 
         // 5. Purchases
@@ -110,7 +109,7 @@ class OperationalMovementEventService
             $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, 0, (float)$purchases);
         }
 
-        // 6. Purchase Payments (Stored in cents in DB)
+        // 6. Purchase Payments
         $purchasePayments = DB::table('purchase_payments')
             ->join('purchases', 'purchases.id', '=', 'purchase_payments.purchase_id')
             ->where('purchase_payments.status', 'ACTIVE')
@@ -120,22 +119,18 @@ class OperationalMovementEventService
             ->sum('purchase_payments.amount');
 
         if ($purchasePayments > 0) {
-            $ppAmount = (float)$purchasePayments / 100;
-            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, $ppAmount);
-            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $ppAmount, 0);
+            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, (float)$purchasePayments);
+            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, (float)$purchasePayments, 0);
         }
 
         // 7. Purchase Returns
         $purchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
             ->whereIn('status', ['Completed', 'COMPLETED'])
             ->whereDate('date', '<', $startDate)
-            ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
-                $q->whereNotNull('location_id');
-            }])
             ->get(['id', 'total_amount']);
 
         foreach ($purchaseReturns as $pr) {
-            $amount = $pr->is_livewire ? (float) $pr->total_amount : ((float) $pr->total_amount / 100);
+            $amount = (float) $pr->total_amount;
             if ($amount > 0) {
                 $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $amount, 0);
                 $add(OperationalGeneralLedgerBucketConfig::INVENTORY, 0, $amount);
@@ -143,52 +138,22 @@ class OperationalMovementEventService
         }
 
         // 8. Purchase Return Payments
-        $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,created_at')
-            ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
+        $purchaseReturnPayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
+                  ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereDate('date', '<', $startDate)
-            ->get(['id', 'amount', 'reference', 'purchase_return_id', 'created_at', 'updated_at']);
+            ->get(['id', 'amount']);
 
-        foreach ($legacyPayments as $payment) {
-            $isInitialPayment = $payment->created_at->diffInSeconds($payment->purchaseReturn->created_at) <= 2;
-            $isSettlementPayment = str_starts_with($payment->reference, 'PAY-RET/');
-            $isEdited = $payment->updated_at->diffInSeconds($payment->created_at) > 0;
-
-            if ($isSettlementPayment || ($isInitialPayment && !$isEdited)) {
-                $amount = (float) $payment->amount / 100;
-            } else {
-                $amount = (float) $payment->amount;
-            }
+        foreach ($purchaseReturnPayments as $payment) {
+            $amount = (float) $payment->amount;
             if ($amount > 0) {
                 $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, $amount, 0);
                 $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, 0, $amount);
             }
         }
 
-        $livewirePayments = DB::table('purchase_return_payments')
-            ->join('purchase_returns', 'purchase_returns.id', '=', 'purchase_return_payments.purchase_return_id')
-            ->whereIn('purchase_returns.setting_id', $settingIds)
-            ->whereIn('purchase_returns.status', ['Completed', 'COMPLETED'])
-            ->whereExists(function ($query) {
-                $query->select(DB::raw(1))
-                      ->from('purchase_return_details')
-                      ->whereColumn('purchase_return_details.purchase_return_id', 'purchase_returns.id')
-                      ->whereNotNull('purchase_return_details.location_id');
-            })
-            ->whereDate('purchase_return_payments.date', '<', $startDate)
-            ->sum('purchase_return_payments.amount');
-
-        if ($livewirePayments > 0) {
-            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, (float)$livewirePayments, 0);
-            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, 0, (float)$livewirePayments);
-        }
-
-        // 9. Expenses (Stored in cents in DB)
+        // 9. Expenses
         $expenses = DB::table('expenses')
             ->whereIn('setting_id', $settingIds)
             ->whereNull('archived_at')
@@ -197,9 +162,8 @@ class OperationalMovementEventService
             ->sum('amount');
 
         if ($expenses > 0) {
-            $expAmount = (float)$expenses / 100;
-            $add(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, $expAmount, 0);
-            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, $expAmount);
+            $add(OperationalGeneralLedgerBucketConfig::OPERATIONAL_COST, (float)$expenses, 0);
+            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, (float)$expenses);
         }
 
         return $balances;
@@ -348,67 +312,28 @@ class OperationalMovementEventService
         $purchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
             ->whereIn('status', ['Completed', 'COMPLETED'])
             ->whereBetween('date', [$startDate, $endDateEndOfDay])
-            ->withExists(['purchaseReturnDetails as is_livewire' => function ($q) {
-                $q->whereNotNull('location_id');
-            }])
             ->get(['id', 'date', 'reference', 'total_amount', 'supplier_name', 'created_at']);
 
         foreach ($purchaseReturns as $pr) {
-            $isLegacy = ! $pr->is_livewire;
-            $amount = $isLegacy ? ((float) $pr->total_amount / 100) : (float) $pr->total_amount;
+            $amount = (float) $pr->total_amount;
             $date = Carbon::parse($pr->getRawOriginal('date'))->format('Y-m-d');
             $time = $pr->created_at->format('H:i:s');
             $dt = $date . ' ' . $time;
-            
+
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Retur Pembelian', $pr->reference, 'Pengurangan Hutang', $amount, 0, $pr->supplier_name);
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::INVENTORY, $dt, 'Retur Pembelian', $pr->reference, 'Retur Pembelian', 0, $amount, $pr->supplier_name);
         }
 
         // 8. Purchase Return Payments
-        $legacyPayments = PurchaseReturnPayment::with('purchaseReturn:id,supplier_name,created_at')
+        $purchaseReturnPayments = PurchaseReturnPayment::with('purchaseReturn:id,supplier_name,created_at')
             ->whereHas('purchaseReturn', function ($q) use ($settingIds) {
                 $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereDoesntHave('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
+                  ->whereIn('status', ['Completed', 'COMPLETED']);
             })
             ->whereBetween('date', [$startDate, $endDateEndOfDay])
-            ->get(['id', 'amount', 'date', 'created_at', 'updated_at', 'reference', 'purchase_return_id', 'payment_method']);
-
-        foreach ($legacyPayments as $payment) {
-            $isInitialPayment = $payment->created_at->diffInSeconds($payment->purchaseReturn->created_at) <= 2;
-            $isSettlementPayment = str_starts_with($payment->reference, 'PAY-RET/');
-            $isEdited = $payment->updated_at->diffInSeconds($payment->created_at) > 0;
-
-            if ($isSettlementPayment || ($isInitialPayment && !$isEdited)) {
-                $amount = (float) $payment->amount / 100;
-            } else {
-                $amount = (float) $payment->amount;
-            }
-            
-            $date = Carbon::parse($payment->getRawOriginal('date'))->format('Y-m-d');
-            $time = $payment->created_at->format('H:i:s');
-            $dt = $date . ' ' . $time;
-            $tag = $payment->purchaseReturn->supplier_name ?? null;
-            $desc = 'Penerimaan Dana Retur' . ($payment->payment_method ? ' - ' . $payment->payment_method : '');
-
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::CASH_BANK, $dt, 'Penerimaan Dana', $payment->reference, $desc, $amount, 0, $tag);
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Penerimaan Dana', $payment->reference, 'Penerimaan Dana Retur', 0, $amount, $tag);
-        }
-
-        $livewirePayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED'])
-                  ->whereHas('purchaseReturnDetails', function ($q2) {
-                      $q2->whereNotNull('location_id');
-                  });
-            })
-            ->whereBetween('date', [$startDate, $endDateEndOfDay])
-            ->with('purchaseReturn:id,supplier_name')
             ->get(['id', 'amount', 'date', 'created_at', 'reference', 'purchase_return_id', 'payment_method']);
 
-        foreach ($livewirePayments as $payment) {
+        foreach ($purchaseReturnPayments as $payment) {
             $amount = (float) $payment->amount;
             $date = Carbon::parse($payment->getRawOriginal('date'))->format('Y-m-d');
             $time = $payment->created_at->format('H:i:s');

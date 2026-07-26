@@ -124,18 +124,6 @@ class Expense extends BaseModel implements HasMedia
         });
     }
 
-    /**
-     * Mutator & accessor for amount (stored in cents)
-     */
-    public function setAmountAttribute($value): void
-    {
-        $this->attributes['amount'] = $value * 100;
-    }
-
-    public function getAmountAttribute($value): float
-    {
-        return $value / 100;
-    }
 
     /**
      * Accessor for formatted date

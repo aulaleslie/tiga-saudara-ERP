@@ -43,13 +43,11 @@ class OperationalProfitLossReportService
             ->sum('discount_amount');
 
         // Expenses (Approved, not archived)
-        // Note: amount is stored in cents, so sum('amount') returns cents, must divide by 100
-        $expensesCentsTotal = Expense::activeApproved()
+        $bebanOperasional = Expense::activeApproved()
             ->whereIn('setting_id', $normalizedSettingIds)
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->sum('amount');
-        $bebanOperasional = $expensesCentsTotal / 100;
 
         return new OperationalProfitLossReport(
             $currencyCode,
