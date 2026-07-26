@@ -76,9 +76,13 @@
                                         <tr>
                                             <td>{{ $receivedNote->external_delivery_number ?? '-' }}</td>
                                             <td>
-                                                <a href="{{ route('purchases.show', $receivedNote->purchase->id) }}">
+                                                @can('purchases.show')
+                                                    <a href="{{ route('purchases.show', $receivedNote->purchase->id) }}">
+                                                        {{ $receivedNote->purchase->reference ?? '-' }}
+                                                    </a>
+                                                @else
                                                     {{ $receivedNote->purchase->reference ?? '-' }}
-                                                </a>
+                                                @endcan
                                             </td>
                                             <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
                                             <td>{{ $receivedNote->location->name ?? '-' }}</td>

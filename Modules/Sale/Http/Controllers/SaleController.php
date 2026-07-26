@@ -764,7 +764,7 @@ class SaleController extends Controller
 
             DB::commit();
             toast('Pengiriman berhasil disimpan dan menunggu persetujuan.', 'success');
-            return redirect()->route('sales.index');
+            return redirect()->route('sales.dispatches.index');
 
         } catch (Exception $e) {
             DB::rollBack();

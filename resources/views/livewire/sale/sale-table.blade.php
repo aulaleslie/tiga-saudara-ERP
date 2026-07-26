@@ -60,14 +60,22 @@
                             return ($detail->product_name ?? '-') . ' (Qty: ' . $detail->quantity . ')';
                         })->implode("\n");
                     @endphp
-                    <a href="{{ route('sales.show', $sale->id) }}"
-                       class="text-primary font-weight-bold"
-                       class="sale-ref-tooltip"
-                       data-toggle="tooltip"
-                       data-placement="top"
-                       title="{{ $productsTooltip }}">
-                        {{ $sale->reference }}
-                    </a>
+                    @can('sales.show')
+                        <a href="{{ route('sales.show', $sale->id) }}"
+                           class="text-primary font-weight-bold sale-ref-tooltip"
+                           data-toggle="tooltip"
+                           data-placement="top"
+                           title="{{ $productsTooltip }}">
+                            {{ $sale->reference }}
+                        </a>
+                    @else
+                        <span class="font-weight-bold sale-ref-tooltip"
+                              data-toggle="tooltip"
+                              data-placement="top"
+                              title="{{ $productsTooltip }}">
+                            {{ $sale->reference }}
+                        </span>
+                    @endcan
                     @if (!empty($sale->imported_sales_reference_number))
                         <br>
                         <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
