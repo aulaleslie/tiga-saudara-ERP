@@ -20,7 +20,7 @@ class DocumentNotificationService
         $map = [
             \Modules\Purchase\Entities\Purchase::class => [
                 'approval_permission' => 'purchases.approval',
-                'edit_permission' => 'purchases.edit',
+                'edit_permission' => 'purchases.update',
                 'title_prefix' => 'Pembelian',
                 'route_prefix' => 'purchases',
             ],

@@ -22,7 +22,7 @@ class NotificationCommandTest extends TestCase
         parent::setUp();
         // Create permissions
         Permission::firstOrCreate(['name' => 'purchases.approval']);
-        Permission::firstOrCreate(['name' => 'purchases.edit']);
+        Permission::firstOrCreate(['name' => 'purchases.update']);
         Permission::firstOrCreate(['name' => 'notifications.lowStock']);
     }
 

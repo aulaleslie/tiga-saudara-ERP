@@ -230,7 +230,7 @@ class PurchaseAuthorizationTest extends TestCase
         $this->assertArrayHasKey('purchases.receive.approval', $receivingPermissions);
 
         // Legacy permission should NOT exist
-        $this->assertArrayNotHasKey('purchases.edit', $purchasePermissions);
+        $this->assertArrayNotHasKey('purchases.update', $purchasePermissions);
         $this->assertArrayNotHasKey('purchases.receive.access', $receivingPermissions);
         $this->assertArrayNotHasKey('purchases.receive.approval', $receivingPermissions);
     }
@@ -239,7 +239,7 @@ class PurchaseAuthorizationTest extends TestCase
     {
         // Simulate a legacy system where user had old permission
         $role = Role::create(['name' => 'TestRole']);
-        $legacyPerm = Permission::create(['name' => 'purchases.edit']);
+        $legacyPerm = Permission::create(['name' => 'purchases.update']);
         $role->givePermissionTo($legacyPerm);
 
         $this->user->assignRole($role);

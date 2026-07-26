@@ -83,7 +83,7 @@ class EditRulesTest extends TestCase
         ]);
         
         // 5. Setup Permissions
-        Permission::create(['name' => 'purchases.edit']);
+        Permission::create(['name' => 'purchases.update']);
         Permission::create(['name' => 'purchases.delete']);
         Permission::create(['name' => 'sales.edit']);
         Permission::create(['name' => 'sales.delete']);

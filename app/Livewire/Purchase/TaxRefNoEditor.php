@@ -20,7 +20,7 @@ class TaxRefNoEditor extends Component
 
         $this->purchaseId = $purchaseId;
         $this->taxRefNo = $purchase->tax_ref_no;
-        $this->canEdit = Gate::allows('purchases.edit') && !$purchase->isArchived();
+        $this->canEdit = Gate::allows('purchases.update') && !$purchase->isArchived();
     }
 
     public function startEditing(): void
@@ -66,7 +66,7 @@ class TaxRefNoEditor extends Component
     private function authorizeEdit(): void
     {
         $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
-        abort_if(Gate::denies('purchases.edit') || $purchase->isArchived(), 403);
+        abort_if(Gate::denies('purchases.update') || $purchase->isArchived(), 403);
     }
 
     private function findPurchase(): Purchase
