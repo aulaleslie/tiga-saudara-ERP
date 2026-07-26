@@ -337,7 +337,7 @@ class PurchaseReturnSettlementLogicTest extends TestCase
         // Assert Payment Created on Target
         $this->assertDatabaseHas('purchase_payments', [
             'purchase_id' => $targetPurchase->id,
-            'amount' => 2000000, // PurchasePayment model stores cents (x100)
+            'amount' => 20000,
             'payment_method' => 'SETTLEMENT RETUR', // BaseModel uppercases text
         ]);
     }

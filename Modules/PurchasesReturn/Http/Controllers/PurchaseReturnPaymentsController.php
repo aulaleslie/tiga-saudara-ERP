@@ -66,8 +66,8 @@ class PurchaseReturnPaymentsController extends Controller
             }
 
             $purchase_return->update([
-                'paid_amount' => ($purchase_return->paid_amount + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
+                'paid_amount' => $purchase_return->paid_amount + $request->amount,
+                'due_amount' => $due_amount,
                 'payment_status' => $payment_status
             ]);
         });
@@ -113,8 +113,8 @@ class PurchaseReturnPaymentsController extends Controller
             }
 
             $purchase_return->update([
-                'paid_amount' => (($purchase_return->paid_amount - $purchaseReturnPayment->amount) + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
+                'paid_amount' => ($purchase_return->paid_amount - $purchaseReturnPayment->amount) + $request->amount,
+                'due_amount' => $due_amount,
                 'payment_status' => $payment_status
             ]);
 

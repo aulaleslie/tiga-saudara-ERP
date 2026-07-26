@@ -22,7 +22,7 @@ class PurchaseReportQueryService
 
     private function buildDetailQuery(PurchaseReportFilterData $filter): Builder
     {
-        // Sub-query: payment rows per purchase. Amounts are stored as x100 integers.
+        // Sub-query: payment rows per purchase.
         $activePaymentSub = $this->activePaymentSubquery();
 
         // Sub-query: distinct approved receiving location names per purchase_detail
