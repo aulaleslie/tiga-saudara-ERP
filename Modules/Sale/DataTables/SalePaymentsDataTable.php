@@ -14,13 +14,16 @@ class SalePaymentsDataTable extends DataTable
 {
     protected $globalMode = false;
 
-    public function with($data = [])
+    public function with(array|string $key, mixed $value = null): static
     {
-        if (isset($data['globalMode'])) {
-            $this->globalMode = $data['globalMode'];
-            unset($data['globalMode']);
+        if (is_array($key)) {
+            if (isset($key['globalMode'])) {
+                $this->globalMode = $key['globalMode'];
+                unset($key['globalMode']);
+            }
+            return parent::with($key);
         }
-        return parent::with($data);
+        return parent::with($key, $value);
     }
 
     public function dataTable($query)
