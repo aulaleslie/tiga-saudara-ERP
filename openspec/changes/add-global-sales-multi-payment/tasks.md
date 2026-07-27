@@ -66,18 +66,18 @@
 
 ## 7. Allocation, Concurrency, and Attachment Tests
 
-- [ ] 7.1 Test a valid atomic multi-sale payment across settings for one exact customer, including header reconciliation and shared payment fields.
-- [ ] 7.2 Test rejection and complete rollback for customer mismatch, negative allocation, over-allocation, tampered candidate, changed status, archived sale, and all-zero submission.
-- [ ] 7.3 Test zero rows are ignored and at least one positive allocation is required.
-- [ ] 7.4 Test deterministic locking and stale/concurrent balance revalidation prevent partial or excessive settlement.
-- [ ] 7.5 Test attachment replication to every payment, optional attachment behavior, invalid temporary file rejection, and cleanup on copy failure.
-- [ ] 7.6 Test open customer credits are absent from the form and unchanged after global submission, with no credit applications created.
+- [x] 7.1 Test a valid atomic multi-sale payment across settings for one exact customer, including header reconciliation and shared payment fields.
+- [x] 7.2 Test rejection and complete rollback for customer mismatch, negative allocation, over-allocation, tampered candidate, changed status, archived sale, and all-zero submission.
+- [x] 7.3 Test zero rows are ignored and at least one positive allocation is required.
+- [x] 7.4 Test deterministic locking and stale/concurrent balance revalidation prevent partial or excessive settlement.
+- [x] 7.5 Test attachment replication to every payment, optional attachment behavior, invalid temporary file rejection, and cleanup on copy failure.
+- [x] 7.6 Test open customer credits are absent from the form and unchanged after global submission, with no credit applications created.
 
 ## 8. POS Kas Bon Coverage and Regression Verification
 
-- [ ] 8.1 Test unpaid and partially paid POS Kas Bon sales appear with receipt and transaction identifiers, while fully paid POS sales are excluded.
-- [ ] 8.2 Test global search finds POS Kas Bon by receipt number and transaction code.
-- [ ] 8.3 Test one payment can allocate to eligible ordinary and POS Kas Bon sales for the same customer.
-- [ ] 8.4 Test split-owner POS sales remain independent allocation rows and settle only their own generated `Sale` records.
-- [ ] 8.5 Test POS Kas Bon allocation creates only ordinary `SalePayment` records and reconciles balances visible through existing sale/POS relationships.
-- [ ] 8.6 Run focused module and Livewire tests, then run `composer test:fresh-sqlite` or the broadest practical Laravel test suite and resolve regressions.
+- [x] 8.1 Test unpaid and partially paid POS Kas Bon sales appear with receipt and transaction identifiers, while fully paid POS sales are excluded.
+- [x] 8.2 Test global search finds POS Kas Bon by receipt number and transaction code.
+- [x] 8.3 Test one payment can allocate to eligible ordinary and POS Kas Bon sales for the same customer.
+- [x] 8.4 Test split-owner POS sales remain independent allocation rows and settle only their own generated `Sale` records.
+- [x] 8.5 Test POS Kas Bon allocation creates only ordinary `SalePayment` records and reconciles balances visible through existing sale/POS relationships.
+- [x] 8.6 Run focused module and Livewire tests, then run `composer test:fresh-sqlite` or the broadest practical Laravel test suite and resolve regressions.

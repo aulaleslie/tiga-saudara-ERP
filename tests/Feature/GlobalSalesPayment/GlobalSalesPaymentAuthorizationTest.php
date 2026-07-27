@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Setting;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class GlobalSalesPaymentAuthorizationTest extends TestCase
@@ -23,17 +24,34 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
     {
         parent::setUp();
 
+        // Seed permissions needed for tests
+        $this->seedPermissions(['salePayments.global.access', 'salePayments.create']);
+
         $this->setting = Setting::factory()->create();
         $this->customer = Customer::factory()->create();
 
-        $this->sale = Sale::factory()
-            ->for($this->customer)
-            ->for($this->setting)
-            ->state([
-                'status' => Sale::STATUS_APPROVED,
-                'archived_at' => null,
-            ])
-            ->create();
+        $this->sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000000,
+            'paid_amount' => 0,
+            'due_amount' => 1000000,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => '',
+            'note' => null,
+            'payment_term_id' => null,
+            'tax_id' => null,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+        ]);
 
         // Create user with global access
         $this->authorizedUser = User::factory()->create();
@@ -41,6 +59,19 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
 
         // Create user without global access
         $this->unauthorizedUser = User::factory()->create();
+    }
+
+    /**
+     * Create permissions in test database
+     */
+    protected function seedPermissions(array $permissionNames): void
+    {
+        foreach ($permissionNames as $name) {
+            Permission::firstOrCreate([
+                'name' => $name,
+                'guard_name' => 'web',
+            ]);
+        }
     }
 
     public function test_menu_is_visible_to_authorized_users()
