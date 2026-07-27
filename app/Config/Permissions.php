@@ -269,6 +269,7 @@ return [
         'salePayments.edit' => 'Ubah',
         'salePayments.delete' => 'Hapus',
         'salePayments.show' => 'Tampilkan',
+        'salePayments.global.access' => 'Akses Global',
     ],
 
     'Retur Penjualan' => [

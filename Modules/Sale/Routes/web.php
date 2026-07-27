@@ -14,8 +14,26 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Sale\Http\Controllers\SaleController;
 use Modules\Sale\Http\Controllers\SalesUploadController;
+use Modules\Sale\Http\Controllers\GlobalSalePaymentController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
+
+    // Global Payments - Cross-setting multi-invoice payment (MUST be before resource route)
+    Route::get('/sales/global-payments', [GlobalSalePaymentController::class, 'index'])
+        ->name('sales.global-payments.index')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/show', [GlobalSalePaymentController::class, 'show'])
+        ->name('sales.global-payments.show')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/history', [GlobalSalePaymentController::class, 'history'])
+        ->name('sales.global-payments.history')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/create', [GlobalSalePaymentController::class, 'create'])
+        ->name('sales.global-payments.create')
+        ->middleware(['permission:salePayments.global.access', 'permission:salePayments.create']);
+    Route::post('/sales/{sale_id}/global-payments/store', [GlobalSalePaymentController::class, 'store'])
+        ->name('sales.global-payments.store')
+        ->middleware(['permission:salePayments.global.access', 'permission:salePayments.create', 'idempotency']);
 
     // Sales Upload/Import Routes
     Route::get('/sales/imports', [SalesUploadController::class, 'index'])->name('sales.imports.index');

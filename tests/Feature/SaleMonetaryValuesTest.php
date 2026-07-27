@@ -163,6 +163,7 @@ class SaleMonetaryValuesTest extends TestCase
             'name' => 'Starter Bundle',
             'description' => 'Bundle used for sales tests',
             'price' => 6.50,
+            'setting_id' => $this->setting->id,
         ]);
 
         $this->bundleItem = ProductBundleItem::create([
@@ -518,10 +519,10 @@ class SaleMonetaryValuesTest extends TestCase
             'discount_amount' => 0,
             'shipping_amount' => 0,
             'total_amount' => 120.00,
-            'paid_amount' => 40.00,
-            'due_amount' => 80.00,
-            'status' => 'Pending',
-            'payment_status' => 'Partial',
+            'paid_amount' => 0.00,
+            'due_amount' => 120.00,
+            'status' => 'APPROVED',
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'note' => null,
             'setting_id' => $this->setting->id,
@@ -544,8 +545,8 @@ class SaleMonetaryValuesTest extends TestCase
         $payment = SalePayment::latest('id')->first();
 
         $this->assertEquals(30.75, (float) $payment->amount);
-        $this->assertEquals(70.75, (float) $sale->paid_amount);
-        $this->assertEquals(49.25, (float) $sale->due_amount);
+        $this->assertEquals(30.75, (float) $sale->paid_amount);
+        $this->assertEquals(89.25, (float) $sale->due_amount);
         $this->assertEquals('PARTIAL', $sale->payment_status);
     }
 

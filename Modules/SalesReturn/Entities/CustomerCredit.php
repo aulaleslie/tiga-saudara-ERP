@@ -34,11 +34,11 @@ class CustomerCredit extends BaseModel
 
     public function scopeOpen(Builder $query): Builder
     {
-        return $query->where('status', 'open');
+        return $query->where('status', 'OPEN');
     }
 
     public function scopeClosed(Builder $query): Builder
     {
-        return $query->where('status', 'closed');
+        return $query->where('status', 'CLOSED');
     }
 }

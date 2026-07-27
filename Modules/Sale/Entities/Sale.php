@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
@@ -131,9 +132,135 @@ class Sale extends BaseModel
         return $query->where('status', self::STATUS_DISPATCHED);
     }
 
+    /**
+     * Get the canonical settlement SQL formula for live due amount.
+     * This formula is the single source of truth for settlement calculations:
+     *   live_due = total_amount - (active cash payments + active credit applications)
+     *
+     * Used by scopeWhereLiveDueAmountGreaterThan and scopeWhereLiveDueAmountLessThanOrEqual
+     * to ensure both scopes implement the exact same calculation without drift.
+     */
+    private static function canonicalLiveDueFormula(): string
+    {
+        return 'total_amount - COALESCE((
+            SELECT SUM(amount) FROM sale_payments
+            WHERE sale_payments.sale_id = sales.id
+            AND sale_payments.status = ?
+        ), 0) - COALESCE((
+            SELECT SUM(spca.amount) FROM sale_payment_credit_applications spca
+            INNER JOIN sale_payments sp ON spca.sale_payment_id = sp.id
+            WHERE sp.sale_id = sales.id
+            AND sp.status = ?
+        ), 0)';
+    }
+
+    /**
+     * Filter sales by live due amount using the canonical settlement calculation.
+     * Live due = total_amount - (active cash payments + active credit applications).
+     * Includes customer-credit applications to match getEffectivePaidAmount().
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
+    {
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' > ?',
+            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+        );
+    }
+
+    /**
+     * Filter sales by live due amount using the canonical settlement calculation.
+     * Live due = total_amount - (active cash payments + active credit applications).
+     * Includes customer-credit applications to match getEffectivePaidAmount().
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function scopeWhereLiveDueAmountLessThanOrEqual($query, $amount = 0)
+    {
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' <= ?',
+            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+        );
+    }
+
+    public function scopeApprovedUp($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_APPROVED,
+            self::STATUS_DISPATCHED_PARTIALLY,
+            self::STATUS_DISPATCHED,
+        ]);
+    }
+
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'customer_id', 'id');
+    }
+
+    /**
+     * Calculate the canonical settlement total from active payments and credits.
+     * This is the single source of truth for settlement calculations:
+     *   - SUM(sale_payments.amount WHERE status = ACTIVE)
+     *   + SUM(sale_payment_credit_applications.amount WHERE sale_payment.status = ACTIVE)
+     *
+     * Used consistently by:
+     *   - getEffectivePaidAmount() (PHP accessor for individual sale)
+     *   - getLiveDueAmountAttribute() (PHP accessor for live balance)
+     *   - reconcileFromActivePayments() (atomic header reconciliation)
+     *   - scopeWhereLiveDueAmountGreaterThan() (query-level filtering)
+     *   - scopeWhereLiveDueAmountLessThanOrEqual() (query-level filtering)
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function getEffectivePaidAmount(): float
+    {
+        if (array_key_exists('active_payments_sum', $this->attributes)) {
+            $monetarySum = (float) ($this->attributes['active_payments_sum'] ?: 0);
+        } else {
+            $monetarySum = (float) $this->salePayments()
+                ->where('status', SalePayment::STATUS_ACTIVE)
+                ->sum('amount');
+        }
+
+        // Get sum of credit applications attached to active payments
+        $creditSum = (float) DB::table('sale_payment_credit_applications')
+            ->join('sale_payments', 'sale_payment_credit_applications.sale_payment_id', '=', 'sale_payments.id')
+            ->where('sale_payments.sale_id', $this->id)
+            ->where('sale_payments.status', SalePayment::STATUS_ACTIVE)
+            ->sum('sale_payment_credit_applications.amount');
+
+        return round($monetarySum + $creditSum, 2);
+    }
+
+    /**
+     * Get live outstanding balance derived from total_amount minus active payments and credits.
+     * Returns max(0, total_amount - getEffectivePaidAmount()).
+     * Preserves any existing customer-credit settlement effects when reconciling.
+     */
+    public function getLiveDueAmountAttribute(): float
+    {
+        return max(0, round($this->total_amount - $this->getEffectivePaidAmount(), 2));
+    }
+
+    /**
+     * Reconcile sale header from canonical settlement totals.
+     * Updates paid_amount, due_amount, and payment_status from active payments and existing credits.
+     * Used after payment allocation to ensure consistency.
+     */
+    public function reconcileFromActivePayments(): void
+    {
+        $paidAmount = $this->getEffectivePaidAmount();
+        $dueAmount = round($this->total_amount - $paidAmount, 2);
+        $dueAmount = max(0, $dueAmount);
+
+        $status = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+
+        $this->update([
+            'paid_amount' => $paidAmount,
+            'due_amount' => $dueAmount,
+            'payment_status' => $status,
+        ]);
     }
 
     /**
