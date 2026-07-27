@@ -211,6 +211,17 @@
             </ul>
         @endcan
 
+        @can('salePayments.global.access')
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('sales.global-payments.*') ? 'c-active' : '' }}"
+                       href="{{ route('sales.global-payments.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-cash-stack" style="line-height: 1;"></i> Pembayaran Penjualan Global
+                    </a>
+                </li>
+            </ul>
+        @endcan
+
     </li>
 @endcanany
 

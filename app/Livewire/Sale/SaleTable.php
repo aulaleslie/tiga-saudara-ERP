@@ -21,6 +21,7 @@ class SaleTable extends Component
     public $statusFilter = null;
     public $saleId = null;
     public $showArchived = false;
+    public bool $globalMode = false;
 
     public ?string $paymentStatusFilter = null;
     /** @var array<string>|null */
@@ -33,9 +34,12 @@ class SaleTable extends Component
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
-    public function mount($settingId = null, $statusFilter = null, $saleId = null)
+    public function mount($settingId = null, $statusFilter = null, $saleId = null, bool $globalMode = false)
     {
-        $this->settingId = $settingId ?? session('setting_id');
+        abort_if($globalMode && !\auth()->user()->can('salePayments.global.access'), 403);
+
+        $this->globalMode = $globalMode;
+        $this->settingId = $globalMode ? null : ($settingId ?? session('setting_id'));
         $this->statusFilter = $statusFilter;
         $this->saleId = $saleId;
     }
@@ -112,10 +116,28 @@ class SaleTable extends Component
             $statuses = $this->cardStatusFilter;
         }
 
+        // Global mode uses approved-up eligibility by default
+        if ($this->globalMode && !$statuses) {
+            $statuses = [
+                Sale::STATUS_APPROVED,
+                Sale::STATUS_DISPATCHED_PARTIALLY,
+                Sale::STATUS_DISPATCHED,
+            ];
+        }
+
         $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction'])
-            ->where('setting_id', $this->settingId)
-            ->when($statuses !== null, function ($q) use ($statuses) {
+            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction']);
+
+        // Apply setting scope only if not in global mode
+        if (!$this->globalMode) {
+            $query->where('setting_id', $this->settingId);
+        } else {
+            // Global mode excludes archived sales and uses live due amount
+            $query->whereNull('archived_at')
+                  ->whereLiveDueAmountGreaterThan(0);
+        }
+
+        $query->when($statuses !== null, function ($q) use ($statuses) {
                 $q->whereIn('status', $statuses);
             })
             ->when(! empty($this->saleId), function ($q) {

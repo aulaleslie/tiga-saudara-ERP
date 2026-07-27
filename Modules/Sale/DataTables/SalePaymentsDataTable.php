@@ -12,6 +12,16 @@ use Yajra\DataTables\Services\DataTable;
 
 class SalePaymentsDataTable extends DataTable
 {
+    protected $globalMode = false;
+
+    public function with($data = [])
+    {
+        if (isset($data['globalMode'])) {
+            $this->globalMode = $data['globalMode'];
+            unset($data['globalMode']);
+        }
+        return parent::with($data);
+    }
 
     public function dataTable($query)
     {
@@ -45,7 +55,8 @@ class SalePaymentsDataTable extends DataTable
                 return 'No Attachment';
             })
             ->addColumn('action', function ($data) {
-                return view('sale::payments.partials.actions', compact('data'));
+                $globalMode = $this->globalMode;
+                return view('sale::payments.partials.actions', compact('data', 'globalMode'));
             })
             ->rawColumns(['attachment', 'action']); // Allow raw HTML for the "attachment" and "action" columns
     }
