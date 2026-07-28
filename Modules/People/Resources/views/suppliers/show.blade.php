@@ -41,7 +41,7 @@
                                 </tr>
                                 <tr>
                                     <th>Syarat Pembayaran</th>
-                                    <td>{{ $supplier->paymentTerm->name }}</td>
+                                    <td>{{ $supplier->paymentTerm?->name ?? '-' }}</td>
                                 </tr>
                             </table>
                         </div>
