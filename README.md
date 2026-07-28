@@ -97,7 +97,21 @@ php artisan notifications:sync
 
 # Manually prune old notifications. Notifications are retained unless this command is run.
 php artisan notifications:prune --days=30
+
+# Export product barcodes. The default output is storage/app/product_barcodes_export.csv.
+php artisan product:export-barcodes
+
+# Export to a specific CSV file and overwrite it without confirmation.
+php artisan product:export-barcodes --path=/path/to/barcodes.csv --force
+
+# Import requires the CSV path. Run a dry-run before applying changes.
+php artisan product:import-barcodes storage/app/product_barcodes_export.csv --dry-run
+php artisan product:import-barcodes storage/app/product_barcodes_export.csv
 ```
+
+### Barcode Import and Export
+
+Barcode CSV files must contain `product_name,barcode`. Import matches an exact product name and skips missing or ambiguous products, products that already have a barcode, invalid barcodes, and barcodes already in use.
 
 ### Sales Cost Snapshot Backfill
 
