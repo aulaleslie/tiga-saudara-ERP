@@ -24,37 +24,55 @@ class SaleLocationConfigurationController extends Controller
         $currentSettingId = (int) session('setting_id');
         $setting = Setting::findOrFail($currentSettingId);
 
-        // Load all locations, join with their enable/disable status for the current setting
-        $locations = Location::query()
+        // Active collection: enabled assignments for the current setting, ordered by position
+        $activeLocations = Location::query()
             ->with(['setting:id,company_name'])
+            ->join('setting_sale_locations', function ($join) use ($currentSettingId) {
+                $join->on('locations.id', '=', 'setting_sale_locations.location_id')
+                    ->where('setting_sale_locations.setting_id', '=', $currentSettingId)
+                    ->where('setting_sale_locations.is_enabled', true);
+            })
+            ->select([
+                'locations.*',
+                'setting_sale_locations.position'
+            ])
+            ->orderBy('setting_sale_locations.position')
+            ->get()
+            ->map(function ($location) use ($currentSettingId) {
+                $location->is_owned = $location->setting_id === $currentSettingId;
+                $location->is_enabled = true;
+                return $location;
+            });
+
+        // Available collection: disabled or unassigned locations (foreign only)
+        $availableLocations = Location::query()
+            ->with(['setting:id,company_name'])
+            ->where('locations.setting_id', '!=', $currentSettingId)
             ->leftJoin('setting_sale_locations', function ($join) use ($currentSettingId) {
                 $join->on('locations.id', '=', 'setting_sale_locations.location_id')
                     ->where('setting_sale_locations.setting_id', '=', $currentSettingId);
             })
             ->select([
                 'locations.*',
-                'setting_sale_locations.is_enabled',
-                'setting_sale_locations.position'
+                'setting_sale_locations.is_enabled'
             ])
-            ->orderBy('setting_sale_locations.position')
-            ->orderByRaw('CASE WHEN locations.setting_id = ? THEN 0 ELSE 1 END', [$currentSettingId])
+            ->where(function ($query) use ($currentSettingId) {
+                $query->whereNull('setting_sale_locations.id')
+                    ->orWhere('setting_sale_locations.is_enabled', false);
+            })
             ->orderBy('locations.name')
             ->orderBy('locations.id')
             ->get()
             ->map(function ($location) use ($currentSettingId) {
-                $location->is_owned = $location->setting_id === $currentSettingId;
-                // If it's an owned location, it's always enabled. Otherwise use the pivot table value, or false if not yet backed.
-                if ($location->is_owned) {
-                    $location->is_enabled = true;
-                } else {
-                    $location->is_enabled = (bool) $location->is_enabled;
-                }
+                $location->is_owned = false;
+                $location->is_enabled = false;
                 return $location;
             });
 
         return view('setting::sale-locations.index', [
             'setting'   => $setting,
-            'locations' => $locations,
+            'activeLocations' => $activeLocations,
+            'availableLocations' => $availableLocations,
         ]);
     }
 
@@ -103,12 +121,20 @@ class SaleLocationConfigurationController extends Controller
         $currentSettingId = (int) session('setting_id');
         $locationIds = $validated['location_ids'];
 
-        // Verify that the submitted location IDs match the ones currently assigned to this setting
-        $existingIds = SettingSaleLocation::where('setting_id', $currentSettingId)
+        // Get the exact set of enabled assignment IDs for the current setting
+        $enabledLocationIds = SettingSaleLocation::where('setting_id', $currentSettingId)
+            ->where('is_enabled', true)
             ->pluck('location_id')
             ->toArray();
 
-        if (count($locationIds) !== count($existingIds) || count(array_diff($locationIds, $existingIds)) > 0) {
+        // Check for exact match: same count, same IDs, no duplicates
+        $submittedIds = array_unique($locationIds);
+        if (count($locationIds) !== count($submittedIds)) {
+            toast('Urutan lokasi tidak valid atau tidak lengkap.', 'error');
+            return redirect()->route('sales-location-configurations.index');
+        }
+
+        if (count($locationIds) !== count($enabledLocationIds) || count(array_diff($locationIds, $enabledLocationIds)) > 0) {
             toast('Urutan lokasi tidak valid atau tidak lengkap.', 'error');
             return redirect()->route('sales-location-configurations.index');
         }

@@ -31,13 +31,10 @@
                                         <th>Nama Lokasi</th>
                                         <th>Bisnis Asal</th>
                                         <th>Status</th>
-                                        @if($canEdit)
-                                            <th class="text-end">Aksi</th>
-                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse($locations as $index => $location)
+                                    @forelse($activeLocations as $index => $location)
                                         <tr class="location-row">
                                             @if($canEdit)
                                                 <td>
@@ -57,32 +54,15 @@
                                             <td>
                                                 @if($location->is_owned)
                                                     <span class="badge bg-success">Milik Bisnis</span>
-                                                @elseif($location->is_enabled)
-                                                    <span class="badge bg-primary">Enabled</span>
                                                 @else
-                                                    <span class="badge bg-secondary">Disabled</span>
+                                                    <span class="badge bg-primary">Aktif</span>
                                                 @endif
                                             </td>
-                                            @if($canEdit)
-                                                <td class="text-end">
-                                                    @if($location->is_owned)
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Lokasi milik bisnis tidak dapat dinonaktifkan">
-                                                            Disable
-                                                        </button>
-                                                    @else
-                                                        <button type="button" class="btn btn-sm {{ $location->is_enabled ? 'btn-outline-danger' : 'btn-outline-success' }} btn-toggle" 
-                                                            data-url="{{ route('sales-location-configurations.toggle', $location->id) }}"
-                                                            data-enabled="{{ $location->is_enabled ? '1' : '0' }}">
-                                                            {{ $location->is_enabled ? 'Disable' : 'Enable' }}
-                                                        </button>
-                                                    @endif
-                                                </td>
-                                            @endif
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="{{ $canEdit ? 5 : 3 }}" class="text-center py-4">
-                                                Belum ada lokasi yang tersedia.
+                                            <td colspan="{{ $canEdit ? 4 : 3 }}" class="text-center py-4">
+                                                Belum ada lokasi aktif untuk prioritas.
                                             </td>
                                         </tr>
                                     @endforelse
@@ -93,6 +73,51 @@
                             Lokasi yang dimiliki bisnis ini akan selalu tersedia dan tidak dapat dihapus dari konfigurasi.
                         </div>
                     </div>
+
+                    @if($availableLocations->isNotEmpty())
+                        <div class="card mt-4">
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <span>Lokasi Tersedia (Belum Diaktifkan)</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table mb-0 table-striped" id="available-locations-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nama Lokasi</th>
+                                            <th>Bisnis Asal</th>
+                                            <th>Status</th>
+                                            @if($canEdit)
+                                                <th class="text-end">Aksi</th>
+                                            @endif
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($availableLocations as $location)
+                                            <tr>
+                                                <td>{{ $location->name }}</td>
+                                                <td>{{ optional($location->setting)->company_name ?? 'Tidak diketahui' }}</td>
+                                                <td>
+                                                    <span class="badge bg-secondary">Tidak Aktif</span>
+                                                </td>
+                                                @if($canEdit)
+                                                    <td class="text-end">
+                                                        <button type="button" class="btn btn-sm btn-outline-success btn-toggle"
+                                                            data-url="{{ route('sales-location-configurations.toggle', $location->id) }}"
+                                                            data-enabled="0">
+                                                            Aktifkan
+                                                        </button>
+                                                    </td>
+                                                @endif
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="card-footer small text-muted">
+                                Aktifkan lokasi untuk menambahkannya ke daftar prioritas POS.
+                            </div>
+                        </div>
+                    @endif
                 </form>
             </div>
         </div>

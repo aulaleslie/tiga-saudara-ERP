@@ -7,6 +7,7 @@ use App\Support\SalesLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class SettingSaleLocation extends BaseModel
 {
@@ -27,8 +28,10 @@ class SettingSaleLocation extends BaseModel
     protected static function booted(): void
     {
         static::creating(function (SettingSaleLocation $assignment) {
-            if (is_null($assignment->position)) {
-                $maxPosition = static::where('setting_id', $assignment->setting_id)->max('position');
+            if (is_null($assignment->position) && $assignment->is_enabled) {
+                $maxPosition = static::where('setting_id', $assignment->setting_id)
+                    ->where('is_enabled', true)
+                    ->max('position');
                 $assignment->position = ($maxPosition ?? 0) + 1;
             }
         });
@@ -97,5 +100,35 @@ class SettingSaleLocation extends BaseModel
     public function scopeForLocation($query, ?int $locationId)
     {
         return $query->when($locationId, fn ($q) => $q->where('location_id', $locationId));
+    }
+
+    public static function repairMissingOwnedAssignments(int $settingId): void
+    {
+        $setting = Setting::findOrFail($settingId);
+
+        $ownedLocationsWithoutAssignment = Location::where('setting_id', $settingId)
+            ->whereNotExists(function ($query) use ($settingId) {
+                $query->select('id')
+                    ->from('setting_sale_locations')
+                    ->where('setting_sale_locations.setting_id', $settingId)
+                    ->where('setting_sale_locations.location_id', '=', \DB::raw('locations.id'))
+                    ->where('setting_sale_locations.is_enabled', true);
+            })
+            ->get();
+
+        foreach ($ownedLocationsWithoutAssignment as $location) {
+            static::updateOrCreate(
+                [
+                    'setting_id' => $settingId,
+                    'location_id' => $location->id,
+                ],
+                [
+                    'is_enabled' => true,
+                    'position' => static::where('setting_id', $settingId)
+                        ->where('is_enabled', true)
+                        ->max('position') + 1,
+                ]
+            );
+        }
     }
 }

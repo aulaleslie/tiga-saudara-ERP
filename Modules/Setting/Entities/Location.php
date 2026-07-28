@@ -33,6 +33,7 @@ class Location extends BaseModel
         static::created(function (Location $location) {
             $maxPosition = SettingSaleLocation::query()
                 ->where('setting_id', $location->setting_id)
+                ->where('is_enabled', true)
                 ->max('position') ?? 0;
 
             SettingSaleLocation::create([
