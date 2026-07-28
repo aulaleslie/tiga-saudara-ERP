@@ -606,6 +606,139 @@ class POSDebtCheckoutTest extends TestCase
             ->assertOk();
     }
 
+    public function test_staged_debt_zero_down_payment_preserves_term_and_due_date(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        
+        $term = PaymentTerm::query()->create(['name' => 'Net 10 Staged', 'longevity' => 10]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        $syncResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/sync-debt-state', [
+                'cart_token' => $cartToken,
+                'grand_total' => 100000,
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $syncResponse->assertStatus(200);
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-STAGED-001',
+                'cart_token' => $cartToken,
+            ]);
+
+        $response->assertStatus(201);
+        
+        $sales = Sale::query()->get();
+        $this->assertCount(1, $sales); 
+
+        foreach ($sales as $sale) {
+            $this->assertEquals(0, $sale->paid_amount);
+            $this->assertEquals($sale->total_amount, $sale->due_amount); 
+            $this->assertEquals('UNPAID', strtoupper($sale->payment_status));
+            $this->assertEquals($term->id, $sale->payment_term_id);
+            $this->assertEquals(Carbon::today()->addDays($term->longevity)->format('Y-m-d'), Carbon::parse($sale->due_date)->format('Y-m-d'));
+            
+            $this->assertEquals(0, $sale->salePayments()->count());
+        }
+    }
+
+    public function test_staged_debt_partial_down_payment_preserves_term_and_due_date(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        
+        $term = PaymentTerm::query()->create(['name' => 'Net 15 Staged', 'longevity' => 15]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        $stageResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 50000,
+                'grand_total' => 200000,
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $stageResponse->assertStatus(201);
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-STAGED-002',
+                'cart_token' => $cartToken,
+            ]);
+
+        if ($response->status() !== 201) {
+            $response->dump();
+        }
+        $response->assertStatus(201);
+        
+        $sales = Sale::query()->get();
+        $this->assertCount(1, $sales); 
+        $sale = $sales->first();
+
+        $this->assertEquals(50000, $sale->paid_amount);
+        $this->assertEquals(150000, $sale->due_amount); 
+        $this->assertEquals('PARTIAL', strtoupper($sale->payment_status));
+        $this->assertEquals($term->id, $sale->payment_term_id);
+        $this->assertEquals(Carbon::today()->addDays($term->longevity)->format('Y-m-d'), Carbon::parse($sale->due_date)->format('Y-m-d'));
+        
+        $payments = $sale->salePayments()->get();
+        $this->assertCount(1, $payments);
+        $this->assertEquals(50000, $payments->first()->amount);
+    }
+
+    public function test_split_owner_debt_preserves_term_and_due_date_across_all_sales(): void
+    {
+        $context = $this->createSplitCheckoutContext(true);
+        // Product has 10 in locA, 10 in locB. Buy 15 to trigger split.
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 15);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        
+        $term = PaymentTerm::query()->create(['name' => 'Net 20 Split', 'longevity' => 20]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        $syncResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/sync-debt-state', [
+                'cart_token' => $cartToken,
+                'grand_total' => 1500000, // 15 * 100k
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $syncResponse->assertStatus(200);
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-SPLIT-001',
+                'cart_token' => $cartToken,
+            ]);
+
+        $response->assertStatus(201);
+        
+        $sales = Sale::query()->get();
+        $this->assertCount(2, $sales); 
+
+        foreach ($sales as $sale) {
+            $this->assertEquals(0, $sale->paid_amount);
+            $this->assertEquals($sale->total_amount, $sale->due_amount); 
+            $this->assertEquals('UNPAID', strtoupper($sale->payment_status));
+            $this->assertEquals($term->id, $sale->payment_term_id);
+            $this->assertEquals(Carbon::today()->addDays($term->longevity)->format('Y-m-d'), Carbon::parse($sale->due_date)->format('Y-m-d'));
+            
+            $this->assertEquals(0, $sale->salePayments()->count());
+        }
+    }
+
     private function finalize(User $cashier, Setting $setting, array $payload)
     {
         return $this->actingAs($cashier)

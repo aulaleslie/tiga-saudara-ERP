@@ -1,9 +1,41 @@
-Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan,Tanggal Jatuh Tempo,Jumlah Kena Pajak,Total Pajak,Pembayaran,Email,Alamat Penagihan,Alamat Pengiriman,No Ref,Tag,Gudang,Nama Produk,Kode Produk,Deskripsi,Kuantitas,Satuan,Harga per Unit,Diskon Per Baris %,Tarif Pajak,Jumlah Pajak,Jumlah Kena Pajak per Baris,Jumlah Per Baris,Diskon,Pesan,Biaya Pengiriman,Jumlah Pemotongan,Nama Perusahaan,Nomor Pajak,Nomor Ponsel,Nomor Telepon,Sisa Tagihan Hari Ini,Diskon %
-01/07/2026,Faktur Penjualan,PN.2026.132,CASH,Lunas,"",7200000.0,0.0,31/07/2026,7200000.0,0.0,7200000.0,"","","","","","",KEDELE IMPORT,"","",450.0,KG,12000.0,0.00 %,"",0.0,5400000.0,5400000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-01/07/2026,Faktur Penjualan,PN.2026.132,CASH,Lunas,"",7200000.0,0.0,31/07/2026,7200000.0,0.0,7200000.0,"","","","","","",KEDELE IMPORT,"","",150.0,KG,12000.0,0.00 %,"",0.0,1800000.0,1800000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-01/07/2026,Faktur Penjualan,PN.2026.133,KASIM,Belum Dibayar,"",6000000.0,6000000.0,31/07/2026,6000000.0,0.0,0.0,"","","","","","",KEDELE IMPORT,"","",500.0,KG,12000.0,0.00 %,"",0.0,6000000.0,6000000.0,0.0,"",0.0,0.0,"","","","",6000000.0,0.0
-01/07/2026,Faktur Penjualan,PN.2026.134,PAK SELAMET,Belum Dibayar,3 k,3000000.0,3000000.0,31/07/2026,3000000.0,0.0,0.0,"","","","","","",KEDELE IMPORT,"","",250.0,KG,12000.0,0.00 %,"",0.0,3000000.0,3000000.0,0.0,"",0.0,0.0,"","","","",3000000.0,0.0
-02/07/2026,Faktur Penjualan,PN.2026.135,CASH,Lunas,"",1800000.0,0.0,01/08/2026,1800000.0,0.0,1800000.0,"","","","","","",KEDELE IMPORT,"","",150.0,KG,12000.0,0.00 %,"",0.0,1800000.0,1800000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-04/07/2026,Faktur Penjualan,PN.2026.136,PAK SELAMET,Belum Dibayar,"",6000000.0,6000000.0,03/08/2026,6000000.0,0.0,0.0,"","","","","","",KEDELE IMPORT,"","",500.0,KG,12000.0,0.00 %,"",0.0,6000000.0,6000000.0,0.0,"",0.0,0.0,"","","","",6000000.0,0.0
-04/07/2026,Faktur Penjualan,PN.2026.137,KASIM,Belum Dibayar,"",6000000.0,6000000.0,03/08/2026,6000000.0,0.0,0.0,"","","","","","",KEDELE IMPORT,"","",500.0,KG,12000.0,0.00 %,"",0.0,6000000.0,6000000.0,0.0,"",0.0,0.0,"","","","",6000000.0,0.0
-04/07/2026,Faktur Penjualan,PN.2026.138,CASH,Lunas,15 k,3000000.0,0.0,03/08/2026,3000000.0,0.0,3000000.0,"","","","","","",KEDELE IMPORT,"","",250.0,KG,12000.0,0.00 %,"",0.0,3000000.0,3000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
+Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan
+01/07/2026,Faktur Penjualan,PN.2026.132,CASH,Lunas,"",7200000.0,0.0
+01/07/2026,Faktur Penjualan,PN.2026.133,KASIM,Lunas,"",6000000.0,0.0
+01/07/2026,Faktur Penjualan,PN.2026.134,PAK SELAMET,Belum Dibayar,3 k,3000000.0,3000000.0
+02/07/2026,Faktur Penjualan,PN.2026.135,CASH,Lunas,"",1800000.0,0.0
+04/07/2026,Faktur Penjualan,PN.2026.136,PAK SELAMET,Belum Dibayar,"",6000000.0,6000000.0
+04/07/2026,Faktur Penjualan,PN.2026.137,KASIM,Lunas,"",6000000.0,0.0
+04/07/2026,Faktur Penjualan,PN.2026.138,CASH,Lunas,15 k,3000000.0,0.0
+05/07/2026,Faktur Penjualan,PN.2026.139,CASH,Lunas,13 k,1200000.0,0.0
+06/07/2026,Faktur Penjualan,PN.2026.140,CASH,Lunas,9 K ,2400000.0,0.0
+07/07/2026,Faktur Penjualan,PN.2026.141,CASH,Lunas,4 K ,3000000.0,0.0
+08/07/2026,Faktur Penjualan,PN.2026.142,CASH,Lunas,"",3570000.0,0.0
+08/07/2026,Faktur Penjualan,PN.2026.143,PAK SELAMET,Belum Dibayar,423 K ,14625000.0,14625000.0
+09/07/2026,Faktur Penjualan,PN.2026.144,KASIM,Lunas,"",23400000.0,0.0
+09/07/2026,Faktur Penjualan,PN.2026.145,CASH,Lunas,381 K ,1170000.0,0.0
+10/07/2026,Faktur Penjualan,PN.2026.146,CASH,Lunas,377 k ,2340000.0,0.0
+11/07/2026,Faktur Penjualan,PN.2026.147,CASH,Lunas,372 K ,2925000.0,0.0
+12/07/2026,Faktur Penjualan,PN.2026.148,CASH,Lunas,360 k,7020000.0,0.0
+13/07/2026,Faktur Penjualan,PN.2026.149,CASH,Lunas,353 K ,4095000.0,0.0
+14/07/2026,Faktur Penjualan,PN.2026.150,CASH,Lunas,350 K ,1755000.0,0.0
+15/07/2026,Faktur Penjualan,PN.2026.151,CASH,Lunas,345 K ,2925000.0,0.0
+16/07/2026,Faktur Penjualan,PN.2026.152,CASH,Lunas,337 K,4680000.0,0.0
+17/07/2026,Faktur Penjualan,PN.2026.153,LIA,Belum Dibayar,"",70200000.0,70200000.0
+17/07/2026,Faktur Penjualan,PN.2026.154,CASH,Lunas,176 K ,23985000.0,0.0
+18/07/2026,Faktur Penjualan,PN.2026.155,KASIM,Lunas,"",23400000.0,0.0
+18/07/2026,Faktur Penjualan,PN.2026.156,CASH,Lunas,131 k,2925000.0,0.0
+19/07/2026,Faktur Penjualan,PN.2026.157,CASH,Lunas,129 K ,1170000.0,0.0
+20/07/2026,Faktur Penjualan,PN.2026.160,CASH,Lunas,314 K ,8775000.0,0.0
+21/07/2026,Faktur Penjualan,PN.2026.161,CASH,Lunas,305 K ,5265000.0,0.0
+22/07/2026,Faktur Penjualan,PN.2026.162,HUSEN,Belum Dibayar,"",23400000.0,23400000.0
+22/07/2026,Faktur Penjualan,PN.2026.163,CASH,Lunas,259 K ,3510000.0,0.0
+23/07/2026,Faktur Penjualan,PN.2026.164,CASH,Lunas,251 K,4680000.0,0.0
+24/07/2026,Faktur Penjualan,PN.2026.165,CASH,Lunas,248 K ,1755000.0,0.0
+25/07/2026,Faktur Penjualan,PN.2026.166,CASH,Lunas,"IBU SURYANI TEMPE DAUN
+
+218 K ",11600000.0,0.0
+25/07/2026,Faktur Penjualan,PN.2026.167,CASH,Lunas,238 K,5850000.0,0.0
+26/07/2026,Faktur Penjualan,PN.2026.168,CASH,Lunas,207 k,6435000.0,0.0
+27/07/2026,Faktur Penjualan,PN.2026.169,KASIM,Belum Dibayar,"",23400000.0,23400000.0
+27/07/2026,Faktur Penjualan,PN.2026.170,CASH,Lunas,162 K ,2925000.0,0.0
+28/07/2026,Faktur Penjualan,PN.2026.171,CASH,Lunas,151 k ,6435000.0,0.0

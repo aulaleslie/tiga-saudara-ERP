@@ -100,7 +100,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $dueAmount = 0;
         $paymentStatus = 'Paid';
         $salePaymentTermId = PaymentTerm::defaultCodTermId();
-        $dueDate = now()->toDateString();
+        $dueDate = $context['due_date'] ?? now()->toDateString();
+        $checkoutDate = $context['checkout_date'] ?? now()->toDateString();
         $salePaymentMethodStr = strtoupper($paymentMethod->name ?? 'CUSTOM');
 
         if ($isDebt) {
@@ -109,9 +110,11 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $paymentStatus = $paidAmount > 0 ? 'Partial' : 'Unpaid';
             $salePaymentTermId = $paymentTermId;
 
-            $term = PaymentTerm::query()->find($paymentTermId);
-            if ($term) {
-                $dueDate = now()->addDays((int) $term->longevity)->toDateString();
+            if (empty($context['due_date'])) {
+                $term = PaymentTerm::query()->find($paymentTermId);
+                if ($term) {
+                    $dueDate = now()->addDays((int) $term->longevity)->toDateString();
+                }
             }
             if ($paidAmount == 0) {
                 $salePaymentMethodStr = 'DEBT';
@@ -127,7 +130,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         $sale = Sale::query()->create([
-            'date' => now()->toDateString(),
+            'date' => $checkoutDate,
             'due_date' => $dueDate,
             'customer_id' => $customer->id,
             'customer_name' => (string) ($customer->customer_name ?? ''),

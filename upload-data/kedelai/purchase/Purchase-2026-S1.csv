@@ -1,10 +1,10 @@
-Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan,Tanggal Jatuh Tempo,Jumlah Kena Pajak,Total Pajak,Pembayaran,Email,Alamat Penagihan,Alamat Pengiriman,No Ref,Tag,Gudang,Nama Produk,Kode Produk,Deskripsi,Kuantitas,Satuan,Harga per Unit,Diskon Per Baris %,Tarif Pajak,Jumlah Pajak,Jumlah Kena Pajak per Baris,Jumlah Per Baris,Diskon,Pesan,Biaya Pengiriman,Jumlah Pemotongan,Nama Perusahaan,Nomor Pajak,Nomor Ponsel,Nomor Telepon,Sisa Tagihan Hari Ini,Diskon %
-03/04/2026,Faktur Pembelian,10003,KO FIRMAN,Lunas,"",21000000.0,0.0,03/05/2026,21000000.0,0.0,21000000.0,"","","","","","",KEDELE IMPORT,"",40 KARUNG ,2000.0,KG,10500.0,0.00 %,"",0.0,21000000.0,21000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-03/04/2026,Faktur Pembelian,10011,KO FIRMAN,Lunas,"",3300000.0,0.0,03/05/2026,3300000.0,0.0,3300000.0,"","","","","","",KEDELE IMPORT,"","",300.0,KG,11000.0,0.00 %,"",0.0,3300000.0,3300000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-06/04/2026,Faktur Pembelian,10012,lia tente,Lunas,"",22000000.0,0.0,06/05/2026,22000000.0,0.0,22000000.0,"","","","","","",KEDELE IMPORT,"","",2000.0,KG,11000.0,0.00 %,"",0.0,22000000.0,22000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-09/04/2026,Faktur Pembelian,10013,lia tente,Lunas,"",55000000.0,0.0,09/05/2026,55000000.0,0.0,55000000.0,"","","","","","",KEDELE IMPORT,"",100 K ,5000.0,KG,11000.0,0.00 %,"",0.0,55000000.0,55000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-26/04/2026,Faktur Pembelian,10014,KO FIRMAN,Lunas,"",222500000.0,0.0,26/05/2026,222500000.0,0.0,222500000.0,"","","","","","",KEDELE IMPORT,"","",22250.0,KG,10000.0,0.00 %,"",0.0,222500000.0,222500000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-03/05/2026,Faktur Pembelian,10015,KO FIRMAN,Lunas,"",3400000.0,0.0,02/06/2026,3400000.0,0.0,3400000.0,"","","","","","",RAGI,"","",4.0,DUS,850000.0,0.00 %,"",0.0,3400000.0,3400000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-13/05/2026,Faktur Pembelian,10016,KO FIRMAN,Lunas,"",55000000.0,0.0,12/06/2026,55000000.0,0.0,55000000.0,"","","","","","",KEDELE IMPORT,"",100 k ,5000.0,KG,11000.0,0.00 %,"",0.0,55000000.0,55000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-28/05/2026,Faktur Pembelian,10017,KO FIRMAN,Lunas,"",247500000.0,0.0,27/06/2026,247500000.0,0.0,247500000.0,"","","","","","",KEDELE IMPORT,"",450 K ,22500.0,KG,11000.0,0.00 %,"",0.0,247500000.0,247500000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
-08/06/2026,Faktur Pembelian,10018,KO FIRMAN,Lunas,"",55000000.0,0.0,08/07/2026,55000000.0,0.0,55000000.0,"","","","","","",KEDELE IMPORT,"","",5000.0,KG,11000.0,0.00 %,"",0.0,55000000.0,55000000.0,0.0,"",0.0,0.0,"","","","",0.0,0.0
+Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan
+03/04/2026,Faktur Pembelian,10003,KO FIRMAN,Lunas,"",21000000.0,0.0
+03/04/2026,Faktur Pembelian,10011,KO FIRMAN,Lunas,"",3300000.0,0.0
+06/04/2026,Faktur Pembelian,10012,lia tente,Lunas,"",22000000.0,0.0
+09/04/2026,Faktur Pembelian,10013,lia tente,Lunas,"",55000000.0,0.0
+26/04/2026,Faktur Pembelian,10014,KO FIRMAN,Lunas,"",222500000.0,0.0
+03/05/2026,Faktur Pembelian,10015,KO FIRMAN,Lunas,"",3400000.0,0.0
+13/05/2026,Faktur Pembelian,10016,KO FIRMAN,Lunas,"",55000000.0,0.0
+28/05/2026,Faktur Pembelian,10017,KO FIRMAN,Lunas,"",247500000.0,0.0
+08/06/2026,Faktur Pembelian,10018,KO FIRMAN,Lunas,"",55000000.0,0.0

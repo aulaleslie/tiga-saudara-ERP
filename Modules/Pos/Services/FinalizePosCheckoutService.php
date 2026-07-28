@@ -959,6 +959,18 @@ class FinalizePosCheckoutService
                     $posTransactionCode = $this->transactionService->resolveCodeFromCartSnapshot($settingId, $cartSnapshot);
                 }
 
+                $isDebt = (bool) ($lockedCheckout->metadata['is_debt'] ?? false);
+                $paymentTermId = $lockedCheckout->metadata['payment_term_id'] ?? null;
+                $checkoutDate = now()->toDateString();
+                $dueDate = $checkoutDate;
+
+                if ($isDebt && $paymentTermId) {
+                    $term = \Modules\Purchase\Entities\PaymentTerm::query()->find($paymentTermId);
+                    if ($term) {
+                        $dueDate = now()->addDays((int) $term->longevity)->toDateString();
+                    }
+                }
+
                 $postingResult = $this->postingAdapter->post([
                     'setting_id' => $settingId,
                     'checkout_id' => $checkoutId,
@@ -969,8 +981,10 @@ class FinalizePosCheckoutService
                     'payment' => $payment,
                     'cart_snapshot' => $cartSnapshot,
                     'allocations' => $resolution['allocations'],
-                    'is_debt' => (bool) ($lockedCheckout->metadata['is_debt'] ?? false),
-                    'payment_term_id' => $lockedCheckout->metadata['payment_term_id'] ?? null,
+                    'is_debt' => $isDebt,
+                    'payment_term_id' => $paymentTermId,
+                    'checkout_date' => $checkoutDate,
+                    'due_date' => $dueDate,
                     'pos_transaction_code' => $posTransactionCode,
                 ]);
 

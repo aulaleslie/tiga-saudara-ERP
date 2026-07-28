@@ -1,2 +1,4 @@
-Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan,Tanggal Jatuh Tempo,Jumlah Kena Pajak,Total Pajak,Pembayaran,Email,Alamat Penagihan,Alamat Pengiriman,No Ref,Tag,Gudang,Nama Produk,Kode Produk,Deskripsi,Kuantitas,Satuan,Harga per Unit,Diskon Per Baris %,Tarif Pajak,Jumlah Pajak,Jumlah Kena Pajak per Baris,Jumlah Per Baris,Diskon,Pesan,Biaya Pengiriman,Jumlah Pemotongan,Nama Perusahaan,Nomor Pajak,Nomor Ponsel,Nomor Telepon,Sisa Tagihan Hari Ini,Diskon %
-04/07/2026,Faktur Pembelian,10019,lia tente,Belum Dibayar,"",22000000.0,22000000.0,03/08/2026,22000000.0,0.0,0.0,"","","","","","",KEDELE IMPORT,"","",2000.0,KG,11000.0,0.00 %,"",0.0,22000000.0,22000000.0,0.0,"",0.0,0.0,"","","","",22000000.0,0.0
+Tanggal,Tipe Transaksi,Nomor Transaksi,Nama Panggilan,Status Hari Ini,Memo,Total,Sisa Tagihan
+04/07/2026,Faktur Pembelian,10019,lia tente,Belum Dibayar,"",22000000.0,22000000.0
+08/07/2026,Faktur Pembelian,10020,KO FIRMAN,Lunas,"",247500000.0,0.0
+20/07/2026,Faktur Pembelian,10021,lia tente,Belum Dibayar,"",110000000.0,110000000.0

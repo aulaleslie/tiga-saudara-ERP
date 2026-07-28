@@ -64,6 +64,27 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         if ($isMultiPayment && $this->ownershipAllocationService) {
+            $allocationGroups = array_map(fn (array $g) => [
+                'split_key' => (string) ($g['split_key'] ?? ''),
+                'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
+                'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
+            ], $groups);
+
+            if ($isDebt) {
+                $debtProportions = $this->paymentSplitService->allocate(
+                    array_map(static fn (array $group): array => [
+                        'split_key' => (string) ($group['split_key'] ?? ''),
+                        'grand_total' => (float) ($group['grand_total'] ?? 0),
+                    ], $groups),
+                    $downPaymentAmount
+                );
+                
+                foreach ($allocationGroups as &$ag) {
+                    $ag['grand_total_minor'] = $this->toMinor((float) ($debtProportions[$ag['split_key']] ?? 0));
+                }
+                unset($ag);
+            }
+
             // Multi-payment: use ownership-priority allocation
             $allocationResult = $this->ownershipAllocationService->allocate([
                 'payments' => array_map(static fn (array $p) => [
@@ -71,11 +92,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'amount_minor_units' => (int) $p['amount_minor_units'],
                     'is_cash' => (bool) $p['is_cash'],
                 ], $reorderedPayments),
-                'groups' => array_map(fn (array $g) => [
-                    'split_key' => (string) ($g['split_key'] ?? ''),
-                    'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
-                    'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
-                ], $groups),
+                'groups' => $allocationGroups,
                 'terminal_setting_id' => (int) ($context['setting_id'] ?? 0),
             ]);
 

@@ -844,20 +844,29 @@ class PosSellController extends Controller
                 $sessionKey = "payment_chain_{$cartToken}";
                 $sessionPaymentChain = $request->session()->get($sessionKey);
 
-                if ($sessionPaymentChain && !empty($sessionPaymentChain['payments'])) {
-                    // Map session payment chain fields from method_id/amount to payment_method_id/amount_paid
-                    $mappedPayments = [];
-                    foreach ($sessionPaymentChain['payments'] as $payment) {
-                        $mappedPayments[] = [
-                            'payment_method_id' => $payment['method_id'] ?? null,
-                            'amount_paid' => $payment['amount'] ?? 0,
-                            'reference' => $payment['edc_reference'] ?? null,
-                            'stage_order' => $payment['stage_order'] ?? null,
-                            'payment_image_token' => $payment['payment_image']['token'] ?? null,
-                        ];
+                if ($sessionPaymentChain) {
+                    if (!empty($sessionPaymentChain['payments'])) {
+                        // Map session payment chain fields from method_id/amount to payment_method_id/amount_paid
+                        $mappedPayments = [];
+                        foreach ($sessionPaymentChain['payments'] as $payment) {
+                            $mappedPayments[] = [
+                                'payment_method_id' => $payment['method_id'] ?? null,
+                                'amount_paid' => $payment['amount'] ?? 0,
+                                'reference' => $payment['edc_reference'] ?? null,
+                                'stage_order' => $payment['stage_order'] ?? null,
+                                'payment_image_token' => $payment['payment_image']['token'] ?? null,
+                            ];
+                        }
+
+                        $paymentPayload['payments'] = $mappedPayments;
                     }
 
-                    $paymentPayload['payments'] = $mappedPayments;
+                    if (!empty($sessionPaymentChain['is_debt'])) {
+                        $paymentPayload['is_debt'] = true;
+                        if (!empty($sessionPaymentChain['payment_term_id'])) {
+                            $paymentPayload['payment_term_id'] = $sessionPaymentChain['payment_term_id'];
+                        }
+                    }
                 }
             }
 
