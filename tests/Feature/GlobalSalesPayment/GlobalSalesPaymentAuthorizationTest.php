@@ -4,7 +4,10 @@ namespace Tests\Feature\GlobalSalesPayment;
 
 use App\Livewire\Sale\SaleTable;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
@@ -112,6 +115,45 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
             ->assertSee(route('sales.global-payments.index'), false);
     }
 
+    public function test_create_form_uses_existing_document_upload_routes()
+    {
+        $this->authorizedUser->givePermissionTo('salePayments.create');
+
+        $this->actingAs($this->authorizedUser)
+            ->get(route('sales.global-payments.create', $this->sale->id))
+            ->assertOk()
+            ->assertSee(route('dropzone.upload.documents'), false)
+            ->assertSee(route('dropzone.delete'), false)
+            ->assertSee('response.name', false)
+            ->assertDontSee('temp-files.upload', false);
+    }
+
+    public function test_document_attachment_can_be_uploaded_and_deleted()
+    {
+        Storage::fake('local');
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->post(route('dropzone.upload.documents'), [
+                'file' => UploadedFile::fake()->create(
+                    'invoice.pdf',
+                    10,
+                    'application/pdf'
+                ),
+            ]);
+
+        $response->assertOk()
+            ->assertJsonStructure(['name', 'original_name']);
+
+        $fileName = $response->json('name');
+        Storage::disk('local')->assertExists('temp/dropzone/' . $fileName);
+
+        $this->actingAs($this->authorizedUser)
+            ->post(route('dropzone.delete'), ['file_name' => $fileName])
+            ->assertOk();
+
+        Storage::disk('local')->assertMissing('temp/dropzone/' . $fileName);
+    }
+
     public function test_global_rows_use_global_read_only_routes_without_show_permissions()
     {
         Livewire::actingAs($this->authorizedUser)
@@ -166,10 +208,19 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
         $this->sale->update(['setting_id' => $otherSetting->id]);
         session(['setting_id' => $this->setting->id]);
 
-        $response = $this->actingAs($this->authorizedUser)
-            ->get(route('sales.global-payments.show', $this->sale->id));
+        Model::preventLazyLoading();
+
+        try {
+            $response = $this->actingAs($this->authorizedUser)
+                ->get(route('sales.global-payments.show', $this->sale->id));
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
         $response->assertStatus(200)
             ->assertSeeText($otherSetting->company_name)
+            ->assertDontSee(route('sales.deliverySlip', $this->sale->id), false)
+            ->assertDontSee(route('sales.invoicePdf', $this->sale->id), false)
             ->assertDontSeeText('Ubah Penjualan')
             ->assertDontSeeText('Arsipkan Penjualan')
             ->assertDontSeeText('Hapus Penjualan');

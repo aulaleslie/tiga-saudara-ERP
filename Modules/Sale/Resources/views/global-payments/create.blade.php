@@ -129,8 +129,8 @@
                                             <tr data-sale-id="{{ $candidate->id }}" data-live-due="{{ $candidate->live_due_amount }}">
                                                 <td>
                                                     <strong>{{ $candidate->reference }}</strong>
-                                                    @if($candidate->imported_reference)
-                                                        <br><small class="text-muted">{{ $candidate->imported_reference }}</small>
+                                                    @if($candidate->imported_sales_reference_number)
+                                                        <br><small class="text-muted">{{ $candidate->imported_sales_reference_number }}</small>
                                                     @endif
                                                 </td>
                                                 <td>{{ $candidate->tenantSetting->company_name ?? 'N/A' }}</td>
@@ -182,9 +182,10 @@
 
 @push('page_scripts')
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
         $(document).ready(function () {
-            var currencySymbol = '{{ settings()->currency->symbol }}';
+            var currencySymbol = @json(optional($startingSale->tenantSetting?->currency)->symbol ?? '');
 
             function formatCurrency(num) {
                 return currencySymbol + parseFloat(num || 0).toLocaleString('en-US', {
@@ -214,20 +215,42 @@
             if (typeof Dropzone !== 'undefined') {
                 Dropzone.autoDiscover = false;
                 var myDropzone = new Dropzone('#file-dropzone', {
-                    url: '{{ route("temp-files.upload") }}',
+                    url: '{{ route('dropzone.upload.documents') }}',
                     maxFiles: 1,
-                    acceptedFiles: '.pdf,.jpg,.jpeg,.png,.gif',
+                    acceptedFiles: '.pdf,.jpg,.jpeg,.png',
                     maxFilesize: 10,
                     addRemoveLinks: true,
                     headers: {
                         'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
                     },
-                    success: function (file, response) {
-                        $('#attachment').val(response.path);
-                    },
-                    removedfile: function (file) {
-                        $('#attachment').val('');
-                        file.previewElement.remove();
+                    init: function () {
+                        this.on('success', function (file, response) {
+                            file._serverName = response.name;
+                            $('#attachment').val(response.name);
+                        });
+
+                        this.on('removedfile', function (file) {
+                            var fileName = file._serverName || $('#attachment').val();
+
+                            if (fileName) {
+                                $.ajax({
+                                    type: 'POST',
+                                    url: '{{ route('dropzone.delete') }}',
+                                    data: {
+                                        _token: '{{ csrf_token() }}',
+                                        file_name: fileName
+                                    }
+                                });
+                            }
+
+                            $('#attachment').val('');
+                        });
+
+                        this.on('addedfile', function () {
+                            if (this.files.length > 1) {
+                                this.removeFile(this.files[0]);
+                            }
+                        });
                     }
                 });
             }

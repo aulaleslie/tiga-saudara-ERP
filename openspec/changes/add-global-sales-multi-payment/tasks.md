@@ -81,3 +81,10 @@
 - [x] 8.4 Test split-owner POS sales remain independent allocation rows and settle only their own generated `Sale` records.
 - [x] 8.5 Test POS Kas Bon allocation creates only ordinary `SalePayment` records and reconciles balances visible through existing sale/POS relationships.
 - [x] 8.6 Run focused module and Livewire tests, then run `composer test:fresh-sqlite` or the broadest practical Laravel test suite and resolve regressions.
+
+## 9. Runtime Path Hardening
+
+- [x] 9.1 Use the established document Dropzone upload/delete routes and response contract in the global payment form.
+- [x] 9.2 Resolve form currency from the starting sale's actual setting and render safely when no active session setting exists.
+- [x] 9.3 Eager-load every relationship consumed by the cross-setting detail view and remove setting-scoped print links.
+- [x] 9.4 Add HTTP coverage for form rendering, real temporary document upload/deletion, route availability, and lazy-loading-safe detail rendering.

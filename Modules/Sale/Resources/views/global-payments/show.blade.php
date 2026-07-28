@@ -11,26 +11,6 @@
                     Referensi: <strong>{{ $sale->reference ?? 'N/A' }}</strong>
                 </div>
 
-                @php $hasDispatches = isset($sale->saleDispatches) && $sale->saleDispatches->isNotEmpty(); @endphp
-
-                @if($hasDispatches)
-                    <a target="_blank"
-                       href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
-                       class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
-                        <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
-                    </a>
-                @else
-                    <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
-                       title="Belum ada pengeluaran/dispatch untuk dicetak">
-                        <i class="bi bi-truck"></i> Surat Jalan
-                    </a>
-                @endif
-                <a target="_blank"
-                   href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
-                   class="btn btn-sm btn-secondary mfe-1 d-print-none">
-                    <i class="bi bi-truck"></i> Cetak Faktur
-                </a>
-
                 @if($sale->live_due_amount > 0 && auth()->user()->can('salePayments.create'))
                     <a href="{{ route('sales.global-payments.create', $sale->id) }}"
                        class="btn btn-sm btn-primary mfs-auto mfe-1 d-print-none">
