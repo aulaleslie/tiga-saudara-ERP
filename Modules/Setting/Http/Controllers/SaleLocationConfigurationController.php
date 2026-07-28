@@ -24,6 +24,9 @@ class SaleLocationConfigurationController extends Controller
         $currentSettingId = (int) session('setting_id');
         $setting = Setting::findOrFail($currentSettingId);
 
+        // Repair missing owned location assignments before querying
+        SettingSaleLocation::repairMissingOwnedAssignments($currentSettingId);
+
         // Active collection: enabled assignments for the current setting, ordered by position
         $activeLocations = Location::query()
             ->with(['setting:id,company_name'])
@@ -85,7 +88,7 @@ class SaleLocationConfigurationController extends Controller
         ]);
 
         $currentSettingId = (int) session('setting_id');
-        
+
         $location = Location::findOrFail($locationId);
 
         if ($location->setting_id === $currentSettingId && !$validated['is_enabled']) {
@@ -93,15 +96,40 @@ class SaleLocationConfigurationController extends Controller
             return redirect()->route('sales-location-configurations.index');
         }
 
-        SettingSaleLocation::updateOrCreate(
-            [
-                'setting_id' => $currentSettingId,
-                'location_id' => $locationId,
-            ],
-            [
-                'is_enabled' => $validated['is_enabled'],
-            ]
-        );
+        DB::transaction(function () use ($currentSettingId, $locationId, $validated) {
+            $assignment = SettingSaleLocation::where('setting_id', $currentSettingId)
+                ->where('location_id', $locationId)
+                ->first();
+
+            if ($validated['is_enabled']) {
+                // Enabling: create new or update existing
+                if (!$assignment) {
+                    // New assignment: create will trigger the creating hook
+                    SettingSaleLocation::create([
+                        'setting_id' => $currentSettingId,
+                        'location_id' => $locationId,
+                        'is_enabled' => true,
+                    ]);
+                } else {
+                    // Re-enabling: append new position, clear old position first
+                    $maxPosition = SettingSaleLocation::where('setting_id', $currentSettingId)
+                        ->where('is_enabled', true)
+                        ->max('position');
+                    $assignment->update([
+                        'is_enabled' => true,
+                        'position' => ($maxPosition ?? 0) + 1,
+                    ]);
+                }
+            } else {
+                // Disabling: set is_enabled to false and clear position
+                if ($assignment) {
+                    $assignment->update([
+                        'is_enabled' => false,
+                        'position' => null,
+                    ]);
+                }
+            }
+        });
 
         $statusMsg = $validated['is_enabled'] ? 'diaktifkan' : 'dinonaktifkan';
         toast("Lokasi berhasil $statusMsg.", 'success');

@@ -31,6 +31,9 @@
                                         <th>Nama Lokasi</th>
                                         <th>Bisnis Asal</th>
                                         <th>Status</th>
+                                        @if($canEdit)
+                                            <th class="text-end">Aksi</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -58,10 +61,21 @@
                                                     <span class="badge bg-primary">Aktif</span>
                                                 @endif
                                             </td>
+                                            @if($canEdit)
+                                                <td class="text-end">
+                                                    @if(!$location->is_owned)
+                                                        <button type="button" class="btn btn-sm btn-outline-danger btn-toggle"
+                                                            data-url="{{ route('sales-location-configurations.toggle', $location->id) }}"
+                                                            data-enabled="1">
+                                                            Nonaktifkan
+                                                        </button>
+                                                    @endif
+                                                </td>
+                                            @endif
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="{{ $canEdit ? 4 : 3 }}" class="text-center py-4">
+                                            <td colspan="{{ $canEdit ? 5 : 4 }}" class="text-center py-4">
                                                 Belum ada lokasi aktif untuk prioritas.
                                             </td>
                                         </tr>
@@ -134,10 +148,11 @@
 @push('page_scripts')
 <script>
     $(document).ready(function() {
-        const $tableBody = $('#locations-table tbody');
+        const $locationsTable = $('#locations-table tbody');
+        const $availableTable = $('#available-locations-table tbody');
 
-        // Handle Movement
-        $tableBody.on('click', '.btn-move-up, .btn-move-down', function(e) {
+        // Handle Movement (only in active locations table)
+        $locationsTable.on('click', '.btn-move-up, .btn-move-down', function(e) {
             e.preventDefault();
             const $btn = $(this);
             const $row = $btn.closest('tr');
@@ -157,13 +172,13 @@
             updateButtonStates();
         });
 
-        // Handle Toggle
-        $tableBody.on('click', '.btn-toggle', function(e) {
+        // Handle Toggle for both active locations and available locations tables
+        $(document).on('click', '.btn-toggle', function(e) {
             e.preventDefault();
             const $btn = $(this);
             const url = $btn.data('url');
             const isEnabled = $btn.data('enabled') == '1';
-            
+
             const $form = $('#toggle-form');
             $form.attr('action', url);
             $('#toggle-is-enabled').val(isEnabled ? '0' : '1');
@@ -171,12 +186,12 @@
         });
 
         function updateButtonStates() {
-            const $rows = $tableBody.find('.location-row');
+            const $rows = $locationsTable.find('.location-row');
             $rows.each(function(index) {
                 const $row = $(this);
                 const isFirst = (index === 0);
                 const isLast = (index === $rows.length - 1);
-                
+
                 $row.find('.btn-move-up').prop('disabled', isFirst);
                 $row.find('.btn-move-down').prop('disabled', isLast);
             });

@@ -116,19 +116,30 @@ class SettingSaleLocation extends BaseModel
             })
             ->get();
 
-        foreach ($ownedLocationsWithoutAssignment as $location) {
-            static::updateOrCreate(
-                [
-                    'setting_id' => $settingId,
-                    'location_id' => $location->id,
-                ],
-                [
-                    'is_enabled' => true,
-                    'position' => static::where('setting_id', $settingId)
+        DB::transaction(function () use ($settingId, $ownedLocationsWithoutAssignment) {
+            foreach ($ownedLocationsWithoutAssignment as $location) {
+                $assignment = static::where('setting_id', $settingId)
+                    ->where('location_id', $location->id)
+                    ->first();
+
+                if (!$assignment) {
+                    // Create new: triggers the creating hook for position assignment
+                    static::create([
+                        'setting_id' => $settingId,
+                        'location_id' => $location->id,
+                        'is_enabled' => true,
+                    ]);
+                } else {
+                    // Re-enable existing: append new position
+                    $maxPosition = static::where('setting_id', $settingId)
                         ->where('is_enabled', true)
-                        ->max('position') + 1,
-                ]
-            );
-        }
+                        ->max('position');
+                    $assignment->update([
+                        'is_enabled' => true,
+                        'position' => ($maxPosition ?? 0) + 1,
+                    ]);
+                }
+            }
+        });
     }
 }
