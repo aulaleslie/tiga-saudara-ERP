@@ -206,7 +206,7 @@
                                 <span id="final-debt-customer">-</span>
                             </div>
                             <div class="d-flex justify-content-between align-items-center">
-                                <strong>Jatuh Tempo:</strong>
+                                <strong>Tanggal Jatuh Tempo:</strong>
                                 <span id="final-debt-term">-</span>
                             </div>
                         </li>

@@ -1944,8 +1944,9 @@
 
                 // Render each result as a card in the grid
                 results.forEach((product) => {
+                    const isStockManaged = product.stock_managed !== false && product.stock_managed !== 0 && product.stock_managed !== '0';
                     const availableQty = Number(product.available_qty || 0);
-                    const isOutOfStock = availableQty <= 0;
+                    const isOutOfStock = isStockManaged && availableQty <= 0;
 
                     const card = document.createElement('button');
                     card.type = 'button';
@@ -1958,7 +1959,14 @@
                     const productCode = escapeHtml(product.product_code || '-');
                     const barcode = escapeHtml(product.barcode || '-');
                     const price = formatPrice(product.sale_price);
-                    const oosBadge = isOutOfStock ? '<div class="pos-search-card-oos-badge">Stok Kosong</div>' : '';
+                    
+                    let oosBadge = '';
+                    if (!isStockManaged) {
+                        oosBadge = '<div class="pos-search-card-oos-badge" style="background-color: var(--info);">Service</div>';
+                    } else if (isOutOfStock) {
+                        oosBadge = '<div class="pos-search-card-oos-badge">Stok Kosong</div>';
+                    }
+                    const stockDisplay = !isStockManaged ? '-' : product.available_qty;
 
                     card.innerHTML = `
                         <!-- Image placeholder for future use -->
@@ -1969,7 +1977,7 @@
                         <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.75rem;">
                             <div>SKU: ${productCode}</div>
                             <div>Barcode: ${barcode}</div>
-                            <div class="${isOutOfStock ? 'text-danger font-weight-bold' : ''}">Stok: ${product.available_qty}</div>
+                            <div class="${isOutOfStock ? 'text-danger font-weight-bold' : ''}">Stok: ${stockDisplay}</div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; align-items: center; font-weight: 500; padding-top: 0.75rem; border-top: 1px solid #eee;">
                             <div style="text-align: right;">

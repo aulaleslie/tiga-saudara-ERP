@@ -252,6 +252,11 @@ class Sale extends BaseModel
         return $this->getEffectivePaidAmount();
     }
 
+    public function getPaymentDueDateAttribute(): ?string
+    {
+        return $this->due_date ? \Carbon\Carbon::parse($this->due_date)->format('Y-m-d') : null;
+    }
+
     /**
      * Reconcile sale header from canonical settlement totals.
      * Updates paid_amount, due_amount, and payment_status from active payments and existing credits.

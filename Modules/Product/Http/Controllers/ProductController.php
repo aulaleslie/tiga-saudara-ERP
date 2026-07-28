@@ -321,9 +321,8 @@ class ProductController extends Controller
 
         $validatedData = $request->validated();
 
-        // Normalize nullable FKs on products
-        $validatedData['brand_id']    = $validatedData['brand_id']    ?: null;
-        $validatedData['category_id'] = $validatedData['category_id'] ?: null;
+        $validatedData['brand_id']    = $validatedData['brand_id']    ?? null;
+        $validatedData['category_id'] = $validatedData['category_id'] ?? null;
 
         $isPurchased = (bool)($validatedData['is_purchased'] ?? false);
         $isSold      = (bool)($validatedData['is_sold'] ?? false);

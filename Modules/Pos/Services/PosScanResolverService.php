@@ -46,22 +46,28 @@ class PosScanResolverService
 
         // 1. Exact barcode match on products
         $productByBarcode = Product::query()
-            ->where('stock_managed', true)
+            ->where(function($q) {
+                $q->where('stock_managed', true)
+                  ->orWhere('is_sold', true);
+            })
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->first();
 
-        if ($productByBarcode && $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds) && $this->hasPriceForSetting($productByBarcode->id, $settingId)) {
+        if ($productByBarcode && (! $productByBarcode->stock_managed || $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds)) && $this->hasPriceForSetting($productByBarcode->id, $settingId)) {
             return $this->formatProductExact($productByBarcode, $settingId);
         }
 
         // 2. Exact barcode match on product_unit_conversions
         $unitConversionBarcode = ProductUnitConversion::query()
-            ->whereHas('product', fn ($q) => $q->where('stock_managed', true))
+            ->whereHas('product', fn ($q) => $q->where(function($query) {
+                $query->where('stock_managed', true)
+                      ->orWhere('is_sold', true);
+            }))
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->with(['product', 'unit'])
             ->first();
 
-        if ($unitConversionBarcode && $unitConversionBarcode->product && $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds) && $this->hasPriceForSetting($unitConversionBarcode->product->id, $settingId)) {
+        if ($unitConversionBarcode && $unitConversionBarcode->product && (! $unitConversionBarcode->product->stock_managed || $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds)) && $this->hasPriceForSetting($unitConversionBarcode->product->id, $settingId)) {
             return $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
         }
 

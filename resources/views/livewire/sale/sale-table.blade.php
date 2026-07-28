@@ -45,7 +45,8 @@
             <th>Tags</th>
             <th>Total</th>
             <th>Dibayar</th>
-            <th>Jatuh Tempo</th>
+            <th>Sisa Tagihan</th>
+            <th>Tanggal Jatuh Tempo</th>
             <th>Status</th>
             <th>Status Pembayaran</th>
             <th>Aksi</th>
@@ -132,6 +133,9 @@
                     @else
                         {{ format_currency($sale->due_amount) }}
                     @endif
+                </td>
+                <td>
+                    {{ $sale->payment_due_date ? \Carbon\Carbon::parse($sale->payment_due_date)->format('d M Y') : '-' }}
                 </td>
                 <td>@include('sale::partials.status', ['data' => $sale])</td>
                 <td>@include('sale::partials.payment-status', ['data' => $sale])</td>

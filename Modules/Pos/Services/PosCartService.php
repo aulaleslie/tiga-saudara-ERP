@@ -185,7 +185,7 @@ class PosCartService
             $baseQty = (int) ($existingLine['qty'] ?? 0);
             $newQty = $baseQty + $qty;
 
-            if ($newQty > $availableQty) {
+            if ($availableQty !== null && $newQty > $availableQty) {
                 throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
@@ -210,7 +210,7 @@ class PosCartService
             // No matching line - create new line with next_line_id
             $newLineId = $cart['next_line_id']++;
 
-            if ($qty > $availableQty) {
+            if ($availableQty !== null && $qty > $availableQty) {
                 throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
@@ -320,8 +320,8 @@ class PosCartService
         // Preserve assigned serials - they will be validated at checkout time
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
 
-        $availableQty = (int) ($line['available_qty'] ?? 0);
-        if ($availableQty > 0 && $qty > $availableQty) {
+        $availableQty = $line['available_qty'] ?? null;
+        if ($availableQty !== null && $qty > $availableQty) {
             throw new DomainException('Requested quantity exceeds available stock for configured sales locations.');
         }
 
@@ -972,17 +972,20 @@ class PosCartService
     }
 
     /**
-     * @return array{0: Product, 1: int}
+     * @return array{0: Product, 1: int|null}
      */
     private function resolveCartProduct(int $settingId, int $productId): array
     {
         $product = Product::query()
             ->where('id', $productId)
-            ->where('stock_managed', true)
+            ->where(function($q) {
+                $q->where('stock_managed', true)
+                  ->orWhere('is_sold', true);
+            })
             ->first();
 
         if (! $product) {
-            throw new DomainException('Product was not found.');
+            throw new DomainException('Product was not found or is not sellable.');
         }
 
         // Guard: product must have a price row for the active setting
@@ -993,6 +996,10 @@ class PosCartService
 
         if (! $hasPriceRow) {
             throw new DomainException('Product does not have a price configured for the active setting.');
+        }
+
+        if (! $product->stock_managed) {
+            return [$product, null];
         }
 
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)

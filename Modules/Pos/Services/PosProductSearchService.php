@@ -47,7 +47,10 @@ class PosProductSearchService
                 $join->on('pp.product_id', '=', 'p.id')
                     ->where('pp.setting_id', '=', $settingId);
             })
-            ->where('p.stock_managed', true)
+            ->where(function($q) {
+                $q->where('p.stock_managed', true)
+                  ->orWhere('p.is_sold', true);
+            })
             ->where(function ($query) use (
                 $barcodeExactExpr,
                 $skuExactExpr,
@@ -79,6 +82,7 @@ class PosProductSearchService
                 'p.product_code',
                 'p.barcode',
                 'p.serial_number_required',
+                'p.stock_managed',
             ])
             ->selectRaw($availableQtyExpression . ' as available_qty')
             ->selectRaw('COALESCE(pp.sale_price, p.sale_price, 0) as sale_price')
@@ -119,6 +123,7 @@ class PosProductSearchService
                 'available_qty' => (int) $row->available_qty,
                 'sale_price' => (float) $row->sale_price,
                 'serial_number_required' => (bool) $row->serial_number_required,
+                'stock_managed' => (bool) $row->stock_managed,
                 'matched_by' => $matchedBy,
                 'is_bundle_parent' => (bool) $row->is_bundle_parent,
                 'conversion' => null,
@@ -166,9 +171,9 @@ class PosProductSearchService
             return $result;
         })->values();
 
-        $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'barcode_exact' && $r['available_qty'] > 0)->first();
+        $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'barcode_exact' && ($r['available_qty'] > 0 || !$r['stock_managed']))->first();
         if (!$autoSelectMatch) {
-            $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'conversion_barcode_exact' && $r['available_qty'] > 0)->first();
+            $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'conversion_barcode_exact' && ($r['available_qty'] > 0 || !$r['stock_managed']))->first();
         }
         $autoSelectProductId = null;
 

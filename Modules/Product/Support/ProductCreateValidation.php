@@ -8,14 +8,16 @@ class ProductCreateValidation
 {
     public static function normalize(array $input): array
     {
-        $conversions = is_array($input['conversions'] ?? null)
+        $stockManaged = self::toBoolean($input['stock_managed'] ?? false);
+
+        $conversions = $stockManaged && is_array($input['conversions'] ?? null)
             ? ProductConversionPriceNormalizer::normalizeConversions($input['conversions'])
-            : ($input['conversions'] ?? null);
+            : [];
 
         return [
             'is_purchased' => self::toBoolean($input['is_purchased'] ?? false),
             'is_sold' => self::toBoolean($input['is_sold'] ?? false),
-            'stock_managed' => self::toBoolean($input['stock_managed'] ?? false),
+            'stock_managed' => $stockManaged,
             'serial_number_required' => self::toBoolean($input['serial_number_required'] ?? false),
             'conversions' => $conversions,
         ];
@@ -34,13 +36,13 @@ class ProductCreateValidation
             'product_stock_alert'    => ['nullable', 'integer', 'min:0'],
 
             'is_purchased'      => ['nullable', 'boolean'],
-            'purchase_price'    => ['required_if:is_purchased,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'purchase_price'    => ['nullable', 'numeric', 'min:0'],
             'purchase_tax_id'   => ['nullable', 'integer', 'exists:taxes,id'],
 
             'is_sold'           => ['nullable', 'boolean'],
-            'sale_price'        => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
-            'tier_1_price'      => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
-            'tier_2_price'      => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'sale_price'        => ['nullable', 'numeric', 'min:0'],
+            'tier_1_price'      => ['nullable', 'numeric', 'min:0'],
+            'tier_2_price'      => ['nullable', 'numeric', 'min:0'],
             'sale_tax_id'       => ['nullable', 'integer', 'exists:taxes,id'],
 
             'barcode'           => ['nullable', 'string', 'max:255', new \Modules\Product\Rules\UniqueBarcodeIdentity()],
@@ -119,19 +121,15 @@ class ProductCreateValidation
             'product_stock_alert.integer' => 'Peringatan jumlah stok harus berupa angka.',
             'product_stock_alert.min'     => 'Peringatan jumlah stok tidak boleh kurang dari 0.',
 
-            'purchase_price.required_if' => 'Harga beli wajib diisi jika produk dibeli.',
             'purchase_price.numeric'     => 'Harga beli harus berupa angka.',
-            'purchase_price.gt'          => 'Harga beli harus lebih dari 0.',
+            'purchase_price.min'         => 'Harga beli tidak boleh kurang dari 0.',
 
-            'sale_price.required_if'   => 'Harga jual wajib diisi jika produk dijual.',
             'sale_price.numeric'       => 'Harga jual harus berupa angka.',
-            'sale_price.gt'            => 'Harga jual harus lebih dari 0.',
-            'tier_1_price.required_if' => 'Harga jual Partai Besar wajib diisi jika produk dijual.',
+            'sale_price.min'           => 'Harga jual tidak boleh kurang dari 0.',
             'tier_1_price.numeric'     => 'Harga jual Partai Besar harus berupa angka.',
-            'tier_1_price.gt'          => 'Harga jual Partai Besar harus lebih dari 0.',
-            'tier_2_price.required_if' => 'Harga jual Reseller wajib diisi jika produk dijual.',
+            'tier_1_price.min'         => 'Harga jual Partai Besar tidak boleh kurang dari 0.',
             'tier_2_price.numeric'     => 'Harga jual Reseller harus berupa angka.',
-            'tier_2_price.gt'          => 'Harga jual Reseller harus lebih dari 0.',
+            'tier_2_price.min'         => 'Harga jual Reseller tidak boleh kurang dari 0.',
 
             'barcode.max'    => 'Barcode tidak boleh lebih dari 255 karakter.',
             'barcode.unique' => 'Barcode sudah digunakan.',

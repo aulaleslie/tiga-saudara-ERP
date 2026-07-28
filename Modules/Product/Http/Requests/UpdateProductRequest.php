@@ -30,20 +30,34 @@ class UpdateProductRequest extends FormRequest
             'category_id'         => ['nullable', 'integer'],
             'brand_id'            => ['nullable', 'integer'],
 
-            'stock_managed'          => ['nullable', 'boolean'],
+            'stock_managed'          => [
+                'nullable',
+                'boolean',
+                function ($attribute, $value, $fail) use ($productId) {
+                    $product = $this->route('product');
+                    if (!$this->boolean('stock_managed') && $product && $product->stock_managed) {
+                        $hasStock = \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+                            ->where('quantity', '>', 0)
+                            ->exists();
+                        if ($hasStock) {
+                            $fail('Manajemen stok tidak dapat dinonaktifkan karena produk masih memiliki stok.');
+                        }
+                    }
+                }
+            ],
             'serial_number_required' => ['nullable', 'boolean'],
             'product_stock_alert'    => ['nullable', 'integer', 'min:0'],
 
             // === Buying (same as create) ===
             'is_purchased'     => ['nullable', 'boolean'],
-            'purchase_price'   => ['required_if:is_purchased,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'purchase_price'   => ['nullable', 'numeric', 'min:0'],
             'purchase_tax_id'  => ['nullable', 'integer', 'exists:taxes,id'],
 
             // === Selling (same as create) ===
             'is_sold'        => ['nullable', 'boolean'],
-            'sale_price'     => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
-            'tier_1_price'   => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
-            'tier_2_price'   => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'sale_price'     => ['nullable', 'numeric', 'min:0'],
+            'tier_1_price'   => ['nullable', 'numeric', 'min:0'],
+            'tier_2_price'   => ['nullable', 'numeric', 'min:0'],
             'sale_tax_id'    => ['nullable', 'integer', 'exists:taxes,id'],
 
             // === Barcode (same as create, but ignore current product) ===
@@ -138,22 +152,18 @@ class UpdateProductRequest extends FormRequest
 
             // Buying
             'is_purchased.boolean'          => 'Nilai pembelian produk tidak valid.',
-            'purchase_price.required_if'    => 'Harga beli wajib diisi jika produk dibeli.',
             'purchase_price.numeric'        => 'Harga beli harus berupa angka.',
-            'purchase_price.gt'             => 'Harga beli harus lebih dari 0.',
+            'purchase_price.min'            => 'Harga beli tidak boleh kurang dari 0.',
             'purchase_tax_id.exists'        => 'Pajak beli yang dipilih tidak valid.',
 
             // Selling
             'is_sold.boolean'             => 'Nilai penjualan produk tidak valid.',
-            'sale_price.required_if'      => 'Harga jual wajib diisi jika produk dijual.',
             'sale_price.numeric'          => 'Harga jual harus berupa angka.',
-            'sale_price.gt'               => 'Harga jual harus lebih dari 0.',
-            'tier_1_price.required_if'    => 'Harga jual Partai Besar wajib diisi jika produk dijual.',
+            'sale_price.min'              => 'Harga jual tidak boleh kurang dari 0.',
             'tier_1_price.numeric'        => 'Harga jual Partai Besar harus berupa angka.',
-            'tier_1_price.gt'             => 'Harga jual Partai Besar harus lebih dari 0.',
-            'tier_2_price.required_if'    => 'Harga jual Reseller wajib diisi jika produk dijual.',
+            'tier_1_price.min'            => 'Harga jual Partai Besar tidak boleh kurang dari 0.',
             'tier_2_price.numeric'        => 'Harga jual Reseller harus berupa angka.',
-            'tier_2_price.gt'             => 'Harga jual Reseller harus lebih dari 0.',
+            'tier_2_price.min'            => 'Harga jual Reseller tidak boleh kurang dari 0.',
             'sale_tax_id.exists'          => 'Pajak jual yang dipilih tidak valid.',
 
             // Barcode
@@ -178,14 +188,16 @@ class UpdateProductRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        $stockManaged = $this->boolean('stock_managed');
+
         $this->merge([
             'is_purchased'           => $this->boolean('is_purchased'),
             'is_sold'                => $this->boolean('is_sold'),
-            'stock_managed'          => $this->boolean('stock_managed'),
+            'stock_managed'          => $stockManaged,
             'serial_number_required' => $this->boolean('serial_number_required'),
-            'conversions'            => is_array($this->input('conversions'))
+            'conversions'            => $stockManaged && is_array($this->input('conversions'))
                 ? ProductConversionPriceNormalizer::normalizeConversions($this->input('conversions'))
-                : $this->input('conversions'),
+                : [],
         ]);
     }
 
