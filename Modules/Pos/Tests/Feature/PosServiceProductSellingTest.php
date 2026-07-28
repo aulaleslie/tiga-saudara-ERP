@@ -142,12 +142,12 @@ class PosServiceProductSellingTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.cart.lines.store'), [
                 'product_id' => $serviceProduct->id,
-                'qty' => 2, 
+                'qty' => 2,
             ]);
-            
+
         $addResponse->assertOk();
         $snapshot = $addResponse->json('cart_snapshot');
-        
+
         $coa = \Modules\Setting\Entities\ChartOfAccount::create([
             'setting_id' => $setting->id,
             'name' => 'Cash Account',
@@ -212,6 +212,158 @@ class PosServiceProductSellingTest extends TestCase
         $this->assertDatabaseMissing('transactions', [
             'product_id' => $serviceProduct->id,
         ]);
+
+        // Verify cost snapshot is correct
+        $saleDetail = \Modules\Sale\Entities\SaleDetails::where('sale_id', $saleId)
+            ->where('product_id', $serviceProduct->id)
+            ->first();
+
+        $this->assertNotNull($saleDetail);
+        $this->assertEquals(0, $saleDetail->cost_unit_snapshot);
+        $this->assertEquals(0, $saleDetail->cost_total_snapshot);
+        $this->assertEquals(\Modules\Sale\Services\SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED, $saleDetail->cost_snapshot_source);
+    }
+
+    public function test_service_product_completes_multiple_services(): void
+    {
+        // This tests multiple services complete without stock errors
+        $setting = $this->createSetting('BIZ SERVICE MULTI');
+        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS SERVICE MULTI', returnSession: true);
+
+        $serviceProduct1 = $this->createServiceProduct(
+            setting: $setting,
+            code: 'SRV-MULTI-1',
+            name: 'Jasa Konsultasi',
+            barcode: 'SRV-MULTI-1-BARCODE',
+            salePrice: 200000,
+            createdBy: $cashier->id
+        );
+
+        $serviceProduct2 = $this->createServiceProduct(
+            setting: $setting,
+            code: 'SRV-MULTI-2',
+            name: 'Jasa Desain',
+            barcode: 'SRV-MULTI-2-BARCODE',
+            salePrice: 300000,
+            createdBy: $cashier->id
+        );
+
+        // Add first service
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $serviceProduct1->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        // Add second service
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $serviceProduct2->id,
+                'qty' => 2,
+            ])
+            ->assertOk();
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Cash Account',
+            'account_number' => '1001',
+            'category' => 'Kas & Bank'
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $setting->id, 'payment_method_id' => $paymentMethod->id],
+            ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+
+        $checkoutPayload = [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $paymentMethod->id,
+                    'amount_paid' => 800000,
+                ],
+            ],
+        ];
+
+        // Checkout should succeed with multiple services
+        $checkoutResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), $checkoutPayload);
+
+        $checkoutResponse->assertCreated();
+        $checkoutResponse->assertJsonPath('status', 'POSTED');
+
+        $saleId = $checkoutResponse->json('sale_id');
+        $this->assertNotNull($saleId);
+
+        // Both services should be on the sale
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $serviceProduct1->id,
+            'quantity' => 1,
+        ]);
+
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $serviceProduct2->id,
+            'quantity' => 2,
+        ]);
+
+        // No stock mutations for either service
+        $this->assertDatabaseMissing('product_stocks', [
+            'product_id' => $serviceProduct1->id,
+        ]);
+        $this->assertDatabaseMissing('product_stocks', [
+            'product_id' => $serviceProduct2->id,
+        ]);
+    }
+
+    public function test_stock_managed_out_of_stock_error_includes_product_name(): void
+    {
+        $setting = $this->createSetting('BIZ OOS NAME');
+        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS OOS NAME', returnSession: true);
+
+        $oosProduct = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'OOS-NAME-01',
+            name: 'Produk Habis Terjual',
+            barcode: 'OOS-NAME-01-BARCODE',
+            availableQty: 0,
+            salePrice: 50000,
+            createdBy: $cashier->id
+        );
+
+        // Add to cart - should fail for stock-managed out of stock
+        $addResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $oosProduct->id,
+                'qty' => 1,
+            ]);
+
+        $addResponse->assertStatus(422);
     }
 
     private function createSetting(string $name): Setting

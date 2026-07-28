@@ -206,16 +206,18 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $parentAllocations = $allocations["{$index}_P"] ?? ($allocations[$index] ?? []);
 
                 if ($parentAllocations === []) {
+                    $productLabel = (string) ($line['product_name'] ?? "#$productId");
                     throw new PosCheckoutValidationException(
                         'STOCK_UNAVAILABLE',
-                        "Stok alokasi untuk produk #{$productId} tidak ditemukan."
+                        "Stok alokasi untuk produk $productLabel tidak ditemukan."
                     );
                 }
 
                 if (! $isSerialTracked) {
                     $totalAllocated = array_sum(array_column($parentAllocations, 'allocated_qty'));
                     if ((int) $totalAllocated !== $qty) {
-                        throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Kuantitas alokasi produk #{$productId} tidak sesuai.");
+                        $productLabel = (string) ($line['product_name'] ?? "#$productId");
+                        throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Kuantitas alokasi produk $productLabel tidak sesuai.");
                     }
                 }
             }
@@ -247,8 +249,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'serial_number_ids' => $isSerialTracked ? $serialIds : null,
             ]);
 
-            // 2. Process Parent Stock Deduction
-            if ($parentAllocations !== []) {
+            // 2. Process Parent Stock Deduction (only for stock-managed products)
+            $isStockManaged = (bool) ($line['stock_managed'] ?? true);
+            if ($isStockManaged && $parentAllocations !== []) {
                 $this->recordStockMovement(
                     $productId,
                     $qty,
@@ -328,9 +331,10 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
                 if ((bool) ($item['stock_managed'] ?? false)) {
                     if ($childAllocations === []) {
+                        $childProductLabel = (string) ($item['product_name'] ?? "#$childProductId");
                         throw new PosCheckoutValidationException(
                             'STOCK_UNAVAILABLE',
-                            "Stok alokasi untuk produk anak #{$childProductId} dalam paket tidak ditemukan."
+                            "Stok alokasi untuk produk $childProductLabel dalam paket tidak ditemukan."
                         );
                     }
 
@@ -343,7 +347,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         $checkoutId,
                         $sale,
                         $dispatch,
-                        $childTaxId, 
+                        $childTaxId,
                         $bundleId,
                         [] // Serial items in bundles not supported yet
                     );
@@ -460,6 +464,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         ?int $bundleId = null,
         array $serialRecords = []
     ): void {
+        // Preload product for better error messages
+        $product = Product::query()->whereKey($productId)->first();
+        $productLabel = $product
+            ? ($product->product_name ?: ($product->product_code ?: "#$productId"))
+            : "#$productId";
+
         foreach ($lineAllocations as $chunk) {
             $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
             $chunkLocId = (int) ($chunk['source_location_id'] ?? 0);
@@ -475,19 +485,19 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 ->first();
 
             if (! $stock) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk #{$productId} tidak tersedia di lokasi sumber.");
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk $productLabel tidak tersedia di lokasi sumber.");
             }
 
             if ((int) $stock->quantity < $chunkQty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk #{$productId} tidak cukup di lokasi sumber.");
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk $productLabel tidak cukup di lokasi sumber.");
             }
 
             if ($taxBucketUsed && (int) $stock->quantity_tax < $chunkQty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok pajak produk #{$productId} tidak cukup di lokasi sumber.");
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok pajak produk $productLabel tidak cukup di lokasi sumber.");
             }
 
             if (! $taxBucketUsed && (int) $stock->quantity_non_tax < $chunkQty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok non-pajak produk #{$productId} tidak cukup di lokasi sumber.");
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok non-pajak produk $productLabel tidak cukup di lokasi sumber.");
             }
 
             $assignedSerialsForChunk = $chunk['serial_numbers'] ?? null;
