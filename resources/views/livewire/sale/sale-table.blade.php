@@ -117,8 +117,20 @@
                     @endif
                 </td>
                 <td>{{ format_currency($sale->total_amount) }}</td>
-                <td>{{ format_currency($sale->paid_amount) }}</td>
-                <td>{{ format_currency($sale->due_amount) }}</td>
+                <td>
+                    @if ($globalMode)
+                        {{ format_currency($sale->live_paid_amount) }}
+                    @else
+                        {{ format_currency($sale->paid_amount) }}
+                    @endif
+                </td>
+                <td>
+                    @if ($globalMode)
+                        {{ format_currency($sale->live_due_amount) }}
+                    @else
+                        {{ format_currency($sale->due_amount) }}
+                    @endif
+                </td>
                 <td>@include('sale::partials.status', ['data' => $sale])</td>
                 <td>@include('sale::partials.payment-status', ['data' => $sale])</td>
                 <td>@include('sale::partials.actions', ['data' => $sale, 'showArchived' => $showArchived, 'globalMode' => $this->globalMode])</td>

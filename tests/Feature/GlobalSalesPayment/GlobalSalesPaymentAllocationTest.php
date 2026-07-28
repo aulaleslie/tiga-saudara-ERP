@@ -258,7 +258,7 @@ class GlobalSalesPaymentAllocationTest extends TestCase
         );
 
         // Should fail - either 404 (sale not found via approvedUp scope) or 422 (validation error)
-        $this->assertIn($response2->status(), [404, 422]);
+        $this->assertContains($response2->status(), [404, 422]);
         $this->assertCount(0, SalePayment::where('reference', 'GLOBAL-005B')->get());
     }
 

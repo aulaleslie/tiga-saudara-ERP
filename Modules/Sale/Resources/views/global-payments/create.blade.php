@@ -114,11 +114,16 @@
                                                 $isStarting = $candidate->id === $startingSale->id;
                                                 $defaultAmount = $isStarting ? $candidate->live_due_amount : 0;
                                                 $posIdentifier = '';
-                                                if ($candidate->pos_receipt_id) {
-                                                    $posIdentifier .= 'Bon: ' . $candidate->posReceipt->reference ?? 'N/A';
-                                                }
-                                                if ($candidate->pos_transaction_id) {
-                                                    $posIdentifier .= ' (' . $candidate->posTransaction->code ?? 'N/A' . ')';
+                                                if ($candidate->posCheckout) {
+                                                    $posIdentifier .= 'Bon: ' . ($candidate->posCheckout->receipt_number ?? 'N/A');
+                                                    if ($candidate->posCheckout->transactions?->first()) {
+                                                        $posIdentifier .= ' (' . $candidate->posCheckout->transactions->first()->code . ')';
+                                                    }
+                                                } elseif ($candidate->checkoutSale?->checkout) {
+                                                    $posIdentifier .= 'Bon: ' . ($candidate->checkoutSale->checkout->receipt_number ?? 'N/A');
+                                                    if ($candidate->checkoutSale->checkout->transactions?->first()) {
+                                                        $posIdentifier .= ' (' . $candidate->checkoutSale->checkout->transactions->first()->code . ')';
+                                                    }
                                                 }
                                             @endphp
                                             <tr data-sale-id="{{ $candidate->id }}" data-live-due="{{ $candidate->live_due_amount }}">

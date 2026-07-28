@@ -244,6 +244,15 @@ class Sale extends BaseModel
     }
 
     /**
+     * Get live paid amount derived from active payments and credits.
+     * Returns the same value as getEffectivePaidAmount() as a dynamic accessor.
+     */
+    public function getLivePaidAmountAttribute(): float
+    {
+        return $this->getEffectivePaidAmount();
+    }
+
+    /**
      * Reconcile sale header from canonical settlement totals.
      * Updates paid_amount, due_amount, and payment_status from active payments and existing credits.
      * Used after payment allocation to ensure consistency.
@@ -254,7 +263,7 @@ class Sale extends BaseModel
         $dueAmount = round($this->total_amount - $paidAmount, 2);
         $dueAmount = max(0, $dueAmount);
 
-        $status = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+        $status = $dueAmount <= 0 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
 
         $this->update([
             'paid_amount' => $paidAmount,

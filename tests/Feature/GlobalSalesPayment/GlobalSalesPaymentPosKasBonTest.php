@@ -137,7 +137,6 @@ class GlobalSalesPaymentPosKasBonTest extends TestCase
 
         $posCheckout = $this->createPosCheckout($posSale, $this->setting, 'POS-RECEIPT-001');
         $posTransaction = $this->createPosTransaction($posCheckout, $this->customer, 'TRX-001');
-        $posSale->update(['pos_checkout_id' => $posCheckout->id]);
 
         // Verify sale can be found (basic test - actual search implementation may vary)
         $response = $this->actingAs($this->user)
@@ -158,11 +157,11 @@ class GlobalSalesPaymentPosKasBonTest extends TestCase
 
         $posCheckout = $this->createPosCheckout($posSale, $this->setting);
         $posTransaction = $this->createPosTransaction($posCheckout, $this->customer);
-        $posSale->update(['pos_checkout_id' => $posCheckout->id]);
 
         // Verify relationships are accessible
         $this->assertNotNull($posSale->fresh()->posCheckout);
-        $this->assertNotNull($posSale->posCheckout->transaction);
+        // PosTransaction points to PosCheckout via completed_checkout_id
+        $this->assertNotNull($posCheckout->fresh()->transactions()->first());
     }
 
     /**
@@ -432,6 +431,7 @@ class GlobalSalesPaymentPosKasBonTest extends TestCase
         ]);
 
         $idempotencyKey = 'test-' . $sale->id . '-' . rand(100000, 999999);
+        $payloadHash = hash('sha256', json_encode(['idempotency_key' => $idempotencyKey, 'timestamp' => now()->timestamp]));
 
         return \Modules\Pos\Entities\PosCheckout::create([
             'setting_id' => $setting->id,
@@ -442,6 +442,7 @@ class GlobalSalesPaymentPosKasBonTest extends TestCase
             'cashier_user_id' => $cashier->id,
             'status' => \Modules\Pos\Entities\PosCheckout::STATUS_POSTED,
             'idempotency_key' => $idempotencyKey,
+            'payload_hash' => $payloadHash,
             'receipt_number' => $receiptNumber ?? 'POS-' . rand(100000, 999999),
             'subtotal' => 0,
             'discount_total' => 0,
@@ -449,16 +450,23 @@ class GlobalSalesPaymentPosKasBonTest extends TestCase
             'grand_total' => 0,
             'paid_total' => 0,
             'change_total' => 0,
+            'payment_method_code' => 'CASH',
         ]);
     }
 
     protected function createPosTransaction($posCheckout, $customer, $code = null)
     {
+        $user = User::factory()->create();
+
         return \Modules\Pos\Entities\PosTransaction::create([
             'setting_id' => $posCheckout->setting_id,
             'customer_id' => $customer->id,
             'code' => $code ?? 'TRX-' . rand(100000, 999999),
             'status' => \Modules\Pos\Entities\PosTransaction::STATUS_COMPLETED,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'source_pos_session_id' => $posCheckout->pos_session_id,
             'completed_checkout_id' => $posCheckout->id,
         ]);
     }

@@ -150,16 +150,23 @@ class SaleTable extends Component
                 $q->whereIn('payment_status', $this->paymentStatusFilters);
             })
             ->when($this->dueAmountOnly, function ($q) {
-                $q->where('due_amount', '>', 0);
+                if ($this->globalMode) {
+                    $q->whereLiveDueAmountGreaterThan(0);
+                } else {
+                    $q->where('due_amount', '>', 0);
+                }
             })
             ->when($this->overdueOnly, function ($q) {
-                $q->where('due_date', '<', Carbon::today())
-                  ->where('due_amount', '>', 0);
+                $q->where('due_date', '<', Carbon::today());
+                if ($this->globalMode) {
+                    $q->whereLiveDueAmountGreaterThan(0);
+                } else {
+                    $q->where('due_amount', '>', 0);
+                }
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
-                $q->where('payment_status', 'PAID')
-                  ->where(function ($sub) use ($thirtyDaysAgo) {
+                $q->where(function ($sub) use ($thirtyDaysAgo) {
                     $sub->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
                         $pq->where('date', '>=', $thirtyDaysAgo)
                            ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
@@ -201,7 +208,9 @@ class SaleTable extends Component
 
         $sales = $query->paginate($this->perPage);
 
-        return view('livewire.sale.sale-table', compact('sales'));
+        return view('livewire.sale.sale-table', compact('sales'), [
+            'globalMode' => $this->globalMode,
+        ]);
     }
 
     public function sortIcon($field)

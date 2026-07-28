@@ -36,18 +36,32 @@ class SaleSummaryCards extends Component
         if ($this->globalMode) {
             $query->whereNull('archived_at')
                   ->whereLiveDueAmountGreaterThan(0);
+            // Use canonical live due formula for global mode
+            $result = $query->selectRaw('COUNT(*) as cnt')
+                            ->first();
+
+            // Fetch sales to calculate canonical live due in PHP
+            $sales = $query->get();
+            $total = $sales->sum(function ($sale) {
+                return $sale->live_due_amount;
+            });
+
+            return [
+                'count' => (int) ($result->cnt ?? 0),
+                'total' => (float) $total,
+            ];
         } else {
             $query->where('setting_id', $this->settingId)
                   ->where('due_amount', '>', 0);
+
+            $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+                            ->first();
+
+            return [
+                'count' => (int) ($result->cnt ?? 0),
+                'total' => (float) ($result->total ?? 0),
+            ];
         }
-
-        $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
-                        ->first();
-
-        return [
-            'count' => (int) ($result->cnt ?? 0),
-            'total' => (float) ($result->total ?? 0),
-        ];
     }
 
     public function getPiutangTelatProperty()
@@ -60,18 +74,32 @@ class SaleSummaryCards extends Component
         if ($this->globalMode) {
             $query->whereNull('archived_at')
                   ->whereLiveDueAmountGreaterThan(0);
+            // Use canonical live due formula for global mode
+            $result = $query->selectRaw('COUNT(*) as cnt')
+                            ->first();
+
+            // Fetch sales to calculate canonical live due in PHP
+            $sales = $query->get();
+            $total = $sales->sum(function ($sale) {
+                return $sale->live_due_amount;
+            });
+
+            return [
+                'count' => (int) ($result->cnt ?? 0),
+                'total' => (float) $total,
+            ];
         } else {
             $query->where('setting_id', $this->settingId)
                   ->where('due_amount', '>', 0);
+
+            $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+                            ->first();
+
+            return [
+                'count' => (int) ($result->cnt ?? 0),
+                'total' => (float) ($result->total ?? 0),
+            ];
         }
-
-        $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
-                        ->first();
-
-        return [
-            'count' => (int) ($result->cnt ?? 0),
-            'total' => (float) ($result->total ?? 0),
-        ];
     }
 
     public function getPenerimaanProperty()
@@ -81,8 +109,7 @@ class SaleSummaryCards extends Component
         $query = SalePayment::active()
             ->where('date', '>=', $thirtyDaysAgo)
             ->whereHas('sale', function ($q) {
-                $q->where('payment_status', 'PAID')
-                  ->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED]);
+                $q->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED]);
 
                 if (!$this->globalMode) {
                     $q->where('setting_id', $this->settingId);
@@ -94,30 +121,9 @@ class SaleSummaryCards extends Component
         $result = $query->selectRaw('COUNT(DISTINCT sale_id) as cnt, SUM(amount) as total')
                         ->first();
 
-        if ($result && $result->cnt > 0) {
-            return [
-                'count' => (int) $result->cnt,
-                'total' => (float) $result->total,
-            ];
-        }
-
-        $fallbackQuery = Sale::query()
-            ->where('date', '>=', $thirtyDaysAgo)
-            ->where('payment_status', 'PAID')
-            ->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED]);
-
-        if (!$this->globalMode) {
-            $fallbackQuery->where('setting_id', $this->settingId);
-        } else {
-            $fallbackQuery->whereNull('archived_at');
-        }
-
-        $fallbackResult = $fallbackQuery->selectRaw('COUNT(*) as cnt, SUM(paid_amount) as total')
-                                       ->first();
-
         return [
-            'count' => (int) ($fallbackResult->cnt ?? 0),
-            'total' => (float) ($fallbackResult->total ?? 0),
+            'count' => (int) ($result->cnt ?? 0),
+            'total' => (float) ($result->total ?? 0),
         ];
     }
 }
