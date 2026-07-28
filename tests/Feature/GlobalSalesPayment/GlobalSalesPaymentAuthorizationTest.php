@@ -119,13 +119,20 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
     {
         $this->authorizedUser->givePermissionTo('salePayments.create');
 
-        $this->actingAs($this->authorizedUser)
+        $response = $this->actingAs($this->authorizedUser)
             ->get(route('sales.global-payments.create', $this->sale->id))
             ->assertOk()
             ->assertSee(route('dropzone.upload.documents'), false)
             ->assertSee(route('dropzone.delete'), false)
             ->assertSee('response.name', false)
             ->assertDontSee('temp-files.upload', false);
+
+        $content = $response->getContent();
+
+        $this->assertLessThan(
+            strpos($content, '$(document).ready(function ()'),
+            strpos($content, 'Dropzone.autoDiscover = false;')
+        );
     }
 
     public function test_document_attachment_can_be_uploaded_and_deleted()

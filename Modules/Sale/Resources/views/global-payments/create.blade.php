@@ -184,6 +184,8 @@
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
+        Dropzone.autoDiscover = false;
+
         $(document).ready(function () {
             var currencySymbol = @json(optional($startingSale->tenantSetting?->currency)->symbol ?? '');
 
@@ -213,7 +215,6 @@
 
             // Dropzone configuration
             if (typeof Dropzone !== 'undefined') {
-                Dropzone.autoDiscover = false;
                 var myDropzone = new Dropzone('#file-dropzone', {
                     url: '{{ route('dropzone.upload.documents') }}',
                     maxFiles: 1,
