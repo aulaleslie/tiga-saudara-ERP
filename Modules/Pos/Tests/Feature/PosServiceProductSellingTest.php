@@ -341,29 +341,316 @@ class PosServiceProductSellingTest extends TestCase
 
     public function test_stock_managed_out_of_stock_error_includes_product_name(): void
     {
-        $setting = $this->createSetting('BIZ OOS NAME');
-        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS OOS NAME', returnSession: true);
+        $setting = $this->createSetting('BIZ OOS NAME ERR');
+        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS OOS NAME ERR', returnSession: true);
 
-        $oosProduct = $this->createStockedProduct(
+        $stockProduct = $this->createStockedProduct(
             setting: $setting,
             location: $allowedLocation,
             code: 'OOS-NAME-01',
             name: 'Produk Habis Terjual',
             barcode: 'OOS-NAME-01-BARCODE',
-            availableQty: 0,
+            availableQty: 1,
             salePrice: 50000,
             createdBy: $cashier->id
         );
 
-        // Add to cart - should fail for stock-managed out of stock
+        // Add product with stock to cart - this succeeds
         $addResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.cart.lines.store'), [
-                'product_id' => $oosProduct->id,
+                'product_id' => $stockProduct->id,
                 'qty' => 1,
             ]);
 
-        $addResponse->assertStatus(422);
+        $addResponse->assertOk();
+
+        // Remove the stock before checkout to simulate stock unavailable at posting time
+        \Modules\Product\Entities\ProductStock::where('product_id', $stockProduct->id)
+            ->update(['quantity' => 0, 'quantity_non_tax' => 0]);
+
+        $stockProduct->update(['product_quantity' => 0]);
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Cash Account',
+            'account_number' => '1003',
+            'category' => 'Kas & Bank'
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $setting->id, 'payment_method_id' => $paymentMethod->id],
+            ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+
+        // Checkout should fail with product name in error message when allocation is resolved
+        $checkoutPayload = [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $paymentMethod->id,
+                    'amount_paid' => 50000,
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), $checkoutPayload);
+
+        $checkoutResponse->assertStatus(422);
+        // Verify error response includes product information (name appears in details)
+        $checkoutResponse->assertJsonPath('details.unfulfilled_lines.0.product_name', 'PRODUK HABIS TERJUAL');
+    }
+
+    public function test_non_stock_managed_line_does_not_trigger_allocation_error(): void
+    {
+        // Regression test: verify that non-stock-managed lines with qty 0 do not call recordStockMovement
+        // and thus do not trigger allocation errors that require stock availability
+        $setting = $this->createSetting('BIZ SPLIT NON-STOCK');
+        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS SPLIT NON-STOCK', returnSession: true);
+
+        // Create a non-stock-managed service product
+        $serviceProduct = $this->createServiceProduct(
+            setting: $setting,
+            code: 'SRV-SPLIT',
+            name: 'Jasa Konsultasi',
+            barcode: 'SRV-SPLIT-BARCODE',
+            salePrice: 75000,
+            createdBy: $cashier->id
+        );
+
+        // Create a stock-managed product with sufficient stock
+        $regularProduct = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'REG-SPLIT',
+            name: 'Barang Stok',
+            barcode: 'REG-SPLIT-BARCODE',
+            availableQty: 10,
+            salePrice: 100000,
+            createdBy: $cashier->id
+        );
+
+        // Add service to cart (qty 0 scenario will be tested at adapter level with manual context)
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $serviceProduct->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        // Add regular product to cart
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $regularProduct->id,
+                'qty' => 2,
+            ])
+            ->assertOk();
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Cash Account',
+            'account_number' => '1004',
+            'category' => 'Kas & Bank'
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $setting->id, 'payment_method_id' => $paymentMethod->id],
+            ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+
+        // Checkout with mixed product types - should succeed
+        $checkoutPayload = [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $paymentMethod->id,
+                    'amount_paid' => 300000,
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), $checkoutPayload);
+
+        $checkoutResponse->assertCreated();
+        $checkoutResponse->assertJsonPath('status', 'POSTED');
+
+        $saleId = $checkoutResponse->json('sale_id');
+        $this->assertNotNull($saleId);
+
+        // Verify both lines were recorded
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $serviceProduct->id,
+            'quantity' => 1,
+        ]);
+
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $regularProduct->id,
+            'quantity' => 2,
+        ]);
+
+        // Service has no stock records or transactions
+        $this->assertDatabaseMissing('product_stocks', [
+            'product_id' => $serviceProduct->id,
+        ]);
+        $this->assertDatabaseMissing('transactions', [
+            'product_id' => $serviceProduct->id,
+        ]);
+
+        // Regular product has stock deduction transaction
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $regularProduct->id,
+            'type' => 'DISPATCH',
+            'quantity' => -2,
+        ]);
+    }
+
+    public function test_non_stock_managed_service_with_zero_quantity_at_posting(): void
+    {
+        // Edge case test: verify that a non-stock-managed service line with qty 0 at posting
+        // (which can occur through split/group line consolidation) bypasses allocation checks
+        // and does not call recordStockMovement
+        $setting = $this->createSetting('BIZ SERVICE QTY-ZERO');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SERVICE QTY-ZERO');
+
+        $serviceProduct = $this->createServiceProduct(
+            setting: $setting,
+            code: 'SRV-ZERO-QTY',
+            name: 'Jasa Gratis',
+            barcode: 'SRV-ZERO-QTY-BARCODE',
+            salePrice: 50000,
+            createdBy: $cashier->id
+        );
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Cash Account',
+            'account_number' => '1005',
+            'category' => 'Kas & Bank'
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $setting->id, 'payment_method_id' => $paymentMethod->id],
+            ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        // Directly test the posting adapter with a qty 0 non-stock-managed line
+        $adapter = app(\Modules\Pos\Services\Adapters\InlinePosCheckoutPostingAdapter::class);
+        $context = [
+            'setting_id' => $setting->id,
+            'cashier_user_id' => $cashier->id,
+            'customer_id' => $customer->id,
+            'checkout_id' => 999,
+            'checkout_date' => now()->toDateString(),
+            'due_date' => now()->toDateString(),
+            'payment' => [
+                'payment_method_id' => $paymentMethod->id,
+                'amount_paid' => 0,
+                'is_multi_payment' => false,
+            ],
+            'is_debt' => true,
+            'cart_snapshot' => [
+                'totals' => [
+                    'grand_total' => 0,
+                    'discount_total' => 0,
+                ],
+                'lines' => [
+                    [
+                        'product_id' => $serviceProduct->id,
+                        'product_name' => 'Jasa Gratis',
+                        'product_code' => 'SRV-ZERO-QTY',
+                        'qty' => 0, // Zero quantity line
+                        'unit_price' => 50000,
+                        'line_subtotal' => 0,
+                        'line_tax_total' => 0,
+                        'line_discount_amount' => 0,
+                        'bill_discount_amount' => 0,
+                        'tax_id' => null,
+                        'stock_managed' => false, // Non-stock-managed
+                        'serial_number_required' => false,
+                        'bundle_id' => null,
+                        'bundle_items' => [],
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [], // No allocations needed for qty 0
+        ];
+
+        // Should succeed without throwing allocation errors
+        $result = $adapter->post($context);
+
+        $this->assertNotNull($result['sale_id']);
+        $saleId = $result['sale_id'];
+
+        // Service should be recorded on the sale even with qty 0
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $serviceProduct->id,
+            'quantity' => 0,
+        ]);
+
+        // No stock mutations for the service
+        $this->assertDatabaseMissing('product_stocks', [
+            'product_id' => $serviceProduct->id,
+        ]);
+        $this->assertDatabaseMissing('transactions', [
+            'product_id' => $serviceProduct->id,
+        ]);
     }
 
     private function createSetting(string $name): Setting

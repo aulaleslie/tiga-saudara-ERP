@@ -206,7 +206,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $parentAllocations = $allocations["{$index}_P"] ?? ($allocations[$index] ?? []);
 
                 if ($parentAllocations === []) {
-                    $productLabel = (string) ($line['product_name'] ?? "#$productId");
+                    $productLabel = (string) (($line['product_name'] ?? null) ?: (($line['product_code'] ?? null) ?: "#$productId"));
                     throw new PosCheckoutValidationException(
                         'STOCK_UNAVAILABLE',
                         "Stok alokasi untuk produk $productLabel tidak ditemukan."
@@ -216,7 +216,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 if (! $isSerialTracked) {
                     $totalAllocated = array_sum(array_column($parentAllocations, 'allocated_qty'));
                     if ((int) $totalAllocated !== $qty) {
-                        $productLabel = (string) ($line['product_name'] ?? "#$productId");
+                        $productLabel = (string) (($line['product_name'] ?? null) ?: (($line['product_code'] ?? null) ?: "#$productId"));
                         throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Kuantitas alokasi produk $productLabel tidak sesuai.");
                     }
                 }
@@ -331,7 +331,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
                 if ((bool) ($item['stock_managed'] ?? false)) {
                     if ($childAllocations === []) {
-                        $childProductLabel = (string) ($item['product_name'] ?? "#$childProductId");
+                        $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
                         throw new PosCheckoutValidationException(
                             'STOCK_UNAVAILABLE',
                             "Stok alokasi untuk produk $childProductLabel dalam paket tidak ditemukan."
