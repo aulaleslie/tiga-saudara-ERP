@@ -66,7 +66,9 @@ class UpdateProductRequest extends FormRequest
             // === Base Unit (same as create) ===
             'base_unit_id'   => [
                 'required_if:stock_managed,1,true,on',
-                'integer',
+                // Non-stock-managed edits disable the base unit field, so it arrives
+                // as null; only enforce integer typing when stock is managed.
+                $this->boolean('stock_managed') ? 'integer' : 'nullable',
                 function ($attribute, $value, $fail) {
                     if ($this->boolean('stock_managed') && (is_null($value) || (string)$value === '0')) {
                         $fail('Unit dasar tidak boleh kosong ketika manajemen stok diaktifkan.');

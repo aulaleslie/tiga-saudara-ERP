@@ -121,6 +121,75 @@ class ProductPriceAndStockMaintenanceTest extends TestCase
         $this->assertEquals(0, $product->conversions()->count());
     }
 
+    public function test_non_stock_managed_product_saves_price_only_update_without_base_unit()
+    {
+        $product = Product::create([
+            'product_name' => 'Jasa Instalasi',
+            'product_code' => 'SRV-EDIT-1',
+            'setting_id' => 1,
+            'stock_managed' => 0,
+            'base_unit_id' => null,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'product_cost' => 0,
+            'product_price' => 150000,
+            'purchase_price' => 0,
+            'sale_price' => 150000,
+            'product_quantity' => 0,
+        ]);
+
+        // Mirrors the real Product Edit submission: the base unit field is disabled for
+        // non-stock-managed products, so it arrives with no selected value (null).
+        $response = $this->actingAs($this->user)->put(route('products.update', $product->id), [
+            'product_name' => 'Jasa Instalasi',
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'stock_managed' => 0,
+            'base_unit_id' => null,
+            'sale_price' => 0,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect(route('products.index'));
+
+        $this->assertDatabaseHas('product_prices', [
+            'product_id' => $product->id,
+            'setting_id' => 1,
+            'sale_price' => 0,
+        ]);
+    }
+
+    public function test_stock_managed_product_rejects_null_base_unit_on_edit()
+    {
+        $unit = Unit::create(['name' => 'Pieces', 'short_name' => 'PCS']);
+
+        $product = Product::create([
+            'product_name' => 'Stocked Product',
+            'product_code' => 'SM-EDIT-NULL-1',
+            'setting_id' => 1,
+            'stock_managed' => 1,
+            'base_unit_id' => $unit->id,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'product_cost' => 0,
+            'product_price' => 100000,
+            'purchase_price' => 50000,
+            'sale_price' => 100000,
+            'product_quantity' => 0,
+        ]);
+
+        // Attempting to update a stock-managed product with null base_unit_id should fail.
+        $response = $this->actingAs($this->user)->put(route('products.update', $product->id), [
+            'product_name' => 'Stocked Product Updated',
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'stock_managed' => 1,
+            'base_unit_id' => null,
+        ]);
+
+        $response->assertSessionHasErrors('base_unit_id');
+    }
+
     public function test_positive_stock_protection_prevents_disabling_stock_management()
     {
         $unit = Unit::create(['name' => 'Pieces', 'short_name' => 'PCS']);
