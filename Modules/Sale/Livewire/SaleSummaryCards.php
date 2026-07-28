@@ -3,6 +3,7 @@
 namespace Modules\Sale\Livewire;
 
 use Carbon\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
@@ -12,6 +13,8 @@ class SaleSummaryCards extends Component
     private const PIUTANG_BELUM_TERTAGIH_PAYMENT_STATUSES = ['UNPAID', 'PARTIAL'];
 
     public $settingId;
+
+    #[Locked]
     public bool $globalMode = false;
 
     public function mount(bool $globalMode = false)
@@ -36,18 +39,13 @@ class SaleSummaryCards extends Component
         if ($this->globalMode) {
             $query->whereNull('archived_at')
                   ->whereLiveDueAmountGreaterThan(0);
-            // Use canonical live due formula for global mode
-            $result = $query->selectRaw('COUNT(*) as cnt')
-                            ->first();
-
-            // Fetch sales to calculate canonical live due in PHP
             $sales = $query->get();
             $total = $sales->sum(function ($sale) {
                 return $sale->live_due_amount;
             });
 
             return [
-                'count' => (int) ($result->cnt ?? 0),
+                'count' => $sales->count(),
                 'total' => (float) $total,
             ];
         } else {
@@ -74,18 +72,13 @@ class SaleSummaryCards extends Component
         if ($this->globalMode) {
             $query->whereNull('archived_at')
                   ->whereLiveDueAmountGreaterThan(0);
-            // Use canonical live due formula for global mode
-            $result = $query->selectRaw('COUNT(*) as cnt')
-                            ->first();
-
-            // Fetch sales to calculate canonical live due in PHP
             $sales = $query->get();
             $total = $sales->sum(function ($sale) {
                 return $sale->live_due_amount;
             });
 
             return [
-                'count' => (int) ($result->cnt ?? 0),
+                'count' => $sales->count(),
                 'total' => (float) $total,
             ];
         } else {
@@ -108,6 +101,7 @@ class SaleSummaryCards extends Component
 
         $query = SalePayment::active()
             ->where('date', '>=', $thirtyDaysAgo)
+            ->where('date', '<=', Carbon::today()->endOfDay())
             ->whereHas('sale', function ($q) {
                 $q->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED]);
 
@@ -121,9 +115,28 @@ class SaleSummaryCards extends Component
         $result = $query->selectRaw('COUNT(DISTINCT sale_id) as cnt, SUM(amount) as total')
                         ->first();
 
+        if ($this->globalMode || ($result && $result->cnt > 0)) {
+            return [
+                'count' => (int) ($result->cnt ?? 0),
+                'total' => (float) ($result->total ?? 0),
+            ];
+        }
+
+        $fallbackResult = Sale::query()
+            ->where('setting_id', $this->settingId)
+            ->whereBetween('date', [$thirtyDaysAgo, Carbon::today()->endOfDay()])
+            ->where('payment_status', 'PAID')
+            ->whereIn('status', [
+                Sale::STATUS_APPROVED,
+                Sale::STATUS_DISPATCHED_PARTIALLY,
+                Sale::STATUS_DISPATCHED,
+            ])
+            ->selectRaw('COUNT(*) as cnt, SUM(paid_amount) as total')
+            ->first();
+
         return [
-            'count' => (int) ($result->cnt ?? 0),
-            'total' => (float) ($result->total ?? 0),
+            'count' => (int) ($fallbackResult->cnt ?? 0),
+            'total' => (float) ($fallbackResult->total ?? 0),
         ];
     }
 }

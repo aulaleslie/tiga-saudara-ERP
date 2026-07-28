@@ -139,7 +139,7 @@
     </li>
 @endif
 
-@canany(['sales.access', 'saleReturns.access', 'salesDispatches.access', 'sales.dispatch'])
+@canany(['sales.access', 'saleReturns.access', 'salesDispatches.access', 'sales.dispatch', 'salePayments.global.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('sales.*') || request()->routeIs('sale-payments*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-receipt" style="line-height: 1;"></i> Penjualan

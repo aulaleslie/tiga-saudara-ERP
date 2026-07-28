@@ -3,6 +3,7 @@
 namespace App\Livewire\Sale;
 
 use Livewire\Attributes\On;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Sale\Entities\Sale;
@@ -21,6 +22,8 @@ class SaleTable extends Component
     public $statusFilter = null;
     public $saleId = null;
     public $showArchived = false;
+
+    #[Locked]
     public bool $globalMode = false;
 
     public ?string $paymentStatusFilter = null;

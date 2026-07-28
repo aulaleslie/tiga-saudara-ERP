@@ -44,7 +44,7 @@ $globalMode = $globalMode ?? false;
              @click.away="open = false">
             @if($globalMode)
                 <!-- Global mode: payment-only actions -->
-                @can('salePayments.show')
+                @can('salePayments.global.access')
                     <a href="{{ route('sales.global-payments.history', $data->id) }}" class="dropdown-item">
                         <i class="bi bi-clock-history mr-2 text-warning" style="line-height: 1;"></i> Riwayat Pembayaran
                     </a>
@@ -56,7 +56,7 @@ $globalMode = $globalMode ?? false;
                         </a>
                     @endif
                 @endcan
-                @can('salePayments.show')
+                @can('salePayments.global.access')
                     <a href="{{ route('sales.global-payments.show', $data->id) }}" class="dropdown-item">
                         <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Detail Penjualan
                     </a>

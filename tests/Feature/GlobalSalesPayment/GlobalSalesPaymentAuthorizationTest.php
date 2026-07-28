@@ -2,10 +2,14 @@
 
 namespace Tests\Feature\GlobalSalesPayment;
 
+use App\Livewire\Sale\SaleTable;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Livewire\SaleSummaryCards;
 use Modules\Setting\Entities\Setting;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -95,7 +99,49 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
     {
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('sales.global-payments.index'));
-        $response->assertStatus(200);
+        $response->assertStatus(200)
+            ->assertSeeText('Pembayaran Penjualan Global');
+    }
+
+    public function test_global_access_permission_alone_exposes_sales_navigation()
+    {
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('sales.global-payments.index'));
+
+        $response->assertOk()
+            ->assertSee(route('sales.global-payments.index'), false);
+    }
+
+    public function test_global_rows_use_global_read_only_routes_without_show_permissions()
+    {
+        Livewire::actingAs($this->authorizedUser)
+            ->test(SaleTable::class, ['globalMode' => true])
+            ->assertSee($this->sale->reference)
+            ->assertSee(route('sales.global-payments.show', $this->sale->id), false)
+            ->assertSee(route('sales.global-payments.history', $this->sale->id), false)
+            ->assertDontSee('href="' . route('sales.show', $this->sale->id) . '"', false);
+    }
+
+    public function test_sale_table_global_mode_cannot_be_enabled_after_mount()
+    {
+        $component = Livewire::actingAs($this->unauthorizedUser)
+            ->test(SaleTable::class, ['globalMode' => false]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [globalMode]');
+
+        $component->set('globalMode', true);
+    }
+
+    public function test_sale_summary_global_mode_cannot_be_enabled_after_mount()
+    {
+        $component = Livewire::actingAs($this->unauthorizedUser)
+            ->test(SaleSummaryCards::class, ['globalMode' => false]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [globalMode]');
+
+        $component->set('globalMode', true);
     }
 
     public function test_anonymous_user_cannot_view_sale_detail()
@@ -114,9 +160,99 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
 
     public function test_user_with_permission_can_view_sale_detail()
     {
+        $otherSetting = Setting::factory()->create([
+            'company_name' => 'Cross Setting Company',
+        ]);
+        $this->sale->update(['setting_id' => $otherSetting->id]);
+        session(['setting_id' => $this->setting->id]);
+
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('sales.global-payments.show', $this->sale->id));
-        $response->assertStatus(200);
+        $response->assertStatus(200)
+            ->assertSeeText($otherSetting->company_name)
+            ->assertDontSeeText('Ubah Penjualan')
+            ->assertDontSeeText('Arsipkan Penjualan')
+            ->assertDontSeeText('Hapus Penjualan');
+    }
+
+    public function test_global_access_does_not_bypass_normal_sale_route_authorization()
+    {
+        $this->actingAs($this->authorizedUser)
+            ->get(route('sales.show', $this->sale->id))
+            ->assertForbidden();
+    }
+
+    public function test_global_summary_uses_cross_setting_live_balances_and_active_payments()
+    {
+        $otherSetting = Setting::factory()->create();
+        $otherSale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->subDay()->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 800000,
+            'paid_amount' => 0,
+            'due_amount' => 800000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => 'UNPAID',
+            'payment_method' => '',
+            'setting_id' => $otherSetting->id,
+        ]);
+
+        SalePayment::create([
+            'sale_id' => $this->sale->id,
+            'amount' => 100000,
+            'date' => now()->toDateString(),
+            'reference' => 'ACTIVE-COLLECTION',
+            'payment_method' => 'Cash',
+            'status' => SalePayment::STATUS_ACTIVE,
+        ]);
+
+        SalePayment::create([
+            'sale_id' => $otherSale->id,
+            'amount' => 300000,
+            'date' => now()->toDateString(),
+            'reference' => 'INVALIDATED-COLLECTION',
+            'payment_method' => 'Cash',
+            'status' => SalePayment::STATUS_INVALIDATED,
+        ]);
+
+        Livewire::actingAs($this->authorizedUser)
+            ->test(SaleSummaryCards::class, ['globalMode' => true])
+            ->assertSet('piutangBelumTertagih.count', 2)
+            ->assertSet('piutangBelumTertagih.total', 1700000.0)
+            ->assertSet('piutangTelat.count', 1)
+            ->assertSet('piutangTelat.total', 800000.0)
+            ->assertSet('penerimaan.count', 1)
+            ->assertSet('penerimaan.total', 100000.0);
+    }
+
+    public function test_global_summary_filter_drives_cross_setting_table()
+    {
+        $this->sale->update(['reference' => 'CURRENT-FUTURE-SALE']);
+        $otherSetting = Setting::factory()->create();
+        $overdueSale = Sale::create([
+            'reference' => 'OVERDUE-GLOBAL-SALE',
+            'date' => now()->toDateString(),
+            'due_date' => now()->subDay()->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 500000,
+            'paid_amount' => 0,
+            'due_amount' => 500000,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'UNPAID',
+            'payment_method' => '',
+            'setting_id' => $otherSetting->id,
+        ]);
+
+        Livewire::actingAs($this->authorizedUser)
+            ->test(SaleTable::class, ['globalMode' => true])
+            ->assertSee($this->sale->reference)
+            ->assertSee($overdueSale->reference)
+            ->call('applySaleFilter', 'overdue')
+            ->assertDontSee($this->sale->reference)
+            ->assertSee($overdueSale->reference);
     }
 
     public function test_create_requires_both_permissions()

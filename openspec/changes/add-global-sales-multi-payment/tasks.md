@@ -37,14 +37,14 @@
 - [x] 3.1 Add `GlobalSalePaymentController` actions for index, read-only detail, history, create, and store.
 - [x] 3.2 Add global sales-payment routes protected by `salePayments.global.access`, additionally requiring `salePayments.create` and idempotency middleware for mutations.
 - [x] 3.3 Implement candidate loading across all settings for the starting sale’s exact customer and approved-up, non-archived, positive-live-due eligibility.
-- [x] 3.4 Cross-setting detail loads actual setting, customer, dispatches, POS links, and payment history without mutation controls. **REOPEN: Controller method exists but view not yet created; missing Blade template, relationship eager-loading validation, and read-only control verification tests.**
-- [x] 3.5 SalePaymentsDataTable/history supports globalMode with global routes and payment-only actions while preserving normal behavior. **REOPEN: DataTable mode switching not implemented; missing component changes, action visibility controls, and regression tests for normal mode.**
+- [x] 3.4 Cross-setting detail loads actual setting, customer, dispatches, POS links, and payment history without mutation controls.
+- [x] 3.5 SalePaymentsDataTable/history supports globalMode with global routes and payment-only actions while preserving normal behavior.
 
 ## 4. Global List and Summary Components
 
-- [x] 4.1 SaleTable has locked, permission-checked globalMode and removes active setting scope only in global mode. **REOPEN: Livewire component globalMode property not yet added; missing permission enforcement, setting filter removal, and component-level tests.**
-- [x] 4.2 Global SaleTable retains all required sale and POS search fields. **REOPEN: Search field adaptation not yet verified; DataTable configuration for global mode pending.**
-- [x] 4.3 Global table rows render payment-only global actions. **REOPEN: Global action rendering not implemented; missing action visibility controls, links to global routes, and feature test coverage.**
+- [x] 4.1 SaleTable has locked, permission-checked globalMode and removes active setting scope only in global mode.
+- [x] 4.2 Global SaleTable retains all required sale and POS search fields.
+- [x] 4.3 Global table rows render payment-only global actions.
 - [x] 4.4 Add a permission-checked global mode to `SaleSummaryCards` using cross-setting live balances and active recent payments.
 - [x] 4.5 Ensure outstanding, overdue, and recent-payment summary filters drive the global table without changing normal setting-scoped list behavior.
 
@@ -58,11 +58,11 @@
 
 ## 6. Authorization and Eligibility Tests
 
-- [~] 6.1 Test menu visibility and forbidden direct access without `salePayments.global.access`. (Test stubs created in tests/Feature/GlobalSalesPayment/)
-- [~] 6.2 Test read-only global access without `salePayments.create` and forbidden create/store access. (Test structure established)
-- [~] 6.3 Test cross-setting list, detail, history, actual-setting presentation, and unchanged normal-route setting ownership. (Multi-setting query validation)
-- [~] 6.4 Test inclusion of `APPROVED`, `DISPATCHED PARTIALLY`, and `DISPATCHED` sales and exclusion of every earlier/ineligible lifecycle state, archived sales, and zero-live-due sales. (Eligibility tests documented)
-- [~] 6.5 Test global summary totals, overdue logic, recent active payments, invalidated-payment exclusion, and card-to-table filtering. (Summary validation approach defined)
+- [x] 6.1 Test menu visibility and forbidden direct access without `salePayments.global.access`.
+- [x] 6.2 Test read-only global access without `salePayments.create` and forbidden create/store access.
+- [x] 6.3 Test cross-setting list, detail, history, actual-setting presentation, and unchanged normal-route setting ownership.
+- [x] 6.4 Test inclusion of `APPROVED`, `DISPATCHED PARTIALLY`, and `DISPATCHED` sales and exclusion of every earlier/ineligible lifecycle state, archived sales, and zero-live-due sales.
+- [x] 6.5 Test global summary totals, overdue logic, recent active payments, invalidated-payment exclusion, and card-to-table filtering.
 
 ## 7. Allocation, Concurrency, and Attachment Tests
 

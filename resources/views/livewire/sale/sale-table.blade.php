@@ -60,8 +60,10 @@
                             return ($detail->product_name ?? '-') . ' (Qty: ' . $detail->quantity . ')';
                         })->implode("\n");
                     @endphp
-                    @can('sales.show')
-                        <a href="{{ route('sales.show', $sale->id) }}"
+                    @if($globalMode || auth()->user()->can('sales.show'))
+                        <a href="{{ $globalMode
+                            ? route('sales.global-payments.show', $sale->id)
+                            : route('sales.show', $sale->id) }}"
                            class="text-primary font-weight-bold sale-ref-tooltip"
                            data-toggle="tooltip"
                            data-placement="top"
@@ -75,7 +77,7 @@
                               title="{{ $productsTooltip }}">
                             {{ $sale->reference }}
                         </span>
-                    @endcan
+                    @endif
                     @if (!empty($sale->imported_sales_reference_number))
                         <br>
                         <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
