@@ -653,6 +653,100 @@ class PosServiceProductSellingTest extends TestCase
         ]);
     }
 
+    public function test_service_product_checkout_succeeds_with_split_posting_enabled(): void
+    {
+        // Enable split posting config
+        \Illuminate\Support\Facades\Config::set('pos.checkout.split_posting.enabled', true);
+
+        $setting = $this->createSetting('BIZ SPLIT SERVICE');
+        [$cashier, $allowedLocation, $session] = $this->createCashierAndOpenSession($setting, 'POS SPLIT SERVICE', returnSession: true);
+
+        $serviceProduct = $this->createServiceProduct(
+            setting: $setting,
+            code: 'SRV-SPLIT-REAL',
+            name: 'Jasa Setup Split',
+            barcode: 'SRV-SPLIT-REAL-BARCODE',
+            salePrice: 150000,
+            createdBy: $cashier->id
+        );
+
+        // Add to cart with quantity 2
+        $addResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $serviceProduct->id,
+                'qty' => 2,
+            ]);
+
+        $addResponse->assertOk();
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Cash Account',
+            'account_number' => '1006',
+            'category' => 'Kas & Bank'
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->updateOrInsert(
+            ['setting_id' => $setting->id, 'payment_method_id' => $paymentMethod->id],
+            ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+
+        $checkoutPayload = [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payments' => [
+                [
+                    'payment_method_id' => $paymentMethod->id,
+                    'amount_paid' => 300000,
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), $checkoutPayload);
+
+        $checkoutResponse->assertCreated();
+        $checkoutResponse->assertJsonPath('status', 'POSTED');
+
+        $saleId = $checkoutResponse->json('sale_id');
+        $this->assertNotNull($saleId);
+
+        $this->assertDatabaseHas('sale_details', [
+            'sale_id' => $saleId,
+            'product_id' => $serviceProduct->id,
+            'quantity' => 2,
+        ]);
+
+        $this->assertDatabaseMissing('product_stocks', [
+            'product_id' => $serviceProduct->id,
+        ]);
+        $this->assertDatabaseMissing('transactions', [
+            'product_id' => $serviceProduct->id,
+        ]);
+        $this->assertDatabaseMissing('dispatch_details', [
+            'product_id' => $serviceProduct->id,
+        ]);
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([

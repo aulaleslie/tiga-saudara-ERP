@@ -569,6 +569,7 @@ class PosCheckoutSplitPlannerService
             'product_code' => (string) ($line['product_code'] ?? ''),
             'barcode' => isset($line['barcode']) ? (string) $line['barcode'] : null,
             'serial_number_required' => (bool) ($line['serial_number_required'] ?? false),
+            'stock_managed' => (bool) ($line['stock_managed'] ?? true),
             'assigned_serials' => $serialNumbers,
             'qty' => $qty,
             'available_qty' => $qty,
