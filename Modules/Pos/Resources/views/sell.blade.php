@@ -1236,15 +1236,27 @@
                     : '';
 
                 let packedInfo = '';
-                if (line.price_source === 'PACKED' && Array.isArray(line.breakdown)) {
-                    const breakdownLines = line.breakdown.map(b => 
-                        `<div>${b.qty} × ${formatPrice(b.unit_price)}</div>`
-                    ).join('');
-                    
-                    packedInfo = `<div class="text-info mt-1 small" style="line-height: 1.2;">
-                        <div class="font-weight-bold"><i class="fas fa-box mr-1"></i> Harga Kemasan:</div>
-                        ${breakdownLines}
-                    </div>`;
+                if (line.price_source === 'PACKED' && line.breakdown && typeof line.breakdown === 'object') {
+                    const breakdown = line.breakdown;
+                    const boxCount = Number(breakdown.box_count || 0);
+                    const looseCount = Number(breakdown.loose_count || 0);
+                    const conversionUnit = escapeHtml(breakdown.conversion_unit_label || line.conversion_unit_name || 'Box');
+                    const baseUnit = escapeHtml(breakdown.base_unit_label || 'Unit');
+                    const breakdownLines = [];
+
+                    if (boxCount > 0) {
+                        breakdownLines.push(`<div>${boxCount} ${conversionUnit} @ ${formatPrice(breakdown.box_price_applied || 0)}</div>`);
+                    }
+                    if (looseCount > 0) {
+                        breakdownLines.push(`<div>${looseCount} ${baseUnit} @ ${formatPrice(breakdown.loose_price_applied || 0)}</div>`);
+                    }
+
+                    if (breakdownLines.length > 0) {
+                        packedInfo = `<div class="text-info mt-1 small" style="line-height: 1.2;">
+                            <div class="font-weight-bold"><i class="fas fa-box mr-1"></i> Rincian Kemasan:</div>
+                            ${breakdownLines.join('')}
+                        </div>`;
+                    }
                 }
 
                 return `

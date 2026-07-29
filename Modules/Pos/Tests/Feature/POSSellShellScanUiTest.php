@@ -395,6 +395,26 @@ class POSSellShellScanUiTest extends TestCase
             'Debug panel markup/styles must support readable multi-row diagnostics on mobile');
     }
 
+    public function test_sell_cart_renders_read_only_packed_conversion_breakdown(): void
+    {
+        $setting = $this->createSetting('PACKED BREAKDOWN UI');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'PACKED BREAKDOWN UI CASHIER');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+        $this->assertStringContainsString('Rincian Kemasan:', $html);
+        $this->assertStringContainsString('conversion_unit_label', $html);
+        $this->assertStringContainsString('base_unit_label', $html);
+        $this->assertStringContainsString('box_price_applied', $html);
+        $this->assertStringContainsString('loose_price_applied', $html);
+        $this->assertStringNotContainsString('line.breakdown.map', $html);
+    }
+
     // --- Helpers ---
 
     private function createSetting(string $name): Setting

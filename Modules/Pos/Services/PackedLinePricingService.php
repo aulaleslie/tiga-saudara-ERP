@@ -26,6 +26,9 @@ class PackedLinePricingService
         $normalizedTier = $this->normalizeCustomerTier($tier);
 
         $breakdown = [
+            // Keep the minor-unit total explicit when this breakdown is persisted
+            // with a transaction snapshot. The cart's rendered line_total is Rupiah.
+            'line_total_minor' => $lineTotalMinor,
             'box_count' => $boxCount,
             'loose_count' => $remainder,
             'box_price_applied' => $boxGroupPrice,
