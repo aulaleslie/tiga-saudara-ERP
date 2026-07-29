@@ -375,6 +375,7 @@ class POSReceiptGenerationTest extends TestCase
         $receiptResponse->assertSee('KERTAS-A4')
             ->assertSee('1 DUS')  // Box indicator from breakdown (now uses actual unit short_name)
             ->assertSee('210.000') // Proves x100 regression is fixed for base_price and box_price
+            ->assertDontSee('210.000,00')
             ->assertDontSee('21.000.000');
     }
     

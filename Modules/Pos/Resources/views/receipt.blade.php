@@ -303,7 +303,7 @@
                                 @endif
                             @endif
                             @if(($line['discount'] ?? 0) > 0)
-                                <div class="small">Diskon: -{{ format_currency($line['discount']) }}</div>
+                                <div class="small">Diskon: -{{ number_format((float) $line['discount'], 0, ',', '.') }}</div>
                             @endif
                             @if(!empty($line['bundle_composition']))
                                 @foreach($line['bundle_composition'] as $item)

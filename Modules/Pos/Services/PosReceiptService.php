@@ -78,7 +78,7 @@ class PosReceiptService
                         "%s %s(S) @ %s",
                         (float)$line->qty,
                         $unitName,
-                        format_currency($pricePerUnit)
+                        $this->formatReceiptCurrency($pricePerUnit)
                     );
                 }
 
@@ -128,7 +128,7 @@ class PosReceiptService
                             "%s %s(S) @ %s",
                             (float)$detail->quantity,
                             $unitName,
-                            format_currency($detail->unit_price)
+                            $this->formatReceiptCurrency((float) $detail->unit_price)
                         );
                     }
                 }
@@ -468,7 +468,7 @@ class PosReceiptService
                         "%s %s(S) @ %s",
                         (float)$line->qty,
                         $unitName,
-                        format_currency($pricePerUnit)
+                        $this->formatReceiptCurrency($pricePerUnit)
                     );
                 }
             } elseif ($line->product) {
@@ -485,7 +485,7 @@ class PosReceiptService
                         "%s %s(S) @ %s",
                         (float)$line->qty,
                         $unitName,
-                        format_currency($pricePerUnit)
+                        $this->formatReceiptCurrency($pricePerUnit)
                     );
                 }
             }
@@ -589,13 +589,23 @@ class PosReceiptService
 
         if (($breakdown['box_count'] ?? 0) > 0) {
             $boxPriceRupiah = (float)($breakdown['box_price_applied'] ?? 0) / 100;
-            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['box_count'], $conversionLabel, format_currency($boxPriceRupiah));
+            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['box_count'], $conversionLabel, $this->formatReceiptCurrency($boxPriceRupiah));
         }
         if (($breakdown['loose_count'] ?? 0) > 0) {
             $loosePriceRupiah = (float)($breakdown['loose_price_applied'] ?? 0) / 100;
-            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['loose_count'], $baseLabel, format_currency($loosePriceRupiah));
+            $unitBreakdown[] = sprintf("%d %s @ %s", $breakdown['loose_count'], $baseLabel, $this->formatReceiptCurrency($loosePriceRupiah));
         }
         
         return $unitBreakdown;
+    }
+
+    private function formatReceiptCurrency(float $value): string
+    {
+        $settings = settings();
+        $symbol = $settings?->currency?->symbol ?? 'Rp';
+        $thousands = $settings?->currency?->thousand_separator ?? '.';
+        $decimals = $settings?->currency?->decimal_separator ?? ',';
+
+        return $symbol . '. ' . number_format($value, 0, $decimals, $thousands);
     }
 }

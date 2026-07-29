@@ -1242,13 +1242,16 @@
                     const looseCount = Number(breakdown.loose_count || 0);
                     const conversionUnit = escapeHtml(breakdown.conversion_unit_label || line.conversion_unit_name || 'Box');
                     const baseUnit = escapeHtml(breakdown.base_unit_label || 'Unit');
+                    // Packed breakdown prices are deliberately stored in minor units.
+                    // Convert only at this read-only display boundary.
+                    const formatMinorPrice = (minorValue) => formatPrice(Number(minorValue || 0) / 100);
                     const breakdownLines = [];
 
                     if (boxCount > 0) {
-                        breakdownLines.push(`<div>${boxCount} ${conversionUnit} @ ${formatPrice(breakdown.box_price_applied || 0)}</div>`);
+                        breakdownLines.push(`<div>${boxCount} ${conversionUnit} @ ${formatMinorPrice(breakdown.box_price_applied)}</div>`);
                     }
                     if (looseCount > 0) {
-                        breakdownLines.push(`<div>${looseCount} ${baseUnit} @ ${formatPrice(breakdown.loose_price_applied || 0)}</div>`);
+                        breakdownLines.push(`<div>${looseCount} ${baseUnit} @ ${formatMinorPrice(breakdown.loose_price_applied)}</div>`);
                     }
 
                     if (breakdownLines.length > 0) {

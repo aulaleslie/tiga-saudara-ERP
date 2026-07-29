@@ -412,6 +412,8 @@ class POSSellShellScanUiTest extends TestCase
         $this->assertStringContainsString('base_unit_label', $html);
         $this->assertStringContainsString('box_price_applied', $html);
         $this->assertStringContainsString('loose_price_applied', $html);
+        $this->assertStringContainsString('formatMinorPrice', $html);
+        $this->assertStringContainsString('Number(minorValue || 0) / 100', $html);
         $this->assertStringNotContainsString('line.breakdown.map', $html);
     }
 
