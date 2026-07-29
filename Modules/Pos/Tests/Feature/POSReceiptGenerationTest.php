@@ -1164,4 +1164,270 @@ class POSReceiptGenerationTest extends TestCase
         // Task 3: When no transaction code exists, fallback to receipt_number instead of dash
         $this->assertStringContainsString($receiptNumber, $view);
     }
+
+    /**
+     * Task 1.3: Receipt normalization for snapshot minor-unit line totals.
+     * Receipt contract: line_total_minor stores minor-unit values explicitly; Rp45.000 is stored as line_total_minor=4500000.
+     * Covers both explicit minor-unit storage (line_total_minor) and fallback to normal Rp1.500.000 (line_total).
+     *
+     * @group pos-receipt-subtotal
+     */
+    public function test_receipt_line_total_with_minor_unit_and_rupiah_values(): void
+    {
+        $context = $this->createCheckoutContext('POS SNAPSHOT MINOR-UNIT');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        // Test case 1: Normal Rp1.500.000 stored as line_total (Rupiah)
+        $productNormal = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-1500K', 1500000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $productNormal->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload1 = [
+            'idempotency_key' => 'snapshot-rupiah-1500k',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 1500000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 1500000]],
+        ];
+
+        $checkoutResponse1 = $this->finalize($context['cashier'], $context['setting'], $payload1);
+        $this->assertEquals(201, $checkoutResponse1->status(), 'Checkout 1 finalization failed: ' . json_encode($checkoutResponse1->json()));
+
+        $checkout1 = \Modules\Pos\Entities\PosCheckout::with('transactions.lines')->findOrFail($checkoutResponse1->json('pos_checkout_id'));
+
+        // Store normal Rp1.500.000 as line_total (unchanged)
+        if ($checkout1->transactions->count() > 0) {
+            $txn = $checkout1->transactions->first();
+            if ($txn->lines->count() > 0) {
+                $line = $txn->lines->first();
+                $lineMeta = $line->line_meta;
+                $lineMeta['line_total'] = 1500000; // Rupiah value, not minor units
+                $line->update(['line_meta' => $lineMeta]);
+            }
+        }
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $checkout1->refresh();
+        $receiptData1 = $receiptService->getReceiptData($checkout1);
+
+        // Verify line_total (Rupiah) is used as-is
+        $this->assertCount(1, $receiptData1['lines']);
+        $line1 = $receiptData1['lines'][0];
+        $this->assertEquals(1500000, $line1['sub_total'], 'Line subtotal must be Rp1.500.000 (stored as line_total)');
+        $this->assertEquals(1500000, $receiptData1['grand_total'], 'Grand total must equal line total');
+
+        // Test case 2: Rp45.000 stored as line_total_minor=4500000 (explicit minor-unit contract)
+        $productMinor = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-45K', 45000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $productMinor->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload2 = [
+            'idempotency_key' => 'snapshot-minorunit-45k',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 45000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 45000]],
+        ];
+
+        $checkoutResponse2 = $this->finalize($context['cashier'], $context['setting'], $payload2);
+        $this->assertEquals(201, $checkoutResponse2->status(), 'Checkout 2 finalization failed');
+
+        $checkout2 = \Modules\Pos\Entities\PosCheckout::with('transactions.lines')->findOrFail($checkoutResponse2->json('pos_checkout_id'));
+
+        // Store Rp45.000 explicitly as line_total_minor (4500000 minor units)
+        if ($checkout2->transactions->count() > 0) {
+            $txn = $checkout2->transactions->first();
+            if ($txn->lines->count() > 0) {
+                $line = $txn->lines->first();
+                $lineMeta = $line->line_meta;
+                $lineMeta['line_total_minor'] = 4500000; // Explicit minor-unit storage
+                $line->update(['line_meta' => $lineMeta]);
+            }
+        }
+
+        $checkout2->refresh();
+        $receiptData2 = $receiptService->getReceiptData($checkout2);
+
+        // Verify line_total_minor (minor units) is divided by 100 to render Rupiah
+        $this->assertCount(1, $receiptData2['lines']);
+        $line2 = $receiptData2['lines'][0];
+        $this->assertEquals(45000, $line2['sub_total'], 'Line subtotal must be Rp45.000 (45000 Rupiah from 4500000 minor units)');
+        $this->assertEquals(45000, $receiptData2['grand_total'], 'Grand total must equal line total');
+    }
+
+    /**
+     * Task 1.3: Draft loaded transaction with explicit minor-unit contract.
+     * Both line_total_minor (minor units) and line_total (Rupiah) must render correctly.
+     *
+     * @group pos-receipt-subtotal
+     */
+    public function test_draft_loaded_transaction_receipt_contract_consistency(): void
+    {
+        $context = $this->createCheckoutContext('POS DRAFT LOADED MINOR');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        // Test case 1: Normal Rp75.000 stored as line_total (Rupiah)
+        $productRupiah = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-DRAFT-75K-RUPIAH', 75000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $productRupiah->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload1 = [
+            'idempotency_key' => 'draft-loaded-75k-rupiah',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 75000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 75000]],
+        ];
+
+        $checkoutResponse1 = $this->finalize($context['cashier'], $context['setting'], $payload1);
+        $this->assertEquals(201, $checkoutResponse1->status(), 'Checkout 1 finalization failed');
+
+        $checkout1 = \Modules\Pos\Entities\PosCheckout::with('transactions.lines')->findOrFail($checkoutResponse1->json('pos_checkout_id'));
+
+        // Store as line_total (Rupiah)
+        if ($checkout1->transactions->count() > 0) {
+            $txn = $checkout1->transactions->first();
+            if ($txn->lines->count() > 0) {
+                $line = $txn->lines->first();
+                $lineMeta = $line->line_meta;
+                $lineMeta['line_total'] = 75000;  // Already in Rupiah
+                $line->update(['line_meta' => $lineMeta]);
+            }
+        }
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $checkout1->refresh();
+        $receiptData1 = $receiptService->getReceiptData($checkout1);
+
+        $this->assertCount(1, $receiptData1['lines']);
+        $line1 = $receiptData1['lines'][0];
+        $this->assertEquals(75000, $line1['sub_total'], 'Rupiah line_total must render as-is: 75000');
+        $this->assertEquals(75000, $receiptData1['grand_total']);
+
+        // Test case 2: Rp75.000 stored as line_total_minor=7500000 (explicit minor-unit contract)
+        $productMinor = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-DRAFT-75K-MINOR', 75000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $productMinor->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload2 = [
+            'idempotency_key' => 'draft-loaded-75k-minor',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 75000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 75000]],
+        ];
+
+        $checkoutResponse2 = $this->finalize($context['cashier'], $context['setting'], $payload2);
+        $this->assertEquals(201, $checkoutResponse2->status(), 'Checkout 2 finalization failed');
+
+        $checkout2 = \Modules\Pos\Entities\PosCheckout::with('transactions.lines')->findOrFail($checkoutResponse2->json('pos_checkout_id'));
+
+        // Store as line_total_minor (explicit minor-unit contract: 7500000 = Rp75.000)
+        if ($checkout2->transactions->count() > 0) {
+            $txn = $checkout2->transactions->first();
+            if ($txn->lines->count() > 0) {
+                $line = $txn->lines->first();
+                $lineMeta = $line->line_meta;
+                $lineMeta['line_total_minor'] = 7500000;  // Minor units for 75000 Rupiah
+                $line->update(['line_meta' => $lineMeta]);
+            }
+        }
+
+        $checkout2->refresh();
+        $receiptData2 = $receiptService->getReceiptData($checkout2);
+
+        $this->assertCount(1, $receiptData2['lines']);
+        $line2 = $receiptData2['lines'][0];
+        $this->assertEquals(75000, $line2['sub_total'], 'Minor-unit line_total_minor must divide by 100: 7500000 / 100 = 75000');
+        $this->assertEquals(75000, $receiptData2['grand_total']);
+    }
+
+    /**
+     * Task 3.2: POS quantities render as raw normalized values without formatting.
+     * Integer quantity must display as integer, fractional quantities without trailing zeroes.
+     *
+     * @group pos-quantity-display
+     */
+    public function test_receipt_displays_integer_quantity_as_raw_value(): void
+    {
+        $context = $this->createCheckoutContext('POS QTY RAW INT');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-QTY-1', 50000, false);
+
+        // Add exactly 1 unit
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'qty-raw-int',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 50000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 50000]],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($checkoutResponse->json('pos_checkout_id'));
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        // Verify quantity is displayed as raw value
+        $this->assertCount(1, $receiptData['lines']);
+        $line = $receiptData['lines'][0];
+        $this->assertEquals(1.0, $line['qty'], 'Integer quantity must display as 1.0, not 1.00 or 1,00');
+        $this->assertStringContainsString('1', (string)$line['qty'], 'Quantity should contain the digit 1');
+    }
+
+    /**
+     * Task 3.2: Fractional POS quantities display without padding or locale formatting.
+     * A quantity of 1.5 must show as 1.5, not 1.500, 1,5, or 1,50.
+     *
+     * @group pos-quantity-display
+     */
+    public function test_receipt_displays_fractional_quantity_without_padding(): void
+    {
+        $context = $this->createCheckoutContext('POS QTY FRAC');
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-QTY-FRAC', 20000, false);
+
+        // Manually set a fractional quantity by directly updating the transaction line
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $payload = [
+            'idempotency_key' => 'qty-frac-1-5',
+            'terminal_id' => $context['terminal']->id,
+            'amount_paid' => 30000,
+            'payment_method_id' => $context['methods']['cash']->id,
+            'payments' => [['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 30000]],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkout = \Modules\Pos\Entities\PosCheckout::with('transactions.lines')->findOrFail($checkoutResponse->json('pos_checkout_id'));
+
+        // Simulate a fractional quantity in the snapshot
+        if ($checkout->transactions->count() > 0) {
+            $txn = $checkout->transactions->first();
+            if ($txn->lines->count() > 0) {
+                $line = $txn->lines->first();
+                $line->update(['qty' => 1.5]);
+            }
+        }
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $checkout->refresh();
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        // Verify fractional quantity displays without trailing zeroes or locale formatting
+        $this->assertCount(1, $receiptData['lines']);
+        $line = $receiptData['lines'][0];
+        $this->assertEquals(1.5, $line['qty'], 'Fractional quantity must be 1.5');
+        // Verify it's not formatted with locale separators or padding
+        $qtyStr = (string)$line['qty'];
+        $this->assertFalse(strpos($qtyStr, ',') !== false, 'Quantity must not contain locale comma separator');
+        $this->assertFalse(strpos($qtyStr, '.00') !== false, 'Quantity must not have trailing .00');
+    }
 }

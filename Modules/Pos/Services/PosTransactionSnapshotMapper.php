@@ -34,6 +34,7 @@ class PosTransactionSnapshotMapper
                 }
 
                 // Extract fields for snapshot storage
+                // Explicit minor-unit contract: if price_source is PACKED, line_total is minor units and must be stored as line_total_minor
                 $lineMeta = [
                     'barcode' => $line['barcode'] ?? null,
                     'price_source' => $line['price_source'] ?? 'BASE',
@@ -45,8 +46,20 @@ class PosTransactionSnapshotMapper
                     'bundle_items' => $line['bundle_items'] ?? null,
                     'breakdown' => $line['breakdown'] ?? null,
                     'pricing_basis' => $line['pricing_basis'] ?? null,
-                    'line_total' => $line['line_total'] ?? null,
                 ];
+
+                // Store line_total with explicit unit designation
+                if (($line['price_source'] ?? 'BASE') === 'PACKED') {
+                    // PackedLinePricingService returns breakdown.line_total_minor (minor units)
+                    // line_total is already Rupiah; keep it, and extract minor units from breakdown
+                    $lineMeta['line_total'] = $line['line_total'] ?? null;
+                    if (isset($line['breakdown']['line_total_minor'])) {
+                        $lineMeta['line_total_minor'] = $line['breakdown']['line_total_minor'];
+                    }
+                } else {
+                    // Base pricing stores line_total in Rupiah
+                    $lineMeta['line_total'] = $line['line_total'] ?? null;
+                }
 
                 $dbLine = PosTransactionLine::create([
                     'pos_transaction_id' => $transaction->id,

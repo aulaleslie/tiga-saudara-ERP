@@ -690,11 +690,130 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
         ];
 
         $response = $this->finalize($context['cashier'], $context['setting'], $payload);
-        
+
         $response->assertStatus(500)
             ->assertJsonPath('code', 'MISSING_PAYMENT_IMAGE_FILE');
         $this->assertDatabaseCount('sales', 0);
         $this->assertDatabaseCount('sale_payments', 0);
         $this->assertNull($temporaryImage->fresh()->consumed_at);
+    }
+
+    /**
+     * Task 2.4: Staged flow with transfer attachment followed by cash finalization.
+     * Verifies that a non-cash (transfer) stage with an attached image survives
+     * a subsequent cash stage transition, and finalization maps the attachment
+     * only to the Transfer Sale Payment, not to the Cash Sale Payment.
+     *
+     * @group pos-staged-payment-attachment
+     */
+    public function test_staged_flow_transfer_then_cash_finalization(): void
+    {
+        $context = $this->createCheckoutContext('POS STAGED ATTACHMENT');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'STAGED-ATTACH-001', 100000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Get cart token and upload an image
+        \Illuminate\Support\Facades\Storage::fake();
+        $image = \Illuminate\Http\UploadedFile::fake()->image('transfer-proof.jpg');
+        $cartToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->json('cart_snapshot.staged_payment_token');
+
+        $imageToken = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $image,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
+            ->json('token');
+
+        // Verify temporary image exists before staging
+        $tempImageBefore = \Modules\Pos\Entities\PosTemporaryPaymentImage::where('token', $imageToken)->first();
+        $this->assertNotNull($tempImageBefore);
+        $this->assertNull($tempImageBefore->consumed_at);
+        $this->assertEquals($cartToken, $tempImageBefore->cart_token);
+        $this->assertEquals($context['cashier']->id, $tempImageBefore->cashier_id);
+        $this->assertEquals($context['setting']->id, $tempImageBefore->setting_id);
+        $this->assertEquals($context['session']->id, $tempImageBefore->pos_session_id);
+
+        // Stage transfer payment with image
+        $stageResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $methods['transfer']->id,
+                'amount' => 60000,
+                'edc_reference' => 'TRANSFER-REF-001',
+                'grand_total' => 100000,
+                'payment_image_token' => $imageToken,
+            ])
+            ->assertStatus(201);
+
+        $chain = $stageResponse->json('payment_chain');
+        $this->assertNotNull($chain);
+        $this->assertEquals(1, count($chain['payments']));
+        $firstPayment = $chain['payments'][0];
+        $this->assertNotNull($firstPayment['payment_image'], 'Transfer payment should retain image metadata');
+        $this->assertEquals('transfer-proof.jpg', $firstPayment['payment_image']['original_name']);
+
+        // Stage cash payment (remainder of 40000)
+        $stageResponse2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $methods['cash']->id,
+                'amount' => 40000,
+                'edc_reference' => null,
+                'grand_total' => 100000,
+                'payment_image_token' => null,  // No image for cash
+            ])
+            ->assertStatus(201);
+
+        $chain = $stageResponse2->json('payment_chain');
+        $this->assertNotNull($chain);
+        $this->assertEquals(2, count($chain['payments']));
+        $secondPayment = $chain['payments'][1];
+        $this->assertNull($secondPayment['payment_image'], 'Cash payment should not have image');
+        // Verify first payment still has image after second payment added
+        $firstPaymentAfter = $chain['payments'][0];
+        $this->assertNotNull($firstPaymentAfter['payment_image'], 'Transfer payment must retain image after cash stage');
+
+        // Finalize checkout
+        $finalizeResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'cart_token' => $cartToken,
+                'idempotency_key' => 'staged-attach-finalize-001',
+            ])
+            ->assertStatus(201);
+
+        $saleId = $finalizeResponse->json('sale_id');
+        $sale = \Modules\Sale\Entities\Sale::with('salePayments.media')->findOrFail($saleId);
+
+        // Verify both payment methods were recorded
+        $this->assertEquals(2, $sale->salePayments()->count(), 'Sale should have 2 payments (transfer + cash)');
+
+        // Verify transfer payment has the attachment
+        $transferPayment = $sale->salePayments()
+            ->where('payment_method_id', $methods['transfer']->id)
+            ->first();
+        $this->assertNotNull($transferPayment, 'Transfer payment should exist');
+        $this->assertGreaterThan(0, $transferPayment->media()->count(), 'Transfer payment must have attachment');
+        $transferAttachment = $transferPayment->media()->first();
+        $this->assertStringContainsString('transfer-proof', $transferAttachment->file_name);
+
+        // Verify cash payment has NO attachment
+        $cashPayment = $sale->salePayments()
+            ->where('payment_method_id', $methods['cash']->id)
+            ->first();
+        $this->assertNotNull($cashPayment, 'Cash payment should exist');
+        $this->assertEquals(0, $cashPayment->media()->count(), 'Cash payment must NOT have attachment');
     }
 }

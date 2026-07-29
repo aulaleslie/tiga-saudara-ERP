@@ -290,7 +290,7 @@
             <tbody>
                 @foreach($receiptData['lines'] as $line)
                     <tr>
-                        <td class="col-qty">{{ rtrim(rtrim(number_format((float) $line['qty'], 2, '.', ''), '0'), '.') }}</td>
+                        <td class="col-qty">{{ (float) $line['qty'] }}</td>
                         <td class="col-product">
                             {{ $line['product_name'] }}
                             @if(!empty($line['unit_breakdown']))

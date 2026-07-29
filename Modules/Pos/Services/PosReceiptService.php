@@ -82,10 +82,15 @@ class PosReceiptService
                     );
                 }
 
-                // Simple subtotal calculation for receipt display
-                // line_meta['line_total'] is persisted in Rupiah by PosCartTotalsCalculator — no /100 needed.
-                if (isset($line->line_meta['line_total'])) {
-                    $lineGross = (float) $line->line_meta['line_total'];
+                // Task 1.1: Normalize snapshot line-total minor-unit values to Rupiah exactly once
+                // Receipt mapping uses deterministic amount contract:
+                // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
+                // - else if line_total exists, use line_total directly (already in Rupiah)
+                // - else calculate from qty × unit_price
+                if (isset($line->line_meta['line_total_minor'])) {
+                    $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
+                } elseif (isset($line->line_meta['line_total'])) {
+                    $lineGross = (float)$line->line_meta['line_total'];
                 } else {
                     $lineGross = $line->qty * $line->unit_price;
                 }
@@ -485,10 +490,14 @@ class PosReceiptService
                 }
             }
 
-            // Simple subtotal calculation for receipt display
-            // line_meta['line_total'] is persisted in Rupiah by PosCartTotalsCalculator — no /100 needed.
-            if (isset($line->line_meta['line_total'])) {
-                $lineGross = (float) $line->line_meta['line_total'];
+            // Receipt mapping uses deterministic amount contract:
+            // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
+            // - else if line_total exists, use line_total directly (already in Rupiah)
+            // - else calculate from qty × unit_price
+            if (isset($line->line_meta['line_total_minor'])) {
+                $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
+            } elseif (isset($line->line_meta['line_total'])) {
+                $lineGross = (float)$line->line_meta['line_total'];
             } else {
                 $lineGross = $line->qty * $line->unit_price;
             }

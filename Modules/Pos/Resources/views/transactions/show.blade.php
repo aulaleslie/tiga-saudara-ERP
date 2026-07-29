@@ -175,7 +175,7 @@
                                         </div>
                                     @endif
                                 </td>
-                                <td class="text-right">{{ rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.') }}</td>
+                                <td class="text-right">{{ (float) $qty }}</td>
                                 <td class="text-right">{{ number_format($unitPrice, 2, ',', '.') }}</td>
                                 <td class="text-right">
                                     @if($line->line_discount_type === 'percentage')
