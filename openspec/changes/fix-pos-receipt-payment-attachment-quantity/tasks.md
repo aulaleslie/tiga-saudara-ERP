@@ -20,3 +20,9 @@
 
 - [x] 4.1 Run the focused POS receipt, staged-payment, attachment, transaction/return display, and report tests.
 - [x] 4.2 Run the relevant broader POS test suite or `composer test:fresh-sqlite` if the focused suite passes.
+
+## 5. Legacy packed receipt compatibility
+
+- [x] 5.1 When receipt metadata has price_source = PACKED and no line_total_minor, treat legacy line_total as minor units and divide by 100 exactly once.
+- [x] 5.2 Add end-to-end loaded packed-draft regression test with real product pricing, conversion, customer tier switching, and receipt verification.
+- [x] 5.3 Correct unit-test comments/fixtures to clarify packed line_total = 3,520,000 represents minor units, not Rupiah.

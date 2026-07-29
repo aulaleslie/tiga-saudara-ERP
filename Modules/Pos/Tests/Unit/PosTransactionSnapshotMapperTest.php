@@ -250,6 +250,288 @@ class PosTransactionSnapshotMapperTest extends PosTransactionFeatureTestCase
         return $transaction->fresh(['lines.serials']);
     }
 
+    public function test_hydrate_cart_preserves_packed_price_source_and_line_total_minor(): void
+    {
+        $setting = $this->createSetting('BIZ POS PACKED HYDRATE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS PACKED HYDRATE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-PACKED-HYDRATE-001',
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-PACKED-HYDRATE-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 35200000],
+        ]);
+
+        // Simulate a packed line as it would be persisted by persistLines()
+        // Packed lines store pricing in minor units throughout
+        $lineMeta = [
+            'barcode' => 'SKU-PACKED-HYDRATE-001-BC',
+            'price_source' => 'PACKED',
+            'conversion_unit_name' => 'Box',
+            'line_total' => 3520000,  // Minor units (Rp35.200,00 → 3520000 minor units)
+            'line_total_minor' => 3520000,  // Explicit minor units for cart arithmetic
+            'pricing_basis' => [
+                'base_price' => 5000000,  // Minor units
+                'box_price' => 2500000,  // Minor units
+                'factor' => 5,
+                'base_unit_label' => 'Ream',
+                'conversion_unit_label' => 'Box',
+            ],
+            'breakdown' => [
+                'line_total_minor' => 3520000,  // Minor units
+                'box_count' => 1,
+                'loose_count' => 2,
+                'box_price_applied' => 2500000,  // Minor units
+                'loose_price_applied' => 5000000,  // Minor units
+                'is_box_cheaper' => true,
+                'box_price' => 2500000,  // Minor units
+                'tier_base_price' => 5000000,  // Minor units
+                'factor_by_tier_base_price' => 2500000,  // Minor units
+                'tier' => null,
+                'factor' => 5,
+                'conversion_unit_label' => 'Box',
+                'base_unit_label' => 'Ream',
+            ],
+        ];
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'conversion_id' => null,
+            'qty' => 7,  // 1 box (5 reams) + 2 reams
+            'unit_price' => 5000000,  // blended unit price
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => $lineMeta,
+        ]);
+
+        $transaction->refresh();
+
+        $cart = $this->mapper->hydrateCart($transaction);
+
+        // Assert price_source is restored as PACKED, not DRAFT_RESTORED
+        $this->assertEquals('PACKED', $cart['lines'][1]['price_source']);
+
+        // Assert line_total is restored from line_total_minor (3520000 minor units)
+        $this->assertEquals(3520000, $cart['lines'][1]['line_total']);
+
+        // Assert breakdown is preserved
+        $this->assertNotNull($cart['lines'][1]['breakdown']);
+        $this->assertEquals(1, $cart['lines'][1]['breakdown']['box_count']);
+        $this->assertEquals(2, $cart['lines'][1]['breakdown']['loose_count']);
+
+        // Assert pricing_basis is preserved
+        $this->assertNotNull($cart['lines'][1]['pricing_basis']);
+        $this->assertEquals(5000000, $cart['lines'][1]['pricing_basis']['base_price']);
+
+        // Assert qty remains base quantity (7)
+        $this->assertEquals(7, $cart['lines'][1]['qty']);
+    }
+
+    public function test_hydrate_cart_with_legacy_packed_snapshot_line_total_fallback(): void
+    {
+        $setting = $this->createSetting('BIZ POS LEGACY PACKED');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS LEGACY PACKED USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-LEGACY-PACKED-001',
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-LEGACY-PACKED-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 45000000],
+        ]);
+
+        // Legacy packed snapshot with line_total only (no line_total_minor)
+        // When line_total_minor is absent but price_source = PACKED, line_total is in minor units
+        $lineMeta = [
+            'price_source' => 'PACKED',
+            'line_total' => 4500000,  // Minor units (Rp45.000,00 → 4500000 minor units)
+            'breakdown' => [
+                'box_count' => 1,
+                'loose_count' => 0,
+                'box_price_applied' => 4500000,  // Minor units
+                'loose_price_applied' => 0,
+            ],
+        ];
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'conversion_id' => null,
+            'qty' => 5,
+            'unit_price' => 900000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => $lineMeta,
+        ]);
+
+        $transaction->refresh();
+
+        $cart = $this->mapper->hydrateCart($transaction);
+
+        // Assert price_source is PACKED
+        $this->assertEquals('PACKED', $cart['lines'][1]['price_source']);
+
+        // Assert line_total is restored from legacy line_total as minor units
+        $this->assertEquals(4500000, $cart['lines'][1]['line_total']);
+    }
+
+    public function test_hydrate_cart_restores_selected_customer_tier(): void
+    {
+        $setting = $this->createSetting('BIZ POS TIER RESTORE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TIER RESTORE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-TIER-RESTORE-001',
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'tier' => 'WHOLESALER',
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-TIER-RESTORE-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => $customer->id,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 50000],
+        ]);
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'conversion_id' => null,
+            'qty' => 1,
+            'unit_price' => 50000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [],
+        ]);
+
+        $transaction->refresh();
+
+        $cart = $this->mapper->hydrateCart($transaction);
+
+        // Assert selected_customer_id is restored
+        $this->assertEquals($customer->id, $cart['selected_customer_id']);
+
+        // Assert selected_customer_tier is restored from customer
+        $this->assertEquals('WHOLESALER', $cart['selected_customer_tier']);
+    }
+
+    public function test_hydrate_cart_selected_customer_tier_is_null_when_no_customer(): void
+    {
+        $setting = $this->createSetting('BIZ POS TIER NULL');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TIER NULL USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-TIER-NULL-001',
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-TIER-NULL-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 50000],
+        ]);
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'conversion_id' => null,
+            'qty' => 1,
+            'unit_price' => 50000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [],
+        ]);
+
+        $transaction->refresh();
+
+        $cart = $this->mapper->hydrateCart($transaction);
+
+        // Assert selected_customer_id is null
+        $this->assertNull($cart['selected_customer_id']);
+
+        // Assert selected_customer_tier is null
+        $this->assertNull($cart['selected_customer_tier']);
+    }
+
     /**
      * Verification: Legacy snapshot with stale base_qty metadata is ignored.
      * Quantity contract: `qty` is the sole authoritative base-unit quantity.
@@ -367,4 +649,5 @@ class PosTransactionSnapshotMapperTest extends PosTransactionFeatureTestCase
         // (the hash should reflect qty = 5, not be confused by base_qty = 1)
         $this->assertNotNull($hashBefore, 'Snapshot hash must be generated based on qty (5) as authoritative');
     }
+
 }

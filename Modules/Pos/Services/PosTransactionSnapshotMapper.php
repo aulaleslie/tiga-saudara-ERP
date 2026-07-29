@@ -103,6 +103,7 @@ class PosTransactionSnapshotMapper
      *     bill_discount_type: string,
      *     bill_discount_value: float,
      *     selected_customer_id: int|null,
+     *     selected_customer_tier: string|null,
      *     active_transaction_id: int,
      *     note: string|null
      * }
@@ -145,6 +146,24 @@ class PosTransactionSnapshotMapper
             $lineMeta = $dbLine->line_meta ?? [];
             $serials = $dbLine->serials->pluck('serial_number')->toArray();
 
+            // Restore price_source from metadata, or default to 'BASE'
+            $priceSource = $lineMeta['price_source'] ?? 'BASE';
+
+            // For PACKED lines, restore line_total from minor units
+            // Prioritize line_total_minor, fall back to legacy line_total as minor units for backward compat
+            $lineTotal = null;
+            if ($priceSource === 'PACKED') {
+                if (isset($lineMeta['line_total_minor'])) {
+                    $lineTotal = (int) $lineMeta['line_total_minor'];
+                } elseif (isset($lineMeta['line_total'])) {
+                    // Legacy packed snapshots may have line_total as minor units only
+                    $lineTotal = (int) $lineMeta['line_total'];
+                }
+            } else {
+                // Non-packed lines store line_total in Rupiah
+                $lineTotal = $lineMeta['line_total'] ?? null;
+            }
+
             $lines[$nextLineId] = [
                 'line_id' => $nextLineId,
                 'product_id' => $dbLine->product_id,
@@ -162,7 +181,7 @@ class PosTransactionSnapshotMapper
                 'tax_name' => $dbLine->tax_name_snapshot,
                 'tax_rate' => (float) $dbLine->tax_rate_snapshot,
                 'merge_key' => $lineMeta['merge_key'] ?? $this->computeMergeKey($dbLine, $tier),
-                'price_source' => 'DRAFT_RESTORED',
+                'price_source' => $priceSource,
                 'price_valid' => true,
                 'price_error' => null,
                 'conversion_id' => $dbLine->conversion_id,
@@ -173,7 +192,7 @@ class PosTransactionSnapshotMapper
                 'bundle_items' => $lineMeta['bundle_items'] ?? [],
                 'breakdown' => $lineMeta['breakdown'] ?? null,
                 'pricing_basis' => $lineMeta['pricing_basis'] ?? null,
-                'line_total' => $lineMeta['line_total'] ?? null,
+                'line_total' => $lineTotal,
             ];
 
             $nextLineId++;
@@ -185,6 +204,7 @@ class PosTransactionSnapshotMapper
             'bill_discount_type' => 'fixed',
             'bill_discount_value' => 0.0,
             'selected_customer_id' => $transaction->customer_id,
+            'selected_customer_tier' => $tier,
             'active_transaction_id' => $transaction->id,
             'note' => $transaction->note,
         ];

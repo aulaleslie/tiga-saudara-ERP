@@ -85,12 +85,18 @@ class PosReceiptService
                 // Task 1.1: Normalize snapshot line-total minor-unit values to Rupiah exactly once
                 // Receipt mapping uses deterministic amount contract:
                 // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
-                // - else if line_total exists, use line_total directly (already in Rupiah)
+                // - else if line_total exists and price_source is PACKED, treat as legacy minor units and divide by 100
+                // - else if line_total exists, use line_total directly (already in Rupiah for non-packed)
                 // - else calculate from qty × unit_price
                 if (isset($line->line_meta['line_total_minor'])) {
                     $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
                 } elseif (isset($line->line_meta['line_total'])) {
-                    $lineGross = (float)$line->line_meta['line_total'];
+                    // Legacy packed receipts: line_total is in minor units when price_source = PACKED
+                    if ($priceSource === 'PACKED') {
+                        $lineGross = (float)$line->line_meta['line_total'] / 100;
+                    } else {
+                        $lineGross = (float)$line->line_meta['line_total'];
+                    }
                 } else {
                     $lineGross = $line->qty * $line->unit_price;
                 }
@@ -492,12 +498,18 @@ class PosReceiptService
 
             // Receipt mapping uses deterministic amount contract:
             // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
-            // - else if line_total exists, use line_total directly (already in Rupiah)
+            // - else if line_total exists and price_source is PACKED, treat as legacy minor units and divide by 100
+            // - else if line_total exists, use line_total directly (already in Rupiah for non-packed)
             // - else calculate from qty × unit_price
             if (isset($line->line_meta['line_total_minor'])) {
                 $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
             } elseif (isset($line->line_meta['line_total'])) {
-                $lineGross = (float)$line->line_meta['line_total'];
+                // Legacy packed receipts: line_total is in minor units when price_source = PACKED
+                if ($priceSource === 'PACKED') {
+                    $lineGross = (float)$line->line_meta['line_total'] / 100;
+                } else {
+                    $lineGross = (float)$line->line_meta['line_total'];
+                }
             } else {
                 $lineGross = $line->qty * $line->unit_price;
             }

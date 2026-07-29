@@ -273,4 +273,242 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
             ->assertStatus(409)
             ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
     }
+
+    public function test_loaded_packed_draft_preserves_pricing_basis_and_tier_switching(): void
+    {
+        $setting = $this->createSetting('BIZ PACKED LOAD TIER');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS PACKED LOAD CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        // Create unit conversion: Box of 5 units
+        $baseUnit = \Modules\Setting\Entities\Unit::firstOrCreate([
+            'setting_id' => $setting->id,
+            'name' => 'Unit',
+            'short_name' => 'Unit',
+        ]);
+
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate([
+            'setting_id' => $setting->id,
+            'name' => 'Box',
+            'short_name' => 'BOX',
+        ]);
+
+        // Create product with realistic tier pricing
+        // Base: Rp52.500, Reseller: Rp51.000, Wholesaler: Rp49.000
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-PACKED-LOAD-001',
+            'product_name' => 'Packed Tier Product',
+            'sale_price' => 52500,  // Base price
+        ]);
+
+        // Set ALL tier prices upfront so they're cached in pricing_basis when line is added
+        \Modules\Product\Entities\ProductPrice::where('product_id', $product->id)
+            ->where('setting_id', $setting->id)
+            ->update([
+                'sale_price' => 52500,
+                'tier_2_price' => 51000,  // RESELLER = tier_2
+                'tier_1_price' => 49000,  // WHOLESALER = tier_1
+            ]);
+
+        // Create conversion: 1 box = 5 units, box price = Rp250.000
+        $conversion = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $baseUnit->id,
+            'conversion_factor' => 5,
+        ]);
+
+        // Add conversion pricing
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 250000,  // Box price
+        ]);
+
+        // Create reseller customer
+        $reseller = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'tier' => 'RESELLER',
+        ]);
+
+        // Add 7 base units to cart (1 box + 2 loose)
+        // Packed pricing is triggered automatically when qty > conversion_factor
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $product->id,
+            'qty' => 7,
+        ])->assertOk();
+
+        // Verify cart is packed before selecting customer
+        $cartService = app(\Modules\Pos\Services\PosCartService::class);
+        $cartBefore = $cartService->getSnapshot($setting->id, $user->id);
+        $this->assertEquals('PACKED', $cartBefore['lines'][0]['price_source']);
+        // Base price: 1 box (250K) + 2 units (2 × 52.5K) = 355K
+        $this->assertNotNull($cartBefore['lines'][0]['breakdown']);
+        $this->assertEquals(1, $cartBefore['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(2, $cartBefore['lines'][0]['breakdown']['loose_count']);
+
+        // Select reseller customer
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $reseller->id,
+        ])->assertOk();
+
+        // Verify cart remains PACKED after customer selection and recalculates price
+        $cartAfterCustomer = $cartService->getSnapshot($setting->id, $user->id);
+        $this->assertEquals('PACKED', $cartAfterCustomer['lines'][0]['price_source']);
+        $this->assertNotNull($cartAfterCustomer['lines'][0]['breakdown']);
+        // Check breakdown shows tier_2 pricing (RESELLER = tier_2)
+        $this->assertEquals('tier_2', $cartAfterCustomer['lines'][0]['breakdown']['tier']);
+
+        // Save as draft
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = (int) $saveResponse->json('transaction.id');
+
+        // Clear cart to simulate fresh session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Load the draft
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $cartAfterLoad = $loadResponse->json('cart_snapshot');
+
+        // Assert: loaded line price_source is PACKED
+        $this->assertEquals('PACKED', $cartAfterLoad['lines'][0]['price_source']);
+
+        // Assert: breakdown is visible and correct
+        $this->assertNotNull($cartAfterLoad['lines'][0]['breakdown']);
+        $this->assertEquals(1, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(2, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
+
+        // Assert: quantity is 7 base units
+        $this->assertEquals(7, $cartAfterLoad['lines'][0]['qty']);
+
+        // Assert: breakdown persists with tier information
+        $this->assertNotNull($cartAfterLoad['lines'][0]['breakdown']);
+        $this->assertEquals('tier_2', $cartAfterLoad['lines'][0]['breakdown']['tier']);
+
+        // Assert: loaded cart has reseller customer
+        $this->assertEquals($reseller->id, $cartAfterLoad['customer']['selected_customer_id']);
+        // Verify breakdown tier state shows RESELLER pricing was applied (tier_2)
+        $this->assertEquals('tier_2', $cartAfterLoad['lines'][0]['breakdown']['tier']);
+
+        // Assert: reseller line total is exactly Rp352.000
+        // 1 box × Rp250.000 + 2 units × Rp51.000 = Rp250.000 + Rp102.000 = Rp352.000
+        $this->assertEquals(352000, $cartAfterLoad['lines'][0]['line_total']);
+        $this->assertEquals(352000, $cartAfterLoad['totals']['subtotal']);
+        $this->assertEquals(352000, $cartAfterLoad['totals']['grand_total']);
+
+        // Assert: explicit reseller packed-breakdown details
+        // 25000000 minor units = Rp250.000 box price
+        // 5100000 minor units = Rp51.000 reseller loose-unit price
+        $this->assertEquals(1, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(2, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
+        $this->assertEquals(25000000, $cartAfterLoad['lines'][0]['breakdown']['box_price_applied']);
+        $this->assertEquals(5100000, $cartAfterLoad['lines'][0]['breakdown']['loose_price_applied']);
+
+        // Reject scaling errors: 100× (35200000) or /100 (3520)
+        $this->assertNotEquals(35200000, $cartAfterLoad['lines'][0]['line_total']);
+        $this->assertNotEquals(3520, $cartAfterLoad['lines'][0]['line_total']);
+
+        // Verify receipt displays correctly with PACKED source preserved
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $transaction = PosTransaction::findOrFail($transactionId);
+        $receiptData = $receiptService->getTransactionReceiptData($transaction);
+
+        // Verify receipt line has breakdown and displays correctly
+        $this->assertNotNull($receiptData['lines'][0]['breakdown']);
+        $this->assertNotNull($receiptData['lines'][0]['unit_breakdown']);
+        // Verify quantity is displayed raw (no x100 or /100 errors)
+        $this->assertEquals(7, $receiptData['lines'][0]['qty']);
+        // Verify receipt line subtotal is exactly Rp352.000 (no x100 scaling)
+        $this->assertEquals(352000, $receiptData['lines'][0]['sub_total']);
+        $this->assertEquals(352000, $receiptData['grand_total']);
+
+        // Ensure no decimal padding or 100× scaling errors (35200000 = ×100, 3520 = /100)
+        $this->assertNotEquals(35200000, $receiptData['lines'][0]['sub_total']);
+        $this->assertNotEquals(3520, $receiptData['lines'][0]['sub_total']);
+
+        // ===== TIER SWITCHING TEST: Create wholesaler and switch to tier_1 =====
+
+        // Create wholesaler customer with tier_1 pricing
+        $wholesaler = \Modules\People\Entities\Customer::factory()->create([
+            'setting_id' => $setting->id,
+            'tier' => 'WHOLESALER',
+        ]);
+
+        // Note: tier_1_price was already set upfront when product pricing was configured
+        // This ensures it's cached in the pricing_basis when the line is added to the cart
+
+        // Switch customer to wholesaler via PATCH endpoint
+        $switchResponse = $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $wholesaler->id,
+        ])->assertOk();
+
+        // Get updated cart after switch via response (fresh snapshot from endpoint)
+        $cartAfterSwitch = $switchResponse->json('cart_snapshot');
+
+        // Assert: line remains price_source = PACKED
+        $this->assertEquals('PACKED', $cartAfterSwitch['lines'][0]['price_source']);
+
+        // Assert: customer switched to wholesaler
+        $this->assertEquals($wholesaler->id, $cartAfterSwitch['customer']['selected_customer_id']);
+
+        // Assert: quantity remains exactly 7 base units
+        $this->assertEquals(7, $cartAfterSwitch['lines'][0]['qty']);
+
+        // Debug: check what pricing_basis contains
+        $hasPricingBasis = isset($cartAfterSwitch['lines'][0]['pricing_basis']);
+        $this->assertTrue($hasPricingBasis, 'Line should have pricing_basis for re-pricing on tier switch');
+
+        // Assert: breakdown is recomputed for tier_1
+        $this->assertNotNull($cartAfterSwitch['lines'][0]['breakdown']);
+        $this->assertEquals('tier_1', $cartAfterSwitch['lines'][0]['breakdown']['tier']);
+
+        // Assert the tier_1 packed breakdown prices:
+        // box_count = 1, loose_count = 2
+        // box_price_applied = 24500000 minor units (min(25000000, 5 × 4900000))
+        // loose_price_applied = 4900000 minor units (1 × 4900000)
+        $this->assertEquals(1, $cartAfterSwitch['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(2, $cartAfterSwitch['lines'][0]['breakdown']['loose_count']);
+        $this->assertEquals(24500000, $cartAfterSwitch['lines'][0]['breakdown']['box_price_applied']);
+        $this->assertEquals(4900000, $cartAfterSwitch['lines'][0]['breakdown']['loose_price_applied']);
+
+        // Assert: cart totals are exactly Rp343.000 for tier_1
+        // (1 × 245000 + 2 × 49000 = 245000 + 98000 = 343000 in Rupiah)
+        $this->assertEquals(343000, $cartAfterSwitch['lines'][0]['line_total']);
+        $this->assertEquals(343000, $cartAfterSwitch['totals']['subtotal']);
+        $this->assertEquals(343000, $cartAfterSwitch['totals']['grand_total']);
+
+        // Save the switched transaction and verify receipt
+        $switchSaveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $switchTransactionId = (int) $switchSaveResponse->json('transaction.id');
+
+        // Get receipt for the switched transaction
+        $switchTransaction = PosTransaction::findOrFail($switchTransactionId);
+        $switchReceiptData = $receiptService->getTransactionReceiptData($switchTransaction);
+
+        // Verify receipt has correct breakdown tier and totals
+        $this->assertNotNull($switchReceiptData['lines'][0]['breakdown']);
+        $this->assertEquals('tier_1', $switchReceiptData['lines'][0]['breakdown']['tier']);
+
+        // Assert receipt line and grand totals are exactly Rp343.000
+        $this->assertEquals(343000, $switchReceiptData['lines'][0]['sub_total']);
+        $this->assertEquals(343000, $switchReceiptData['grand_total']);
+
+        // Reject 100× scaling error (34300000) or /100 error (3430)
+        $this->assertNotEquals(34300000, $switchReceiptData['lines'][0]['sub_total']);
+        $this->assertNotEquals(3430, $switchReceiptData['lines'][0]['sub_total']);
+    }
 }
