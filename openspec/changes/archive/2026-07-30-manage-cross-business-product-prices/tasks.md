@@ -21,7 +21,7 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Add feature tests for authorized and unauthorized list action, page access, and sensitive-price data exposure.
-- [ ] 4.2 Add feature tests for existing rows, missing-row zero defaults/upserts, average/tax preservation, and all-or-nothing validation failure.
-- [ ] 4.3 Add feature tests for stale existing rows, concurrent missing-row creation, and duplicate save interaction behavior.
-- [ ] 4.4 Run the focused product price and permission test suites, then run the appropriate Laravel test command and address failures.
+- [x] 4.1 Add feature tests for authorized and unauthorized list action, page access, and sensitive-price data exposure.
+- [x] 4.2 Add feature tests for existing rows, missing-row zero defaults/upserts, average/tax preservation, and all-or-nothing validation failure.
+- [x] 4.3 Add feature tests for stale existing rows, concurrent missing-row creation, and duplicate save interaction behavior.
+- [x] 4.4 Run the focused product price and permission test suites, then run the appropriate Laravel test command and address failures.

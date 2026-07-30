@@ -122,7 +122,7 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->actingAs($this->user)
             ->withSession(['setting_id' => 1])
             ->put(route('products.cross-business-prices.update', $this->product), $payload)
-            ->assertRedirect(route('products.index'))
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
             ->assertSessionHas('success');
 
         $updatedA = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->first();
@@ -258,5 +258,49 @@ class CrossBusinessPriceBackendTest extends TestCase
 
         $this->assertEquals(100, $existing->fresh()->sale_price); // setting 1 not updated
         $this->assertEquals(5, ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->first()->sale_price); // setting 2 kept the other process's data
+    }
+
+    public function test_all_or_nothing_validation_failure_for_negative_prices()
+    {
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 100,
+                'tier_1_price' => 90,
+                'tier_2_price' => 80,
+                'last_purchase_price' => 50,
+                'average_purchase_price' => 45,
+            ]
+        );
+
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => 110,
+                    'tier_1_price' => 95,
+                    'tier_2_price' => 85,
+                    'last_purchase_price' => 55,
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+                [
+                    'setting_id' => 2,
+                    'sale_price' => -200, // Invalid negative price
+                    'tier_1_price' => 190,
+                    'tier_2_price' => 180,
+                    'last_purchase_price' => 150,
+                    'version' => null,
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHasErrors(['prices.1.sale_price']);
+
+        // Check all-or-nothing (setting 1 not updated, setting 2 not created)
+        $this->assertEquals(100, $existing->fresh()->sale_price);
+        $this->assertNull(ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->first());
     }
 }
