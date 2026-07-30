@@ -3,6 +3,11 @@
     <i class="bi bi-pencil"></i>
 </a>
 @endcan
+@can('products.manage_cross_business_prices')
+<a href="{{ route('products.cross-business-prices.edit', $data->id) }}" class="btn btn-warning btn-sm" title="Kelola Harga Multi-Bisnis">
+    <i class="bi bi-tags"></i>
+</a>
+@endcan
 @can('products.show')
 <a href="{{ route('products.show', $data->id) }}" class="btn btn-primary btn-sm">
     <i class="bi bi-eye"></i>

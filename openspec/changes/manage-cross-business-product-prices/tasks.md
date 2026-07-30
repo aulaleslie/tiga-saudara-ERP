@@ -14,10 +14,10 @@
 
 ## 3. Cross-business price management interface
 
-- [ ] 3.1 Add the permission-gated cross-business price action to the product list.
-- [ ] 3.2 Build the dedicated IDR price page with one row per business, Back navigation, and an initial read-only presentation.
-- [ ] 3.3 Add page-level Ubah, Batal, and Simpan behavior so only the four commercial price fields become editable and average purchase price stays read-only.
-- [ ] 3.4 Disable Simpan immediately while submission is pending and show validation, stale-data, and successful-save feedback without partial state changes.
+- [x] 3.1 Add the permission-gated cross-business price action to the product list.
+- [x] 3.2 Build the dedicated IDR price page with one row per business, Back navigation, and an initial read-only presentation.
+- [x] 3.3 Add page-level Ubah, Batal, and Simpan behavior so only the four commercial price fields become editable and average purchase price stays read-only.
+- [x] 3.4 Disable Simpan immediately while submission is pending and show validation, stale-data, and successful-save feedback without partial state changes.
 
 ## 4. Verification
 

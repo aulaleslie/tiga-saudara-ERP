@@ -28,7 +28,8 @@ class CrossBusinessPriceController extends Controller
 
         try {
             $this->priceService->savePricesForProduct($product, $validated['prices']);
-            return redirect()->route('products.index')
+            return redirect()
+                ->route('products.cross-business-prices.edit', $product)
                 ->with('success', 'Prices updated successfully.');
         } catch (\Exception $e) {
             return redirect()->back()
