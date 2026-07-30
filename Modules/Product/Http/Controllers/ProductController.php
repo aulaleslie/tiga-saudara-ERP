@@ -410,26 +410,23 @@ class ProductController extends Controller
                 $allSettingIds = collect([$settingId]);
             }
 
-            ProductPrice::updateOrCreate(
-                [
-                    'product_id' => $product->id,
-                    'setting_id' => $settingId,
-                ],
-                [
-                    // purchase snapshots come from purchase_price
-                    'last_purchase_price'    => $isPurchased ? $pricePayload['purchase_price'] : 0,
-                    'average_purchase_price' => $isPurchased ? $pricePayload['purchase_price'] : 0,
+            $productPrice = ProductPrice::firstOrNew([
+                'product_id' => $product->id,
+                'setting_id' => $settingId,
+            ]);
 
-                    // selling prices
-                    'sale_price'   => $isSold ? $pricePayload['sale_price']   : 0,
-                    'tier_1_price' => $isSold ? $pricePayload['tier_1_price'] : 0,
-                    'tier_2_price' => $isSold ? $pricePayload['tier_2_price'] : 0,
+            $productPrice->last_purchase_price = $isPurchased ? $pricePayload['purchase_price'] : 0;
+            if (!$productPrice->exists) {
+                $productPrice->average_purchase_price = 0;
+            }
 
-                    // ❗ If you still keep taxes per-setting, uncomment:
-                     'purchase_tax_id' => $pricePayload['purchase_tax_id'],
-                     'sale_tax_id'     => $pricePayload['sale_tax_id'],
-                ]
-            );
+            $productPrice->sale_price   = $isSold ? $pricePayload['sale_price']   : 0;
+            $productPrice->tier_1_price = $isSold ? $pricePayload['tier_1_price'] : 0;
+            $productPrice->tier_2_price = $isSold ? $pricePayload['tier_2_price'] : 0;
+            $productPrice->purchase_tax_id = $pricePayload['purchase_tax_id'];
+            $productPrice->sale_tax_id     = $pricePayload['sale_tax_id'];
+
+            $productPrice->save();
 
             // 3) Documents (unchanged)
             if ($request->has('document')) {

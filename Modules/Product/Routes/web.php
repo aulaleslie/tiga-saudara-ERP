@@ -20,6 +20,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/products/print-barcode', 'BarcodeController@printBarcode')->name('barcode.print');
 
     // ⟵ keep these URLs & names exactly, just point to the new controller
+    Route::group(['middleware' => ['can:products.manage_cross_business_prices']], function () {
+        Route::get('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'edit'])->name('products.cross-business-prices.edit');
+        Route::put('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'update'])->name('products.cross-business-prices.update');
+    });
+
     Route::get('/products/upload',  [ProductUploadController::class, 'uploadPage'])->name('products.upload.page');
     Route::post('/products/upload', [ProductUploadController::class, 'upload'])->name('products.upload');
 

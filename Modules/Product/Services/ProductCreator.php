@@ -50,7 +50,7 @@ class ProductCreator
             'tier_1_price' => $isSold ? data_get($validatedData, 'tier_1_price', 0) : 0,
             'tier_2_price' => $isSold ? data_get($validatedData, 'tier_2_price', 0) : 0,
             'last_purchase_price' => $isPurchased ? data_get($validatedData, 'purchase_price', 0) : 0,
-            'average_purchase_price' => $isPurchased ? data_get($validatedData, 'purchase_price', 0) : 0,
+            'average_purchase_price' => 0,
             'purchase_tax_id' => $isPurchased
                 ? data_get($validatedData, 'purchase_tax_id', data_get($validatedData, 'purchase_tax'))
                 : null,

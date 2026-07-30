@@ -152,6 +152,7 @@ return [
         'products.delete' => 'Hapus',
         'products.show' => 'Tampilkan',
         'products.view_prices' => 'Lihat Harga',
+        'products.manage_cross_business_prices' => 'Kelola Harga Lintas Bisnis',
         'products.barcodes.manage' => 'Kelola Barcode',
         'products.bundle.access' => 'Hak Akses Bundle',
         'products.bundle.create' => 'Buat Bundle',
