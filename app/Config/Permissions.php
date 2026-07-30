@@ -151,6 +151,7 @@ return [
         'products.edit' => 'Ubah',
         'products.delete' => 'Hapus',
         'products.show' => 'Tampilkan',
+        'products.view_prices' => 'Lihat Harga',
         'products.barcodes.manage' => 'Kelola Barcode',
         'products.bundle.access' => 'Hak Akses Bundle',
         'products.bundle.create' => 'Buat Bundle',

@@ -4,6 +4,7 @@ namespace Modules\Product\DataTables;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Http\JsonResponse;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Setting;
 use Yajra\DataTables\EloquentDataTable;
@@ -16,6 +17,32 @@ use App\Services\ProductQuantityProjectionService;
 class ProductDataTable extends DataTable
 {
     protected $projectedQuantities = null;
+
+    public function ajax(): JsonResponse
+    {
+        $response = parent::ajax();
+
+        if (!Gate::allows('products.view_prices')) {
+            $data = $response->getData(true);
+            if (isset($data['data']) && is_array($data['data'])) {
+                foreach ($data['data'] as &$row) {
+                    unset($row['last_purchase_price']);
+                    unset($row['average_purchase_price']);
+                    unset($row['sale_price']);
+                    unset($row['tier_1_price']);
+                    unset($row['tier_2_price']);
+                    unset($row['pp_last_purchase_price']);
+                    unset($row['pp_average_purchase_price']);
+                    unset($row['pp_sale_price']);
+                    unset($row['pp_tier_1_price']);
+                    unset($row['pp_tier_2_price']);
+                }
+            }
+            $response->setData($data);
+        }
+
+        return $response;
+    }
 
     /**
      * @throws Exception
@@ -58,6 +85,12 @@ class ProductDataTable extends DataTable
             })
             ->addColumn('sale_price', function ($data) {
                 return $data->pp_sale_price !== null ? format_currency($data->pp_sale_price) : '-';
+            })
+            ->addColumn('tier_1_price', function ($data) {
+                return $data->pp_tier_1_price !== null ? format_currency($data->pp_tier_1_price) : '-';
+            })
+            ->addColumn('tier_2_price', function ($data) {
+                return $data->pp_tier_2_price !== null ? format_currency($data->pp_tier_2_price) : '-';
             })
             ->addColumn('category', function ($data) {
                 return optional($data->category)->category_name ?? 'N/A';
@@ -171,6 +204,7 @@ class ProductDataTable extends DataTable
         return $this->builder()
             ->setTableId('product-table')
             ->columns($this->getColumns())
+            ->parameters(['scrollX' => true, 'scrollY' => '70vh', 'scrollCollapse' => true])
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>>" .
                 "tr" .
                 "<'row'<'col-md-5'i><'col-md-7 mt-2'p>>");
@@ -219,17 +253,24 @@ class ProductDataTable extends DataTable
                 ->title('Stok Sedang Diretur')
                 ->className('text-center align-middle'),
 
-            // Add columns for Last Purchase Price and Average Purchase Price
-            Gate::allows('view_access_table_product') ? Column::computed('last_purchase_price')
-                ->title('Harga Beli Terakhir')
+            Gate::allows('products.view_prices') ? Column::computed('last_purchase_price')
+                ->title('Beli Akhir')
                 ->className('text-center align-middle') : null,
 
-            Gate::allows('view_access_table_product') ? Column::computed('average_purchase_price')
-                ->title('Harga Beli Rata Rata')
+            Gate::allows('products.view_prices') ? Column::computed('average_purchase_price')
+                ->title('Beli Rata²')
                 ->className('text-center align-middle') : null,
 
-            Gate::allows('view_access_table_product') ? Column::computed('sale_price')
-                ->title('Harga Jual')
+            Gate::allows('products.view_prices') ? Column::computed('sale_price')
+                ->title('Jual')
+                ->className('text-center align-middle') : null,
+
+            Gate::allows('products.view_prices') ? Column::computed('tier_1_price')
+                ->title('Jual Partai')
+                ->className('text-center align-middle') : null,
+
+            Gate::allows('products.view_prices') ? Column::computed('tier_2_price')
+                ->title('Jual Reseller')
                 ->className('text-center align-middle') : null,
 
             Column::computed('action')
