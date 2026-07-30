@@ -75,6 +75,11 @@ php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeede
 php artisan product:normalize-purchase-prices
 php artisan product:normalize-purchase-prices --write
 
+# Seed current average HPP from the latest authoritative imported sales-HPP snapshots.
+# Run the dry-run first, review the selected source dates and row counts, then add --write.
+php artisan product:seed-average-cost-from-sales-hpp
+php artisan product:seed-average-cost-from-sales-hpp --write
+
 # Initialization only: rebuild imported purchase/sales transaction history.
 # Dry-run first, then run with both flags when ready. The write command truncates transactions.
 php artisan inventory:normalize-import-transactions
@@ -123,6 +128,17 @@ Barcode CSV files must contain `product_name,barcode`. Import matches an exact p
 - `--force` recomputes existing backfilled snapshots; use it after correcting historical purchase or receiving data.
 - `--product`, `--setting`, `--start`, and `--end` can limit the replay scope for manual checks.
 - Review summary warnings before writing, especially `negative_stock`, `missing_receipt_data`, `future_purchase_fallback`, `no_purchase_fallback`, and `non_stock_zero`.
+
+### Seed Current Average HPP from Imported Sales
+
+`product:seed-average-cost-from-sales-hpp` is the explicit post-import reconciliation step for historical sales HPP imports. It selects the latest successful `HPP_SNAPSHOT_IMPORT` cost snapshot for each stock-managed product and applies it to the appropriate product-price cost bucket.
+
+- Dry-run is the default; review selected source sale dates and created, updated, unchanged, and skipped row counts before writing.
+- `--write` updates only `product_prices.average_purchase_price`; it preserves last purchase price, selling/tier prices, and tax metadata.
+- Tiga Nusa and Top IT use their own latest HPP bucket when available; otherwise they fall back to REST/global. Non-special settings use REST/global only.
+- Run this after reviewing the historical HPP import. It does not change historical sale snapshots, stock, purchases, or inventory transactions.
+
+See [the full operator guide](docs/SEED_AVERAGE_COST_FROM_SALES_HPP.md) for the workflow and troubleshooting.
 
 ### Import Transaction Normalization
 

@@ -32,6 +32,7 @@ class ProductServiceProvider extends ServiceProvider
         
         $this->commands([
             \Modules\Product\Console\NormalizeProductPurchasePricesCommand::class,
+            \Modules\Product\Console\SeedAverageCostFromSalesHppCommand::class,
             \Modules\Product\Console\PreflightBarcodesCommand::class,
             \Modules\Product\Console\ExportBarcodesCommand::class,
             \Modules\Product\Console\ImportBarcodesCommand::class,
