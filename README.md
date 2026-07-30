@@ -71,6 +71,7 @@ If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-s
 
 ```bash
 php artisan queue:work --queue=default --tries=3 --timeout=7200
+php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeeder"
 php artisan product:normalize-purchase-prices
 php artisan product:normalize-purchase-prices --write
 
