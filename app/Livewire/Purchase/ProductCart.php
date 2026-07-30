@@ -29,6 +29,7 @@ class ProductCart extends Component
     public $discount_type;
     public $item_discount;
     public $unit_price;
+    public $line_total;
     public $data;
     public $quantityBreakdowns = [];
     public $product;
@@ -107,6 +108,7 @@ class ProductCart extends Component
             $this->check_quantity = [];
             $this->quantity = [];
             $this->unit_price = [];
+            $this->line_total = [];
             $this->discount_type = [];
             $this->item_discount = [];
             $this->product_tax = [];
@@ -136,6 +138,7 @@ class ProductCart extends Component
         $this->check_quantity[$cart_item->id] = $cart_item->options->stock ?? 0;
         $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
         $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
+        $this->line_total[$cart_item->id] = $cart_item->options->sub_total ?? 0;
         $discountType = $cart_item->options->product_discount_type ?? 'fixed';
         $this->discount_type[$cart_item->id] = $discountType;
 
@@ -475,6 +478,8 @@ class ProductCart extends Component
             $defaultTaxId
         );
 
+        $this->line_total[$product['id']] = $taxCalculation['sub_total'];
+
         $cart->add([
             'id'     => $product['id'],
             'name'   => $product['product_name'],
@@ -538,6 +543,12 @@ class ProductCart extends Component
 
     public function updateQuantity($row_id, $product_id): void
     {
+        $cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if (!$cart_item) return;
+        $row_id = $cart_item->rowId;
+
         if ($this->quantity[$product_id] <= 0) {
             $this->quantity[$product_id] = 1;
             session()->flash('message', 'Jumlah barang dipesan minimal 1!');
@@ -551,8 +562,6 @@ class ProductCart extends Component
                 return;
             }
         }
-
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
         // Use calculateSubtotalAndTax function to calculate
         $calculated = $this->calculateSubtotalAndTax(
@@ -577,6 +586,7 @@ class ProductCart extends Component
             ]),
         ]);
 
+        $this->line_total[$product_id] = $calculated['sub_total'];
         $this->recalculateCart();
     }
 
@@ -661,7 +671,11 @@ class ProductCart extends Component
 
     public function setProductDiscount($row_id, $product_id): void
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if (!$cart_item) return;
+        $row_id = $cart_item->rowId;
 
         $unit_price = $this->unit_price[$product_id] ?? $cart_item->price;
         $quantity = $cart_item->qty;
@@ -715,13 +729,18 @@ class ProductCart extends Component
             ]),
         ]);
 
+        $this->line_total[$product_id] = $updated_cart_data['sub_total'];
         $this->recalculateCart();
         session()->flash('discount_message' . $product_id, 'Diskon berhasil diterapkan!');
     }
 
     public function updatePrice($row_id, $product_id): void
     {
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if (!$cart_item) return;
+        $row_id = $cart_item->rowId;
 
         // Validate and set new price
         $new_price = $this->unit_price[$product_id] ?? $cart_item->price;
@@ -755,7 +774,80 @@ class ProductCart extends Component
             ]),
         ]);
 
+        $this->line_total[$product_id] = $calculated['sub_total'];
         $this->recalculateCart();
+    }
+
+    public function updateLineTotal($row_id, $product_id): void
+    {
+        $cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if (!$cart_item) return;
+        $row_id = $cart_item->rowId;
+
+        $requestedLineTotal = $this->line_total[$product_id] ?? $cart_item->options->sub_total;
+
+        if (!is_numeric($requestedLineTotal) || $requestedLineTotal < 0) {
+            $this->line_total[$product_id] = $cart_item->options->sub_total;
+            session()->flash('message', 'Total baris tidak valid.');
+            return;
+        }
+
+        $requestedLineTotal = (float) $requestedLineTotal;
+
+        $qty = max(1, (int) $cart_item->qty);
+        $tax_id = $this->syncProductTaxState($cart_item);
+
+        // 1. Find tax rate
+        $taxRate = 0;
+        if ($tax_id) {
+            $tax = $this->taxes->find($tax_id);
+            if ($tax) {
+                $taxRate = $tax->value / 100;
+            }
+        }
+
+        // 2. Find effective price (per unit, before line tax but after discount)
+        if ($this->is_tax_included) {
+            $effective_price = $requestedLineTotal / $qty;
+        } else {
+            $effective_price = ($requestedLineTotal / $qty) / (1 + $taxRate);
+        }
+
+        // 3. Reverse discount to find base unit price
+        $discount_type = $this->discount_type[$product_id] ?? 'fixed';
+        $discount_input = $this->item_discount[$product_id] ?? 0;
+
+        if ($discount_type === 'percentage') {
+            $pct = min(100, max(0, (float) $discount_input)) / 100;
+            if ($pct >= 1.0) {
+                // 100% or more discount: only allow zero total
+                if ($requestedLineTotal > 0.01) {
+                    $this->line_total[$product_id] = $cart_item->options->sub_total;
+                    session()->flash('message', 'Total baris lebih dari 0 tidak dimungkinkan dengan diskon 100%.');
+                    return;
+                }
+                $base_price = 0;
+            } else {
+                $base_price = $effective_price / (1 - $pct);
+            }
+        } else {
+            $base_price = $effective_price + (float) $discount_input;
+        }
+
+        // Let updatePrice handle the recalculation and saving to cart
+        $this->unit_price[$product_id] = round($base_price, 2);
+
+        $this->updatePrice($row_id, $product_id);
+
+        // Because of rounding, the new subtotal might be slightly different. Update our local state.
+        $updated_cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if ($updated_cart_item) {
+            $this->line_total[$product_id] = $updated_cart_item->options->sub_total;
+        }
     }
 
     public function calculate(array $product, $new_price = null): array
@@ -814,6 +906,10 @@ class ProductCart extends Component
 
     public function recalculateCart()
     {
+        foreach (Cart::instance($this->cart_instance)->content() as $item) {
+            $this->line_total[$item->id] = $item->options->sub_total;
+        }
+
         // Trigger a re-render to update totals
         $this->render();
     }
@@ -825,11 +921,11 @@ class ProductCart extends Component
 
     public function updateTax($row_id, $product_id, $selectedTaxId = null)
     {
-        // Fetch the cart item
-        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
-        if (! $cart_item) {
-            return;
-        }
+        $cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
+            return $item->id == $product_id;
+        })->first();
+        if (!$cart_item) return;
+        $row_id = $cart_item->rowId;
 
         // Normalize the explicit selected value so this handler does not depend on deferred state.
         $tax_id = $this->normalizeTaxId($selectedTaxId);
@@ -859,6 +955,7 @@ class ProductCart extends Component
                     ]),
                 ]);
 
+                $this->line_total[$product_id] = $updated_cart_data['sub_total'];
                 // Trigger cart recalculation
                 $this->recalculateCart();
 
@@ -882,6 +979,7 @@ class ProductCart extends Component
                 ]),
             ]);
 
+            $this->line_total[$product_id] = $updated_cart_data['sub_total'];
             $this->recalculateCart();
         }
     }
@@ -915,6 +1013,7 @@ class ProductCart extends Component
                 ]),
             ]);
 
+            $this->line_total[$product_id] = $calculated['sub_total'];
         }
 
         // Recalculate cart totals

@@ -29,7 +29,15 @@
                 <th class="align-middle text-center">Diskon</th>
                 <th class="align-middle text-center">Pajak</th>
                 <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
-                <th class="align-middle text-center">Sub Total</th>
+                <th class="align-middle text-center" style="width: 15%;">
+                    Total Baris
+                    <span class="d-inline-block"
+                          data-toggle="tooltip"
+                          data-placement="top"
+                          title="Total setelah diskon baris, termasuk pajak, sebelum diskon global dan ongkos kirim.">
+                        <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 0.8rem;"></i>
+                    </span>
+                </th>
                 <th class="align-middle text-center">Aksi</th>
             </tr>
             </thead>
@@ -37,7 +45,11 @@
             <template x-for="(item, index) in cart" :key="item.id">
                 <tr>
                     <td class="align-middle text-break">
-                        <strong x-text="item.product_name"></strong> <br>
+                        @can('products.manage_cross_business_prices')
+                            <a :href="'{{ route('products.cross-business-prices.edit', 'ID_PLACEHOLDER') }}'.replace('ID_PLACEHOLDER', item.product_id)" target="_blank" class="text-primary font-weight-bold" x-text="item.product_name" title="Manage Cross-Business Prices"></a> <br>
+                        @else
+                            <strong x-text="item.product_name"></strong> <br>
+                        @endcan
                         <span class="badge badge-success" x-text="item.product_code"></span>
                     </td>
 
@@ -111,8 +123,18 @@
                         <span x-text="formatCurrency(item.subtotalBeforeTax)"></span>
                     </td>
 
-                    <td class="align-middle text-center">
-                        <span x-text="formatCurrency(item.total)"></span>
+                    <td class="align-middle text-right">
+                        <input
+                            type="text"
+                            class="form-control text-right"
+                            :class="{ 'is-invalid': item.validationError }"
+                            x-model="item.total_display"
+                            @focus="item.total_display = toPlainNumber(item.total)"
+                            @blur="formatLineTotal(index)"
+                            @input="handleLineTotalInput(index, $event.target.value)"
+                            inputmode="decimal"
+                        >
+                        <div x-show="item.validationError" class="invalid-feedback d-block mt-1" x-text="item.validationError"></div>
                     </td>
 
                     <td class="align-middle text-center">
@@ -297,7 +319,9 @@ function productCart() {
                 tax_id: defaultTaxId,
                 taxAmount: 0,
                 subtotalBeforeTax: 0,
-                total: 0
+                total: 0,
+                total_display: this.formatRupiah(0),
+                validationError: null
             };
 
             this.cart.push(newItem);
@@ -324,6 +348,7 @@ function productCart() {
             if (formatDisplay) {
                 item.unit_price_display = this.formatRupiah(item.unit_price);
             }
+            item.total_display = this.formatRupiah(item.total);
 
             this.updateTotals();
             this.emitCart();
@@ -408,6 +433,56 @@ function productCart() {
             this.cart[index].unit_price = numericValue;
             this.cart[index].unit_price_display = this.formatRupiah(numericValue);
             this.updateItem(index, true);
+        },
+
+        handleLineTotalInput(index, rawValue) {
+            this.cart[index].total_display = rawValue;
+        },
+
+        formatLineTotal(index) {
+            const item = this.cart[index];
+            const priorFormattedTotal = this.formatRupiah(item.total);
+
+            // Validate raw input BEFORE parsing
+            const validation = window.purchaseCalculatorHelper.validateLineTotalInput(item.total_display);
+            if (!validation.isValid) {
+                item.total_display = priorFormattedTotal;
+                this.showValidationError(index, validation.error);
+                return;
+            }
+
+            const numericValue = validation.numericValue;
+
+            // Check 100% discount constraint: only allow zero total with 100% discount
+            const taxRate = item.tax_id ? (this.taxes.find(t => t.id == item.tax_id)?.value || 0) / 100 : 0;
+            if (item.discount_type === 'percentage') {
+                const pct = Math.min(100, Math.max(0, item.discount)) / 100;
+                if (pct >= 1.0) {
+                    if (numericValue > 0.01) {
+                        item.total_display = priorFormattedTotal;
+                        this.showValidationError(index, 'Total baris lebih dari 0 tidak dimungkinkan dengan diskon 100%.');
+                        return;
+                    }
+                }
+            }
+
+            // Calculate new unit price from total
+            item.unit_price = window.purchaseCalculatorHelper.calculateUnitPriceFromTotal(
+                numericValue,
+                item.quantity,
+                item.discount,
+                item.discount_type,
+                taxRate,
+                this.isTaxIncluded
+            );
+
+            item.unit_price_display = this.formatRupiah(item.unit_price);
+            item.validationError = null;
+            this.updateItem(index, true);
+        },
+
+        showValidationError(index, message) {
+            this.cart[index].validationError = message;
         },
 
         getProductPurchasePrice(product) {

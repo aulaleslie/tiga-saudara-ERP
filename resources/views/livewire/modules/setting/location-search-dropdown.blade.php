@@ -3,7 +3,7 @@
 <div class="d-flex">
     <div class="flex-grow-1 position-relative" wire:click.away="closeDropdown">
         <button type="button"
-                class="form-control d-flex justify-content-between align-items-center text-start"
+                class="form-control d-flex justify-content-between align-items-center text-start @if($error) is-invalid @endif"
                 wire:click="toggleDropdown">
             <span class="{{ $selectedLabel ? '' : 'text-muted' }} text-truncate me-2" title="{{ $selectedLabel ?? $placeholder }}">
                 {{ $selectedLabel ?? $placeholder }}

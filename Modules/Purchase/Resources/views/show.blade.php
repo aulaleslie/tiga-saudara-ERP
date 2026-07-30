@@ -225,7 +225,14 @@
                         <div class="row mt-4" id="purchase-attachments">
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
-                                <p>{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
+                                @if(isset($globalMode) && $globalMode)
+                                    <p>{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
+                                @else
+                                    <livewire:purchase.purchase-note-editor
+                                        :purchaseId="$purchase->id"
+                                        :key="'purchase-note-' . $purchase->id"
+                                    />
+                                @endif
                             </div>
                         </div>
 

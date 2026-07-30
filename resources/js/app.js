@@ -6,6 +6,7 @@ import './alpine-components/searchable-dropdown-new.js';
 import './alpine-components/modal-manager.js';
 import './alpine-components/form-loader.js';
 import './alpine-components/purchase-calculator.js';
+import './purchaseCalculatorHelper.js';
 
 // Global toast notification helper
 window.showToast = function(message, type = 'success', duration = 2000) {

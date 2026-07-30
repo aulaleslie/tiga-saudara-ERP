@@ -65,12 +65,13 @@
                                     @enderror
                                 </div>
                             </div>
-                            
-                            @if ($errors->has('received'))
-                                <div class="alert alert-danger">
-                                    {{ $errors->first('received') }}
-                                </div>
-                            @endif
+                            <div id="validation-summary" class="alert alert-danger @if(!$errors->any()) d-none @endif">
+                                <ul class="mb-0" id="validation-errors-list">
+                                    @foreach($errors->all() as $error)
+                                        <li>{{ $error }}</li>
+                                    @endforeach
+                                </ul>
+                            </div>
 
                             <!-- Receive Items -->
                             <div class="table-responsive">
@@ -193,7 +194,11 @@
             });
 
             if (totalReceived <= 0) {
-                alert('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                const summary = document.getElementById('validation-summary');
+                const list = document.getElementById('validation-errors-list');
+                list.innerHTML = '<li>Minimal satu produk harus memiliki jumlah diterima lebih dari 0.</li>';
+                summary.classList.remove('d-none');
+                summary.scrollIntoView({ behavior: 'smooth' });
                 return;
             }
 

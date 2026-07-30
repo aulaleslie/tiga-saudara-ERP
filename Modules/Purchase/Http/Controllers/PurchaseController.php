@@ -681,7 +681,9 @@ class PurchaseController extends Controller
                 }
             ],
             'location_id' => 'required|integer|exists:locations,id',
-        ], [], [
+        ], [
+            'location_id.required' => 'Lokasi wajib dipilih.',
+        ], [
             'location_id' => 'Lokasi',
             'external_delivery_number' => 'Nomor Surat Jalan Supplier'
         ]);

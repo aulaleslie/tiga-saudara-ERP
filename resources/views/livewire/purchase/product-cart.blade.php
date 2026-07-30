@@ -29,7 +29,15 @@
                     <th class="align-middle text-center" style="width: 18%;">Pajak</th>
                     <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
                     @endif
-                    <th class="align-middle text-center">Sub Total</th>
+                    <th class="align-middle text-center" style="width: 15%;">
+                        Total Baris
+                        <span class="d-inline-block"
+                              data-toggle="tooltip"
+                              data-placement="top"
+                              title="Total setelah diskon baris, termasuk pajak, sebelum diskon global dan ongkos kirim.">
+                            <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 0.8rem;"></i>
+                        </span>
+                    </th>
                     <th class="align-middle text-center">Aksi</th>
                 </tr>
                 </thead>
@@ -38,7 +46,13 @@
                     @foreach($cart_items as $cart_item)
                         <tr>
                             <td class="align-middle">
-                                <strong>{{ $cart_item->name }}</strong> <br>
+                                @can('products.manage_cross_business_prices')
+                                    <a href="{{ route('products.cross-business-prices.edit', $cart_item->id) }}" target="_blank" class="text-primary font-weight-bold" title="Manage Cross-Business Prices">
+                                        {{ $cart_item->name }}
+                                    </a> <br>
+                                @else
+                                    <strong>{{ $cart_item->name }}</strong> <br>
+                                @endcan
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
 
                                 <!-- Tooltip Container -->
@@ -165,8 +179,20 @@
                             </td>
                             @endif
 
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->sub_total) }}
+                            <td x-data="{ open: false }" class="align-middle text-right">
+                                <span x-show="!open"
+                                      @click="open = true" style="cursor: pointer;">{{ format_currency($cart_item->options->sub_total) }}</span>
+
+                                <div x-show="open" @click.away="open = false">
+                                    <input
+                                        wire:model.defer="line_total.{{ $cart_item->id }}"
+                                        style="min-width: 60px; max-width: 110px;"
+                                        type="text"
+                                        class="form-control text-right"
+                                        @keydown.enter="open = false"
+                                        wire:blur="updateLineTotal('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
+                                    >
+                                </div>
                             </td>
 
                             <td class="align-middle text-center">
