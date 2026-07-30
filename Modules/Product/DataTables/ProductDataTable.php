@@ -54,9 +54,12 @@ class ProductDataTable extends DataTable
             ->addColumn('action', function ($data) {
                 return view('product::products.partials.actions', compact('data'));
             })
-            ->editColumn('product_code', function ($data) {
+            ->editColumn('product_name', function ($data) {
                 $link = route('products.show', $data->id);
-                return '<a href="' . $link . '" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
+                return '<div>'
+                    . '<div class="font-weight-bold">' . e($data->product_name) . '</div>'
+                    . '<a href="' . $link . '" class="text-primary" style="text-decoration: underline; font-size: 0.85em;">' . e($data->product_code) . '</a>'
+                    . '</div>';
             })
             ->addColumn('total_stock', function ($data) {
                 return $this->renderStockColumn($data, 'total_stock');
@@ -98,7 +101,7 @@ class ProductDataTable extends DataTable
             ->addColumn('brand', function ($data) {
                 return optional($data->brand)->name ?? 'N/A';
             })
-            ->rawColumns(['product_image', 'product_code', 'total_stock', 'good_stock', 'broken_stock', 'on_order_stock', 'in_return_process_stock']);
+            ->rawColumns(['product_image', 'product_name', 'total_stock', 'good_stock', 'broken_stock', 'on_order_stock', 'in_return_process_stock']);
     }
 
     protected function renderStockColumn($data, $key, $class = '')
@@ -217,12 +220,8 @@ class ProductDataTable extends DataTable
                 ->title('Gambar')
                 ->className('text-center align-middle'),
 
-            Column::make('product_code')
-                ->title('Kode Produk')
-                ->className('text-center align-middle'),
-
             Column::make('product_name')
-                ->title('Nama Produk')
+                ->title('Produk')
                 ->className('text-center align-middle'),
 
             Column::make('category')
