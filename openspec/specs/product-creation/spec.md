@@ -3,9 +3,7 @@
 ## Purpose
 
 This specification defines the requirements for the product creation workflow, ensuring that all user-provided thresholds and settings are correctly persisted to the database.
-
 ## Requirements
-
 ### Requirement: Low stock alert threshold SHALL be preserved during creation
 
 The system SHALL preserve and persist the "Low Quantity Alert" (stock threshold) value provided by the user during the initial product creation process.
@@ -44,4 +42,18 @@ When a user opens the shared product quick-add modal from a purchase page, the m
 - **AND** the user later disables `Saya Jual Barang Ini`
 - **THEN** the sale-pricing controls SHALL return to their inactive state
 - **AND** the modal SHALL NOT present the product as currently configured for sale
+
+### Requirement: Product price visibility in DataTable SHALL use registered permission
+
+The permission gate controlling price column visibility in the product DataTable SHALL use the centralized permission `products.view_prices` registered in `app/Config/Permissions.php`, replacing the unregistered `view_access_table_product` gate.
+
+#### Scenario: Permission is registered in centralized config
+- **WHEN** the permission seeder runs
+- **THEN** the permission `products.view_prices` SHALL exist in the `permissions` table
+- **AND** it SHALL be assigned to the Admin role automatically
+
+#### Scenario: Old orphan permission is no longer referenced
+- **WHEN** the product DataTable checks whether to show price columns
+- **THEN** it SHALL use `Gate::allows('products.view_prices')`
+- **AND** it SHALL NOT reference `view_access_table_product`
 
