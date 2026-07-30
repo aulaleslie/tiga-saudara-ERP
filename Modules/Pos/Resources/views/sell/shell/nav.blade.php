@@ -17,10 +17,10 @@
                                         <button type="button" id="pos-shortcut-reprint" class="dropdown-item" disabled>Reprint</button>
 
                                         @can('pos.reports.access')
-                                            <a href="{{ route('pos.reports.index') }}" target="_blank" class="dropdown-item">Lap. Sales</a>
+                                            <a href="{{ route('pos.reports.index') }}" class="dropdown-item">Lap. Sales</a>
                                         @endcan
                                         @can('saleReturns.access')
-                                            <a href="{{ route('sale-returns.index') }}" target="_blank" class="dropdown-item">Retur</a>
+                                            <a href="{{ route('sale-returns.index') }}" class="dropdown-item">Retur</a>
                                         @endcan
 
                                         @if(auth()->user()->canAny(['pos.sessions.view', 'pos.reconciliation.access', 'pos.terminals.access']))
@@ -28,19 +28,19 @@
                                         @endif
 
                                         @can('pos.sessions.view')
-                                            <a class="dropdown-item" href="{{ route('pos.sessions.index') }}" target="_blank">Sesi POS</a>
+                                            <a class="dropdown-item" href="{{ route('pos.sessions.index') }}">Sesi POS</a>
                                         @endcan
                                         @if($posTransactionsEnabled && auth()->user()->can('pos.transactions.view'))
-                                            <a class="dropdown-item" href="{{ route('pos.transactions.index') }}" target="_blank">Transaksi POS</a>
+                                            <a class="dropdown-item" href="{{ route('pos.transactions.index') }}">Transaksi POS</a>
                                         @endif
                                         @can('pos.reconciliation.access')
-                                            <a class="dropdown-item" href="{{ route('pos.reconciliation.index') }}" target="_blank">Rekonsiliasi</a>
+                                            <a class="dropdown-item" href="{{ route('pos.reconciliation.index') }}">Rekonsiliasi</a>
                                         @endcan
                                         @can('pos.terminals.access')
-                                            <a class="dropdown-item" href="{{ route('pos.terminals.index') }}" target="_blank">Kelola Terminal</a>
+                                            <a class="dropdown-item" href="{{ route('pos.terminals.index') }}">Kelola Terminal</a>
                                         @endcan
                                         @can('pos.supervisor.approval')
-                                            <a class="dropdown-item" href="{{ route('pos.supervisor.approval-requests.index') }}" target="_blank">Antrian Persetujuan</a>
+                                            <a class="dropdown-item" href="{{ route('pos.supervisor.approval-requests.index') }}">Antrian Persetujuan</a>
                                         @endcan
                                         <div class="dropdown-divider"></div>
                                         @if(auth()->user()->canAny(['pos.sessions.close', 'pos.sessions.close-admin']))
