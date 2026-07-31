@@ -110,6 +110,13 @@ php artisan product:export-barcodes
 # Export to a specific CSV file and overwrite it without confirmation.
 php artisan product:export-barcodes --path=/path/to/barcodes.csv --force
 
+# Export the CV TIGA NUSA COMPUTER product price list to Excel.
+# The default output is storage/app/product_prices_tiga_nusa_export.xlsx.
+php artisan product:export-tiga-nusa-prices
+
+# Export to a specific Excel file and overwrite it without confirmation.
+php artisan product:export-tiga-nusa-prices --path=/path/to/tiga-nusa-prices.xlsx --force
+
 # Import requires the CSV path. Run a dry-run before applying changes.
 php artisan product:import-barcodes storage/app/product_barcodes_export.csv --dry-run
 php artisan product:import-barcodes storage/app/product_barcodes_export.csv
@@ -118,6 +125,10 @@ php artisan product:import-barcodes storage/app/product_barcodes_export.csv
 ### Barcode Import and Export
 
 Barcode CSV files must contain `product_name,barcode`. Import matches an exact product name and skips missing or ambiguous products, products that already have a barcode, invalid barcodes, and barcodes already in use.
+
+### CV TIGA NUSA COMPUTER Product Price Export
+
+`product:export-tiga-nusa-prices` creates an Excel price list with product name, sale price, Tier 1 price, and Tier 2 price. It includes every product ordered alphabetically by name; products without a CV TIGA NUSA COMPUTER price row have blank price cells. The command resolves CV TIGA NUSA COMPUTER by its exact company name and stops without writing a file if the setting is missing or duplicated.
 
 ### Sales Cost Snapshot Backfill
 

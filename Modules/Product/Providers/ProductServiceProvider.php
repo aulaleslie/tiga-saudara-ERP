@@ -36,6 +36,7 @@ class ProductServiceProvider extends ServiceProvider
             \Modules\Product\Console\PreflightBarcodesCommand::class,
             \Modules\Product\Console\ExportBarcodesCommand::class,
             \Modules\Product\Console\ImportBarcodesCommand::class,
+            \Modules\Product\Console\ExportTigaNusaPricesCommand::class,
         ]);
     }
 
