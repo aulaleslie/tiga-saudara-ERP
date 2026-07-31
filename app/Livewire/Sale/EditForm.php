@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Sale;
 
+use App\Services\EffectiveDocumentBusinessResolver;
 use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -14,6 +15,8 @@ use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Services\SaleService;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 
 class EditForm extends Component
 {
@@ -31,6 +34,7 @@ class EditForm extends Component
     public bool $is_tax_included = false;
     public array $tags = [];
     public bool $isPkp = false;
+    public ?int $selectedSettingId = null;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
@@ -41,6 +45,7 @@ class EditForm extends Component
         'tagsUpdated'     => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
         'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
+        'business-selector-changed' => 'handleBusinessSelectorChanged',
     ];
 
     public function mount(Sale $sale)
@@ -60,6 +65,7 @@ class EditForm extends Component
         }
 
         $this->sale          = $sale;
+        $this->selectedSettingId = $sale->setting_id;
         $this->isPkp         = $this->isPkpEnabled();
         $this->reference     = $sale->reference;
         $this->customerId    = $sale->customer_id;
@@ -341,6 +347,57 @@ class EditForm extends Component
         $this->tags = $tags;
     }
 
+    public function handleBusinessSelectorChanged(?int $settingId): void
+    {
+        if ($settingId === null || $settingId === $this->sale->setting_id) {
+            $this->selectedSettingId = $this->sale->setting_id;
+        } else {
+            // Can only change business if draft
+            if ($this->sale->status !== Sale::STATUS_DRAFTED) {
+                return;
+            }
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        if ($this->sale->status !== Sale::STATUS_DRAFTED && $this->selectedSettingId !== $this->sale->setting_id) {
+            // Revert if trying to change business on non-draft
+            $this->selectedSettingId = $this->sale->setting_id;
+            return;
+        }
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    private function rehydrateTaxContext(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->isPkp = $this->isPkpEnabled();
+
+        $cart = Cart::instance('sale');
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options;
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
+    }
+
     public function handleTaxIncludedUpdated(bool $included): void
     {
         $this->is_tax_included = $included;
@@ -362,6 +419,19 @@ class EditForm extends Component
 
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'customerId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                ]);
+            }
+
+            $tax = Tax::query()->find($taxId);
+
+            if (!$tax) {
+                $this->dispatch('notify', [
+                    'type'    => 'error',
+                    'message' => "Pajak untuk produk '{$item->name}' tidak valid."
+                ]);
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'cart' => "Pajak untuk produk '{$item->name}' tidak valid.",
                 ]);
             }
         }
@@ -396,6 +466,8 @@ class EditForm extends Component
             $this->applyPaymentTermSelection($paymentTermId);
         }
 
+        $failureStage = 'before_validation';
+
         try {
             Log::info('Sale update validating', [
                 'sale_id' => $this->sale->id,
@@ -405,6 +477,18 @@ class EditForm extends Component
                 'dueDate' => $this->dueDate,
             ]);
 
+            $failureStage = 'authorization_check';
+            $resolvedBusiness = app(EffectiveDocumentBusinessResolver::class)
+                ->resolve($this->selectedSettingId);
+            $businessChanged = $resolvedBusiness['setting_id'] !== $this->sale->setting_id;
+
+            if ($businessChanged && $this->sale->status !== Sale::STATUS_DRAFTED) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'setting_id' => 'Bisnis hanya dapat diubah untuk dokumen yang masih dalam status draft.',
+                ]);
+            }
+
+            $failureStage = 'validation';
             $this->validate([
                 'customerId'    => 'required|exists:customers,id',
                 'date'          => 'required|date',
@@ -421,6 +505,7 @@ class EditForm extends Component
                 'tax_ref_no.max'         => 'Nomor Faktur Pajak maksimal 255 karakter.',
             ]);
 
+            $failureStage = 'cart_check';
             if (Cart::instance('sale')->count() === 0) {
                 Log::warning('Sale update aborted: empty cart', ['sale_id' => $this->sale->id]);
                 $this->dispatch('notify', [
@@ -430,46 +515,68 @@ class EditForm extends Component
                 return;
             }
 
-            try {
-                Log::info('Sale update persisting', [
-                    'sale_id' => $this->sale->id,
-                    'cart_count' => Cart::instance('sale')->count(),
-                    'customerId' => $this->customerId,
-                    'paymentTermId' => $this->paymentTermId,
-                ]);
+            $failureStage = 'ensure_cart_taxes_for_pkp';
+            $cartItems = Cart::instance('sale')->content();
+            $this->ensureCartTaxesForPkp($cartItems);
 
-                $cartItems = Cart::instance('sale')->content();
-                $this->ensureCartTaxesForPkp($cartItems);
-                $data = [
-                    'date' => $this->date,
-                    'due_date' => $this->dueDate,
-                    'reference' => $this->reference,
-                    'customer_id' => $this->customerId,
-                    'tax_id' => null,
-                    'tax_percentage' => 0,
-                    'discount_percentage' => 0,
-                    'discount_amount' => 0,
-                    'shipping_amount' => 0,
-                    'paid_amount' => 0,
-                    'status' => $this->sale->status,
-                    'payment_term_id' => $this->paymentTermId,
-                    'payment_method' => $this->sale->payment_method ?: 'Cash',
-                    'note' => $this->note,
-                    'tax_ref_no' => $this->tax_ref_no ?: null,
-                    'is_tax_included' => (bool) $this->is_tax_included,
-                    'tags' => $this->tags,
-                ];
+            $failureStage = 'calculating_totals';
+            $isPkp = $resolvedBusiness['is_pkp'];
+            $setting_id = $resolvedBusiness['setting_id'];
 
-                app(SaleService::class)->updateSale($this->sale, $data, $cartItems);
+            $data = [
+                'date' => $this->date,
+                'due_date' => $this->dueDate,
+                'customer_id' => $this->customerId,
+                'tax_id' => null,
+                'tax_percentage' => 0,
+                'discount_percentage' => 0,
+                'discount_amount' => 0,
+                'shipping_amount' => 0,
+                'paid_amount' => $this->sale->paid_amount,
+                'status' => $this->sale->status,
+                'payment_term_id' => $this->paymentTermId,
+                'payment_method' => $this->sale->payment_method ?: 'Cash',
+                'note' => $this->note,
+                'tax_ref_no' => $isPkp ? ($this->tax_ref_no ?: null) : null,
+                'is_tax_included' => $isPkp ? (bool) $this->is_tax_included : false,
+                'tags' => $this->tags,
+            ];
 
-                Cart::instance('sale')->destroy();
-                session()->flash('success', 'Penjualan Diperbaharui!');
-                Log::info('Sale update completed', ['sale_id' => $this->sale->id]);
-                return redirect()->route('sales.index');
-            } catch (Exception $e) {
-                Log::error('Livewire Sale Update Failed: ' . $e->getMessage());
-                session()->flash('error', 'Gagal memperbaharui penjualan. Silakan coba lagi.');
+            // If business changed, updateSale will handle atomic reference allocation and move
+            if ($businessChanged) {
+                $data['setting_id'] = $setting_id;
             }
+
+            $failureStage = 'sale_update';
+            $updatedSale = app(SaleService::class)->updateSale($this->sale, $data, $cartItems);
+            $this->reference = $updatedSale->reference;
+
+            $failureStage = 'commit';
+            Cart::instance('sale')->destroy();
+            $targetBusiness = Setting::find($setting_id);
+            $targetBusinessName = $targetBusiness?->company_name ?? 'Unknown';
+            $message = "Penjualan '$this->reference'";
+            if ($businessChanged) {
+                $message .= " dipindahkan ke $targetBusinessName";
+            }
+            $message .= " berhasil diperbarui!";
+            session()->flash('success', $message);
+            Log::info('Sale update completed', ['sale_id' => $this->sale->id, 'reference' => $this->reference]);
+            return redirect()->route('sales.index');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Sale update validation failed', [
+                'failure_stage' => $failureStage,
+                'sale_id' => $this->sale->id,
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
+        } catch (Exception $e) {
+            Log::error('Livewire Sale Update Failed: ' . $e->getMessage(), [
+                'failure_stage' => $failureStage,
+                'sale_id' => $this->sale->id,
+                'exception' => $e,
+            ]);
+            session()->flash('error', 'Gagal memperbaharui penjualan. Silakan coba lagi.');
         } finally {
             $this->dispatch('sale:submit-finish');
         }
@@ -477,12 +584,12 @@ class EditForm extends Component
 
     private function isPkpEnabled(): bool
     {
-        $settingId = (int) session('setting_id');
+        $settingId = $this->selectedSettingId ?? (int) session('setting_id');
         if ($settingId <= 0) {
             return false;
         }
 
-        return (bool) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+        return (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
     }
 
     private function resolveSalePricingMetadata(int $productId, float $fallbackPrice): array

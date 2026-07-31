@@ -15,7 +15,7 @@
         <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:sale.search-product/>
+                <livewire:sale.search-product wire:key="sale-search-product" />
             </div>
         </div>
 
@@ -23,7 +23,7 @@
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <livewire:sale.create-form :idempotencyToken="$idempotencyToken" />
+                    <livewire:sale.create-form :idempotencyToken="$idempotencyToken" wire:key="sale-create-form" />
                 </div>
             </div>
         </div>

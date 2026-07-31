@@ -22,6 +22,6 @@ None.
 
 ## Impact
 
-- Affects `app/Config/Permissions.php`, the four Purchase/Sale Livewire create/edit forms and Blade views, their product/tax/location child components, and Purchase/Sale document-number generation.
+- Affects `app/Config/Permissions.php`, the four Purchase/Sale Livewire create/edit forms and Blade views, their product/tax child components, and Purchase/Sale document-number generation.
 - Requires server-side target-business authorization using the user's accessible settings, including Super Admin access.
 - Requires focused Livewire and feature coverage for permissions, PKP/non-PKP changes, draft-only reassignment, numbering, and unchanged active-business redirects.

@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Services\EffectiveDocumentBusinessResolver;
 use App\Services\IdempotencyService;
+use App\Services\DocumentReferenceService;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -41,6 +43,7 @@ class CreateForm extends Component
     public $is_tax_included = false;
     public string $idempotencyToken;
     public bool $isPkp = false;
+    public ?int $selectedSettingId = null;
 
     public bool $dueDateIsManual = false;
     public string $global_discount_type = 'percentage';
@@ -52,6 +55,7 @@ class CreateForm extends Component
     public function mount(string $idempotencyToken, ?int $duplicateId = null): void
     {
         $this->idempotencyToken = $idempotencyToken;
+        $this->selectedSettingId = (int) session('setting_id');
         $this->isPkp = $this->isPkpEnabled();
         // New PKP purchases default to tax-included; duplicates keep the source purchase value.
         $this->is_tax_included = $this->isPkp && $duplicateId === null;
@@ -74,6 +78,50 @@ class CreateForm extends Component
     public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
+    }
+
+    #[On('business-selector-changed')]
+    public function handleBusinessSelectorChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        // Rehydrate tax context for the new business
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    private function rehydrateTaxContext(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->isPkp = $this->isPkpEnabled();
+
+        $cart = Cart::instance('purchase');
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options;
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
     }
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
@@ -360,7 +408,7 @@ class CreateForm extends Component
 
     private function isPkpEnabled(): bool
     {
-        $settingId = (int) session('setting_id');
+        $settingId = $this->selectedSettingId ?? (int) session('setting_id');
         if ($settingId <= 0) {
             return false;
         }
@@ -374,7 +422,7 @@ class CreateForm extends Component
             return;
         }
 
-        // Check if any taxes exist in the system
+        // Check if any taxes exist globally
         if (Tax::query()->count() === 0) {
             throw ValidationException::withMessages([
                 'cart' => "Tidak ada data pajak tersedia. Bisnis PKP wajib mengatur setidaknya satu data pajak.",
@@ -386,6 +434,14 @@ class CreateForm extends Component
             if (empty($taxId)) {
                 throw ValidationException::withMessages([
                     'cart' => "Produk '{$item->name}' wajib memilih pajak karena bisnis PKP.",
+                ]);
+            }
+
+            $tax = Tax::query()->find($taxId);
+
+            if (!$tax) {
+                throw ValidationException::withMessages([
+                    'cart' => "Pajak untuk produk '{$item->name}' tidak valid.",
                 ]);
             }
         }
@@ -777,11 +833,16 @@ class CreateForm extends Component
                 'hidden_payment_term_arg' => $rawPaymentTermArg,
             ]);
 
+            $failureStage = 'authorization_check';
+            // Resolve effective document business with authorization early to catch permission errors before validation
+            $resolvedBusiness = app(EffectiveDocumentBusinessResolver::class)
+                ->resolve($this->selectedSettingId);
+
             $failureStage = 'validation';
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
-                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . session('setting_id'),
-                'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . session('setting_id'),
+                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . $resolvedBusiness['setting_id'],
+                'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . $resolvedBusiness['setting_id'],
                 'date' => 'required|date',
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
@@ -826,7 +887,8 @@ class CreateForm extends Component
             $transactionStarted = true;
             $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
 
-            $setting_id = session('setting_id');
+            // Use the already-resolved business from authorization check
+            $setting_id = $resolvedBusiness['setting_id'];
 
             $failureStage = 'calculating_totals';
             $cartItems = $cart->content();
@@ -845,7 +907,7 @@ class CreateForm extends Component
             $header = $normalizedPurchase['header'];
 
             $failureStage = 'purchase_create';
-            $purchase = Purchase::create([
+            $purchase = DocumentReferenceService::createPurchaseWithReference([
                 'date' => $this->date,
                 'due_date' => $this->due_date,
                 'supplier_id' => $this->supplier_id,
@@ -924,7 +986,14 @@ class CreateForm extends Component
             ]);
             $cart->destroy();
 
-            session()->flash('success', 'Pembelian Ditambahkan!');
+            $successMessage = 'Pembelian Ditambahkan!';
+            if ((int) $setting_id !== (int) session('setting_id')) {
+                $targetBusiness = Setting::find($setting_id);
+                if ($targetBusiness) {
+                    $successMessage = "Pembelian berhasil dibuat untuk {$targetBusiness->company_name} dengan referensi {$purchase->reference}";
+                }
+            }
+            session()->flash('success', $successMessage);
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {

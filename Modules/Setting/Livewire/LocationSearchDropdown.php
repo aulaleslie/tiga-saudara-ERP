@@ -19,6 +19,7 @@ class LocationSearchDropdown extends Component
     #[Reactive]
     public ?string $error = null;
     public int $zIndex = 1050;
+    public ?int $selectedSettingId = null;
 
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
@@ -40,7 +41,8 @@ class LocationSearchDropdown extends Component
         ?string $error = null,
         ?string $dispatchTo = null,
         ?string $formName = null,
-        int $zIndex = 1050
+        int $zIndex = 1050,
+        ?int $selectedSettingId = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -49,6 +51,7 @@ class LocationSearchDropdown extends Component
         $this->dispatchTo = $dispatchTo;
         $this->formName = $formName;
         $this->zIndex = $zIndex;
+        $this->selectedSettingId = $selectedSettingId;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
@@ -133,7 +136,7 @@ class LocationSearchDropdown extends Component
             }
         }
 
-        $settingId = session('setting_id');
+        $settingId = $this->selectedSettingId ?? session('setting_id');
         $location = Location::query()
             ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
             ->find($id);
@@ -167,7 +170,7 @@ class LocationSearchDropdown extends Component
      */
     private function fetchLocations(): array
     {
-        $settingId = session('setting_id');
+        $settingId = $this->selectedSettingId ?? session('setting_id');
 
         return Location::query()
             ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))

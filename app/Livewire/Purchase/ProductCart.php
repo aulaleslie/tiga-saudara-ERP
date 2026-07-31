@@ -17,7 +17,7 @@ use Modules\Setting\Entities\Unit;
 
 class ProductCart extends Component
 {
-    public $listeners = ['productSelected', 'discountModalRefresh', 'taxCreated' => 'handleTaxCreated'];
+    public $listeners = ['productSelected', 'discountModalRefresh', 'taxCreated' => 'handleTaxCreated', 'document-business-context-changed' => 'handleBusinessContextChanged'];
 
     public $cart_instance;
     public $global_discount;
@@ -36,6 +36,7 @@ class ProductCart extends Component
 
     public $taxes; // Collection of available taxes
     public $setting_id; // Current setting ID
+    public ?int $selectedSettingId = null; // Selected business setting ID (from parent)
     public $product_tax = []; // Array to store selected tax IDs for each product
 
     public $is_tax_included = true;
@@ -60,7 +61,7 @@ class ProductCart extends Component
         Log::info($message, $context);
     }
 
-    public function mount($cartInstance, $data = null): void
+    public function mount($cartInstance, $data = null, ?int $selectedSettingId = null): void
     {
         $this->cart_instance = $cartInstance;
         $cart_items = Cart::instance($this->cart_instance)->content();
@@ -69,7 +70,8 @@ class ProductCart extends Component
             'cart_items' => $cart_items,
         ]);
         $this->cart_instance = $cartInstance;
-        $this->setting_id = session('setting_id');
+        $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->setting_id = $this->selectedSettingId;
         $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->setting_id)->value('is_pkp') ?? false);
         $this->taxes = $this->loadTaxes();
         $this->perfLog('validated', [
@@ -218,6 +220,59 @@ class ProductCart extends Component
             $cartItem = Cart::instance($this->cart_instance)->get($product_id);
             if ($cartItem) {
                 $this->updateTax($cartItem->rowId, $cartItem->id, $id);
+            }
+        }
+    }
+
+    public function handleBusinessContextChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    private function rehydrateTaxContextForBusinessChange(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->setting_id = $this->selectedSettingId;
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->setting_id)->value('is_pkp') ?? false);
+        $this->taxes = $this->loadTaxes();
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options->toArray();
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $this->product_tax[$item->id] = null;
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
+        // If business changed from non-PKP to PKP, reload taxes and leave tax selection empty unless default exists
+        elseif (!$previousPkpState && $this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options->toArray();
+                // Leave tax empty initially, will be required before save
+                $newOptions['product_tax'] = null;
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $this->product_tax[$item->id] = null;
+                $cart->update($item->rowId, ['options' => $newOptions]);
             }
         }
     }

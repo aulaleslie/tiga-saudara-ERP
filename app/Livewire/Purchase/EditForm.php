@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Livewire\Purchase;
+use App\Services\EffectiveDocumentBusinessResolver;
+use App\Services\DocumentReferenceService;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -49,6 +51,7 @@ class EditForm extends Component
     public string $global_discount_type = 'percentage';
     public $is_tax_included = false;
     public bool $isPkp = false;
+    public ?int $selectedSettingId = null;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
@@ -57,6 +60,7 @@ class EditForm extends Component
     {
         $this->purchaseId = $purchaseId;
         $this->purchase = Purchase::with('purchaseDetails')->findOrFail($purchaseId);
+        $this->selectedSettingId = $this->purchase->setting_id;
         $this->isPkp = $this->isPkpEnabled();
 
         // Rule: Partially or Fully Received -> Hard Block
@@ -114,6 +118,58 @@ class EditForm extends Component
         $this->tags = $tags;
     }
 
+    #[\Livewire\Attributes\On('business-selector-changed')]
+    public function handleBusinessSelectorChanged(?int $settingId): void
+    {
+        if ($settingId === null || $settingId === $this->purchase->setting_id) {
+            $this->selectedSettingId = $this->purchase->setting_id;
+        } else {
+            // Can only change business if draft
+            if ($this->purchase->status !== Purchase::STATUS_DRAFTED) {
+                return;
+            }
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        if ($this->purchase->status !== Purchase::STATUS_DRAFTED && $this->selectedSettingId !== $this->purchase->setting_id) {
+            // Revert if trying to change business on non-draft
+            $this->selectedSettingId = $this->purchase->setting_id;
+            return;
+        }
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    private function rehydrateTaxContext(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->isPkp = $this->isPkpEnabled();
+
+        $cart = Cart::instance('purchase');
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options;
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
+    }
+
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
         $this->applyPaymentTermSelection($paymentTermId, $syncDropdown);
@@ -131,7 +187,7 @@ class EditForm extends Component
 
     private function isPkpEnabled(): bool
     {
-        $settingId = (int) session('setting_id');
+        $settingId = $this->selectedSettingId ?? (int) session('setting_id');
         if ($settingId <= 0) {
             return false;
         }
@@ -228,6 +284,14 @@ class EditForm extends Component
             if (empty($taxId)) {
                 throw ValidationException::withMessages([
                     'cart' => "Produk '{$item->name}' wajib memilih pajak karena bisnis PKP.",
+                ]);
+            }
+
+            $tax = Tax::query()->find($taxId);
+
+            if (!$tax) {
+                throw ValidationException::withMessages([
+                    'cart' => "Pajak untuk produk '{$item->name}' tidak valid.",
                 ]);
             }
         }
@@ -531,11 +595,24 @@ class EditForm extends Component
                 'hidden_payment_term_arg' => $rawPaymentTermArg,
             ]);
 
+            $failureStage = 'authorization_check';
+            // Resolve effective document business with authorization
+            $resolvedBusiness = app(EffectiveDocumentBusinessResolver::class)
+                ->resolve($this->selectedSettingId);
+            $businessChanged = $resolvedBusiness['setting_id'] !== $this->purchase->setting_id;
+
+            // Prevent business change if document is not in draft status
+            if ($businessChanged && $this->purchase->status !== Purchase::STATUS_DRAFTED) {
+                throw ValidationException::withMessages([
+                    'setting_id' => 'Bisnis hanya dapat diubah untuk dokumen yang masih dalam status draft.',
+                ]);
+            }
+
             $failureStage = 'validation';
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
-                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
-                'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
+                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->purchaseId . ',id,setting_id,' . $resolvedBusiness['setting_id'],
+                'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,' . $this->purchaseId . ',id,setting_id,' . $resolvedBusiness['setting_id'],
                 'date' => 'required|date',
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
@@ -593,7 +670,7 @@ class EditForm extends Component
             $taxRefNo = $this->isPkp ? ($this->tax_ref_no ?: null) : null;
 
             $failureStage = 'purchase_update';
-            $purchase->update([
+            $updateData = [
                 'date' => $this->date,
                 'due_date' => $this->due_date,
                 'discount_percentage' => $header['discount_percentage'],
@@ -610,7 +687,22 @@ class EditForm extends Component
                 'tax_ref_no' => $taxRefNo,
                 'note' => $this->note,
                 'payment_term_id' => $this->payment_term,
-            ]);
+            ];
+
+            // If business changed, use atomic service to move and regenerate reference
+            if ($businessChanged) {
+                // Perform atomic move before other updates (move will update setting_id and reference)
+                DocumentReferenceService::movePurchaseToSetting(
+                    $purchase,
+                    $resolvedBusiness['setting_id'],
+                    Carbon::parse($this->date)
+                );
+                $this->reference = $purchase->reference;
+                // Remove setting_id and reference from updateData since move already handled them
+                unset($updateData['setting_id'], $updateData['reference']);
+            }
+
+            $purchase->update($updateData);
 
             $this->purchaseSubmitInfo('purchase.submit.purchase_updated', [
                 'purchase_id' => $purchase->id,
@@ -675,7 +767,14 @@ class EditForm extends Component
             ]);
             Cart::instance('purchase')->destroy();
 
-            session()->flash('success', 'Pembelian berhasil diperbarui.');
+            $successMessage = 'Pembelian berhasil diperbarui.';
+            if ((int) $this->purchase->setting_id !== (int) session('setting_id')) {
+                $targetBusiness = Setting::find($this->purchase->setting_id);
+                if ($targetBusiness) {
+                    $successMessage = "Pembelian untuk {$targetBusiness->company_name} dengan referensi {$this->purchase->reference} berhasil diperbarui.";
+                }
+            }
+            session()->flash('success', $successMessage);
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {

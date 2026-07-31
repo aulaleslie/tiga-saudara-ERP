@@ -1,6 +1,6 @@
 ## Context
 
-Purchase and Sale creation currently saves `session('setting_id')`, and their Livewire forms and nested product-cart, product-search, tax, and location controls independently read that same active setting. PKP status is already derived from the active setting: non-PKP forms suppress tax UI and remove tax data, while PKP forms expose tax UI and reject cart lines without tax selections.
+Purchase and Sale creation currently saves `session('setting_id')`, and their Livewire forms and nested product-cart, product-search, and tax controls independently read that same active setting. PKP status is already derived from the active setting: non-PKP forms suppress tax UI and remove tax data, while PKP forms expose tax UI and reject cart lines without tax selections.
 
 The active setting must remain unchanged while a user with explicit authority prepares a Purchase or Sale for another accessible business. Existing document lists remain active-setting scoped after save. A business move is permitted only while the document is drafted; rejected documents that have returned to the drafted state follow the same rule.
 
@@ -33,7 +33,7 @@ This separates permission to override document ownership from ordinary access to
 
 Each of the four Livewire forms maintains an authoritative `selectedSettingId`. On mount it starts at the active business for continuity. Authorized forms render a searchable single-select selector and validate it as required; non-authorized forms retain the active setting as the only valid effective value.
 
-The selected ID is passed into/reloaded by product search, cart, tax, and location child controls. Persistence, PKP lookup, document uniqueness validation, and reference generation use the resolved effective setting. This avoids unrelated navigation or Livewire components observing a temporary session change.
+The selected ID is passed into/reloaded by product search, cart, and tax child controls. Persistence, PKP lookup, document uniqueness validation, and reference generation use the resolved effective setting. This avoids unrelated navigation or Livewire components observing a temporary session change.
 
 ### D3: Rehydrate taxation only on business change
 
@@ -58,7 +58,7 @@ Use a small shared support/service concern (or equivalent existing pattern) to n
 
 ## Risks / Trade-offs
 
-- [A target change leaves stale foreign-business tax IDs in the cart] → Clear/reload tax-specific state on change and validate each PKP tax ID belongs to the target business before normalization.
+- [A target change leaves stale tax state in the cart] → Clear/reload tax-specific state on change based on target PKP status; validate selected tax IDs exist globally.
 - [Nested controls keep their original active-setting data] → Include selected-setting identity in child-component keys/props and refresh their data when it changes.
 - [A privileged user forges a setting ID] → Intersect submitted IDs with accessible settings and check the override permission in server-side save logic.
 - [Renumbering conflicts under concurrent saves] → Generate and validate the new target-business reference inside the document transaction using the existing numbering/uniqueness mechanism.
@@ -68,8 +68,8 @@ Use a small shared support/service concern (or equivalent existing pattern) to n
 ## Migration Plan
 
 1. Deploy the permission definition with no existing role grants; behavior remains unchanged until administrators assign it.
-2. Deploy form, child-context, persistence, reference, and validation changes together.
-3. Roll back application code if needed; no schema migration or historical data rewrite is required. Documents already moved retain their target setting and newly assigned reference.
+2. Deploy form, child-context, persistence, reference, and validation changes together; no schema changes required.
+3. Roll back application code if needed. Documents already moved retain their target setting and newly assigned reference.
 
 ## Open Questions
 

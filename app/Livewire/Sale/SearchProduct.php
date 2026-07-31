@@ -14,15 +14,18 @@ class SearchProduct extends Component
     public string $query = '';
     public $search_results;
     public int $how_many = 5;
-    public $settingId;
+    public ?int $settingId = null;
+    public ?int $selectedSettingId = null;
 
     protected $listeners = [
         'productCreated' => 'handleProductCreated',
+        'document-business-context-changed' => 'handleBusinessContextChanged',
     ];
 
-    public function mount(): void
+    public function mount(?int $selectedSettingId = null): void
     {
-        $this->settingId = session('setting_id');
+        $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->settingId = $this->selectedSettingId;
         $this->search_results = Collection::empty();
     }
 
@@ -75,5 +78,15 @@ class SearchProduct extends Component
         }
 
         $this->updatedQuery();
+    }
+
+    public function handleBusinessContextChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        $this->settingId = $this->selectedSettingId;
     }
 }

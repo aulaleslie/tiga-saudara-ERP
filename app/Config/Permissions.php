@@ -405,6 +405,10 @@ return [
         'globalPurchaseAndSalesSearch.access' => 'Cari Pembelian & Penjualan Global',
     ],
 
+    'Dokumen' => [
+        'documents.business.override' => 'Ubah Bisnis Dokumen',
+    ],
+
     'Notifications' => [
         'notifications.access' => 'Tampilkan Notifikasi',
         'notifications.lowStock' => 'Notifikasi Stok Rendah',

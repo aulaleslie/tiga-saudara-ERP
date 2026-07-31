@@ -1,6 +1,26 @@
 <div class="card-body">
     <form wire:submit.prevent="update">
         <div class="form-row">
+            <!-- Business Selector (if user has override permission and document is draft) -->
+            @php
+                try {
+                    $hasOverridePermission = auth()->user()->hasRole('Super Admin')
+                        || auth()->user()->hasPermissionTo('documents.business.override');
+                } catch (\Exception $e) {
+                    $hasOverridePermission = false;
+                }
+            @endphp
+            @if($hasOverridePermission && $sale->status === \Modules\Sale\Entities\Sale::STATUS_DRAFTED)
+            <div class="col-lg-6 mb-3">
+                <livewire:business-selector
+                    :selectedSettingId="$selectedSettingId"
+                    :isRequired="true"
+                    selectId="sale-edit-business-selector"
+                    wire:key="sale-edit-business-selector"
+                />
+            </div>
+            @endif
+
             <!-- Referensi -->
             <div class="col-lg-6 mb-3">
                 <label for="reference">Referensi</label>
@@ -86,7 +106,7 @@
         </div>
 
         <!-- Keranjang & subtotal (repopulated from mount) -->
-        <livewire:sale.product-cart cartInstance="sale" :data="$sale"/>
+        <livewire:sale.product-cart cartInstance="sale" :data="$sale" :selectedSettingId="$selectedSettingId" wire:key="edit-sale-product-cart-{{ $selectedSettingId }}"/>
 
         <!-- Catatan -->
         <div class="form-group mt-3">

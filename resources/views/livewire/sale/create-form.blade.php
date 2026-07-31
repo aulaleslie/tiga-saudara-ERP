@@ -2,6 +2,26 @@
     <form wire:submit.prevent="submit">
         <input type="hidden" wire:model="idempotencyToken">
         <div class="form-row">
+            <!-- Business Selector (if user has override permission) -->
+            @php
+                try {
+                    $hasOverridePermission = auth()->user()->hasRole('Super Admin')
+                        || auth()->user()->hasPermissionTo('documents.business.override');
+                } catch (\Exception $e) {
+                    $hasOverridePermission = false;
+                }
+            @endphp
+            @if($hasOverridePermission)
+            <div class="col-lg-6 mb-3">
+                <livewire:business-selector
+                    :selectedSettingId="$selectedSettingId"
+                    :isRequired="true"
+                    selectId="sale-business-selector"
+                    wire:key="sale-business-selector"
+                />
+            </div>
+            @endif
+
             <!-- Referensi -->
             <div class="col-lg-6 mb-3">
                 <label for="reference">Referensi</label>
@@ -84,7 +104,7 @@
         </div>
 
         <!-- Keranjang & subtotal -->
-        <livewire:sale.product-cart cartInstance="sale" />
+        <livewire:sale.product-cart cartInstance="sale" :selectedSettingId="$selectedSettingId" wire:key="sale-product-cart-{{ $selectedSettingId }}" />
 
         <!-- Catatan -->
         <div class="form-group mt-3">

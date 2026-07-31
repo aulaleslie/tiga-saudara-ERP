@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Sale;
 
+use App\Services\EffectiveDocumentBusinessResolver;
 use App\Services\IdempotencyService;
 use Carbon\Carbon;
 use Exception;
@@ -34,6 +35,7 @@ class CreateForm extends Component
     public array $tags = [];
     public string $idempotencyToken;
     public bool $isPkp = false;
+    public ?int $selectedSettingId = null;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
@@ -47,11 +49,13 @@ class CreateForm extends Component
         'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
         'globalDiscountTypeUpdated' => 'handleGlobalDiscountTypeUpdated',
         'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
+        'business-selector-changed' => 'handleBusinessSelectorChanged',
     ];
 
     public function mount(string $idempotencyToken)
     {
         $this->idempotencyToken = $idempotencyToken;
+        $this->selectedSettingId = (int) session('setting_id');
         $this->isPkp = $this->isPkpEnabled();
         $this->is_tax_included = $this->isPkp;
         $this->reference = 'SL';
@@ -65,6 +69,48 @@ class CreateForm extends Component
     public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
+    }
+
+    public function handleBusinessSelectorChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        $this->rehydrateTaxContext();
+        // Dispatch context change to child components
+        $this->dispatch('document-business-context-changed', $this->selectedSettingId);
+    }
+
+    private function rehydrateTaxContext(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->isPkp = $this->isPkpEnabled();
+
+        $cart = Cart::instance('sale');
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options;
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
     }
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
@@ -120,7 +166,7 @@ class CreateForm extends Component
 
     private function isPkpEnabled(): bool
     {
-        $settingId = (int) session('setting_id');
+        $settingId = $this->selectedSettingId ?? (int) session('setting_id');
         if ($settingId <= 0) {
             return false;
         }
@@ -144,6 +190,19 @@ class CreateForm extends Component
 
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'customerId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                ]);
+            }
+
+            $tax = Tax::query()->find($taxId);
+
+            if (!$tax) {
+                $this->dispatch('notify', [
+                    'type'    => 'error',
+                    'message' => "Pajak untuk produk '{$item->name}' tidak valid."
+                ]);
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'cart' => "Pajak untuk produk '{$item->name}' tidak valid.",
                 ]);
             }
         }
@@ -292,13 +351,16 @@ class CreateForm extends Component
         if ($paymentTermId !== null && $paymentTermId !== '') {
             $this->paymentTermId = $paymentTermId;
         }
-        
+
         // Fallback: Re-sync payment_term from customer if still not set
         if ($this->customerId && !$this->paymentTermId) {
             $customer = Customer::find($this->customerId);
             $paymentTermId = $customer?->payment_term_id ? (int) $customer->payment_term_id : $this->resolveDefaultPaymentTermId();
             $this->applyPaymentTermSelection($paymentTermId);
         }
+
+        $failureStage = 'before_validation';
+        $sale = null;
 
         try {
             Log::info('Sale create validating', [
@@ -308,6 +370,11 @@ class CreateForm extends Component
                 'dueDate' => $this->dueDate,
             ]);
 
+            $failureStage = 'authorization_check';
+            $resolvedBusiness = app(EffectiveDocumentBusinessResolver::class)
+                ->resolve($this->selectedSettingId);
+
+            $failureStage = 'validation';
             $this->validate([
                 'customerId'     => 'required|exists:customers,id',
                 'date'           => 'required|date',
@@ -324,81 +391,86 @@ class CreateForm extends Component
                 'tax_ref_no.max'        => 'Nomor Faktur Pajak maksimal 255 karakter.',
             ]);
 
+            $failureStage = 'cart_check';
             if (Cart::instance('sale')->count() === 0) {
                 Log::warning('Sale create aborted: empty cart');
                 $this->dispatch('notify', [
                     'type'    => 'error',
                     'message' => 'Produk harus dipilih.'
                 ]);
-                // Generate new idempotency token so next attempt is fresh
-                $this->idempotencyToken = (string) Str::uuid();
                 return;
             }
 
-            $this->ensureCartTaxesForPkp(Cart::instance('sale')->content());
+            $failureStage = 'ensure_cart_taxes_for_pkp';
+            $cartItems = Cart::instance('sale')->content();
+            $this->ensureCartTaxesForPkp($cartItems);
 
+            $failureStage = 'idempotency_claim';
             if (! IdempotencyService::claim($this->idempotencyToken, 'sales.store', auth()->id())) {
                 Log::warning('Sale create idempotency claim failed', [
                     'token' => $this->idempotencyToken,
                     'user' => auth()->id(),
                 ]);
-                // Refresh token so user can retry
-                $this->idempotencyToken = (string) Str::uuid();
                 session()->flash('error', 'Permintaan penjualan sudah diproses. Silakan tunggu sebelum mencoba lagi.');
                 return;
             }
 
-            // DB::beginTransaction(); // Removed: logic is handled in SaleService with its own transaction
+            $failureStage = 'calculating_totals';
+            $shipping = (float) $this->shipping;
+            $globalDiscount = (float) $this->global_discount;
+            $discountAmount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0.0;
+            $discountPercentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0.0;
 
-            try {
-                Log::info('Sale create persisting', [
-                    'cart_count' => Cart::instance('sale')->count(),
-                    'customerId' => $this->customerId,
-                    'paymentTermId' => $this->paymentTermId,
-                ]);
+            $setting_id = $resolvedBusiness['setting_id'];
+            $isPkp = $resolvedBusiness['is_pkp'];
 
-                $cartItems = Cart::instance('sale')->content();
+            $data = [
+                'date'               => $this->date,
+                'due_date'           => $this->dueDate,
+                'customer_id'        => $this->customerId,
+                'tax_id'             => null,
+                'tax_percentage'     => 0,
+                'discount_percentage'=> $discountPercentage,
+                'discount_amount'    => $discountAmount,
+                'shipping_amount'    => $shipping,
+                'status'             => Sale::STATUS_DRAFTED,
+                'payment_status'     => 'Unpaid',
+                'payment_term_id'    => $this->paymentTermId,
+                'note'               => $this->note,
+                'setting_id'         => $setting_id,
+                'paid_amount'        => 0.0,
+                'is_tax_included'    => $isPkp ? (bool) $this->is_tax_included : false,
+                'payment_method'     => '',
+                'tax_ref_no'         => $isPkp ? ($this->tax_ref_no ?: null) : null,
+                'tags'               => $this->tags,
+            ];
 
-                $shipping = (float) $this->shipping;
-                $globalDiscount = (float) $this->global_discount;
-                $discountAmount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0.0;
-                $discountPercentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0.0;
+            $failureStage = 'sale_create';
+            $saleService = app(SaleService::class);
+            $sale = $saleService->createSale($data, $cartItems);
 
-                $data = [
-                    'date'               => $this->date,
-                    'due_date'           => $this->dueDate,
-                    'customer_id'        => $this->customerId,
-                    'tax_id'             => null,
-                    'tax_percentage'     => 0,
-                    'discount_percentage'=> $discountPercentage,
-                    'discount_amount'    => $discountAmount,
-                    'shipping_amount'    => $shipping,
-                    'status'             => Sale::STATUS_DRAFTED,
-                    'payment_status'     => 'Unpaid',
-                    'payment_term_id'    => $this->paymentTermId,
-                    'note'               => $this->note,
-                    'setting_id'         => session('setting_id'),
-                    'paid_amount'        => 0.0,
-                    'is_tax_included'    => (bool) $this->is_tax_included,
-                    'payment_method'     => '',
-                    'tax_ref_no'         => $this->tax_ref_no ?: null,
-                    'tags'               => $this->tags,
-                ];
-
-                $saleService = app(SaleService::class);
-                $sale = $saleService->createSale($data, $cartItems);
-
-                Cart::instance('sale')->destroy();
-                session()->flash('success', 'Penjualan Ditambahkan!');
-                Log::info('Sale create completed', ['sale_id' => $sale->id]);
-                return redirect()->route('sales.index');
-            } catch (Exception $e) {
-                Log::error('Livewire Sale Create Failed: ' . $e->getMessage());
-                $this->dispatch('notify', [
-                    'type'    => 'error',
-                    'message' => str_replace("\n", '<br>', $e->getMessage())
-                ]);
-            }
+            $failureStage = 'commit';
+            Cart::instance('sale')->destroy();
+            $targetBusiness = Setting::find($setting_id);
+            $targetBusinessName = $targetBusiness?->company_name ?? 'Unknown';
+            session()->flash('success', "Penjualan '$sale->reference' untuk $targetBusinessName berhasil ditambahkan!");
+            Log::info('Sale create completed', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
+            return redirect()->route('sales.index');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Sale create validation failed', [
+                'failure_stage' => $failureStage,
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
+        } catch (Exception $e) {
+            Log::error('Livewire Sale Create Failed: ' . $e->getMessage(), [
+                'failure_stage' => $failureStage,
+                'exception' => $e,
+            ]);
+            $this->dispatch('notify', [
+                'type'    => 'error',
+                'message' => str_replace("\n", '<br>', $e->getMessage())
+            ]);
         } finally {
             $this->dispatch('sale:submit-finish');
         }

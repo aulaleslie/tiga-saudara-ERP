@@ -21,7 +21,7 @@ use Modules\Setting\Entities\Unit;
 
 class ProductCart extends Component
 {
-    public $listeners = ['productSelected', 'discountModalRefresh', 'customerSelected', 'taxCreated' => 'handleTaxCreated'];
+    public $listeners = ['productSelected', 'discountModalRefresh', 'customerSelected', 'taxCreated' => 'handleTaxCreated', 'document-business-context-changed' => 'handleBusinessContextChanged'];
 
     public $cart_instance;
     public $global_discount;
@@ -56,6 +56,7 @@ class ProductCart extends Component
     public $priceBreakdowns = [];
 
     public ?int $settingId = null;
+    public ?int $selectedSettingId = null;
     public bool $isPkp = false;
 
     protected $rules = [
@@ -68,10 +69,11 @@ class ProductCart extends Component
         'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
     ];
 
-    public function mount($cartInstance, $data = null): void
+    public function mount($cartInstance, $data = null, ?int $selectedSettingId = null): void
     {
         $this->cart_instance = $cartInstance;
-        $this->settingId = (int) session('setting_id');
+        $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->settingId = $this->selectedSettingId;
         $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
         $this->taxes = $this->loadTaxes();
 
@@ -1532,6 +1534,59 @@ class ProductCart extends Component
             $cartItem = $this->resolveCartItem('', $product_id);
             if ($cartItem) {
                 $this->updateTax($cartItem->rowId, $cartItem->id, $id);
+            }
+        }
+    }
+
+    public function handleBusinessContextChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    private function rehydrateTaxContextForBusinessChange(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->settingId = $this->selectedSettingId;
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
+        $this->taxes = $this->loadTaxes();
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        // If business changed from PKP to non-PKP, remove tax data
+        if ($previousPkpState && !$this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options->toArray();
+                unset($newOptions['product_tax']);
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $this->product_tax[$item->id] = null;
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
+        // If business changed from non-PKP to PKP, reload taxes and leave tax selection empty unless default exists
+        elseif (!$previousPkpState && $this->isPkp) {
+            foreach ($cartItems as $item) {
+                $newOptions = $item->options->toArray();
+                // Leave tax empty initially, will be required before save
+                $newOptions['product_tax'] = null;
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $this->product_tax[$item->id] = null;
+                $cart->update($item->rowId, ['options' => $newOptions]);
             }
         }
     }

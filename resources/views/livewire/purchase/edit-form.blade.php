@@ -10,6 +10,26 @@
         <input type="hidden" id="purchase_supplier_id" wire:model.live="supplier_id" value="{{ $supplierMirrorValue }}">
         <input type="hidden" id="purchase_payment_term" wire:model.live="payment_term" value="{{ $paymentTermMirrorValue }}">
         <div class="form-row">
+            <!-- Business Selector (if user has override permission and document is draft) -->
+            @php
+                try {
+                    $hasOverridePermission = auth()->user()->hasRole('Super Admin')
+                        || auth()->user()->hasPermissionTo('documents.business.override');
+                } catch (\Exception $e) {
+                    $hasOverridePermission = false;
+                }
+            @endphp
+            @if($hasOverridePermission && $purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_DRAFTED)
+            <div class="col-lg-6 mb-3">
+                <livewire:business-selector
+                    :selectedSettingId="$selectedSettingId"
+                    :isRequired="true"
+                    selectId="purchase-edit-business-selector"
+                    wire:key="purchase-edit-business-selector"
+                />
+            </div>
+            @endif
+
             <!-- Referensi -->
             <div class="col-lg-6 mb-3">
                 <label for="reference">Referensi <span class="text-danger">*</span></label>
@@ -84,7 +104,7 @@
 
         <!-- Product Cart -->
         <div class="my-3">
-            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$purchase" wire:key="edit-purchase-product-cart" />
+            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$purchase" :selectedSettingId="$selectedSettingId" wire:key="edit-purchase-product-cart-{{ $selectedSettingId }}" />
         </div>
 
         <!-- Catatan -->
@@ -115,4 +135,3 @@
         </div>
     </div>
 </div>
-

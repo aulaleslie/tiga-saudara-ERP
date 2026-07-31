@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Services;
 
+use App\Services\DocumentReferenceService;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -93,7 +94,7 @@ class SaleService
             ], $cartItems, $isPkp);
             $header = $normalizedSale['header'];
 
-            $sale = Sale::create([
+            $sale = DocumentReferenceService::createSaleWithReference([
                 'date' => $data['date'],
                 'due_date' => $data['due_date'],
                 'customer_id' => $data['customer_id'],
@@ -184,10 +185,47 @@ class SaleService
         // Potential stock restoration if switching between dispatched statuses in one update
         // However, standard flow is DRAFTED -> WAITING_APPROVAL -> APPROVED -> (Partially) DISPATCHED.
         // If the status in request is DISPATCHED, we might need to deduct stock.
-        
+
         return DB::transaction(function () use ($sale, $data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
-            $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $sale->setting_id)->value('is_pkp') ?? false);
+            // Determine the normalization PKP setting: use data['setting_id'] if provided, else use sale->setting_id
+            $targetSettingId = $data['setting_id'] ?? $sale->setting_id;
+            $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $targetSettingId)->value('is_pkp') ?? false);
+
+            // If changing to a different business, atomically allocate and move reference
+            $newReference = null;
+            if (isset($data['setting_id']) && $data['setting_id'] !== $sale->setting_id) {
+                $saleDate = \Carbon\Carbon::parse($data['date'] ?? $sale->date);
+                $year = $saleDate->year;
+                $month = $saleDate->month;
+
+                // Lock the target Setting row for the entire transaction
+                $targetSetting = \Modules\Setting\Entities\Setting::whereKey($targetSettingId)->lockForUpdate()->firstOrFail();
+
+                // Fetch the latest reference for the target setting, year, and month
+                $latestReference = Sale::withArchived()
+                    ->where('setting_id', $targetSettingId)
+                    ->whereYear('date', $year)
+                    ->whereMonth('date', $month)
+                    ->latest('id')
+                    ->value('reference');
+
+                // Calculate next number
+                $nextNumber = 1;
+                if ($latestReference) {
+                    $parts = explode('-', $latestReference);
+                    $lastNumber = (int) end($parts);
+                    $nextNumber = $lastNumber + 1;
+                }
+
+                // Build prefix
+                $prefix = (optional($targetSetting)->document_prefix ?: '') . '-'
+                    . (optional($targetSetting)->sale_prefix_document ?: 'SL');
+
+                // Generate reference
+                $newReference = make_reference_id($prefix, $year, $month, $nextNumber);
+            }
+
             $normalizedSale = app(SaleNormalizer::class)->normalize([
                 'tax_id' => $data['tax_id'] ?? $sale->tax_id,
                 'tax_percentage' => $data['tax_percentage'] ?? $sale->tax_percentage,
@@ -220,9 +258,9 @@ class SaleService
             $sale->saleDetails()->delete();
             SaleBundleItem::where('sale_id', $sale->id)->delete();
 
-            $sale->update([
+            $updateData = [
                 'date' => $data['date'],
-                'reference' => $data['reference'] ?? $sale->reference,
+                'reference' => $newReference ?? ($data['reference'] ?? $sale->reference),
                 'customer_id' => $data['customer_id'],
                 'customer_name' => $customer->customer_name,
                 'tax_id' => $header['tax_id'],
@@ -241,7 +279,14 @@ class SaleService
                 'payment_term_id' => $data['payment_term_id'] ?? $sale->payment_term_id,
                 'is_tax_included' => $data['is_tax_included'] ?? $sale->is_tax_included,
                 'tax_ref_no' => $isPkp ? ($data['tax_ref_no'] ?? $sale->tax_ref_no) : null,
-            ]);
+            ];
+
+            // If changing to a different business, persist the new setting_id
+            if (isset($data['setting_id']) && $data['setting_id'] !== $sale->setting_id) {
+                $updateData['setting_id'] = $data['setting_id'];
+            }
+
+            $sale->update($updateData);
 
             if (isset($data['tags'])) {
                 $sale->syncTags($data['tags']);
@@ -278,7 +323,7 @@ class SaleService
                         ]);
                     }
                 }
-                
+
                 app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
                 $saleDetail->save();
             }
