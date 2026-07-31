@@ -104,6 +104,12 @@ class BarcodeInitialization extends Component
             return;
         }
 
+        // Re-scan same barcode during REVIEW → auto-confirm save
+        if ($this->currentState === 'REVIEW' && $this->candidateBarcode === $cleanBarcode) {
+            $this->save(app(\Modules\Product\Services\ProductBarcodeAssignmentService::class));
+            return;
+        }
+
         $this->candidateBarcode = $cleanBarcode;
         $this->candidateError = null;
         $this->currentState = 'REVIEW';
