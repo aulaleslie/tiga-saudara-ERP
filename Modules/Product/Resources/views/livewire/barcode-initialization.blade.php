@@ -95,25 +95,17 @@
                         <div class="form-group mt-4">
                             <label for="scannerInput" class="font-weight-bold">Scan Barcode / Input Manual</label>
                             
-                            @if($currentState === 'READY_TO_SCAN' || $currentState === 'REVIEW')
+                            @if($currentState === 'READY_TO_SCAN')
                                 <!-- Form wrapper prevents page reload on enter -->
                                 <form onsubmit="event.preventDefault(); window.Livewire.find('{{ $_instance->getId() }}').handleScan(document.getElementById('scannerInput').value);">
                                     <div class="input-group input-group-lg">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
                                         </div>
-                                        <input type="text" id="scannerInput" class="form-control"
-                                               placeholder="{{ $currentState === 'REVIEW' ? 'Scan ulang barcode yang sama untuk konfirmasi...' : 'Scan sekarang...' }}"
-                                               autocomplete="off"
+                                        <input type="text" id="scannerInput" class="form-control" placeholder="Scan sekarang..." autocomplete="off"
                                                x-init="$nextTick(() => { $el.value = ''; $el.focus(); })">
                                     </div>
-                                    <small class="form-text text-muted mt-2">
-                                        @if($currentState === 'REVIEW')
-                                            Scan ulang barcode yang sama untuk langsung menyimpan, atau scan barcode lain untuk menggantinya.
-                                        @else
-                                            Pastikan kursor berada di kotak ini saat melakukan scan.
-                                        @endif
-                                    </small>
+                                    <small class="form-text text-muted mt-2">Pastikan kursor berada di kotak ini saat melakukan scan.</small>
                                 </form>
                             @endif
 
@@ -202,10 +194,9 @@
 
         $wire.on('review-ready', () => {
             setTimeout(() => {
-                const scannerInput = document.getElementById('scannerInput');
-                if(scannerInput) {
-                    scannerInput.value = '';
-                    scannerInput.focus();
+                const btnConfirmSave = document.getElementById('btnConfirmSave');
+                if(btnConfirmSave && !btnConfirmSave.disabled) {
+                    btnConfirmSave.focus();
                 }
             }, 100);
         });
