@@ -183,9 +183,8 @@ class BarcodeInitialization extends Component
                 array_pop($this->recentSuccesses);
             }
 
-            // Reset to searching
+            // Reset to searching (preserve search context)
             $this->cancelSelection();
-            $this->searchQuery = '';
             $this->dispatch('save-success', ['message' => 'Barcode berhasil disimpan.']);
 
         } catch (\Exception $e) {

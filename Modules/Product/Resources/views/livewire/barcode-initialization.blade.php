@@ -102,7 +102,8 @@
                                         <div class="input-group-prepend">
                                             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
                                         </div>
-                                        <input type="text" id="scannerInput" class="form-control" placeholder="Scan sekarang..." autocomplete="off">
+                                        <input type="text" id="scannerInput" class="form-control" placeholder="Scan sekarang..." autocomplete="off"
+                                               x-init="$nextTick(() => { $el.value = ''; $el.focus(); })">
                                     </div>
                                     <small class="form-text text-muted mt-2">Pastikan kursor berada di kotak ini saat melakukan scan.</small>
                                 </form>
@@ -204,7 +205,6 @@
             setTimeout(() => {
                 const searchInput = document.querySelector('input[wire\\:model\\.live\\.debounce\\.300ms="searchQuery"]');
                 if(searchInput) {
-                    searchInput.value = '';
                     searchInput.focus();
                 }
             }, 100);
