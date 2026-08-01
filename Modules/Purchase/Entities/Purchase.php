@@ -240,6 +240,11 @@ class Purchase extends BaseModel implements HasMedia
         return $this->belongsTo(PaymentTerm::class, 'payment_term_id');
     }
 
+    public function tenantSetting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id');
+    }
+
     /**
      * Get effective paid amount from active payments only.
      * Per FR-006: SUM(purchase_payments.amount WHERE status = ACTIVE)

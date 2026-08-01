@@ -35,26 +35,42 @@ class PurchaseTable extends Component
     public bool $paidLast30DaysOnly = false;
     /** @var array<string>|null */
     public ?array $cardStatusFilter = null;
-    
+
     #[Locked]
     public bool $globalMode = false;
 
-    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
+    // Global mode filters
+    public ?int $globalBusinessFilter = null;
+    public ?string $documentDateFrom = null;
+    public ?string $documentDateTo = null;
+
+    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived', 'globalBusinessFilter', 'documentDateFrom', 'documentDateTo'];
 
     public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false)
     {
         $this->globalMode = $globalMode;
-        
+
         if ($this->globalMode) {
             abort_if(Gate::denies('purchasePayments.global.access'), 403);
         }
-        
+
         if (!$this->globalMode) {
             $this->settingId = $settingId ?? session('setting_id');
         }
         $this->statusFilter = $statusFilter;
         $this->purchaseId = $purchaseId;
         $this->supplierId = $supplierId;
+
+        $this->normalizeDateRange();
+    }
+
+    private function normalizeDateRange()
+    {
+        if (!empty($this->documentDateFrom) && !empty($this->documentDateTo)) {
+            if ($this->documentDateFrom > $this->documentDateTo) {
+                [$this->documentDateFrom, $this->documentDateTo] = [$this->documentDateTo, $this->documentDateFrom];
+            }
+        }
     }
 
     public function updatedSearch()
@@ -65,6 +81,38 @@ class PurchaseTable extends Component
     public function updatedPerPage()
     {
         $this->resetPage();
+    }
+
+    public function updatedGlobalBusinessFilter()
+    {
+        $this->resetPage();
+        $this->dispatch('global-purchase-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
+    }
+
+    public function updatedDocumentDateFrom()
+    {
+        $this->normalizeDateRange();
+        $this->resetPage();
+        $this->dispatch('global-purchase-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
+    }
+
+    public function updatedDocumentDateTo()
+    {
+        $this->normalizeDateRange();
+        $this->resetPage();
+        $this->dispatch('global-purchase-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
     }
 
     public function searchSubmit()
@@ -78,6 +126,19 @@ class PurchaseTable extends Component
         $this->search = '';
         $this->searchText = '';
         $this->resetPage();
+    }
+
+    public function clearGlobalFilters()
+    {
+        $this->globalBusinessFilter = null;
+        $this->documentDateFrom = null;
+        $this->documentDateTo = null;
+        $this->resetPage();
+        $this->dispatch('global-purchase-filters-changed',
+            globalBusinessFilter: null,
+            documentDateFrom: null,
+            documentDateTo: null,
+        );
     }
 
     public function sortBy($field)
@@ -135,7 +196,7 @@ class PurchaseTable extends Component
         }
 
         $query = ($this->showArchived && !$this->globalMode ? Purchase::archived() : Purchase::query())
-            ->with(['supplier', 'tags', 'purchaseDetails'])
+            ->with(['supplier', 'tags', 'purchaseDetails', 'tenantSetting'])
             ->withSum(['purchasePayments as active_payments_sum' => function($q) {
                 $q->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
             }], 'amount')
@@ -143,9 +204,20 @@ class PurchaseTable extends Component
                 $q->where('setting_id', $this->settingId);
             })
             ->when($this->globalMode, function ($q) {
-                $q->where('status', Purchase::STATUS_RECEIVED);
-                if (! $this->paidLast30DaysOnly) {
-                    $q->whereLiveDueAmountGreaterThan(0);
+                $q->whereNull('archived_at')
+                  ->where('status', Purchase::STATUS_RECEIVED);
+
+                // Apply business filter if set
+                if (!empty($this->globalBusinessFilter)) {
+                    $q->where('setting_id', $this->globalBusinessFilter);
+                }
+
+                // Apply document date range filter if set
+                if (!empty($this->documentDateFrom)) {
+                    $q->where('date', '>=', $this->documentDateFrom);
+                }
+                if (!empty($this->documentDateTo)) {
+                    $q->where('date', '<=', $this->documentDateTo);
                 }
             })
             ->when($statuses !== null && !$this->globalMode, function ($q) use ($statuses) {
@@ -165,15 +237,16 @@ class PurchaseTable extends Component
             })
             ->when($this->dueAmountOnly, function ($q) {
                 if ($this->globalMode) {
-                    // Due amount > 0 is already handled by the global mode block above,
-                    // but we can leave it empty here or enforce it again
+                    $q->whereLiveDueAmountGreaterThan(0);
                 } else {
                     $q->where('due_amount', '>', 0);
                 }
             })
             ->when($this->overdueOnly, function ($q) {
                 $q->where('due_date', '<', Carbon::today());
-                if (! $this->globalMode) {
+                if ($this->globalMode) {
+                    $q->whereLiveDueAmountGreaterThan(0);
+                } else {
                     $q->where('due_amount', '>', 0);
                 }
             })
@@ -207,6 +280,7 @@ class PurchaseTable extends Component
                         ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
                         ->orWhere('tax_ref_no', 'like', "%{$search}%")
                         ->orWhere('supplier_reference_no', 'like', "%{$search}%")
+                        ->orWhere('note', 'like', "%{$search}%")
                         ->orWhereHas('supplier', function ($q2) use ($search) {
                             $q2->where('supplier_name', 'like', "%{$search}%");
                         })

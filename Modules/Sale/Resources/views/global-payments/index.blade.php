@@ -17,11 +17,17 @@
 
                 <!-- Summary Cards -->
                 <div class="mb-4">
-                    <livewire:sale.sale-summary-cards :globalMode="true" wire:key="global-summary-cards" />
+                    <livewire:sale.sale-summary-cards
+                        :globalMode="true"
+                        wire:key="global-summary-cards"
+                    />
                 </div>
 
                 <!-- Global Sales Table -->
-                <livewire:sale.sale-table :globalMode="true" wire:key="global-sales-table" />
+                <livewire:sale.sale-table
+                    :globalMode="true"
+                    wire:key="global-sales-table"
+                />
             </div>
         </div>
     </div>

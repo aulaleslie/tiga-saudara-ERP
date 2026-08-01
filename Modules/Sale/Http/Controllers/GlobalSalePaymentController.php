@@ -48,11 +48,6 @@ class GlobalSalePaymentController extends Controller
             ])
             ->findOrFail($sale_id);
 
-        // Enforce eligibility: must have positive live due amount
-        if ($sale->live_due_amount <= 0) {
-            abort(404, 'Penjualan ini tidak memiliki saldo tagihan yang positif.');
-        }
-
         // Load sale's actual setting for company presentation
         $setting = $sale->tenantSetting;
 
@@ -70,11 +65,6 @@ class GlobalSalePaymentController extends Controller
         $sale = Sale::approvedUp()
             ->whereNull('archived_at')
             ->findOrFail($sale_id);
-
-        // Enforce eligibility: must have positive live due amount
-        if ($sale->live_due_amount <= 0) {
-            abort(404, 'Penjualan ini tidak memiliki saldo tagihan yang positif.');
-        }
 
         return $dataTable->with([
             'sale_id' => $sale_id,
@@ -95,13 +85,13 @@ class GlobalSalePaymentController extends Controller
             ->with(['customer', 'tenantSetting'])
             ->findOrFail($sale_id);
 
-        // Enforce starting-sale eligibility: must have positive live due amount
+        // Enforce starting-sale eligibility: must have positive live due amount (payable)
         if ($startingSale->live_due_amount <= 0) {
             toast('Penjualan ini tidak memiliki saldo tagihan yang positif.', 'error');
             return redirect()->route('sales.global-payments.index');
         }
 
-        // Load all candidates with same customer, approved-up status, positive live due
+        // Load all candidates with same customer, approved-up status, positive live due (payable)
         $candidates = Sale::where('customer_id', $startingSale->customer_id)
             ->approvedUp()
             ->whereNull('archived_at')

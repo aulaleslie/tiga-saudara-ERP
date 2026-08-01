@@ -16,17 +16,22 @@ class GlobalPurchasePaymentTableTest extends TestCase
 
     protected $setting1;
     protected $setting2;
+    protected $user;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
-        
+
         $this->setting1 = Setting::factory()->create();
         $this->setting2 = Setting::factory()->create();
         session(['setting_id' => $this->setting1->id]);
-        
+
+        // Create authenticated user
+        $this->user = \App\Models\User::factory()->create();
+        $this->actingAs($this->user);
+
         \Illuminate\Support\Facades\Gate::define('purchasePayments.global.access', function (?\App\Models\User $user = null) {
             return true;
         });
@@ -91,11 +96,11 @@ class GlobalPurchasePaymentTableTest extends TestCase
             ->assertDontSee($pending->reference);
     }
 
-    public function test_global_mode_only_shows_purchases_with_outstanding_balance()
+    public function test_global_mode_shows_paid_and_unpaid_purchases_by_default()
     {
         $unpaid = $this->createPurchase(['due_amount' => 10000, 'payment_status' => 'UNPAID']);
         $paid = $this->createPurchase(['due_amount' => 0, 'payment_status' => 'PAID']);
-        
+
         \Modules\Purchase\Entities\PurchasePayment::create([
             'purchase_id' => $paid->id,
             'amount' => 10000,
@@ -107,7 +112,7 @@ class GlobalPurchasePaymentTableTest extends TestCase
 
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->assertSee($unpaid->reference)
-            ->assertDontSee($paid->reference);
+            ->assertSee($paid->reference);
     }
     
     public function test_global_mode_shows_paid_purchases_when_filter_applied_with_date_boundaries()

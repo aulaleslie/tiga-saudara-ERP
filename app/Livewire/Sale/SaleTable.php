@@ -35,7 +35,12 @@ class SaleTable extends Component
     /** @var array<string>|null */
     public ?array $cardStatusFilter = null;
 
-    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
+    // Global mode filters
+    public ?int $globalBusinessFilter = null;
+    public ?string $documentDateFrom = null;
+    public ?string $documentDateTo = null;
+
+    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived', 'globalBusinessFilter', 'documentDateFrom', 'documentDateTo'];
 
     public function mount($settingId = null, $statusFilter = null, $saleId = null, bool $globalMode = false)
     {
@@ -45,11 +50,54 @@ class SaleTable extends Component
         $this->settingId = $globalMode ? null : ($settingId ?? session('setting_id'));
         $this->statusFilter = $statusFilter;
         $this->saleId = $saleId;
+
+        $this->normalizeDateRange();
+    }
+
+    private function normalizeDateRange()
+    {
+        if (!empty($this->documentDateFrom) && !empty($this->documentDateTo)) {
+            if ($this->documentDateFrom > $this->documentDateTo) {
+                [$this->documentDateFrom, $this->documentDateTo] = [$this->documentDateTo, $this->documentDateFrom];
+            }
+        }
     }
 
     public function updatedSearch()
     {
         $this->resetPage();
+    }
+
+    public function updatedGlobalBusinessFilter()
+    {
+        $this->resetPage();
+        $this->dispatch('global-sale-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
+    }
+
+    public function updatedDocumentDateFrom()
+    {
+        $this->normalizeDateRange();
+        $this->resetPage();
+        $this->dispatch('global-sale-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
+    }
+
+    public function updatedDocumentDateTo()
+    {
+        $this->normalizeDateRange();
+        $this->resetPage();
+        $this->dispatch('global-sale-filters-changed',
+            globalBusinessFilter: $this->globalBusinessFilter,
+            documentDateFrom: $this->documentDateFrom,
+            documentDateTo: $this->documentDateTo,
+        );
     }
 
     public function searchSubmit()
@@ -63,6 +111,19 @@ class SaleTable extends Component
         $this->search = '';
         $this->searchText = '';
         $this->resetPage();
+    }
+
+    public function clearGlobalFilters()
+    {
+        $this->globalBusinessFilter = null;
+        $this->documentDateFrom = null;
+        $this->documentDateTo = null;
+        $this->resetPage();
+        $this->dispatch('global-sale-filters-changed',
+            globalBusinessFilter: null,
+            documentDateFrom: null,
+            documentDateTo: null,
+        );
     }
 
     public function sortBy($field)
@@ -129,15 +190,27 @@ class SaleTable extends Component
         }
 
         $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction']);
+            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting']);
 
         // Apply setting scope only if not in global mode
         if (!$this->globalMode) {
             $query->where('setting_id', $this->settingId);
         } else {
-            // Global mode excludes archived sales and uses live due amount
-            $query->whereNull('archived_at')
-                  ->whereLiveDueAmountGreaterThan(0);
+            // Global mode excludes archived sales
+            $query->whereNull('archived_at');
+
+            // Apply business filter if set
+            if (!empty($this->globalBusinessFilter)) {
+                $query->where('setting_id', $this->globalBusinessFilter);
+            }
+
+            // Apply document date range filter if set
+            if (!empty($this->documentDateFrom)) {
+                $query->where('date', '>=', $this->documentDateFrom);
+            }
+            if (!empty($this->documentDateTo)) {
+                $query->where('date', '<=', $this->documentDateTo);
+            }
         }
 
         $query->when($statuses !== null, function ($q) use ($statuses) {
@@ -169,12 +242,21 @@ class SaleTable extends Component
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
-                $q->where(function ($sub) use ($thirtyDaysAgo) {
-                    $sub->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
-                        $pq->where('date', '>=', $thirtyDaysAgo)
-                           ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
-                    })->orWhere('date', '>=', $thirtyDaysAgo);
-                });
+                if ($this->globalMode) {
+                    // Global mode: fully paid sales with active payment in past 30 days
+                    $q->whereLiveDueAmountLessThanOrEqual(0)
+                      ->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
+                          $pq->where('date', '>=', $thirtyDaysAgo)
+                             ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
+                      });
+                } else {
+                    $q->where(function ($sub) use ($thirtyDaysAgo) {
+                        $sub->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
+                            $pq->where('date', '>=', $thirtyDaysAgo)
+                               ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
+                        })->orWhere('date', '>=', $thirtyDaysAgo);
+                    });
+                }
             })
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {
@@ -182,6 +264,7 @@ class SaleTable extends Component
                     $qq->where('reference', 'like', "%{$search}%")
                         ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
                         ->orWhere('tax_ref_no', 'like', "%{$search}%")
+                        ->orWhere('note', 'like', "%{$search}%")
                         ->orWhereHas('customer', function ($q2) use ($search) {
                             $q2->where('customer_name', 'like', "%{$search}%")
                                 ->orWhere('contact_name', 'like', "%{$search}%");
@@ -204,6 +287,9 @@ class SaleTable extends Component
                                ->orWhereHas('transaction', function ($q3) use ($search) {
                                    $q3->where('code', 'like', "%{$search}%");
                                });
+                        })
+                        ->orWhereHas('bundleItems', function ($q2) use ($search) {
+                            $q2->where('name', 'like', "%{$search}%");
                         });
                 });
             })

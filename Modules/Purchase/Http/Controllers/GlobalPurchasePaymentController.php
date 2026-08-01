@@ -18,12 +18,12 @@ class GlobalPurchasePaymentController extends Controller
     public function show($purchase_id)
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
-        
+
         $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
         $supplier = \Modules\People\Entities\Supplier::findOrFail($purchase->supplier_id);
-        
+
         $receivedNotes = \Modules\Purchase\Entities\ReceivedNote::where('po_id', $purchase->id)
             ->with([
                 'purchase',
@@ -36,9 +36,9 @@ class GlobalPurchasePaymentController extends Controller
         $resolver = new \Modules\Purchase\Services\ReturnedSerialNumberResolver();
         $returnedSerials = $resolver->resolveForPurchase($purchase->id, $receivedNotes->flatMap->receivedNoteDetails->pluck('id'));
         $resolver->mapToDetails($receivedNotes->flatMap->receivedNoteDetails, $returnedSerials);
-        
+
         $setting = \Modules\Setting\Entities\Setting::findOrFail($purchase->setting_id);
-        
+
         // Use the standard purchase detail view but pass globalMode to adjust links/actions
         return view('purchase::show', [
             'purchase' => $purchase,
@@ -52,11 +52,11 @@ class GlobalPurchasePaymentController extends Controller
     public function history($purchase_id, \Modules\Purchase\DataTables\PurchasePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
-        
+
         $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
-        
+
         return $dataTable->with(['globalMode' => true])->render('purchase::payments.index', [
             'purchase' => $purchase,
             'globalMode' => true

@@ -243,6 +243,27 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
     public function test_global_summary_uses_cross_setting_live_balances_and_active_payments()
     {
         $otherSetting = Setting::factory()->create();
+
+        // Create a fully paid sale
+        $paidSale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 100000,
+            'paid_amount' => 100000,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'note' => null,
+            'payment_term_id' => null,
+            'tax_id' => null,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        // Unpaid sale in other setting
         $otherSale = Sale::create([
             'date' => now()->toDateString(),
             'due_date' => now()->subDay()->toDateString(),
@@ -257,8 +278,9 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
             'setting_id' => $otherSetting->id,
         ]);
 
+        // Active payment on fully paid sale
         SalePayment::create([
-            'sale_id' => $this->sale->id,
+            'sale_id' => $paidSale->id,
             'amount' => 100000,
             'date' => now()->toDateString(),
             'reference' => 'ACTIVE-COLLECTION',
@@ -266,6 +288,7 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
             'status' => SalePayment::STATUS_ACTIVE,
         ]);
 
+        // Invalidated payment (should not count)
         SalePayment::create([
             'sale_id' => $otherSale->id,
             'amount' => 300000,
@@ -278,7 +301,7 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
         Livewire::actingAs($this->authorizedUser)
             ->test(SaleSummaryCards::class, ['globalMode' => true])
             ->assertSet('piutangBelumTertagih.count', 2)
-            ->assertSet('piutangBelumTertagih.total', 1700000.0)
+            ->assertSet('piutangBelumTertagih.total', 1800000.0)
             ->assertSet('piutangTelat.count', 1)
             ->assertSet('piutangTelat.total', 800000.0)
             ->assertSet('penerimaan.count', 1)

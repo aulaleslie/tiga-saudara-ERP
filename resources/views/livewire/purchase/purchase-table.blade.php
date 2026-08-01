@@ -1,5 +1,36 @@
 @php use Illuminate\Support\Carbon; @endphp
 <div>
+    @if ($globalMode)
+    <!-- Global Mode Filters -->
+    <div class="mb-3 p-3 bg-light border rounded">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Bisnis</label>
+                <select class="form-select" wire:model.live="globalBusinessFilter">
+                    <option value="">-- Semua Bisnis --</option>
+                    @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
+                        <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
+                    @empty
+                    @endforelse
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Dari Tanggal</label>
+                <input type="date" class="form-control" wire:model.live="documentDateFrom">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Hingga Tanggal</label>
+                <input type="date" class="form-control" wire:model.live="documentDateTo">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="button" class="btn btn-secondary w-100" wire:click="clearGlobalFilters">
+                    <i class="bi bi-arrow-counterclockwise"></i> Reset
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
+
     <div class="d-flex justify-content-between align-items-center mb-2">
         @if(!$globalMode)
             @can('purchases.archive')
@@ -48,6 +79,9 @@
             <th wire:click="sortBy('due_date')" style="cursor:pointer">
                 Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}
             </th>
+            @if ($globalMode)
+            <th>Bisnis</th>
+            @endif
             @if (!$supplierId)
                 <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
                     Supplier {!! $this->sortIcon('supplier_id') !!}
@@ -89,6 +123,11 @@
                 <td>
                     {{ $this->formatDate($purchase->due_date) }}
                 </td>
+                @if ($globalMode)
+                <td>
+                    {{ $purchase->tenantSetting->company_name ?? '-' }}
+                </td>
+                @endif
                 @if (!$supplierId)
                     <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
                 @endif
@@ -113,7 +152,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="{{ $supplierId ? 11 : 12 }}">Tidak ada data yang ditemukan.</td>
+                <td colspan="{{ $globalMode ? ($supplierId ? 12 : 13) : ($supplierId ? 11 : 12) }}">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

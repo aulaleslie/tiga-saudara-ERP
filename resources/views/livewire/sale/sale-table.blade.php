@@ -1,11 +1,44 @@
 @php use Illuminate\Support\Carbon; @endphp
 <div>
+    @if ($globalMode)
+    <!-- Global Mode Filters -->
+    <div class="mb-3 p-3 bg-light border rounded">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Bisnis</label>
+                <select class="form-select" wire:model.live="globalBusinessFilter">
+                    <option value="">-- Semua Bisnis --</option>
+                    @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
+                        <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
+                    @empty
+                    @endforelse
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Dari Tanggal</label>
+                <input type="date" class="form-control" wire:model.live="documentDateFrom">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Hingga Tanggal</label>
+                <input type="date" class="form-control" wire:model.live="documentDateTo">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="button" class="btn btn-secondary w-100" wire:click="clearGlobalFilters">
+                    <i class="bi bi-arrow-counterclockwise"></i> Reset
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
+
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center" style="gap: 1rem;">
+            @if (!$globalMode)
             <div class="form-check form-switch pt-1">
                 <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
                 <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
             </div>
+            @endif
         </div>
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
@@ -36,6 +69,9 @@
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
             </th>
+            @if ($globalMode)
+            <th>Bisnis</th>
+            @endif
             <th wire:click="sortBy('customer_id')" style="cursor:pointer">
                 Pelanggan {!! $this->sortIcon('customer_id') !!}
             </th>
@@ -102,6 +138,11 @@
                 <td>
                     {{ Carbon::parse($sale->date)->format('d M Y') }}
                 </td>
+                @if ($globalMode)
+                <td>
+                    {{ $sale->tenantSetting->company_name ?? '-' }}
+                </td>
+                @endif
                 <td>
                     @php
                         $customerName = $sale->customer->canonical_name;

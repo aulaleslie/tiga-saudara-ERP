@@ -176,8 +176,9 @@ class GlobalPurchaseSummaryCardsTest extends TestCase
         ]);
 
         $component = Livewire::test(PurchaseSummaryCards::class, ['globalMode' => true]);
-        
+
         // Only purchase1 and purchase2 are fully paid and within the correct 30 day window
+        // Note: purchase3 is paid 31 days ago (outside window) and purchase4 is tomorrow (future, also excluded)
         $component->assertSet('pelunasan.count', 2);
         $component->assertSet('pelunasan.total', 30000.0);
         
