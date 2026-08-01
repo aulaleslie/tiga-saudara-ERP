@@ -24,12 +24,16 @@ class PurchaseSummaryCards extends Component
     public ?string $documentDateFrom = null;
     public ?string $documentDateTo = null;
 
-    public function mount($globalMode = false, ?int $globalBusinessFilter = null, ?string $documentDateFrom = null, ?string $documentDateTo = null)
+    // Durable summary card selection (stored server-side, restored across refreshes)
+    public ?string $selectedCardFilter = null;
+
+    public function mount($globalMode = false, ?int $globalBusinessFilter = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $selectedCardFilter = null)
     {
         $this->globalMode = $globalMode;
         $this->globalBusinessFilter = $globalBusinessFilter;
         $this->documentDateFrom = $documentDateFrom;
         $this->documentDateTo = $documentDateTo;
+        $this->selectedCardFilter = $selectedCardFilter;
 
         if ($this->globalMode) {
             abort_if(Gate::denies('purchasePayments.global.access'), 403);
@@ -47,7 +51,21 @@ class PurchaseSummaryCards extends Component
             $this->globalBusinessFilter = $globalBusinessFilter;
             $this->documentDateFrom = $documentDateFrom;
             $this->documentDateTo = $documentDateTo;
+            // Preserve the selected card filter across refreshes
         }
+    }
+
+    public function toggleCardFilter(?string $type = null)
+    {
+        // Toggle: clicking the same card clears it, clicking different card selects it
+        if ($this->selectedCardFilter === $type) {
+            $this->selectedCardFilter = null;
+        } else {
+            $this->selectedCardFilter = $type;
+        }
+
+        // Dispatch to table to apply the card filter
+        $this->dispatch('purchase-filter', type: $this->selectedCardFilter);
     }
 
     public function render()

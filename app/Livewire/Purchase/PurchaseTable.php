@@ -4,6 +4,7 @@ namespace App\Livewire\Purchase;
 
 use Livewire\Attributes\On;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Purchase\Entities\Purchase;
@@ -17,14 +18,18 @@ class PurchaseTable extends Component
     protected $paginationTheme = 'bootstrap';
 
     public $searchText = '';
+    #[Url]
     public $search = '';
     public $perPage = 10;
+    #[Url]
     public $sortField = 'created_at';
+    #[Url]
     public $sortDirection = 'desc';
     public $settingId;
     public $statusFilter = null;
     public $purchaseId = null;
     public $supplierId = null;
+    #[Url]
     public $showArchived = false;
 
     public ?string $paymentStatusFilter = null;
@@ -39,12 +44,22 @@ class PurchaseTable extends Component
     #[Locked]
     public bool $globalMode = false;
 
-    // Global mode filters
+    // Global mode filters: draft state (not yet applied)
+    public ?int $draftGlobalBusinessFilter = null;
+    public ?string $draftDocumentDateFrom = null;
+    public ?string $draftDocumentDateTo = null;
+
+    // Global mode filters: applied state (synced to query)
+    #[Url]
     public ?int $globalBusinessFilter = null;
+    #[Url]
     public ?string $documentDateFrom = null;
+    #[Url]
     public ?string $documentDateTo = null;
 
-    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived', 'globalBusinessFilter', 'documentDateFrom', 'documentDateTo'];
+    // Summary card selection state (for durable selection across refreshes)
+    #[Url]
+    public ?string $selectedCardFilter = null;
 
     public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false)
     {
@@ -60,6 +75,11 @@ class PurchaseTable extends Component
         $this->statusFilter = $statusFilter;
         $this->purchaseId = $purchaseId;
         $this->supplierId = $supplierId;
+
+        // Initialize draft state from applied state (from query string)
+        $this->draftGlobalBusinessFilter = $this->globalBusinessFilter;
+        $this->draftDocumentDateFrom = $this->documentDateFrom;
+        $this->draftDocumentDateTo = $this->documentDateTo;
 
         $this->normalizeDateRange();
     }
@@ -83,8 +103,21 @@ class PurchaseTable extends Component
         $this->resetPage();
     }
 
-    public function updatedGlobalBusinessFilter()
+    public function applyGlobalFilters()
     {
+        // Normalize date range if both dates supplied
+        if (!empty($this->draftDocumentDateFrom) && !empty($this->draftDocumentDateTo)) {
+            if ($this->draftDocumentDateFrom > $this->draftDocumentDateTo) {
+                [$this->draftDocumentDateFrom, $this->draftDocumentDateTo] = [$this->draftDocumentDateTo, $this->draftDocumentDateFrom];
+            }
+        }
+
+        // Copy draft to applied state
+        $this->globalBusinessFilter = $this->draftGlobalBusinessFilter;
+        $this->documentDateFrom = $this->draftDocumentDateFrom;
+        $this->documentDateTo = $this->draftDocumentDateTo;
+
+        // Reset pagination and dispatch event to summary cards
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
             globalBusinessFilter: $this->globalBusinessFilter,
@@ -93,25 +126,23 @@ class PurchaseTable extends Component
         );
     }
 
-    public function updatedDocumentDateFrom()
+    public function resetGlobalFilters()
     {
-        $this->normalizeDateRange();
-        $this->resetPage();
-        $this->dispatch('global-purchase-filters-changed',
-            globalBusinessFilter: $this->globalBusinessFilter,
-            documentDateFrom: $this->documentDateFrom,
-            documentDateTo: $this->documentDateTo,
-        );
-    }
+        // Clear both draft and applied state
+        $this->draftGlobalBusinessFilter = null;
+        $this->draftDocumentDateFrom = null;
+        $this->draftDocumentDateTo = null;
 
-    public function updatedDocumentDateTo()
-    {
-        $this->normalizeDateRange();
+        $this->globalBusinessFilter = null;
+        $this->documentDateFrom = null;
+        $this->documentDateTo = null;
+
+        // Reset pagination and dispatch event
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
-            globalBusinessFilter: $this->globalBusinessFilter,
-            documentDateFrom: $this->documentDateFrom,
-            documentDateTo: $this->documentDateTo,
+            globalBusinessFilter: null,
+            documentDateFrom: null,
+            documentDateTo: null,
         );
     }
 
@@ -126,19 +157,6 @@ class PurchaseTable extends Component
         $this->search = '';
         $this->searchText = '';
         $this->resetPage();
-    }
-
-    public function clearGlobalFilters()
-    {
-        $this->globalBusinessFilter = null;
-        $this->documentDateFrom = null;
-        $this->documentDateTo = null;
-        $this->resetPage();
-        $this->dispatch('global-purchase-filters-changed',
-            globalBusinessFilter: null,
-            documentDateFrom: null,
-            documentDateTo: null,
-        );
     }
 
     public function sortBy($field)
@@ -160,6 +178,7 @@ class PurchaseTable extends Component
         $this->dueAmountOnly = false;
         $this->paidLast30DaysOnly = false;
         $this->cardStatusFilter = null;
+        $this->selectedCardFilter = null;
 
         $approvedAndAbove = [
             Purchase::STATUS_APPROVED,
@@ -171,16 +190,21 @@ class PurchaseTable extends Component
             $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->dueAmountOnly = true;
             $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->selectedCardFilter = 'unpaid';
         } elseif ($type === 'overdue') {
             $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->overdueOnly = true;
             $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->selectedCardFilter = 'overdue';
         } elseif ($type === 'paid') {
             $this->paymentStatusFilter = null; // Filtered via paidLast30DaysOnly instead
             $this->paidLast30DaysOnly = true;
             $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->selectedCardFilter = 'paid';
+        } else {
+            $this->selectedCardFilter = null;
         }
-        
+
         $this->resetPage();
     }
 

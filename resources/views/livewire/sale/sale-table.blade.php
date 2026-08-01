@@ -1,32 +1,66 @@
 @php use Illuminate\Support\Carbon; @endphp
 <div>
     @if ($globalMode)
-    <!-- Global Mode Filters -->
-    <div class="mb-3 p-3 bg-light border rounded">
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="form-label">Bisnis</label>
-                <select class="form-select" wire:model.live="globalBusinessFilter">
-                    <option value="">-- Semua Bisnis --</option>
-                    @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
-                        <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
-                    @empty
-                    @endforelse
-                </select>
+    <!-- Global Mode Filters Panel -->
+    <div class="card mb-4 border-0 shadow-sm">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <!-- Business Filter -->
+                <div class="col-md-4">
+                    <label class="form-label">Bisnis</label>
+                    <select class="form-select" wire:model="draftGlobalBusinessFilter">
+                        <option value="">-- Semua Bisnis --</option>
+                        @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
+                            <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
+                        @empty
+                        @endforelse
+                    </select>
+                </div>
+
+                <!-- Document Date Range (Grouped) -->
+                <div class="col-md-6">
+                    <label class="form-label d-block">Tanggal Dokumen</label>
+                    <div class="row g-2">
+                        <div class="col">
+                            <input type="date" class="form-control" wire:model="draftDocumentDateFrom" placeholder="Dari">
+                        </div>
+                        <div class="col">
+                            <input type="date" class="form-control" wire:model="draftDocumentDateTo" placeholder="Hingga">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="col-md-2 d-flex gap-2 align-items-end">
+                    <button type="button" class="btn btn-primary flex-grow-1" wire:click="applyGlobalFilters">
+                        <i class="bi bi-check2-circle"></i> Terapkan Filter
+                    </button>
+                    <button type="button" class="btn btn-secondary" wire:click="resetGlobalFilters" title="Reset semua filter">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label">Dari Tanggal</label>
-                <input type="date" class="form-control" wire:model.live="documentDateFrom">
+
+            <!-- Applied Filters Feedback -->
+            @if ($globalBusinessFilter || $documentDateFrom || $documentDateTo)
+            <div class="row mt-3">
+                <div class="col-12">
+                    <small class="text-muted">
+                        <i class="bi bi-funnel-fill"></i> Filter aktif:
+                        @if ($globalBusinessFilter)
+                            <span class="badge bg-primary">
+                                Bisnis: {{ \Modules\Setting\Entities\Setting::find($globalBusinessFilter)?->company_name ?? 'N/A' }}
+                            </span>
+                        @endif
+                        @if ($documentDateFrom || $documentDateTo)
+                            <span class="badge bg-primary">
+                                Tanggal: {{ $documentDateFrom ?? '...' }} s/d {{ $documentDateTo ?? '...' }}
+                            </span>
+                        @endif
+                    </small>
+                </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label">Hingga Tanggal</label>
-                <input type="date" class="form-control" wire:model.live="documentDateTo">
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-                <button type="button" class="btn btn-secondary w-100" wire:click="clearGlobalFilters">
-                    <i class="bi bi-arrow-counterclockwise"></i> Reset
-                </button>
-            </div>
+            @endif
         </div>
     </div>
     @endif
