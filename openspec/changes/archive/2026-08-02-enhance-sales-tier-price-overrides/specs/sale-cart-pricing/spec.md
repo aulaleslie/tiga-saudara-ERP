@@ -1,21 +1,21 @@
 ## MODIFIED Requirements
 
 ### Requirement: Selecting a customer reprices existing sales cart lines
-When an active sales customer is selected or changed, the sales cart SHALL re-evaluate only existing automatic non-bundled lines against the customer's tier and update their pricing accordingly. Manually priced non-bundled rows and rows with selected bundles SHALL preserve their current parent row price and SHALL NOT be repriced from customer tier prices while their manual or bundle authority remains in effect.
+When an active sales customer is selected or changed, the sales cart SHALL re-evaluate existing non-bundled lines against the customer's tier and update line pricing accordingly. Cart rows with selected bundles SHALL preserve their current parent row price and SHALL NOT be repriced from customer tier prices while the bundle remains selected.
 
 #### Scenario: Existing customer selected after products already added
-- **WHEN** one or more automatic non-bundled products already exist in the sales cart
+- **WHEN** one or more products already exist in the sales cart
 - **AND** the user selects an existing customer with tier `WHOLESALER` or `RESELLER`
-- **THEN** each existing automatic non-bundled cart line SHALL be repriced using that customer's tier price from the active setting's `product_prices` row
-- **AND** each repriced automatic non-bundled line's subtotal metadata SHALL be recalculated from the new unit price
-- **AND** each manually priced non-bundled line and each existing bundled cart line SHALL preserve its current parent row price
+- **THEN** each existing non-bundled cart line SHALL be repriced using that customer's tier price from the active setting's `product_prices` row
+- **AND** each repriced non-bundled line's subtotal metadata SHALL be recalculated from the new unit price
+- **AND** each existing bundled cart line SHALL preserve its current parent row price
 
 #### Scenario: Customer without tier selected after products already added
-- **WHEN** one or more automatic non-bundled products already exist in the sales cart
+- **WHEN** one or more products already exist in the sales cart
 - **AND** the user selects a customer without a pricing tier
-- **THEN** each existing automatic non-bundled cart line SHALL use the active setting's base `sale_price`
-- **AND** any prior tier-based repricing SHALL be removed from automatic non-bundled rows
-- **AND** each manually priced non-bundled line and each existing bundled cart line SHALL preserve its current parent row price
+- **THEN** each existing non-bundled cart line SHALL use the active setting's base `sale_price`
+- **AND** any prior tier-based repricing SHALL be removed from non-bundled rows
+- **AND** each existing bundled cart line SHALL preserve its current parent row price
 
 ### Requirement: Automatic Sales pricing handles absent setting-scoped price rows visibly
 When Sales needs to resolve an automatic non-bundled line for the effective business and that product has no `product_prices` row for that business, the system SHALL use zero as the line's automatic unit price and SHALL not fall back to legacy or another business's selling prices. The system SHALL issue one consolidated actionable notification for all missing prices found in that resolution operation.
