@@ -1729,7 +1729,12 @@ class ProductCart extends Component
         // 1. Deduct bundle total to get parent line total
         $parentLineTotal = max(0, $requestedLineTotal - $bundleTotal);
 
-        // 2. Find tax rate
+        // 2. Find tax rate. Mirror calculateSubtotalAndTax(): a non-PKP sale line
+        // carries no tax, so it must not be reversed out of the requested total.
+        if ($this->cart_instance === 'sale' && ! $this->isPkp) {
+            $tax_id = null;
+        }
+
         $taxRate = 0;
         if ($tax_id) {
             $tax = Tax::find($tax_id);

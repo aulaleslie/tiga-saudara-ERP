@@ -150,10 +150,14 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
     }
 
     /**
-     * Test case: non-PKP with tax (no tax inclusion), qty=2, requested_total=2500, expected_unit_price=1250
-     * Verify that updateLineTotal correctly reverses calculation even in different tax contexts
+     * Test case: non-PKP, tax-exclusive mode, qty=2, requested_total=2500, expected_unit_price=1250
+     *
+     * A non-PKP Sales line can never carry tax: calculateSubtotalAndTax() force-nulls
+     * the tax id when cart_instance is 'sale' and the business is not PKP. So even
+     * with an 11% tax selected, the line stays untaxed and the total is pure subtotal.
+     * (Previously named "..._with_tax_..." while never assigning a tax at all.)
      */
-    public function test_line_total_non_pkp_with_tax_reverses_correctly()
+    public function test_line_total_non_pkp_ignores_tax_and_reverses_correctly()
     {
         $product = Product::create([
             'setting_id' => $this->setting->id,
@@ -191,11 +195,13 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $component->set('quantity.' . $id, 2)
             ->call('updateQuantity', $rowId, $id);
 
-        // Ensure tax is not included
-        $component->set('is_tax_included', false);
+        // Tax-exclusive mode, and genuinely attempt to assign 11% tax
+        $component->set('is_tax_included', false)
+            ->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
 
         // Set line total to 2500
-        // With qty=2: unit_price = 2500 / 2 = 1250
+        // With qty=2 and no effective tax: unit_price = 2500 / 2 = 1250
         $component->set('line_total.' . $id, 2500)
             ->call('updateLineTotal', $rowId, $id);
 
@@ -204,6 +210,23 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $this->assertSame(2500.0, (float) $updatedItem->options->sub_total, 'sub_total should be 2500');
         $this->assertSame(1250.0, (float) $updatedItem->options->unit_price, 'unit_price should be 1250');
         $this->assertSame('manual_line_total', $updatedItem->options->pricing_source);
+
+        // Non-PKP Sales lines are untaxed regardless of the selected tax
+        $this->assertSame(
+            0.0,
+            (float) $updatedItem->options->product_tax_amount,
+            'a non-PKP Sales line must carry no tax'
+        );
+        $this->assertSame(
+            2500.0,
+            (float) $updatedItem->options->sub_total_before_tax,
+            'pre-tax subtotal equals the full total when untaxed'
+        );
+        $this->assertSame(
+            (float) $updatedItem->options->sub_total,
+            (float) $updatedItem->options->sub_total_before_tax + (float) $updatedItem->options->product_tax_amount,
+            'sub_total should equal pre-tax subtotal plus tax'
+        );
     }
 
     /**
@@ -250,12 +273,11 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $component->set('quantity.' . $id, 2)
             ->call('updateQuantity', $rowId, $id);
 
-        // Set tax to 11%
-        $component->set('product_tax.' . $id, $this->tax11->id)
-            ->call('updateTax', $rowId, $id);
-
-        // Ensure tax is included
-        $component->set('is_tax_included', true);
+        // Tax-inclusive mode, with 11% assigned. updateTax resolves the tax from
+        // its third argument, so it must be passed explicitly.
+        $component->set('is_tax_included', true)
+            ->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
 
         // Set line total to 3000 (tax included in this total)
         // unit_price = 3000 / 2 = 1500
@@ -267,6 +289,34 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $this->assertSame(3000.0, (float) $updatedItem->options->sub_total, 'sub_total should be 3000');
         $this->assertSame(1500.0, (float) $updatedItem->options->unit_price, 'unit_price should be 1500');
         $this->assertSame('manual_line_total', $updatedItem->options->pricing_source);
+
+        // Prove the tax was actually applied to the line
+        $this->assertSame(
+            $this->tax11->id,
+            (int) $updatedItem->options->product_tax,
+            'the 11% tax id should be stored on the cart line'
+        );
+
+        // Tax-inclusive with 11%: ex-tax unit = 1500 / 1.11 = 1351.3513...
+        // sub_total_before_tax = 2702.7027..., tax = 297.2972..., sum = 3000
+        $this->assertEqualsWithDelta(
+            2702.70,
+            (float) $updatedItem->options->sub_total_before_tax,
+            0.01,
+            'pre-tax subtotal should be 3000 / 1.11'
+        );
+        $this->assertEqualsWithDelta(
+            297.30,
+            (float) $updatedItem->options->product_tax_amount,
+            0.01,
+            'tax should be the 11% portion extracted from 3000'
+        );
+        $this->assertEqualsWithDelta(
+            (float) $updatedItem->options->sub_total,
+            (float) $updatedItem->options->sub_total_before_tax + (float) $updatedItem->options->product_tax_amount,
+            0.01,
+            'sub_total should equal pre-tax subtotal plus tax'
+        );
     }
 
     /**
@@ -320,11 +370,12 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $component->set('quantity.' . $id, 2)
             ->call('updateQuantity', $rowId, $id);
 
-        // Set tax to 11%
-        $component->set('product_tax.' . $id, $this->tax11->id)
-            ->call('updateTax', $rowId, $id);
+        // Tax-inclusive mode (the PKP default, set explicitly here), with 11%
+        // assigned. updateTax resolves the tax from its third argument.
+        $component->set('is_tax_included', true)
+            ->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
 
-        // is_tax_included is already true for PKP by default
         // Set line total to 3330 (total with tax included)
         $component->set('line_total.' . $id, 3330)
             ->call('updateLineTotal', $rowId, $id);
@@ -339,15 +390,44 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         // Verify line total calculation is consistent with qty and unit_price
         $calculated_sub_total = (float) $updatedItem->options->unit_price * (int) $updatedItem->qty;
         $this->assertSame(3330.0, (float) $calculated_sub_total, 'sub_total should equal unit_price * qty');
+
+        // Prove the tax was actually applied to the line
+        $this->assertSame(
+            $this->tax11->id,
+            (int) $updatedItem->options->product_tax,
+            'the 11% tax id should be stored on the cart line'
+        );
+
+        // Tax-inclusive with 11%: ex-tax unit = 1665 / 1.11 = 1500 exactly
+        $this->assertEqualsWithDelta(
+            3000.0,
+            (float) $updatedItem->options->sub_total_before_tax,
+            0.01,
+            'pre-tax subtotal should be 3000'
+        );
+        $this->assertEqualsWithDelta(
+            330.0,
+            (float) $updatedItem->options->product_tax_amount,
+            0.01,
+            'tax should be 330'
+        );
+        $this->assertEqualsWithDelta(
+            (float) $updatedItem->options->sub_total,
+            (float) $updatedItem->options->sub_total_before_tax + (float) $updatedItem->options->product_tax_amount,
+            0.01,
+            'sub_total should equal pre-tax subtotal plus tax'
+        );
     }
 
     /**
-     * Test case: Tax-included mode with 11% tax, qty=2, requested_total=3330, expected_unit_price=1665
-     * In tax-included mode: the requested total is the display total including tax
-     * effective_price = 3330 / 2 = 1665
-     * When calculateSubtotalAndTax runs with tax-included, it will extract the tax from the unit price
+     * Test case: non-PKP in tax-included mode, qty=2, requested_total=3330, expected_unit_price=1665
+     *
+     * Tax-included mode alone does not make a non-PKP Sales line taxable: the tax id
+     * is force-nulled for non-PKP sale carts, so no tax is extracted and the entire
+     * 3330 remains pre-tax subtotal.
+     * (Previously named "..._tax_included_..." while never assigning a tax at all.)
      */
-    public function test_line_total_non_pkp_tax_included_reverses_correctly()
+    public function test_line_total_non_pkp_tax_included_mode_extracts_no_tax()
     {
         // Use non-PKP setting (non-PKP defaults to tax-included = false, but we can override)
         $product = Product::create([
@@ -387,9 +467,10 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $component->set('quantity.' . $id, 2)
             ->call('updateQuantity', $rowId, $id);
 
-        // Set tax to 11%
-        $component->set('product_tax.' . $id, $this->tax11->id)
-            ->call('updateTax', $rowId, $id);
+        // Tax-included mode, and genuinely attempt to assign 11% tax
+        $component->set('is_tax_included', true)
+            ->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
 
         // Set line total to 3330 with tax-included mode
         // effective_price = 3330 / 2 = 1665
@@ -402,6 +483,23 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         $this->assertSame(3330.0, (float) $updatedItem->options->sub_total, 'sub_total should be 3330');
         $this->assertSame(1665.0, (float) $updatedItem->options->unit_price, 'unit_price should be 1665');
         $this->assertSame('manual_line_total', $updatedItem->options->pricing_source);
+
+        // No tax is extracted for a non-PKP Sales line, even in tax-included mode
+        $this->assertSame(
+            0.0,
+            (float) $updatedItem->options->product_tax_amount,
+            'a non-PKP Sales line must carry no tax'
+        );
+        $this->assertSame(
+            3330.0,
+            (float) $updatedItem->options->sub_total_before_tax,
+            'the whole total stays pre-tax when no tax is extracted'
+        );
+        $this->assertSame(
+            (float) $updatedItem->options->sub_total,
+            (float) $updatedItem->options->sub_total_before_tax + (float) $updatedItem->options->product_tax_amount,
+            'sub_total should equal pre-tax subtotal plus tax'
+        );
     }
 
     /**
@@ -1048,6 +1146,13 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
 
         $this->assertSame('manual_line_total', $updatedItem->options->pricing_source);
         $this->assertSame(1500.0, (float) $updatedItem->options->unit_price, 'unit_price should be 1500');
+
+        // Prove the tax was actually applied to the line
+        $this->assertSame(
+            $this->tax11->id,
+            (int) $updatedItem->options->product_tax,
+            'the 11% tax id should be stored on the cart line'
+        );
 
         // Tax and totals must be internally consistent
         $this->assertSame(3000.0, (float) $updatedItem->options->sub_total_before_tax, 'pre-tax subtotal should be 3000');
