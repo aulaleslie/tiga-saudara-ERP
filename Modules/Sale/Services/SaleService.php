@@ -136,6 +136,7 @@ class SaleService
                     'sub_total' => round((float) $item['sub_total'], 2),
                     'product_tax_amount' => round((float) $item['product_tax_amount'], 2),
                     'tax_id' => $item['tax_id'],
+                    'pricing_source' => strtolower((string) ($item['pricing_source'] ?? 'automatic')),
                 ]);
 
                 if (!empty($item['bundle_items'])) {
@@ -306,6 +307,7 @@ class SaleService
                     'product_discount_type' => $item['product_discount_type'],
                     'product_tax_amount' => round((float) $item['product_tax_amount'], 2),
                     'tax_id' => $item['tax_id'],
+                    'pricing_source' => strtolower((string) ($item['pricing_source'] ?? 'automatic')),
                 ]);
 
                 if (! empty($item['bundle_items'])) {

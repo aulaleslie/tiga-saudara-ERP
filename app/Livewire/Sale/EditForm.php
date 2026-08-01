@@ -118,6 +118,7 @@ class EditForm extends Component
                 'tier_2_price'           => $pricingMetadata['tier_2_price'],
                 'quantity_non_tax'       => $stockData->quantity_non_tax ?? 0,
                 'quantity_tax'           => $stockData->quantity_tax ?? 0,
+                'pricing_source'         => $detail->pricing_source ?? 'manual_unit_price',
                 // bundles below
             ];
 

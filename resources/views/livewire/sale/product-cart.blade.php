@@ -29,7 +29,7 @@
                     <th class="align-middle text-center">Pajak</th>
                     <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
                     @endif
-                    <th class="align-middle text-center">Sub Total</th>
+                    <th class="align-middle text-center">Total Baris</th>
                     <th class="align-middle text-center">Aksi</th>
                 </tr>
                 </thead>
@@ -190,8 +190,29 @@
                             </td>
                             @endif
 
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->sub_total) }}
+                            <td x-data="{ open: false }" class="align-middle text-center">
+                                @if($cart_item->options->is_bundled_row ?? false)
+                                    <!-- Bundled rows: show total Baris as read-only -->
+                                    <span>{{ format_currency($cart_item->options->sub_total) }}</span>
+                                @else
+                                    <!-- Standard non-bundled rows: editable Total Baris -->
+                                    <span x-show="!open"
+                                          @click="open = true"
+                                          style="cursor: pointer;">
+                                        {{ format_currency($cart_item->options->sub_total) }}
+                                    </span>
+
+                                    <div x-show="open" @click.away="open = false">
+                                        <input
+                                            wire:model.defer="line_total.{{ $cart_item->id }}"
+                                            style="min-width: 60px; max-width: 120px;"
+                                            type="text"
+                                            class="form-control text-right"
+                                            @keydown.enter="open = false"
+                                            wire:blur="updateLineTotal('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                        >
+                                    </div>
+                                @endif
                             </td>
 
                             <td class="align-middle text-center">

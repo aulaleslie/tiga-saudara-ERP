@@ -285,6 +285,7 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
                 'unit_price' => 1110,
                 'bundle_items' => [],
                 'bundle_price' => 0,
+                'pricing_source' => 'automatic',
             ],
         ]);
     }

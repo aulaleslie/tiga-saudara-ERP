@@ -107,6 +107,7 @@ class SaleNormalizer
             'tax_id' => $normalizedTaxId,
             'sub_total_before_tax' => $this->roundMoney($subTotalBeforeTax),
             'bundle_items' => $this->normalizeBundleItems($options['bundle_items'] ?? data_get($detailInput, 'bundle_items', [])),
+            'pricing_source' => (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'automatic'),
         ];
     }
 

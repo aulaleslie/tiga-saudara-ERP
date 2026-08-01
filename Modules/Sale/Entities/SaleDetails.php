@@ -28,7 +28,13 @@ class SaleDetails extends BaseModel
         'cost_total_snapshot' => 'decimal:2',
         'cost_snapshot_source' => 'string',
         'cost_snapshot_at' => 'datetime',
+        'pricing_source' => 'string',
     ];
+
+    public function setPricingSourceAttribute($value): void
+    {
+        $this->attributes['pricing_source'] = $value !== null ? strtolower((string) $value) : null;
+    }
 
     protected $with = ['product'];
 
