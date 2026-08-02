@@ -227,6 +227,27 @@ class ReceivingCompletionAuthTest extends TestCase
         $this->assertEquals(Purchase::STATUS_RECEIVED, $purchase->status);
     }
 
+    public function test_livewire_submit_shows_success_message()
+    {
+        $this->user->givePermissionTo('purchases.receive.complete_shortfall');
+        $purchase = $this->createPartiallyReceivedPurchase();
+
+        Livewire::actingAs($this->user)
+            ->test(PurchaseReceivingCompletionModal::class)
+            ->call('openModal', $purchase)
+            ->set('reason', 'Supplier could not deliver remaining items')
+            ->call('submit')
+            ->assertSet('showModal', false)
+            ->assertSet('successMessage', 'Penerimaan berhasil diselesaikan.')
+            ->assertSeeHtml('Penerimaan berhasil diselesaikan.');
+
+        // Verify opening modal again clears the success message
+        Livewire::actingAs($this->user)
+            ->test(PurchaseReceivingCompletionModal::class)
+            ->call('openModal', $purchase)
+            ->assertSet('successMessage', null);
+    }
+
     public function test_livewire_unauthorized_attempt_leaves_purchase_unchanged()
     {
         $purchase = $this->createPartiallyReceivedPurchase();

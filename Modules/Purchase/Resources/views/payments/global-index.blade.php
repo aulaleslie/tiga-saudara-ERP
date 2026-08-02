@@ -16,9 +16,15 @@
                 <div class="card">
                     <div class="card-body">
                         {{-- No create or import buttons for global payment view --}}
-                        
-                        <livewire:purchase.purchase-summary-cards :globalMode="true" />
-                        
+
+                        <livewire:purchase.purchase-summary-cards
+                            :globalMode="true"
+                            :globalBusinessFilter="request('globalBusinessFilter')"
+                            :documentDateFrom="request('documentDateFrom')"
+                            :documentDateTo="request('documentDateTo')"
+                            :selectedCardFilter="request('selectedCardFilter')"
+                        />
+
                         <div class="table-responsive" style="min-height: 300px;">
                             <livewire:purchase.purchase-table :globalMode="true" />
                         </div>

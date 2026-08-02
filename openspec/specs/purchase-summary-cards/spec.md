@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Display summary cards on the purchase index showing count and total balance of unpaid, overdue, and recently-paid invoices, with clickable cards that pre-filter the purchase table and support global cross-business summaries.
+
+## Requirements
 
 ### Requirement: Display Faktur Belum Dibayar card
 The system SHALL display a summary card showing the count and total outstanding balance (`due_amount`) of UNPAID purchase invoices with a real outstanding balance, for invoices in status `APPROVED`, `RECEIVED PARTIALLY`, or `RECEIVED`.
@@ -35,7 +39,7 @@ An invoice qualifies if `payment_status = UNPAID` AND `due_amount > 0` AND `due_
 - **THEN** the telat bayar count SHALL be less than or equal to the belum dibayar count
 
 ### Requirement: Display Pelunasan 30 Hari Terakhir card
-The system SHALL display a summary card showing the count and total paid amount of purchase invoices settled (fully paid) in the last 30 days, for invoices in status `APPROVED`, `RECEIVED PARTIALLY`, or `RECEIVED`.
+The system SHALL display a summary card showing the count and total paid amount of purchase invoices settled (fully paid) in the last 30 days, for invoices in status `APPROVED`, `RECEIVED PARTIALLY`, or `RECEIVED`. All displayed totals SHALL be computed directly from stored decimal rupiah amounts with no legacy 100× rescaling.
 
 Date source priority:
 1. If `purchase_payments` table contains ACTIVE rows with `date >= 30 days ago`, use `purchase_payments.date` — count distinct purchases, sum `purchase_payments.amount`
@@ -44,6 +48,7 @@ Date source priority:
 #### Scenario: Card uses purchase_payments when available
 - **WHEN** `purchase_payments` has ACTIVE rows with dates in the last 30 days
 - **THEN** the card counts and sums from `purchase_payments` using `date`
+- **AND** the displayed total equals the stored rupiah sum of those payment amounts
 
 #### Scenario: Card falls back to purchases.date
 - **WHEN** `purchase_payments` has no ACTIVE rows in the last 30 days

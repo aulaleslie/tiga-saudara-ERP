@@ -72,6 +72,11 @@ class SaleTable extends Component
         $this->draftDocumentDateTo = $this->documentDateTo;
 
         $this->normalizeDateRange();
+
+        // Apply card filter from URL if set
+        if ($this->selectedCardFilter !== null) {
+            $this->applyCardFilterType($this->selectedCardFilter);
+        }
     }
 
     private function normalizeDateRange()
@@ -157,6 +162,12 @@ class SaleTable extends Component
     #[On('sale-filter')]
     public function applySaleFilter($type = null)
     {
+        $this->applyCardFilterType($type);
+        $this->resetPage();
+    }
+
+    private function applyCardFilterType(?string $type)
+    {
         $this->paymentStatusFilter = null;
         $this->paymentStatusFilters = null;
         $this->overdueOnly = false;
@@ -189,8 +200,6 @@ class SaleTable extends Component
         } else {
             $this->selectedCardFilter = null;
         }
-
-        $this->resetPage();
     }
 
     public function render()

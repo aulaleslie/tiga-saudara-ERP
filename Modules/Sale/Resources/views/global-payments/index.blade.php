@@ -19,6 +19,10 @@
                 <div class="mb-4">
                     <livewire:sale.sale-summary-cards
                         :globalMode="true"
+                        :globalBusinessFilter="request('globalBusinessFilter')"
+                        :documentDateFrom="request('documentDateFrom')"
+                        :documentDateTo="request('documentDateTo')"
+                        :selectedCardFilter="request('selectedCardFilter')"
                         wire:key="global-summary-cards"
                     />
                 </div>

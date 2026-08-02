@@ -8,7 +8,7 @@
                 <!-- Business Filter -->
                 <div class="col-md-4">
                     <label class="form-label">Bisnis</label>
-                    <select class="form-select" wire:model="draftGlobalBusinessFilter">
+                    <select class="custom-select" wire:model="draftGlobalBusinessFilter">
                         <option value="">-- Semua Bisnis --</option>
                         @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
                             <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
@@ -68,7 +68,7 @@
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center" style="gap: 1rem;">
             @if (!$globalMode)
-            <div class="form-check form-switch pt-1">
+            <div class="form-check pt-1">
                 <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
                 <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
             </div>

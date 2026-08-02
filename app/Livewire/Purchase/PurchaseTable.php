@@ -82,6 +82,11 @@ class PurchaseTable extends Component
         $this->draftDocumentDateTo = $this->documentDateTo;
 
         $this->normalizeDateRange();
+
+        // Apply card filter from URL if set
+        if ($this->selectedCardFilter !== null) {
+            $this->applyCardFilterType($this->selectedCardFilter);
+        }
     }
 
     private function normalizeDateRange()
@@ -172,6 +177,18 @@ class PurchaseTable extends Component
     #[On('purchase-filter')]
     public function applyPurchaseFilter($type = null)
     {
+        $this->applyCardFilterType($type);
+        $this->resetPage();
+    }
+
+    #[On('purchaseReceivingCompleted')]
+    public function onPurchaseReceivingCompleted()
+    {
+        $this->resetPage();
+    }
+
+    private function applyCardFilterType(?string $type)
+    {
         $this->paymentStatusFilter = null;
         $this->paymentStatusFilters = null;
         $this->overdueOnly = false;
@@ -204,8 +221,6 @@ class PurchaseTable extends Component
         } else {
             $this->selectedCardFilter = null;
         }
-
-        $this->resetPage();
     }
 
     public function render()

@@ -16,6 +16,7 @@ class PurchaseReceivingCompletionModal extends Component
     public $reason = '';
     public $isSubmitting = false;
     public $error = null;
+    public $successMessage = null;
 
     protected $listeners = [
         'openReceivingCompletionModal' => 'openModal'
@@ -25,6 +26,7 @@ class PurchaseReceivingCompletionModal extends Component
     {
         $this->authorizeWorkflowStep($purchase);
 
+        $this->successMessage = null;
         $this->purchase = $purchase;
         $this->reason = '';
         $this->error = null;
@@ -36,7 +38,7 @@ class PurchaseReceivingCompletionModal extends Component
     public function closeModal()
     {
         $this->showModal = false;
-        $this->resetForm();
+        $this->resetForm(keepSuccess: true);
     }
 
     public function loadPreview()
@@ -72,8 +74,9 @@ class PurchaseReceivingCompletionModal extends Component
                 auth()->id()
             );
 
-            session()->flash('success', 'Penerimaan berhasil diselesaikan.');
+            $this->successMessage = 'Penerimaan berhasil diselesaikan.';
             $this->dispatch('purchaseReceivingCompleted', ['purchase_id' => $this->purchase->id]);
+
             $this->closeModal();
         } catch (Exception $e) {
             $this->error = $e->getMessage();
@@ -97,11 +100,14 @@ class PurchaseReceivingCompletionModal extends Component
         }
     }
 
-    private function resetForm()
+    private function resetForm($keepSuccess = false)
     {
         $this->reason = '';
         $this->error = null;
         $this->preview = null;
+        if (!$keepSuccess) {
+            $this->successMessage = null;
+        }
         $this->resetErrorBag();
         $this->resetValidation();
     }

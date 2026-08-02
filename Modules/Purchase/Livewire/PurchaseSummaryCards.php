@@ -226,7 +226,7 @@ class PurchaseSummaryCards extends Component
         if ($result && $result->cnt > 0) {
             return [
                 'count' => (int) $result->cnt,
-                'total' => $result->total / 100,
+                'total' => (float) $result->total,
             ];
         }
 

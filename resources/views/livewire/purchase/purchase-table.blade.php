@@ -8,7 +8,7 @@
                 <!-- Business Filter -->
                 <div class="col-md-4">
                     <label class="form-label">Bisnis</label>
-                    <select class="form-select" wire:model="draftGlobalBusinessFilter">
+                    <select class="custom-select" wire:model="draftGlobalBusinessFilter">
                         <option value="">-- Semua Bisnis --</option>
                         @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
                             <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
@@ -69,7 +69,7 @@
         @if(!$globalMode)
             @can('purchases.archive')
                 <div class="d-flex align-items-center" style="gap: 1rem;">
-                    <div class="form-check form-switch pt-1">
+                    <div class="form-check pt-1">
                         <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
                         <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
                     </div>
@@ -141,8 +141,7 @@
                         })->implode("\n");
                     @endphp
                     <a href="{{ $globalMode ? route('purchases.global-payments.show', $purchase->id) : route('purchases.show', $purchase->id) }}"
-                       class="text-primary font-weight-bold"
-                       class="purchase-ref-tooltip"
+                       class="text-primary font-weight-bold purchase-ref-tooltip"
                        data-toggle="tooltip"
                        data-placement="top"
                        title="{{ $productsTooltip }}">
@@ -169,7 +168,7 @@
                 <td>{{ format_currency($globalMode ? $purchase->live_due_amount : $purchase->due_amount) }}</td>
                 <td>
                     @foreach ($purchase->tags as $tag)
-                        <span class="badge bg-info text-white fs-6 me-1">
+                        <span class="badge badge-info me-1">
                     {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
                 </span>
                     @endforeach
@@ -196,7 +195,7 @@
     <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
         <div class="d-flex align-items-center gap-3">
             <div class="d-flex align-items-center gap-2">
-                <select wire:model.live="perPage" class="form-select form-select-sm" style="width: auto;">
+                <select wire:model.live="perPage" class="custom-select custom-select-sm" style="width: auto;">
                     <option value="10">10</option>
                     <option value="25">25</option>
                     <option value="50">50</option>
