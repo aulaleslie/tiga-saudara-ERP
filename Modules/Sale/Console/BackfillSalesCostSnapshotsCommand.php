@@ -10,6 +10,7 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 use Modules\Sale\Support\BackfillCostCalculator;
+use Modules\Purchase\Services\HistoricalReplayEngine;
 use Carbon\Carbon;
 
 class BackfillSalesCostSnapshotsCommand extends Command
@@ -99,270 +100,146 @@ class BackfillSalesCostSnapshotsCommand extends Command
 
     protected function processProduct(Product $product, $settingId, $startDate, $endDate, $isDryRun, $force, $settings)
     {
-        $events = collect();
+        // Use HistoricalReplayEngine to collect timeline events
+        $replayEngine = new HistoricalReplayEngine();
+        $events = $replayEngine->collectTimelineEvents(
+            productId: $product->id,
+            untilDate: $endDate ? Carbon::parse($endDate) : null,
+        );
 
-        // 1. Purchase Details
-        $purchases = PurchaseDetail::withoutEagerLoads()
-            ->with(['purchase' => function ($q) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
-            }, 'receivedNoteDetails' => function ($q) {
-                $q->withoutEagerLoads()->select('id', 'po_detail_id', 'received_note_id', 'quantity_received');
-            }, 'receivedNoteDetails.receivedNote' => function ($q) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status', 'approved_at');
-            }])
-            ->select('id', 'purchase_id', 'product_id', 'quantity', 'sub_total', 'product_tax_amount', 'product_discount_amount')
-            ->where('product_id', $product->id)
-            ->whereHas('purchase', function ($q) use ($endDate) {
-                $q->whereIn('status', ['Completed', 'COMPLETED', 'RECEIVED', 'RECEIVED PARTIALLY', 'RETURNED PARTIALLY', 'RETURNED']);
-                if ($endDate) $q->whereDate('date', '<=', $endDate);
-            })->get();
-
-        $purchaseEvents = $this->buildPurchaseEvents($purchases, true);
-        foreach ($purchaseEvents as $event) {
-            $companyName = optional($settings->get($event['model']->purchase->setting_id))->company_name;
-            $event['bucket'] = BackfillCostCalculator::classifyBucket($companyName);
-            $events->push($event);
-        }
-
-        // 2. Purchase Return Details
-        $purchaseReturns = PurchaseReturnDetail::withoutEagerLoads()
-            ->with(['purchaseReturn' => function ($q) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
-            }])
-            ->select('id', 'purchase_return_id', 'product_id', 'quantity')
-            ->where('product_id', $product->id)
-            ->whereHas('purchaseReturn', function ($q) use ($endDate) {
-                $q->whereIn('status', ['Completed', 'COMPLETED']);
-                if ($endDate) $q->whereDate('date', '<=', $endDate);
-            })->get();
-
-        foreach ($purchaseReturns as $prd) {
-            $companyName = optional($settings->get($prd->purchaseReturn->setting_id))->company_name;
-            $date = Carbon::parse($prd->purchaseReturn->date)->format('Y-m-d H:i:s');
-            $events->push([
-                'type' => 'purchase_return',
-                'order' => 2,
-                'id' => $prd->id,
-                'date' => $date,
-                'quantity' => (float) $prd->quantity,
-                'model' => $prd,
-                'bucket' => BackfillCostCalculator::classifyBucket($companyName),
-            ]);
-        }
-
-        // 3. Sale Details
-        // Date filters for writes are checked later during processing, not in the query, to ensure opening state is built correctly
-        $salesQuery = SaleDetails::withoutEagerLoads()
-            ->with(['sale' => function ($q) {
-                $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
-            }])
-            ->select('id', 'sale_id', 'product_id', 'quantity', 'cost_snapshot_source', 'cost_unit_snapshot', 'cost_total_snapshot', 'cost_snapshot_at')
-            ->where('product_id', $product->id)
-            ->whereHas('sale', function ($q) use ($endDate) {
-                $q->whereIn('status', ['Completed', 'COMPLETED', 'DISPATCHED', 'RETURNED PARTIALLY', 'RETURNED']);
-                if ($endDate) $q->whereDate('date', '<=', $endDate);
-            });
-
-        $sales = $salesQuery->get();
-        foreach ($sales as $sd) {
-            $companyName = optional($settings->get($sd->sale->setting_id))->company_name;
-            $date = Carbon::parse($sd->sale->date)->format('Y-m-d H:i:s');
-            $events->push([
-                'type' => 'sale',
-                'order' => 3,
-                'id' => $sd->id,
-                'date' => $date,
-                'quantity' => (float) $sd->quantity,
-                'model' => $sd,
-                'bucket' => BackfillCostCalculator::classifyBucket($companyName),
-            ]);
-        }
-
-        $events = $events->sort(function ($a, $b) {
-            if ($a['date'] === $b['date']) {
-                if ($a['order'] === $b['order']) {
-                    return $a['id'] <=> $b['id'];
-                }
-                return $a['order'] <=> $b['order'];
-            }
-            return $a['date'] <=> $b['date'];
-        })->values();
-
-        // Track state per bucket
-        $states = [
-            'tiga_nusa' => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
-            'top_it'    => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
-            'rest'      => ['runningQty' => 0, 'runningValue' => 0, 'currentAverage' => 0, 'hasPurchases' => false, 'earliestPurchaseAverage' => null],
-        ];
-
-        // Pre-scan to determine fallback conditions and earliest averages
-        foreach ($events as $event) {
-            if ($event['type'] === 'purchase' && $event['quantity'] > 0) {
-                $bucket = $event['bucket'];
-                $states[$bucket]['hasPurchases'] = true;
-                if ($states[$bucket]['earliestPurchaseAverage'] === null) {
-                    $states[$bucket]['earliestPurchaseAverage'] = $event['cost'] / $event['quantity'];
-                }
+        // Collect all sales from events for processing
+        $allEvents = $events;
+        if ($events->isEmpty()) {
+            // Even with no historical events, we still need to check for future purchases
+            // for fallback averages. Collect all sales without a date limit.
+            $allEvents = $replayEngine->collectTimelineEvents(
+                productId: $product->id,
+                untilDate: null,
+            );
+            if ($allEvents->isEmpty()) {
+                return;
             }
         }
 
-        // Fetch future purchases for fallback if any bucket is missing it
-        $needsFuture = collect($states)->contains(fn($s) => $s['earliestPurchaseAverage'] === null);
-        if ($needsFuture && $endDate) {
-            $futurePurchases = PurchaseDetail::withoutEagerLoads()
-                ->with(['purchase' => function ($q) {
-                    $q->withoutEagerLoads()->select('id', 'date', 'status', 'setting_id');
-                }, 'receivedNoteDetails' => function ($q) {
-                    $q->withoutEagerLoads()->select('id', 'po_detail_id', 'received_note_id', 'quantity_received');
-                }, 'receivedNoteDetails.receivedNote' => function ($q) {
-                    $q->withoutEagerLoads()->select('id', 'date', 'status', 'approved_at');
-                }])
-                ->select('purchase_details.id', 'purchase_details.purchase_id', 'purchase_details.product_id', 'purchase_details.quantity', 'purchase_details.sub_total', 'purchase_details.product_tax_amount', 'purchase_details.product_discount_amount')
-                ->join('purchases', 'purchase_details.purchase_id', '=', 'purchases.id')
-                ->where('purchase_details.product_id', $product->id)
-                ->whereIn('purchases.status', ['Completed', 'COMPLETED', 'RECEIVED', 'RECEIVED PARTIALLY', 'RETURNED PARTIALLY', 'RETURNED'])
-                ->whereDate('purchases.date', '>', $endDate)
-                ->orderBy('purchases.date', 'asc')
-                ->orderBy('purchase_details.id', 'asc')
-                ->get();
+        // Use engine's bucket isolation replay to get sale snapshots and fallback handling
+        $replayResult = $replayEngine->replayWithBucketIsolation($events);
 
-            $futureEvents = $this->buildPurchaseEvents($futurePurchases, false);
-            $futureEvents = $futureEvents->sort(function ($a, $b) {
-                if ($a['date'] === $b['date']) {
-                    return $a['id'] <=> $b['id'];
-                }
-                return $a['date'] <=> $b['date'];
-            })->values();
+        $saleSnapshots = $replayResult['sale_snapshots'];
+        if (!empty($replayResult['warnings']['negative_stock'])) {
+            $this->summary['negative_stock'] += count($replayResult['warnings']['negative_stock']);
+        }
 
-            foreach ($futureEvents as $event) {
-                if ($event['quantity'] > 0) {
-                    $companyName = optional($settings->get($event['model']->purchase->setting_id))->company_name;
-                    $bucket = BackfillCostCalculator::classifyBucket($companyName);
-                    
-                    if ($states[$bucket]['earliestPurchaseAverage'] === null) {
-                        $states[$bucket]['earliestPurchaseAverage'] = $event['cost'] / $event['quantity'];
-                        // A future purchase counts as having a purchase history for fallback logic
-                        $states[$bucket]['hasPurchases'] = true;
-                    }
-                }
+        // Build fallback averages from future purchases (for sales with no historical cost)
+        // Use the earliest sale date as baseline for finding "future" purchases
+        $fallbackDate = $endDate ? Carbon::parse($endDate) : null;
+        if (!$fallbackDate) {
+            $earliestSale = $allEvents
+                ->filter(fn($e) => $e['type'] === 'sale')
+                ->sortBy('date')
+                ->first();
+            if ($earliestSale) {
+                $fallbackDate = Carbon::parse($earliestSale['date']);
             }
         }
 
-        foreach ($events as $event) {
-            $b = $event['bucket'];
-            
-            if ($event['type'] === 'purchase') {
-                $state = BackfillCostCalculator::applyPurchase($event['quantity'], $event['cost'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
-                $states[$b]['runningQty'] = $state['runningQty'];
-                $states[$b]['runningValue'] = $state['runningValue'];
-                $states[$b]['currentAverage'] = $state['currentAverage'];
-            } elseif ($event['type'] === 'purchase_return') {
-                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
-                $states[$b]['runningQty'] = $state['runningQty'];
-                $states[$b]['runningValue'] = $state['runningValue'];
-                $states[$b]['currentAverage'] = $state['currentAverage'];
-                if ($states[$b]['runningQty'] < 0) {
-                    $this->summary['negative_stock']++;
-                }
-            } elseif ($event['type'] === 'sale') {
-                $sd = $event['model'];
-                
-                $inScope = true;
-                $eventDate = Carbon::parse($sd->sale->date)->startOfDay();
-                if ($startDate && $eventDate->lt(Carbon::parse($startDate)->startOfDay())) {
-                    $inScope = false;
-                }
-                if ($endDate && $eventDate->gt(Carbon::parse($endDate)->startOfDay())) {
-                    $inScope = false;
-                }
-                if ($settingId && $sd->sale->setting_id != $settingId) {
-                    $inScope = false;
-                }
+        $fallbackAverages = $replayEngine->buildFallbackAverages(
+            productId: $product->id,
+            afterDate: $fallbackDate,
+        );
 
-                if ($inScope) {
-                    $this->summary['scanned']++;
-                }
+        // Process sales with snapshot filtering and scope checks
+        foreach ($allEvents as $event) {
+            if ($event['type'] !== 'sale') {
+                continue;
+            }
 
-                // Skip ONLY if snapshot is from backfill AND not force flag
-                // BUT: always consume stock from timeline to maintain running average integrity
-                $shouldSkipSnapshot = !$force && $sd->cost_snapshot_source && str_starts_with($sd->cost_snapshot_source, 'BACKFILL_');
+            $sd = $event['model'];
 
-                if ($inScope && $shouldSkipSnapshot) {
-                    $this->summary['skipped']++;
-                } elseif ($inScope) {
-                    $this->summary['fillable']++;
+            $inScope = true;
+            $eventDate = Carbon::parse($sd->sale->date)->startOfDay();
+            if ($startDate && $eventDate->lt(Carbon::parse($startDate)->startOfDay())) {
+                $inScope = false;
+            }
+            if ($endDate && $eventDate->gt(Carbon::parse($endDate)->startOfDay())) {
+                $inScope = false;
+            }
+            if ($settingId && $sd->sale->setting_id != $settingId) {
+                $inScope = false;
+            }
 
-                    // Determine fallback
-                    $evalBucket = $b;
-                    if ($b !== 'rest' && !$states[$b]['hasPurchases']) {
-                        $evalBucket = 'rest';
-                    }
+            if ($inScope) {
+                $this->summary['scanned']++;
+            }
 
-                    // Calculate snapshot BEFORE consuming stock, using pre-sale moving average
+            // Skip if:
+            // 1. Snapshot is from imported HPP (never overwrite, regardless of --force)
+            // 2. Snapshot is from backfill AND not force flag
+            $isImportedHpp = $sd->cost_snapshot_source === 'HPP_SNAPSHOT_IMPORT';
+            $shouldSkipSnapshot = $isImportedHpp || (!$force && $sd->cost_snapshot_source && str_starts_with($sd->cost_snapshot_source, 'BACKFILL_'));
+
+            if ($inScope && $shouldSkipSnapshot) {
+                $this->summary['skipped']++;
+            } elseif ($inScope) {
+                $this->summary['fillable']++;
+
+                // Use snapshot from replay engine if available
+                $unitCost = $saleSnapshots[$event['id']] ?? 0;
+                $source = '';
+
+                if (!$product->stock_managed) {
                     $unitCost = 0;
-                    $source = '';
-
-                    if (!$product->stock_managed) {
-                        $unitCost = 0;
-                        $source = 'NON_STOCK_ZERO';
-                        $this->summary['non_stock_zero']++;
+                    $source = 'NON_STOCK_ZERO';
+                    $this->summary['non_stock_zero']++;
+                } else {
+                    if ($unitCost > 0) {
+                        $source = 'BACKFILL_RUNNING_AVERAGE';
                     } else {
-                        if ($states[$evalBucket]['runningQty'] > 0 || $states[$evalBucket]['currentAverage'] > 0) {
-                            $unitCost = $states[$evalBucket]['currentAverage'];
-                            $source = 'BACKFILL_RUNNING_AVERAGE';
-                        } elseif ($states[$evalBucket]['earliestPurchaseAverage'] !== null) {
-                            $unitCost = $states[$evalBucket]['earliestPurchaseAverage'];
+                        // Try future purchase fallback before zero fallback
+                        $companyName = $settings[$sd->sale->setting_id]->company_name ?? null;
+                        $bucket = BackfillCostCalculator::classifyBucket($companyName);
+
+                        if ($fallbackAverages[$bucket] !== null) {
+                            $unitCost = $fallbackAverages[$bucket];
                             $source = 'BACKFILL_FUTURE_PURCHASE';
                             $this->summary['future_purchase_fallback']++;
                         } else {
-                            $unitCost = 0;
                             $source = 'BACKFILL_ZERO_FALLBACK';
                             $this->summary['no_purchase_fallback']++;
                         }
                     }
-
-                    $maxCost = (float) config('sale.suspicious_unit_cost_max', 100000000);
-                    $isSuspicious = $unitCost < 0 || !is_finite($unitCost) || $unitCost > $maxCost;
-
-                    if ($isSuspicious) {
-                        $this->summary['suspicious_unit_cost']++;
-                        $this->suspiciousWarnings[] = [
-                            $product->id,
-                            $product->product_code,
-                            $sd->id,
-                            $sd->sale->date,
-                            $states[$evalBucket]['runningQty'],
-                            $states[$evalBucket]['runningValue'],
-                            $unitCost,
-                        ];
-                    } else {
-                        $totalCost = $unitCost * $sd->quantity;
-
-                        if (!$isDryRun) {
-                            $this->updateBatch[] = [
-                                'id' => $sd->id,
-                                'cost_unit_snapshot' => round($unitCost, 6),
-                                'cost_total_snapshot' => round($totalCost, 2),
-                                'cost_snapshot_source' => $source,
-                                'cost_snapshot_at' => now()->format('Y-m-d H:i:s'),
-                            ];
-                            $this->summary['updated']++;
-
-                            if (count($this->updateBatch) >= $this->batchSize) {
-                                $this->flushUpdates();
-                            }
-                        }
-                    }
                 }
 
-                // NOW consume stock from running inventory after snapshot is taken
-                // Always reduce value at current average, even if negative stock results
-                $state = BackfillCostCalculator::applyConsumption($event['quantity'], $states[$b]['runningQty'], $states[$b]['runningValue'], $states[$b]['currentAverage']);
-                $states[$b]['runningQty'] = $state['runningQty'];
-                $states[$b]['runningValue'] = $state['runningValue'];
-                $states[$b]['currentAverage'] = $state['currentAverage'];
-                if ($states[$b]['runningQty'] < 0) {
-                    $this->summary['negative_stock']++;
+                $maxCost = (float) config('sale.suspicious_unit_cost_max', 100000000);
+                $isSuspicious = $unitCost < 0 || !is_finite($unitCost) || $unitCost > $maxCost;
+
+                if ($isSuspicious) {
+                    $this->summary['suspicious_unit_cost']++;
+                    $this->suspiciousWarnings[] = [
+                        $product->id,
+                        $product->product_code,
+                        $sd->id,
+                        $sd->sale->date,
+                        0, // runningQty - not available from engine
+                        0, // runningValue - not available from engine
+                        $unitCost,
+                    ];
+                } else {
+                    $totalCost = $unitCost * $sd->quantity;
+
+                    if (!$isDryRun) {
+                        $this->updateBatch[] = [
+                            'id' => $sd->id,
+                            'cost_unit_snapshot' => round($unitCost, 6),
+                            'cost_total_snapshot' => round($totalCost, 2),
+                            'cost_snapshot_source' => $source,
+                            'cost_snapshot_at' => now()->format('Y-m-d H:i:s'),
+                        ];
+                        $this->summary['updated']++;
+
+                        if (count($this->updateBatch) >= $this->batchSize) {
+                            $this->flushUpdates();
+                        }
+                    }
                 }
             }
         }
@@ -389,67 +266,5 @@ class BackfillSalesCostSnapshotsCommand extends Command
         });
 
         $this->updateBatch = [];
-    }
-
-    protected function buildPurchaseEvents($purchases, $recordWarnings = true)
-    {
-        $events = collect();
-
-        foreach ($purchases as $pd) {
-            $subTotal = (float) $pd->sub_total;
-            $tax = (float) $pd->product_tax_amount;
-            $discount = (float) $pd->product_discount_amount;
-            $lineDpp = BackfillCostCalculator::calculatePurchaseDpp($subTotal, $tax, $discount);
-            $orderedQty = (float) $pd->quantity;
-
-            $approvedReceipts = [];
-            if ($pd->receivedNoteDetails && $pd->receivedNoteDetails->count() > 0) {
-                foreach ($pd->receivedNoteDetails as $rnd) {
-                    if ($rnd->receivedNote && $rnd->receivedNote->status === 'APPROVED') {
-                        $approvedReceipts[] = [
-                            'quantity' => (float) $rnd->quantity_received,
-                            'date' => $rnd->receivedNote->approved_at ?? $rnd->receivedNote->date,
-                        ];
-                    }
-                }
-            }
-
-            if ($pd->purchase->status === 'RECEIVED PARTIALLY' && empty($approvedReceipts)) {
-                if ($recordWarnings) {
-                    $this->summary['missing_receipt_data']++;
-                }
-                continue;
-            }
-
-            if (!empty($approvedReceipts)) {
-                usort($approvedReceipts, fn($a, $b) => $a['date'] <=> $b['date']);
-                foreach ($approvedReceipts as $receipt) {
-                    $receiptQty = $receipt['quantity'];
-                    $receiptCost = BackfillCostCalculator::calculateProratedReceiptCost($orderedQty, $receiptQty, $lineDpp);
-
-                    $events->push([
-                        'type' => 'purchase',
-                        'order' => 1,
-                        'id' => $pd->id,
-                        'date' => Carbon::parse($receipt['date'])->format('Y-m-d H:i:s'),
-                        'quantity' => $receiptQty,
-                        'cost' => $receiptCost,
-                        'model' => $pd,
-                    ]);
-                }
-            } else {
-                $events->push([
-                    'type' => 'purchase',
-                    'order' => 1,
-                    'id' => $pd->id,
-                    'date' => Carbon::parse($pd->purchase->date)->format('Y-m-d H:i:s'),
-                    'quantity' => $orderedQty,
-                    'cost' => $lineDpp,
-                    'model' => $pd,
-                ]);
-            }
-        }
-
-        return $events;
     }
 }

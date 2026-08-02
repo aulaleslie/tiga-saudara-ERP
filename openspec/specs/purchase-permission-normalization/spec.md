@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Establish a canonical permission catalog for purchase and purchase-return lifecycle actions with consistent verb taxonomy and authorization enforcement.
+
+## Requirements
 
 ### Requirement: Canonical Purchase Permission Catalog
 The system SHALL define and maintain a canonical permission catalog for purchase and purchase-return lifecycle actions using a consistent verb taxonomy across role configuration and enforcement sites.

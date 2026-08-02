@@ -1,5 +1,9 @@
-## ADDED Requirements
+# privileged-received-purchase-corrections Specification
 
+## Purpose
+
+Enable privileged users to correct monetary values in received purchases while preserving inventory identity, applying automatic or explicit payment adjustments, and optionally replaying historical cost impact on products and sales.
+## Requirements
 ### Requirement: Privileged users can correct received purchase monetary data
 The system SHALL allow only Super Admin or a user with `purchases.received.correct` to start and save a correction for a purchase in `RECEIVED` or `RECEIVED PARTIALLY` status within the active setting.
 
@@ -52,3 +56,4 @@ The system SHALL not modify purchase average prices or sale cost snapshots when 
 - **WHEN** an authorized user confirms a previewed correction cost recalculation with downstream sale replay enabled
 - **THEN** the system SHALL replay affected cost history from the earliest impacted approved receipt through later eligible sales
 - **AND** the system SHALL record the recalculation actor, scope, result counts, and correction linkage
+

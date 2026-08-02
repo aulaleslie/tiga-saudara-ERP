@@ -130,6 +130,10 @@ class Purchase extends BaseModel implements HasMedia
         return $this->hasMany(PurchasePayment::class, 'purchase_id', 'id');
     }
 
+    public function corrections() {
+        return $this->hasMany(PurchaseCorrection::class, 'purchase_id', 'id');
+    }
+
     public static function boot(): void
     {
         parent::boot();

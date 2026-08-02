@@ -107,6 +107,106 @@ class BackfillSalesCostSnapshotsCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
+    public function test_imported_hpp_snapshot_skipped_in_backfill(): void
+    {
+        $product = Product::forceCreate([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'HPP Test Product',
+            'product_code' => uniqid(),
+            'product_barcode_symbology' => 'C128',
+            'product_quantity' => 10,
+            'product_cost' => 10000,
+            'product_price' => 15000,
+            'product_unit' => 'pc',
+            'product_stock_alert' => 1,
+            'stock_managed' => true,
+        ]);
+
+        $purchase = Purchase::forceCreate([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => 'Supplier',
+            'status' => 'Completed',
+            'total_amount' => 100000,
+            'paid_amount' => 100000,
+            'due_amount' => 0,
+            'date' => '2023-01-01',
+            'due_date' => '2023-01-01',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+        ]);
+
+        PurchaseDetail::forceCreate([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => 'HPP Test Product',
+            'product_code' => 'HPPTEST',
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+        ]);
+
+        $sale = Sale::forceCreate([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'Customer',
+            'customer_id' => $this->customer->id,
+            'status' => 'Completed',
+            'total_amount' => 150000,
+            'paid_amount' => 150000,
+            'due_amount' => 0,
+            'date' => '2023-01-02',
+            'due_date' => '2023-01-02',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+        ]);
+
+        // Create a sale detail with HPP_SNAPSHOT_IMPORT source marker and known cost
+        $saleDetail = SaleDetails::forceCreate([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => 'HPP Test Product',
+            'product_code' => 'HPPTEST',
+            'quantity' => 5,
+            'price' => 15000,
+            'unit_price' => 15000,
+            'sub_total' => 75000,
+            'product_tax_amount' => 0,
+            'product_discount_amount' => 0,
+            'cost_unit_snapshot' => 8500,
+            'cost_snapshot_source' => 'HPP_SNAPSHOT_IMPORT',
+        ]);
+
+        // Run backfill
+        $this->artisan('sales:backfill-cost-snapshots', ['--write' => true, '--force' => true])
+            ->expectsTable(
+                ['Metric', 'Count'],
+                [
+                    ['scanned', '1'],
+                    ['fillable', '0'],
+                    ['updated', '0'],
+                    ['unchanged', '0'],
+                    ['skipped', '1'],
+                    ['missing_product_price', '0'],
+                    ['negative_stock', '0'],
+                    ['archived_skipped', '0'],
+                    ['future_purchase_fallback', '0'],
+                    ['no_purchase_fallback', '0'],
+                    ['non_stock_zero', '0'],
+                    ['missing_receipt_data', '0'],
+                    ['suspicious_unit_cost', '0'],
+                ]
+            )
+            ->assertExitCode(0);
+
+        // Cost snapshot should remain unchanged
+        $saleDetail->refresh();
+        $this->assertEquals(8500, $saleDetail->cost_unit_snapshot);
+        $this->assertEquals('HPP_SNAPSHOT_IMPORT', $saleDetail->cost_snapshot_source);
+    }
+
     public function test_future_purchase_fallback()
     {
         $product = Product::forceCreate(['setting_id' => $this->setting->id, 'product_name' => 'Test Product', 'product_code' => uniqid(), 'product_barcode_symbology' => 'C128', 'product_quantity' => 10, 'product_cost' => 10000, 'product_price' => 15000, 'product_unit' => 'pc', 'product_stock_alert' => 1, 'stock_managed' => true]);

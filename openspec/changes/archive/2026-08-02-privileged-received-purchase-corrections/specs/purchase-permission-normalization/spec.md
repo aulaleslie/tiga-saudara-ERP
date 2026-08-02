@@ -1,3 +1,7 @@
+## ADDED Purpose
+
+Extend the canonical purchase permission catalog to explicitly include and enforce `purchases.received.correct` for received-purchase correction authorization.
+
 ## ADDED Requirements
 
 ### Requirement: Received purchase correction has a canonical permission

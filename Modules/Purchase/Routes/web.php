@@ -20,6 +20,7 @@ use Modules\Purchase\Http\Controllers\PurchaseController;
 use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
 use Modules\Purchase\Http\Controllers\PurchaseUploadController;
 use Modules\Purchase\Http\Controllers\GlobalPurchasePaymentController;
+use Modules\Purchase\Http\Controllers\PurchaseCorrectionController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -77,6 +78,16 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('purchases.attachments.store');
     Route::delete('/purchases/{purchase}/attachments/{media}', [PurchaseController::class, 'destroyAttachment'])
         ->name('purchases.attachments.destroy');
+
+    // Purchase Corrections
+    Route::middleware('can:purchases.received.correct')
+        ->group(function () {
+            Route::get('/purchases/{purchase}/correct', [PurchaseCorrectionController::class, 'edit'])->name('purchases.correction.edit');
+            Route::post('/purchases/{purchase}/correct', [PurchaseCorrectionController::class, 'store'])->name('purchases.correction.store');
+            Route::post('/purchases/{purchase}/correct/payment-preview', [PurchaseCorrectionController::class, 'previewPaymentCorrection'])->name('purchases.correction.payment-preview');
+            Route::get('/purchases/{purchase}/correct/recalculate/preview', [PurchaseCorrectionController::class, 'previewRecalculation'])->name('purchases.correction.recalculate.preview');
+            Route::post('/purchases/{purchase}/correct/recalculate', [PurchaseCorrectionController::class, 'executeRecalculation'])->name('purchases.correction.recalculate');
+        });
 
     // Global Purchase Payments
     Route::group(['middleware' => ['can:purchasePayments.global.access']], function () {

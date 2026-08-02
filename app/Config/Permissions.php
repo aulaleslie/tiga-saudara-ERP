@@ -180,6 +180,7 @@ return [
         'purchases.show' => 'Tampilkan',
         'purchases.approval' => 'Persetujuan',
         'purchases.archive' => 'Arsipkan',
+        'purchases.received.correct' => 'Koreksi Penerimaan',
     ],
 
     'Penerimaan Barang' => [
