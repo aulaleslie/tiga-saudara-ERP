@@ -1,4 +1,4 @@
-@extends('app')
+@extends('layouts.app')
 
 @section('content')
 <div class="container mx-auto px-4 py-6">
@@ -36,7 +36,7 @@
                 </div>
                 <div>
                     <p class="text-gray-600">Tanggal</p>
-                    <p>{{ $purchase->date->format('d-m-Y') }}</p>
+                    <p>{{ \Carbon\Carbon::parse($purchase->date)->format('d-m-Y') }}</p>
                 </div>
                 <div>
                     <p class="text-gray-600">Lokasi Terima</p>

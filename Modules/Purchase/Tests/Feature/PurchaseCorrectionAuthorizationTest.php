@@ -146,6 +146,32 @@ class PurchaseCorrectionAuthorizationTest extends TestCase
         $this->assertTrue($role->hasPermissionTo('purchases.received.correct'));
     }
 
+    public function test_correction_page_renders_for_authorized_user_with_string_date(): void
+    {
+        $this->actingAs($this->user)
+            ->get(route('purchases.correction.edit', $this->receivedPurchase))
+            ->assertOk()
+            ->assertSee('Koreksi Penerimaan Pembelian')
+            ->assertSee(now()->format('d-m-Y'));
+    }
+
+    public function test_correction_action_is_visible_in_list_dropdown_for_authorized_users(): void
+    {
+        $this->actingAs($this->user);
+
+        $userActions = view('purchase::partials.actions', ['data' => $this->receivedPurchase])->render();
+        $this->assertStringContainsString(route('purchases.correction.edit', $this->receivedPurchase), $userActions);
+        $this->assertStringContainsString('Koreksi Penerimaan', $userActions);
+
+        $this->actingAs($this->superAdmin);
+
+        $superAdminActions = view('purchase::partials.actions', ['data' => $this->receivedPurchase])->render();
+        $this->assertStringContainsString(route('purchases.correction.edit', $this->receivedPurchase), $superAdminActions);
+
+        $draftActions = view('purchase::partials.actions', ['data' => $this->draftedPurchase])->render();
+        $this->assertStringNotContainsString('Koreksi Penerimaan', $draftActions);
+    }
+
     private function authorize(string $ability, Purchase $purchase, User $user): bool
     {
         return $user->can($ability, $purchase);

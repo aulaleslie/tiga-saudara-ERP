@@ -517,6 +517,14 @@
                                         </a>
                                     @endif
                                 @endcan
+
+                                @can('correct', $purchase)
+                                    @if (!$purchase->isArchived() && in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY], true))
+                                        <a href="{{ route('purchases.correction.edit', $purchase->id) }}" class="btn btn-warning">
+                                            <i class="bi bi-pencil-square mr-2"></i> Koreksi Penerimaan
+                                        </a>
+                                    @endif
+                                @endcan
                             </div>
                         @endif
                     </div>

@@ -72,6 +72,14 @@
                         </a>
                     @endif
                 @endcan
+
+                @can('correct', $data)
+                    @if(in_array($data->status, ['RECEIVED', 'RECEIVED PARTIALLY'], true))
+                        <a href="{{ route('purchases.correction.edit', $data->id) }}" class="dropdown-item" @click="open = false">
+                            <i class="bi bi-pencil-square mr-2 text-warning" style="line-height: 1;"></i> Koreksi Penerimaan
+                        </a>
+                    @endif
+                @endcan
             @endif
 
             @can('purchases.show')
