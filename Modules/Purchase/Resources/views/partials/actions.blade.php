@@ -1,3 +1,4 @@
+@php use Modules\Purchase\Entities\Purchase; @endphp
 <div x-data="{
     open: false,
     position: { top: 0, left: 0 },
@@ -171,6 +172,14 @@
                     <a href="{{ route('purchases.receive', $data->id) }}" class="dropdown-item text-primary" @click="open = false">
                         <i class="bi bi-box-arrow-in-down mr-2"></i> Menerima
                     </a>
+                    @endcan
+                @endif
+
+                @if ($data->status === Purchase::STATUS_RECEIVED_PARTIALLY)
+                    @can('purchases.receive.complete_shortfall')
+                    <button type="button" class="dropdown-item text-success" wire:click="$dispatch('openReceivingCompletionModal', { purchase: {{ $data->id }} })" @click="open = false">
+                        <i class="bi bi-check2-circle mr-2"></i> Selesaikan Penerimaan
+                    </button>
                     @endcan
                 @endif
             @endif

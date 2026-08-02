@@ -518,6 +518,14 @@
                                     @endif
                                 @endcan
 
+                                @can('purchases.receive.complete_shortfall')
+                                    @if (!$purchase->isArchived() && $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
+                                        <button type="button" class="btn btn-success" wire:click="$dispatch('openReceivingCompletionModal', { purchase: {{ $purchase->id }} })">
+                                            Selesaikan Penerimaan
+                                        </button>
+                                    @endif
+                                @endcan
+
                                 @can('correct', $purchase)
                                     @if (!$purchase->isArchived() && in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY], true))
                                         <a href="{{ route('purchases.correction.edit', $purchase->id) }}" class="btn btn-warning">
@@ -564,6 +572,11 @@
             </div>
         </div>
     </div>
+
+    {{-- Receiving Completion Modal --}}
+    @can('purchases.receive.complete_shortfall')
+        <livewire:purchase.modals.purchase-receiving-completion-modal />
+    @endcan
 @endsection
 
 @push('page_css')

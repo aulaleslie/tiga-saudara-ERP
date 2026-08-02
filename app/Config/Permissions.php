@@ -187,6 +187,7 @@ return [
         'purchases.receive.access' => 'Hak Akses',
         'purchases.receive.approval' => 'Persetujuan',
         'purchases.receive' => 'Terima',
+        'purchases.receive.complete_shortfall' => 'Selesaikan Kekurangan Pemasok',
     ],
 
 

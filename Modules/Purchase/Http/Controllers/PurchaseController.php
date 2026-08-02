@@ -39,6 +39,7 @@ use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 use Modules\Purchase\Services\PurchaseNormalizer;
+use Modules\Purchase\Services\PurchaseReceivingCompletionService;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -739,50 +740,63 @@ class PurchaseController extends Controller
             ])->withInput();
         }
 
-        DB::transaction(function () use ($data, $purchase) {
-            // Create a ReceivedNote with PENDING status
-            $receivedNote = ReceivedNote::create([
-                'po_id' => $purchase->id,
-                'external_delivery_number' => $data['external_delivery_number'] ?? null,
-                'date' => now(),
-                'location_id' => $data['location_id'],
-                'status' => ReceivedNote::STATUS_PENDING,
-            ]);
+        try {
+            DB::transaction(function () use ($data, $purchase) {
+                $purchase = Purchase::where('id', $purchase->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            app(\App\Services\Notification\DocumentNotificationService::class)
-                ->notifyApprovalNeeded($receivedNote, 'Penerimaan ' . $purchase->reference, $purchase->setting_id, $data['location_id']);
-
-            // Get purchase details for validation
-            $purchaseDetails = $purchase->purchaseDetails()->get();
-
-            foreach ($purchaseDetails as $detail) {
-                $receivedQuantity = $data['received'][$detail->id] ?? 0;
-
-                if ($receivedQuantity > 0) {
-                    // Collect pending serial numbers for this detail
-                    $pendingSerials = null;
-                    if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
-                        $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id]));
-                    }
-
-                    // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
-                    ReceivedNoteDetail::create([
-                        'received_note_id' => $receivedNote->id,
-                        'quantity_received' => $receivedQuantity,
-                        'po_detail_id' => $detail->id,
-                        'pending_serial_numbers' => $pendingSerials,
-                        'note' => $data['notes'][$detail->id] ?? null,
-                    ]);
-
-                    // Serial numbers will be committed to product_serial_numbers table on approval
+                if ($purchase->status === Purchase::STATUS_RECEIVED) {
+                    throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menerima pengiriman lebih lanjut.');
                 }
-            }
 
-            // Stock increment and purchase status update are now done on approval
-        });
+                // Create a ReceivedNote with PENDING status
+                $receivedNote = ReceivedNote::create([
+                    'po_id' => $purchase->id,
+                    'external_delivery_number' => $data['external_delivery_number'] ?? null,
+                    'date' => now(),
+                    'location_id' => $data['location_id'],
+                    'status' => ReceivedNote::STATUS_PENDING,
+                ]);
 
-        toast('Penerimaan berhasil disimpan dan menunggu persetujuan.', 'success');
-        return redirect()->route('purchases.receiving.index')->with('message', 'Penerimaan berhasil disimpan. Menunggu persetujuan.');
+                app(\App\Services\Notification\DocumentNotificationService::class)
+                    ->notifyApprovalNeeded($receivedNote, 'Penerimaan ' . $purchase->reference, $purchase->setting_id, $data['location_id']);
+
+                // Get purchase details for validation
+                $purchaseDetails = $purchase->purchaseDetails()->get();
+
+                foreach ($purchaseDetails as $detail) {
+                    $receivedQuantity = $data['received'][$detail->id] ?? 0;
+
+                    if ($receivedQuantity > 0) {
+                        // Collect pending serial numbers for this detail
+                        $pendingSerials = null;
+                        if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
+                            $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id]));
+                        }
+
+                        // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
+                        ReceivedNoteDetail::create([
+                            'received_note_id' => $receivedNote->id,
+                            'quantity_received' => $receivedQuantity,
+                            'po_detail_id' => $detail->id,
+                            'pending_serial_numbers' => $pendingSerials,
+                            'note' => $data['notes'][$detail->id] ?? null,
+                        ]);
+
+                        // Serial numbers will be committed to product_serial_numbers table on approval
+                    }
+                }
+
+                // Stock increment and purchase status update are now done on approval
+            });
+
+            toast('Penerimaan berhasil disimpan dan menunggu persetujuan.', 'success');
+            return redirect()->route('purchases.receiving.index')->with('message', 'Penerimaan berhasil disimpan. Menunggu persetujuan.');
+        } catch (\Exception $e) {
+            toast($e->getMessage(), 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
     private function updateAveragePurchasePrice(Product $product, $newPrice, $receivedQuantity)
@@ -840,6 +854,20 @@ class PurchaseController extends Controller
     public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse|\Illuminate\Http\Response
     {
         abort_if(Gate::denies('purchases.receive.approval'), 403);
+
+        $purchase = $receivedNote->purchase;
+
+        if ($purchase->status === Purchase::STATUS_RECEIVED) {
+            if (request()->ajax() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'purchase_closed',
+                    'message' => 'Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.',
+                ], 422);
+            }
+            toast('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.', 'error');
+            return redirect()->back();
+        }
 
         // Initial check
         if (!$receivedNote->isPending()) {
@@ -925,6 +953,17 @@ class PurchaseController extends Controller
                 DB::transaction(function () use ($receivedNote) {
                     $receivedNote->lockForUpdate();
                     $purchase = $receivedNote->purchase;
+
+                    // Revalidate purchase status under lock
+                    $purchase = Purchase::query()
+                        ->where('id', $purchase->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if ($purchase->status === Purchase::STATUS_RECEIVED) {
+                        throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
+                    }
+
                     $settingLocationIds = Location::where('setting_id', $purchase->setting_id)->pluck('id');
                     
                     // Load received note details with purchase details
@@ -1221,5 +1260,59 @@ class PurchaseController extends Controller
 
         toast('Penerimaan ditolak.', 'warning');
         return redirect()->back();
+    }
+
+    public function previewReceivingCompletion(Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.complete_shortfall'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        try {
+            $preview = app(PurchaseReceivingCompletionService::class)->preview($purchase);
+            return response()->json(['success' => true, 'preview' => $preview]);
+        } catch (Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+    }
+
+    public function submitReceivingCompletion(Request $request, Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.complete_shortfall'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:1000',
+        ], [
+            'reason.required' => 'Alasan kekurangan pemasok wajib diisi.',
+        ]);
+
+        try {
+            $completion = app(PurchaseReceivingCompletionService::class)->complete(
+                $purchase,
+                $validated['reason'],
+                auth()->id()
+            );
+
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Penerimaan berhasil diselesaikan.',
+                    'purchase_id' => $purchase->id,
+                ]);
+            }
+
+            toast('Penerimaan berhasil diselesaikan.', 'success');
+            return redirect()->route('purchases.show', $purchase);
+        } catch (Exception $e) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ], 422);
+            }
+
+            toast($e->getMessage(), 'error');
+            return redirect()->back();
+        }
     }
 }

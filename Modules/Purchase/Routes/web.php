@@ -89,6 +89,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             Route::post('/purchases/{purchase}/correct/recalculate', [PurchaseCorrectionController::class, 'executeRecalculation'])->name('purchases.correction.recalculate');
         });
 
+    // Purchase Receiving Completions
+    Route::middleware('can:purchases.receive.complete_shortfall')
+        ->group(function () {
+            Route::get('/purchases/{purchase}/receiving-completion/preview', [PurchaseController::class, 'previewReceivingCompletion'])->name('purchases.receiving-completion.preview');
+            Route::post('/purchases/{purchase}/receiving-completion/submit', [PurchaseController::class, 'submitReceivingCompletion'])->name('purchases.receiving-completion.submit');
+        });
+
     // Global Purchase Payments
     Route::group(['middleware' => ['can:purchasePayments.global.access']], function () {
         Route::get('/purchases/global-payments', [GlobalPurchasePaymentController::class, 'index'])->name('purchases.global-payments.index');

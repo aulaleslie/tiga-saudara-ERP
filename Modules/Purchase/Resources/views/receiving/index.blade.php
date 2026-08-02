@@ -164,5 +164,9 @@
 
     {{-- Over-Receive Error Modal --}}
     @include('purchase::partials.over-receive-error-modal')
+
+    @can('purchases.receive.complete_shortfall')
+        <livewire:purchase.modals.purchase-receiving-completion-modal />
+    @endcan
 @endsection
 

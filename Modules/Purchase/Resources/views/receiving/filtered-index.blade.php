@@ -37,4 +37,8 @@
             </div>
         </div>
     </div>
+
+    @can('purchases.receive.complete_shortfall')
+        <livewire:purchase.modals.purchase-receiving-completion-modal />
+    @endcan
 @endsection
