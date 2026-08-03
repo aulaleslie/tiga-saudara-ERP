@@ -44,7 +44,7 @@
                 <tbody>
                 @if($cart_items->isNotEmpty())
                     @foreach($cart_items as $cart_item)
-                        <tr>
+                        <tr wire:key="purchase-cart-item-{{ $cart_item->rowId }}">
                             <td class="align-middle">
                                 @can('products.manage_cross_business_prices')
                                     <a href="{{ route('products.cross-business-prices.edit', $cart_item->id) }}" target="_blank" class="text-primary font-weight-bold" title="Manage Cross-Business Prices">
@@ -181,16 +181,19 @@
 
                             <td x-data="{ open: false }" class="align-middle text-right">
                                 <span x-show="!open"
-                                      @click="open = true" style="cursor: pointer;">{{ format_currency($cart_item->options->sub_total) }}</span>
+                                      @click="open = true; $nextTick(() => { const input = $el.nextElementSibling.querySelector('input'); input.value = '{{ $cart_item->options->sub_total }}'; input.dispatchEvent(new Event('input')); })"
+                                      style="cursor: pointer;">{{ format_currency($cart_item->options->sub_total) }}</span>
 
                                 <div x-show="open" @click.away="open = false">
                                     <input
+                                        wire:key="purchase-line-total-input-{{ $cart_item->rowId }}"
                                         wire:model.defer="line_total.{{ $cart_item->id }}"
+                                        :value="open ? '{{ $cart_item->options->sub_total }}' : ''"
                                         style="min-width: 60px; max-width: 110px;"
                                         type="text"
                                         class="form-control text-right"
                                         @keydown.enter="open = false"
-                                        wire:blur="updateLineTotal('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
+                                        wire:blur="updateLineTotal('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                     >
                                 </div>
                             </td>

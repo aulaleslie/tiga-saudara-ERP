@@ -197,14 +197,16 @@
                                 @else
                                     <!-- Standard non-bundled rows: editable Total Baris -->
                                     <span x-show="!open"
-                                          @click="open = true"
+                                          @click="open = true; $nextTick(() => { const input = $el.nextElementSibling.querySelector('input'); input.value = '{{ $cart_item->options->sub_total }}'; input.dispatchEvent(new Event('input')); })"
                                           style="cursor: pointer;">
                                         {{ format_currency($cart_item->options->sub_total) }}
                                     </span>
 
                                     <div x-show="open" @click.away="open = false">
                                         <input
+                                            wire:key="sale-line-total-input-{{ $cart_item->rowId }}"
                                             wire:model.defer="line_total.{{ $cart_item->id }}"
+                                            :value="open ? '{{ $cart_item->options->sub_total }}' : ''"
                                             style="min-width: 60px; max-width: 120px;"
                                             type="text"
                                             class="form-control text-right"
