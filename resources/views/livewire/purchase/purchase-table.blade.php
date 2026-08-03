@@ -5,56 +5,80 @@
     <div class="card mb-4 border-0 shadow-sm">
         <div class="card-body p-3">
             <div class="row g-3">
-                <!-- Business Filter -->
+                <!-- Business Filter (Multi-select) -->
                 <div class="col-md-4">
                     <label class="form-label">Bisnis</label>
-                    <select class="custom-select" wire:model="draftGlobalBusinessFilter">
-                        <option value="">-- Semua Bisnis --</option>
+                    <select class="form-select" wire:model="draftGlobalBusinessFilters" multiple size="5">
                         @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
                             <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
                         @empty
                         @endforelse
                     </select>
+                    <small class="text-muted d-block mt-1">Pilih bisnis (kosongkan untuk semua)</small>
                 </div>
 
                 <!-- Document Date Range (Grouped) -->
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label d-block">Tanggal Dokumen</label>
                     <div class="row g-2">
                         <div class="col">
-                            <input type="date" class="form-control" wire:model="draftDocumentDateFrom" placeholder="Dari">
+                            <label class="form-label small">Dari</label>
+                            <input type="date" class="form-control" wire:model="draftDocumentDateFrom">
                         </div>
                         <div class="col">
-                            <input type="date" class="form-control" wire:model="draftDocumentDateTo" placeholder="Hingga">
+                            <label class="form-label small">Hingga</label>
+                            <input type="date" class="form-control" wire:model="draftDocumentDateTo">
                         </div>
                     </div>
                 </div>
 
-                <!-- Action Buttons -->
-                <div class="col-md-2 d-flex gap-2 align-items-end">
-                    <button type="button" class="btn btn-primary flex-grow-1" wire:click="applyGlobalFilters">
+                <!-- Due Date Range (Grouped) -->
+                <div class="col-md-4">
+                    <label class="form-label d-block">Tanggal Jatuh Tempo</label>
+                    <div class="row g-2">
+                        <div class="col">
+                            <label class="form-label small">Dari</label>
+                            <input type="date" class="form-control" wire:model="draftDueDateFrom">
+                        </div>
+                        <div class="col">
+                            <label class="form-label small">Hingga</label>
+                            <input type="date" class="form-control" wire:model="draftDueDateTo">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="row g-2 mt-2">
+                <div class="col-12">
+                    <button type="button" class="btn btn-primary" wire:click="applyGlobalFilters">
                         <i class="bi bi-check2-circle"></i> Terapkan Filter
                     </button>
-                    <button type="button" class="btn btn-secondary" wire:click="resetGlobalFilters" title="Reset semua filter">
-                        <i class="bi bi-arrow-counterclockwise"></i>
+                    <button type="button" class="btn btn-outline-secondary" wire:click="resetGlobalFilters">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset semua filter
                     </button>
                 </div>
             </div>
 
             <!-- Applied Filters Feedback -->
-            @if ($globalBusinessFilter || $documentDateFrom || $documentDateTo)
+            @if ((!empty($globalBusinessFilters) && count($globalBusinessFilters) > 0) || $documentDateFrom || $documentDateTo || $dueDateFrom || $dueDateTo)
             <div class="row mt-3">
                 <div class="col-12">
                     <small class="text-muted">
                         <i class="bi bi-funnel-fill"></i> Filter aktif:
-                        @if ($globalBusinessFilter)
+                        @if (!empty($globalBusinessFilters) && count($globalBusinessFilters) > 0)
                             <span class="badge bg-primary">
-                                Bisnis: {{ \Modules\Setting\Entities\Setting::find($globalBusinessFilter)?->company_name ?? 'N/A' }}
+                                Bisnis: {{ collect($globalBusinessFilters)->map(fn($id) => \Modules\Setting\Entities\Setting::find($id)?->company_name ?? 'N/A')->join(', ') }}
                             </span>
                         @endif
                         @if ($documentDateFrom || $documentDateTo)
                             <span class="badge bg-primary">
                                 Tanggal: {{ $documentDateFrom ?? '...' }} s/d {{ $documentDateTo ?? '...' }}
+                            </span>
+                        @endif
+                        @if ($dueDateFrom || $dueDateTo)
+                            <span class="badge bg-primary">
+                                Jatuh Tempo: {{ $dueDateFrom ?? '...' }} s/d {{ $dueDateTo ?? '...' }}
                             </span>
                         @endif
                     </small>

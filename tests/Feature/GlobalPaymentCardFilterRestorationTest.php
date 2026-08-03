@@ -145,7 +145,7 @@ class GlobalPaymentCardFilterRestorationTest extends TestCase
         // Test: Mount with business filter + card filter
         Livewire::test('purchase.purchase-table', [
             'globalMode' => true,
-            'globalBusinessFilter' => $this->setting1->id,
+            'globalBusinessFilters' => [$this->setting1->id],
             'selectedCardFilter' => 'unpaid',
         ])
             ->assertViewHas('purchases', function ($purchases) use ($purchase1, $purchase2, $purchase3) {
@@ -218,7 +218,7 @@ class GlobalPaymentCardFilterRestorationTest extends TestCase
 
         Livewire::test('sale.sale-table', [
             'globalMode' => true,
-            'globalBusinessFilter' => $this->setting1->id,
+            'globalBusinessFilters' => [$this->setting1->id],
             'selectedCardFilter' => 'unpaid',
         ])
             ->assertViewHas('sales', function ($sales) use ($matchingSale, $fullyPaidSale, $otherBusinessSale) {
@@ -256,7 +256,7 @@ class GlobalPaymentCardFilterRestorationTest extends TestCase
 
         Livewire::test('purchase.purchase-summary-cards', [
             'globalMode' => true,
-            'globalBusinessFilter' => $this->setting1->id,
+            'globalBusinessFilters' => [$this->setting1->id],
             'selectedCardFilter' => 'unpaid',
         ])
             ->assertSet('selectedCardFilter', 'unpaid')
@@ -297,7 +297,7 @@ class GlobalPaymentCardFilterRestorationTest extends TestCase
 
         Livewire::test('sale.sale-summary-cards', [
             'globalMode' => true,
-            'globalBusinessFilter' => $this->setting1->id,
+            'globalBusinessFilters' => [$this->setting1->id],
             'selectedCardFilter' => 'unpaid',
         ])
             ->assertSet('selectedCardFilter', 'unpaid')

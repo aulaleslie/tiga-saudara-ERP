@@ -8,6 +8,7 @@ use Livewire\Livewire;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Setting\Entities\Setting;
 use Modules\People\Entities\Supplier;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class GlobalPurchasePaymentTableTest extends TestCase
@@ -31,6 +32,10 @@ class GlobalPurchasePaymentTableTest extends TestCase
         // Create authenticated user
         $this->user = \App\Models\User::factory()->create();
         $this->actingAs($this->user);
+
+        // Forget cached permissions and create required permissions for actions partial
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        Permission::findOrCreate('purchases.received.correct', 'web');
 
         \Illuminate\Support\Facades\Gate::define('purchasePayments.global.access', function (?\App\Models\User $user = null) {
             return true;
@@ -121,7 +126,7 @@ class GlobalPurchasePaymentTableTest extends TestCase
         $purchase2 = $this->createPurchase(['setting_id' => $this->setting2->id]);
 
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             // Still shows all, since applied filter not yet set
             ->assertSee($purchase1->reference)
             ->assertSee($purchase2->reference);
@@ -133,7 +138,7 @@ class GlobalPurchasePaymentTableTest extends TestCase
         $purchase2 = $this->createPurchase(['setting_id' => $this->setting2->id]);
 
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             ->call('applyGlobalFilters')
             ->assertSee($purchase1->reference)
             ->assertDontSee($purchase2->reference);
@@ -282,7 +287,7 @@ class GlobalPurchasePaymentTableTest extends TestCase
 
         $component = Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->dispatch('purchase-filter', type: 'unpaid')
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             ->call('applyGlobalFilters');
 
         // selectedCardFilter should persist after filter application

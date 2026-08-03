@@ -20,19 +20,24 @@ class PurchaseSummaryCards extends Component
     public $globalMode = false;
 
     // Global mode filters
-    public ?int $globalBusinessFilter = null;
+    /** @var array<int>|null */
+    public ?array $globalBusinessFilters = null;
     public ?string $documentDateFrom = null;
     public ?string $documentDateTo = null;
+    public ?string $dueDateFrom = null;
+    public ?string $dueDateTo = null;
 
     // Durable summary card selection (stored server-side, restored across refreshes)
     public ?string $selectedCardFilter = null;
 
-    public function mount($globalMode = false, ?int $globalBusinessFilter = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $selectedCardFilter = null)
+    public function mount($globalMode = false, ?array $globalBusinessFilters = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $dueDateFrom = null, ?string $dueDateTo = null, ?string $selectedCardFilter = null)
     {
         $this->globalMode = $globalMode;
-        $this->globalBusinessFilter = $globalBusinessFilter;
+        $this->globalBusinessFilters = $globalBusinessFilters ?? [];
         $this->documentDateFrom = $documentDateFrom;
         $this->documentDateTo = $documentDateTo;
+        $this->dueDateFrom = $dueDateFrom;
+        $this->dueDateTo = $dueDateTo;
         $this->selectedCardFilter = $selectedCardFilter;
 
         if ($this->globalMode) {
@@ -45,13 +50,15 @@ class PurchaseSummaryCards extends Component
     }
 
     #[On('global-purchase-filters-changed')]
-    public function handleFiltersChanged($globalBusinessFilter = null, $documentDateFrom = null, $documentDateTo = null)
+    public function handleFiltersChanged($globalBusinessFilters = null, $documentDateFrom = null, $documentDateTo = null, $dueDateFrom = null, $dueDateTo = null, $selectedCardFilter = null)
     {
         if ($this->globalMode) {
-            $this->globalBusinessFilter = $globalBusinessFilter;
+            $this->globalBusinessFilters = $globalBusinessFilters ?? [];
             $this->documentDateFrom = $documentDateFrom;
             $this->documentDateTo = $documentDateTo;
-            // Preserve the selected card filter across refreshes
+            $this->dueDateFrom = $dueDateFrom;
+            $this->dueDateTo = $dueDateTo;
+            $this->selectedCardFilter = $selectedCardFilter;
         }
     }
 
@@ -81,9 +88,9 @@ class PurchaseSummaryCards extends Component
                 ->where('status', Purchase::STATUS_RECEIVED)
                 ->whereLiveDueAmountGreaterThan(0);
 
-            // Apply business filter if set
-            if (!empty($this->globalBusinessFilter)) {
-                $query->where('setting_id', $this->globalBusinessFilter);
+            // Apply business filter if set (empty array means all businesses)
+            if (!empty($this->globalBusinessFilters)) {
+                $query->whereIn('setting_id', $this->globalBusinessFilters);
             }
 
             // Apply document date range filter if set
@@ -92,6 +99,14 @@ class PurchaseSummaryCards extends Component
             }
             if (!empty($this->documentDateTo)) {
                 $query->where('date', '<=', $this->documentDateTo);
+            }
+
+            // Apply due date range filter if set
+            if (!empty($this->dueDateFrom)) {
+                $query->where('due_date', '>=', $this->dueDateFrom);
+            }
+            if (!empty($this->dueDateTo)) {
+                $query->where('due_date', '<=', $this->dueDateTo);
             }
 
             $purchases = $query->get();
@@ -128,9 +143,9 @@ class PurchaseSummaryCards extends Component
                 ->where('due_date', '<', Carbon::today())
                 ->whereLiveDueAmountGreaterThan(0);
 
-            // Apply business filter if set
-            if (!empty($this->globalBusinessFilter)) {
-                $query->where('setting_id', $this->globalBusinessFilter);
+            // Apply business filter if set (empty array means all businesses)
+            if (!empty($this->globalBusinessFilters)) {
+                $query->whereIn('setting_id', $this->globalBusinessFilters);
             }
 
             // Apply document date range filter if set
@@ -139,6 +154,14 @@ class PurchaseSummaryCards extends Component
             }
             if (!empty($this->documentDateTo)) {
                 $query->where('date', '<=', $this->documentDateTo);
+            }
+
+            // Apply due date range filter if set
+            if (!empty($this->dueDateFrom)) {
+                $query->where('due_date', '>=', $this->dueDateFrom);
+            }
+            if (!empty($this->dueDateTo)) {
+                $query->where('due_date', '<=', $this->dueDateTo);
             }
 
             $purchases = $query->get();
@@ -184,10 +207,10 @@ class PurchaseSummaryCards extends Component
                        ->whereLiveDueAmountLessThanOrEqual(0);
                 });
 
-            // Apply business filter if set
-            if (!empty($this->globalBusinessFilter)) {
+            // Apply business filter if set (empty array means all businesses)
+            if (!empty($this->globalBusinessFilters)) {
                 $query->whereHas('purchase', function ($pq) {
-                    $pq->where('setting_id', $this->globalBusinessFilter);
+                    $pq->whereIn('setting_id', $this->globalBusinessFilters);
                 });
             }
 
@@ -200,6 +223,18 @@ class PurchaseSummaryCards extends Component
             if (!empty($this->documentDateTo)) {
                 $query->whereHas('purchase', function ($pq) {
                     $pq->where('date', '<=', $this->documentDateTo);
+                });
+            }
+
+            // Apply due date range filter if set
+            if (!empty($this->dueDateFrom)) {
+                $query->whereHas('purchase', function ($pq) {
+                    $pq->where('due_date', '>=', $this->dueDateFrom);
+                });
+            }
+            if (!empty($this->dueDateTo)) {
+                $query->whereHas('purchase', function ($pq) {
+                    $pq->where('due_date', '<=', $this->dueDateTo);
                 });
             }
 

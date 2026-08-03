@@ -19,9 +19,11 @@
                 <div class="mb-4">
                     <livewire:sale.sale-summary-cards
                         :globalMode="true"
-                        :globalBusinessFilter="request('globalBusinessFilter')"
+                        :globalBusinessFilters="request()->query('globalBusinessFilters', []) ? (is_array(request()->query('globalBusinessFilters')) ? request()->query('globalBusinessFilters') : array_filter([request()->query('globalBusinessFilters')])) : []"
                         :documentDateFrom="request('documentDateFrom')"
                         :documentDateTo="request('documentDateTo')"
+                        :dueDateFrom="request('dueDateFrom')"
+                        :dueDateTo="request('dueDateTo')"
                         :selectedCardFilter="request('selectedCardFilter')"
                         wire:key="global-summary-cards"
                     />

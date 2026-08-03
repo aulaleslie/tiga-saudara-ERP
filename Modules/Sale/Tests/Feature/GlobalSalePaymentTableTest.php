@@ -115,7 +115,7 @@ class GlobalSalePaymentTableTest extends TestCase
         $sale2 = $this->createSale(['setting_id' => $this->setting2->id]);
 
         Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             // Still shows all, since applied filter not yet set
             ->assertSee($sale1->reference)
             ->assertSee($sale2->reference);
@@ -127,7 +127,7 @@ class GlobalSalePaymentTableTest extends TestCase
         $sale2 = $this->createSale(['setting_id' => $this->setting2->id]);
 
         Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             ->call('applyGlobalFilters')
             ->assertSee($sale1->reference)
             ->assertDontSee($sale2->reference);
@@ -269,7 +269,7 @@ class GlobalSalePaymentTableTest extends TestCase
 
         $component = Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
             ->dispatch('sale-filter', type: 'unpaid')
-            ->set('draftGlobalBusinessFilter', $this->setting1->id)
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id])
             ->call('applyGlobalFilters');
 
         // selectedCardFilter should persist after filter application

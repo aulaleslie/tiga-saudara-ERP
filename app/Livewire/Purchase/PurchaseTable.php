@@ -45,17 +45,25 @@ class PurchaseTable extends Component
     public bool $globalMode = false;
 
     // Global mode filters: draft state (not yet applied)
-    public ?int $draftGlobalBusinessFilter = null;
+    /** @var array<int>|null */
+    public ?array $draftGlobalBusinessFilters = null;
     public ?string $draftDocumentDateFrom = null;
     public ?string $draftDocumentDateTo = null;
+    public ?string $draftDueDateFrom = null;
+    public ?string $draftDueDateTo = null;
 
     // Global mode filters: applied state (synced to query)
     #[Url]
-    public ?int $globalBusinessFilter = null;
+    /** @var array<int>|null */
+    public ?array $globalBusinessFilters = null;
     #[Url]
     public ?string $documentDateFrom = null;
     #[Url]
     public ?string $documentDateTo = null;
+    #[Url]
+    public ?string $dueDateFrom = null;
+    #[Url]
+    public ?string $dueDateTo = null;
 
     // Summary card selection state (for durable selection across refreshes)
     #[Url]
@@ -76,12 +84,19 @@ class PurchaseTable extends Component
         $this->purchaseId = $purchaseId;
         $this->supplierId = $supplierId;
 
+        // Initialize applied state to empty array if not set
+        if ($this->globalBusinessFilters === null) {
+            $this->globalBusinessFilters = [];
+        }
+
         // Initialize draft state from applied state (from query string)
-        $this->draftGlobalBusinessFilter = $this->globalBusinessFilter;
+        $this->draftGlobalBusinessFilters = $this->globalBusinessFilters ?? [];
         $this->draftDocumentDateFrom = $this->documentDateFrom;
         $this->draftDocumentDateTo = $this->documentDateTo;
+        $this->draftDueDateFrom = $this->dueDateFrom;
+        $this->draftDueDateTo = $this->dueDateTo;
 
-        $this->normalizeDateRange();
+        $this->normalizeDateRanges();
 
         // Apply card filter from URL if set
         if ($this->selectedCardFilter !== null) {
@@ -89,11 +104,16 @@ class PurchaseTable extends Component
         }
     }
 
-    private function normalizeDateRange()
+    private function normalizeDateRanges()
     {
         if (!empty($this->documentDateFrom) && !empty($this->documentDateTo)) {
             if ($this->documentDateFrom > $this->documentDateTo) {
                 [$this->documentDateFrom, $this->documentDateTo] = [$this->documentDateTo, $this->documentDateFrom];
+            }
+        }
+        if (!empty($this->dueDateFrom) && !empty($this->dueDateTo)) {
+            if ($this->dueDateFrom > $this->dueDateTo) {
+                [$this->dueDateFrom, $this->dueDateTo] = [$this->dueDateTo, $this->dueDateFrom];
             }
         }
     }
@@ -110,44 +130,72 @@ class PurchaseTable extends Component
 
     public function applyGlobalFilters()
     {
-        // Normalize date range if both dates supplied
+        // Normalize document date range if both dates supplied
         if (!empty($this->draftDocumentDateFrom) && !empty($this->draftDocumentDateTo)) {
             if ($this->draftDocumentDateFrom > $this->draftDocumentDateTo) {
                 [$this->draftDocumentDateFrom, $this->draftDocumentDateTo] = [$this->draftDocumentDateTo, $this->draftDocumentDateFrom];
             }
         }
 
+        // Normalize due date range if both dates supplied
+        if (!empty($this->draftDueDateFrom) && !empty($this->draftDueDateTo)) {
+            if ($this->draftDueDateFrom > $this->draftDueDateTo) {
+                [$this->draftDueDateFrom, $this->draftDueDateTo] = [$this->draftDueDateTo, $this->draftDueDateFrom];
+            }
+        }
+
         // Copy draft to applied state
-        $this->globalBusinessFilter = $this->draftGlobalBusinessFilter;
+        $this->globalBusinessFilters = $this->draftGlobalBusinessFilters ?? [];
         $this->documentDateFrom = $this->draftDocumentDateFrom;
         $this->documentDateTo = $this->draftDocumentDateTo;
+        $this->dueDateFrom = $this->draftDueDateFrom;
+        $this->dueDateTo = $this->draftDueDateTo;
 
         // Reset pagination and dispatch event to summary cards
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
-            globalBusinessFilter: $this->globalBusinessFilter,
+            globalBusinessFilters: $this->globalBusinessFilters,
             documentDateFrom: $this->documentDateFrom,
             documentDateTo: $this->documentDateTo,
+            dueDateFrom: $this->dueDateFrom,
+            dueDateTo: $this->dueDateTo,
+            selectedCardFilter: $this->selectedCardFilter,
         );
     }
 
     public function resetGlobalFilters()
     {
         // Clear both draft and applied state
-        $this->draftGlobalBusinessFilter = null;
+        $this->draftGlobalBusinessFilters = [];
         $this->draftDocumentDateFrom = null;
         $this->draftDocumentDateTo = null;
+        $this->draftDueDateFrom = null;
+        $this->draftDueDateTo = null;
 
-        $this->globalBusinessFilter = null;
+        $this->globalBusinessFilters = [];
         $this->documentDateFrom = null;
         $this->documentDateTo = null;
+        $this->dueDateFrom = null;
+        $this->dueDateTo = null;
+
+        // Clear all card filter state
+        $this->paymentStatusFilter = null;
+        $this->paymentStatusFilters = null;
+        $this->overdueOnly = false;
+        $this->dueAmountOnly = false;
+        $this->paidLast30DaysOnly = false;
+        $this->cardStatusFilter = null;
+        $this->selectedCardFilter = null;
 
         // Reset pagination and dispatch event
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
-            globalBusinessFilter: null,
+            globalBusinessFilters: [],
             documentDateFrom: null,
             documentDateTo: null,
+            dueDateFrom: null,
+            dueDateTo: null,
+            selectedCardFilter: null,
         );
     }
 
@@ -246,9 +294,9 @@ class PurchaseTable extends Component
                 $q->whereNull('archived_at')
                   ->where('status', Purchase::STATUS_RECEIVED);
 
-                // Apply business filter if set
-                if (!empty($this->globalBusinessFilter)) {
-                    $q->where('setting_id', $this->globalBusinessFilter);
+                // Apply business filter if set (empty array means all businesses)
+                if (!empty($this->globalBusinessFilters)) {
+                    $q->whereIn('setting_id', $this->globalBusinessFilters);
                 }
 
                 // Apply document date range filter if set
@@ -257,6 +305,14 @@ class PurchaseTable extends Component
                 }
                 if (!empty($this->documentDateTo)) {
                     $q->where('date', '<=', $this->documentDateTo);
+                }
+
+                // Apply due date range filter if set
+                if (!empty($this->dueDateFrom)) {
+                    $q->where('due_date', '>=', $this->dueDateFrom);
+                }
+                if (!empty($this->dueDateTo)) {
+                    $q->where('due_date', '<=', $this->dueDateTo);
                 }
             })
             ->when($statuses !== null && !$this->globalMode, function ($q) use ($statuses) {
