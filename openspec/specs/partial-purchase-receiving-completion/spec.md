@@ -71,3 +71,46 @@ The system SHALL display a non-intrusive success message after completion, posit
 - **THEN** a success alert SHALL display prominently in the page area outside the modal
 - **AND** the alert SHALL persist until the next modal open or user dismissal
 - **AND** the message SHALL read "Penerimaan berhasil diselesaikan."
+### Requirement: Completion keeps financial and audit data consistent
+The system SHALL recalculate line and header monetary values using the purchase normalization rules, derive paid amount, due amount, and payment status from active payments, and persist an immutable completion audit record in the same database transaction.
+
+#### Scenario: Final document total reflects only accepted goods
+- **WHEN** a partial purchase is completed after its lines are normalized
+- **THEN** its line values, tax, discount, shipping, total amount, and due amount SHALL be recalculated from the retained final lines
+- **AND** the global purchase payment workflow SHALL treat it as an eligible exact-`RECEIVED` purchase when it has a positive live balance
+
+#### Scenario: Existing payment overage blocks completion
+- **WHEN** active purchase payments exceed the normalized document total
+- **THEN** the system SHALL reject completion
+- **AND** it SHALL preserve all purchase, payment, receipt, and audit data
+
+#### Scenario: Audit records the finalization decision
+- **WHEN** completion succeeds
+- **THEN** the system SHALL store the purchase and setting, actor, timestamp, required reason, source line quantities, approved receipt totals, final line outcomes, and financial before/after values
+
+### Requirement: Shortfall completion closes future receiving
+The system SHALL reject new receiving submissions and approval of late pending receiving notes once a purchase has been completed as a supplier shortfall.
+
+#### Scenario: User attempts new receipt after completion
+- **WHEN** a user submits a new receiving for a purchase completed as a supplier shortfall
+- **THEN** the system SHALL reject the submission
+- **AND** it SHALL not create a received note or change stock
+
+#### Scenario: Concurrent completion and approval are serialized
+- **WHEN** a receiving approval and shortfall completion are attempted concurrently for the same purchase
+- **THEN** the system SHALL lock and revalidate the purchase lifecycle data
+- **AND** at most one operation SHALL commit against the current state
+
+### Requirement: Completion outcome is reflected immediately in the workspace
+The system SHALL, upon successful shortfall completion, refresh the purchase listing visible behind the completion modal so the purchase's updated status, quantities, and available actions appear without a manual page reload, and SHALL show a success confirmation using the application's standard non-blocking feedback pattern. The completion modal and all its controls SHALL render using styles supported by the application's loaded CSS framework, including a functional visible close control and dismissible error alerts.
+
+#### Scenario: List refreshes after completion
+- **WHEN** an authorized user completes a shortfall from a purchase list and the completion succeeds
+- **THEN** the modal SHALL close
+- **AND** the visible list SHALL refresh to show the purchase as `RECEIVED` with completion-appropriate actions
+- **AND** a success confirmation SHALL be visible without reloading the page
+
+#### Scenario: Modal controls are functional and styled
+- **WHEN** an authorized user opens the completion modal
+- **THEN** the modal close control SHALL be visible and dismiss the modal
+- **AND** any error alert SHALL be dismissible and styled consistently with the application
