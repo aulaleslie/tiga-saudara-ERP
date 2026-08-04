@@ -154,6 +154,7 @@ class StagePurchaseImportRows implements ShouldQueue
             'diskon' => $get('diskon'),
             'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
             'diskon_persen' => $get('diskon_persen') ?: '0',
+            'kode_produk' => $get('kode_produk'),
         ];
     }
 

@@ -7,6 +7,7 @@ use App\Support\ImportDocumentAdjustmentResolver;
 use App\Support\ImportPaymentSummaryResolver;
 use App\Support\ImportSettlementAllocator;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -339,9 +340,117 @@ class PurchaseImportService
     }
 
     /**
-     * Find or create a product by cleaned name.
+     * Resolve product code for a new product.
+     * Uses imported code if available and not already assigned to another product (distinct normalized name).
+     * Otherwise generates a fallback SKU.
+     * Safe for concurrent imports: if duplicate-code constraint is violated, caller retries with a generated SKU.
      */
-    public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
+    protected function resolveProductCodeForNewProduct(?string $importedCode, string $cleanName): string
+    {
+        // Trim and check if imported code is usable (non-blank)
+        $trimmedCode = $importedCode ? trim($importedCode) : null;
+
+        if (empty($trimmedCode)) {
+            // Blank or absent: use generated SKU fallback
+            return $this->generateUniqueFallbackSku($cleanName);
+        }
+
+        // Check if this code is already in use by a different normalized product name
+        $existingProduct = Product::where('product_code', $trimmedCode)
+            ->first();
+
+        if ($existingProduct) {
+            // Code is already in use by another product
+            // Do not merge or update; generate a fallback SKU for this new name
+            Log::info('[PurchaseImport] Imported code conflict', [
+                'imported_code' => $trimmedCode,
+                'new_product_name' => $cleanName,
+                'existing_product_id' => $existingProduct->id,
+                'existing_product_name' => $existingProduct->product_name,
+            ]);
+
+            return $this->generateUniqueFallbackSku($cleanName);
+        }
+
+        // Code is available: safe to use
+        return $trimmedCode;
+    }
+
+    /**
+     * Build an unused generated fallback SKU for a product name.
+     *
+     * The deterministic base stays `SKU-<first 8 md5 chars>` so existing imports keep their
+     * historical codes. When that base is already taken (a distinct name hashing to the same
+     * prefix, or a legacy product already holding it), a numeric suffix is appended until an
+     * unused code is found. The `products.product_code` unique index remains the final guard.
+     */
+    protected function generateUniqueFallbackSku(string $cleanName): string
+    {
+        $base = 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8));
+
+        if (!Product::where('product_code', $base)->exists()) {
+            return $base;
+        }
+
+        // Base is taken: probe deterministic suffixes before falling back to a random code.
+        for ($suffix = 2; $suffix <= 50; $suffix++) {
+            $candidate = $base . '-' . $suffix;
+
+            if (!Product::where('product_code', $candidate)->exists()) {
+                Log::info('[PurchaseImport] Generated suffixed fallback SKU', [
+                    'product_name' => $cleanName,
+                    'base_code' => $base,
+                    'product_code' => $candidate,
+                ]);
+
+                return $candidate;
+            }
+        }
+
+        // Exhausted the deterministic range: use a random suffix guarded by the unique index.
+        do {
+            $candidate = $base . '-' . strtoupper(bin2hex(random_bytes(4)));
+        } while (Product::where('product_code', $candidate)->exists());
+
+        Log::warning('[PurchaseImport] Fallback SKU required random suffix', [
+            'product_name' => $cleanName,
+            'base_code' => $base,
+            'product_code' => $candidate,
+        ]);
+
+        return $candidate;
+    }
+
+    /**
+     * Detect a unique-constraint violation on `products.product_code`.
+     *
+     * Only a duplicate-key error is retryable: any other database failure must surface so the
+     * invoice group is invalidated as before.
+     */
+    protected function isDuplicateProductCodeException(QueryException $e): bool
+    {
+        // MySQL 1062 / SQLSTATE 23000, SQLite 19 / SQLSTATE 23000, Postgres 23505.
+        $sqlState = $e->errorInfo[0] ?? null;
+        $driverCode = $e->errorInfo[1] ?? null;
+
+        $isUniqueViolation = $sqlState === '23505'
+            || ($sqlState === '23000' && in_array((int) $driverCode, [1062, 19], true));
+
+        if (!$isUniqueViolation) {
+            return false;
+        }
+
+        // Scope the retry to the product_code index so an unrelated unique conflict still throws.
+        return stripos($e->getMessage(), 'product_code') !== false;
+    }
+
+    /**
+     * Find or create a product by cleaned name.
+     * Receives optional imported product code after marker parsing.
+     * Uses name-first resolution: existing products by normalized name are selected (lowest ID),
+     * then new products may use imported code if available and unused.
+     */
+    public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null, ?string $importedCode = null): Product
     {
         $normalizedName = strtolower(trim($cleanName));
 
@@ -349,9 +458,13 @@ class PurchaseImportService
             return $this->productsCache[$normalizedName];
         }
 
-        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
+        // Name-first lookup: select lowest-ID matching product for deterministic behavior on legacy duplicates
+        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])
+            ->orderBy('id', 'asc')
+            ->first();
 
         if (!$product) {
+            // New product: use imported code if available and unused, otherwise fall back to generated SKU
             $normalizedUnitName = strtolower(trim($unitName));
             $unit = $this->unitsCache[$normalizedUnitName] ?? null;
 
@@ -366,9 +479,11 @@ class PurchaseImportService
                 $this->unitsCache[$normalizedUnitName] = $unit;
             }
 
-            $product = Product::create([
+            // Determine product code: use imported code if available and unused, otherwise generate SKU
+            $productCode = $this->resolveProductCodeForNewProduct($importedCode, $cleanName);
+
+            $attributes = [
                 'product_name' => trim($cleanName),
-                'product_code' => 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8)),
                 'unit_id' => $unit->id,
                 'base_unit_id' => $unit->id,
                 'product_unit' => $unit->short_name ?: $unit->name,
@@ -380,11 +495,35 @@ class PurchaseImportService
                 'is_purchased' => 1,
                 'is_sold' => 1,
                 'product_note' => $description,
-            ]);
+            ];
+
+            try {
+                $product = Product::create($attributes + ['product_code' => $productCode]);
+            } catch (QueryException $e) {
+                // A concurrent import can claim the code between the availability check and this
+                // insert. Retry once with a generated SKU rather than invalidating the invoice
+                // group. Any other database error propagates unchanged.
+                if (!$this->isDuplicateProductCodeException($e)) {
+                    throw $e;
+                }
+
+                $retryCode = $this->generateUniqueFallbackSku($cleanName);
+
+                Log::info('[PurchaseImport] Product code claimed concurrently, retrying with generated SKU', [
+                    'name' => $cleanName,
+                    'attempted_code' => $productCode,
+                    'retry_code' => $retryCode,
+                ]);
+
+                $product = Product::create($attributes + ['product_code' => $retryCode]);
+                $productCode = $retryCode;
+            }
 
             Log::info('[PurchaseImport] Created new product', [
                 'product_id' => $product->id,
                 'name' => $cleanName,
+                'product_code' => $productCode,
+                'imported_code' => $importedCode,
             ]);
         }
 
@@ -479,10 +618,20 @@ class PurchaseImportService
             return;
         }
 
-        $products = Product::whereIn('product_name', $productNames)->get();
+        // Ascending ID so that when legacy duplicates share a normalized name, the first product
+        // created wins the cache slot — matching the lowest-ID rule in findOrCreateProduct().
+        $products = Product::whereIn('product_name', $productNames)
+            ->orderBy('id', 'asc')
+            ->get();
 
         foreach ($products as $product) {
-            $this->productsCache[strtolower($product->product_name)] = $product;
+            $cacheKey = strtolower($product->product_name);
+
+            if (isset($this->productsCache[$cacheKey])) {
+                continue;
+            }
+
+            $this->productsCache[$cacheKey] = $product;
         }
 
         Log::info('[PurchaseImport] Pre-loaded products', ['count' => count($this->productsCache)]);
@@ -1014,12 +1163,13 @@ class PurchaseImportService
                 $parsedProduct = $this->parseProductName($rowData['produk'] ?? '');
                 $rawProductName = $rowData['produk'] ?? '';
 
-                // Find or create product with description
+                // Find or create product with description and optional imported product code
                 $product = $this->findOrCreateProduct(
                     $parsedProduct['clean_name'],
                     $rowData['satuan'] ?? 'PCS',
                     $setting->id,
-                    $rowData['deskripsi'] ?? null
+                    $rowData['deskripsi'] ?? null,
+                    $rowData['kode_produk'] ?? null
                 );
 
                 $quantity = $this->parseQuantity($rowData['kuantitas'] ?? null);

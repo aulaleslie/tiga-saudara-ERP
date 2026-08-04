@@ -264,6 +264,9 @@ class PurchaseUploadController extends Controller
             'diskon' => 'diskon',
             'diskon %' => 'diskon_document_persen',
             'diskon per baris %' => 'diskon_persen',
+            // Product code
+            'kode produk' => 'kode_produk',
+            'product code' => 'kode_produk',
         ];
 
         $map = [];
@@ -318,6 +321,7 @@ class PurchaseUploadController extends Controller
             'diskon' => $get('diskon'),
             'diskon_document_persen' => $get('diskon_document_persen') ?: '0',
             'diskon_persen' => $get('diskon_persen') ?: '0',
+            'kode_produk' => $get('kode_produk'),
         ];
     }
 }
