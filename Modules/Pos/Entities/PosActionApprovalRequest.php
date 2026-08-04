@@ -20,6 +20,7 @@ class PosActionApprovalRequest extends BaseModel
     public const ACTION_LINE_REMOVE = 'LINE_REMOVE';
     public const ACTION_QTY_REDUCE = 'QTY_REDUCE';
     public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
+    public const ACTION_TOTAL_PRICE_OVERRIDE = 'TOTAL_PRICE_OVERRIDE';
     public const ACTION_TRANSACTION_CANCEL = 'TRANSACTION_CANCEL';
     public const ACTION_CHECKOUT_AS_DEBT = 'CHECKOUT_AS_DEBT';
 

@@ -113,6 +113,7 @@ class PosRolePolicyService
                 'line_remove' => $user->can('pos.cart.line.remove'),
                 'qty_reduce' => $user->can('pos.cart.line.reduce'),
                 'price_override' => $user->can('pos.overrides.price'),
+                'total_price_override' => $user->can('pos.overrides.total-price'),
             ],
         ];
     }

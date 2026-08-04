@@ -8,6 +8,7 @@ use Modules\Pos\Http\Controllers\PosTerminalController;
 use Modules\Pos\Http\Controllers\PosReportController;
 use Modules\Pos\Http\Controllers\PosReconciliationController;
 use Modules\Pos\Http\Controllers\PosCartApprovalController;
+use Modules\Pos\Http\Controllers\PosCartTotalOverrideController;
 use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
 use Modules\Pos\Http\Controllers\PosTransactionController;
 use Modules\Pos\Http\Controllers\PosReturnController;
@@ -134,6 +135,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/cart/lines/{lineId}/price-override', [PosSellController::class, 'cartOverridePrice'])
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.price-override');
+    Route::post('/pos/sell/cart/total-override', [PosCartTotalOverrideController::class, 'store'])->name('pos.sell.cart.total-override.store');
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
     Route::patch('/pos/sell/cart/note', [PosSellController::class, 'cartUpdateNote'])->name('pos.sell.cart.note.update');

@@ -177,6 +177,21 @@ class PosApprovalRequestService
             'decision_reason' => $note,
         ]);
 
+        // Build audit context snapshot
+        $contextSnapshot = [];
+        if ($request->action_type === PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE && $request->request_payload) {
+            $contextSnapshot = [
+                'source_total' => $request->request_payload['source_total'] ?? null,
+                'target_total' => $request->request_payload['target_total'] ?? null,
+                'fingerprint' => $request->request_payload['fingerprint'] ?? null,
+                'allocation' => $request->request_payload['allocation'] ?? null,
+                'reason' => $request->request_payload['reason'] ?? null,
+                'requester_id' => $request->requested_by,
+                'approver_id' => $supervisor->id,
+                'approval_timestamp' => now()->toIso8601String(),
+            ];
+        }
+
         PosSupervisorApproval::create([
             'setting_id' => $request->setting_id,
             'action_type' => $actionParam,
@@ -186,6 +201,7 @@ class PosApprovalRequestService
             'approved_by' => $supervisor->id,
             'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
             'reason' => $note,
+            'context_snapshot' => $contextSnapshot ?: null,
             'occurred_at' => now(),
         ]);
 
@@ -255,6 +271,7 @@ class PosApprovalRequestService
             PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
             PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
             PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => 'pos.overrides.price',
+            PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE => 'pos.overrides.total-price',
             PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL => 'pos.void',
             PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT => 'pos.checkout.debt',
             default => throw new DomainException('Invalid action type.'),
@@ -268,6 +285,7 @@ class PosApprovalRequestService
             PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
             PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
             PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
+            PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE => PosSupervisorApproval::ACTION_TOTAL_PRICE_OVERRIDE_APPROVAL,
             PosActionApprovalRequest::ACTION_TRANSACTION_CANCEL => PosSupervisorApproval::ACTION_TRANSACTION_CANCEL_APPROVAL,
             PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT => PosSupervisorApproval::ACTION_CHECKOUT_AS_DEBT_APPROVAL,
             default => throw new DomainException('Invalid action type.'),

@@ -70,6 +70,7 @@
 
     @include('pos::sell.modals.bundle_detail')
     @include('pos::sell.modals.price_override')
+    @include('pos::sell.modals.total_override')
     @include('pos::sell.modals.checkout_mismatch')
 
 @push('page_scripts')
@@ -184,6 +185,16 @@
             let pendingPriceCurrentPrice = null;
             let pendingPriceButton = null;
 
+            // Total Override Modal elements
+            const totalOverrideModal = document.getElementById('pos-total-override-modal');
+            const totalOverrideTrigger = document.getElementById('pos-total-override-trigger');
+            const totalOverrideCurrent = document.getElementById('pos-total-override-current');
+            const totalOverrideNewInput = document.getElementById('pos-total-override-new');
+            const totalOverrideError = document.getElementById('pos-total-override-error');
+            const totalOverrideReason = document.getElementById('pos-total-override-reason');
+            const totalOverrideSubmit = document.getElementById('pos-total-override-submit');
+            let totalOverrideButton = null;
+
             // Bundle Detail Modal elements
             const bundleDetailModal = document.getElementById('pos-bundle-detail-modal');
             const bundleDetailName = document.getElementById('pos-bundle-detail-name');
@@ -215,6 +226,7 @@
             const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const checkoutPreflightEndpoint = @json(route('pos.sell.checkout.preflight'));
+            const cartTotalOverrideEndpoint = @json(route('pos.sell.cart.total-override.store'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
@@ -236,7 +248,11 @@
               typeof roleCapabilities?.direct_permissions?.price_override === 'boolean' ? roleCapabilities.direct_permissions.price_override :
               false
             );
-            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ', canOverridePrice: ' + canOverridePrice);
+            const canOverrideTotalPrice = Boolean(
+              typeof roleCapabilities?.direct_permissions?.total_price_override === 'boolean' ? roleCapabilities.direct_permissions.total_price_override :
+              false
+            );
+            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ', canOverridePrice: ' + canOverridePrice + ', canOverrideTotalPrice: ' + canOverrideTotalPrice);
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
@@ -1395,6 +1411,9 @@
                          clearCartButton.classList.add('btn-outline-danger');
                      }
                  }
+
+                 // Render total override trigger state
+                 renderTotalOverrideTrigger();
 
              }
  
@@ -3112,6 +3131,249 @@
                     if (priceOverrideError) {
                         priceOverrideError.textContent = '';
                         priceOverrideError.style.display = 'none';
+                    }
+                });
+            }
+
+            // Render total override trigger state from snapshot
+            function renderTotalOverrideTrigger() {
+                if (!totalOverrideTrigger) return;
+
+                const approval = currentSnapshot?.total_price_override_approval;
+
+                if (!approval) {
+                    // No active request
+                    totalOverrideTrigger.textContent = 'Ubah Total';
+                    totalOverrideTrigger.classList.remove('btn-warning', 'btn-success');
+                    totalOverrideTrigger.classList.add('btn-outline-secondary');
+                    totalOverrideTrigger.removeAttribute('data-approval-pending');
+                    totalOverrideTrigger.removeAttribute('data-approval-token');
+                    return;
+                }
+
+                if (approval.status === 'PENDING') {
+                    // Pending approval
+                    totalOverrideTrigger.textContent = 'Periksa Persetujuan';
+                    totalOverrideTrigger.classList.remove('btn-outline-secondary', 'btn-success');
+                    totalOverrideTrigger.classList.add('btn-warning');
+                    totalOverrideTrigger.setAttribute('data-approval-pending', approval.request_id);
+                    totalOverrideTrigger.removeAttribute('data-approval-token');
+                    return;
+                }
+
+                if (approval.status === 'APPROVED' && approval.approval_token) {
+                    // Approved, ready to execute
+                    totalOverrideTrigger.textContent = 'Lanjutkan';
+                    totalOverrideTrigger.classList.remove('btn-outline-secondary', 'btn-warning');
+                    totalOverrideTrigger.classList.add('btn-success');
+                    totalOverrideTrigger.removeAttribute('data-approval-pending');
+                    totalOverrideTrigger.setAttribute('data-approval-token', approval.approval_token);
+                    return;
+                }
+
+                if (['REJECTED', 'CANCELLED', 'INVALIDATED'].includes(approval.status)) {
+                    // Reset to idle
+                    totalOverrideTrigger.textContent = 'Ubah Total';
+                    totalOverrideTrigger.classList.remove('btn-warning', 'btn-success');
+                    totalOverrideTrigger.classList.add('btn-outline-secondary');
+                    totalOverrideTrigger.removeAttribute('data-approval-pending');
+                    totalOverrideTrigger.removeAttribute('data-approval-token');
+                    return;
+                }
+            }
+
+            // Total Override Trigger Click Handler
+            if (totalOverrideTrigger) {
+                totalOverrideTrigger.addEventListener('click', async function () {
+                    if (!currentSnapshot || !currentSnapshot.totals) {
+                        setCartStatus('Keranjang kosong atau tidak tersedia.', 'text-danger', true);
+                        return;
+                    }
+
+                    const approval = currentSnapshot.total_price_override_approval;
+
+                    // If pending: check approval status
+                    if (approval?.status === 'PENDING') {
+                        const requestId = approval.request_id;
+                        try {
+                            const res = await jsonRequest('/pos/sell/approval-requests/' + requestId, 'GET');
+                            const state = String(res.state || res.status || '').toLowerCase();
+
+                            if (state === 'pending') {
+                                setCartStatus('Status masih pending. Anda dapat klik lagi untuk cek ulang.', 'text-warning');
+                                return;
+                            }
+
+                            if (state === 'approved' && (res.approval_token || res.token)) {
+                                // Refresh cart snapshot to reflect approved state
+                                const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
+                                if (snapResponse && snapResponse.cart_snapshot) {
+                                    renderCart(snapResponse.cart_snapshot);
+                                }
+                                renderTotalOverrideTrigger();
+                                setCartStatus('Permintaan disetujui. Klik tombol "Lanjutkan" untuk mengeksekusi.', 'text-success');
+                                return;
+                            }
+
+                            // Rejected/cancelled
+                            const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
+                            if (snapResponse && snapResponse.cart_snapshot) {
+                                renderCart(snapResponse.cart_snapshot);
+                            }
+                            renderTotalOverrideTrigger();
+                            if (state === 'rejected') {
+                                setCartStatus('Permintaan ditolak.' + (res.decision_reason ? ' Alasan: ' + res.decision_reason : ''), 'text-danger');
+                            } else {
+                                setCartStatus('Permintaan ' + state + '.', 'text-muted');
+                            }
+                        } catch (error) {
+                            setCartStatus(error.message || 'Gagal memeriksa status persetujuan.', 'text-danger');
+                        }
+                        return;
+                    }
+
+                    // If approved: show confirmation and execute
+                    if (approval?.status === 'APPROVED' && approval.approval_token) {
+                        const result = await Swal.fire({
+                            title: 'Lanjutkan Aksi?',
+                            text: 'Tekan Lanjutkan untuk mengeksekusi perubahan total, atau Batalkan untuk menghapus persetujuan.',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: 'Lanjutkan',
+                            cancelButtonText: 'Batalkan Persetujuan',
+                            reverseButtons: true
+                        });
+
+                        if (!result.isConfirmed) {
+                            // Cancel approval
+                            const requestId = approval.request_id;
+                            try {
+                                await jsonRequest('/pos/sell/approval-requests/' + requestId + '/cancel', 'POST', {});
+                                const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
+                                if (snapResponse && snapResponse.cart_snapshot) {
+                                    renderCart(snapResponse.cart_snapshot);
+                                }
+                                renderTotalOverrideTrigger();
+                                setCartStatus('Persetujuan dibatalkan.', 'text-muted');
+                            } catch (error) {
+                                setCartStatus(error.message || 'Gagal membatalkan persetujuan.', 'text-danger');
+                            }
+                            return;
+                        }
+
+                        // Execute with token
+                        try {
+                            const payload = { approval_token: approval.approval_token };
+                            const response = await jsonRequest(cartTotalOverrideEndpoint, 'POST', payload);
+                            if (!response || !response.cart_snapshot) {
+                                throw new Error('Gagal mengubah total keranjang.');
+                            }
+
+                            renderCart(response.cart_snapshot);
+                            renderTotalOverrideTrigger();
+                            setCartStatus('Total keranjang berhasil diubah.', 'text-success');
+                        } catch (error) {
+                            setCartStatus(error.message || 'Gagal mengeksekusi perubahan total.', 'text-danger');
+                        }
+                        return;
+                    }
+
+                    // Idle: open modal for new request
+                    const currentTotal = currentSnapshot.totals.grand_total || 0;
+                    if (totalOverrideCurrent) {
+                        totalOverrideCurrent.textContent = formatPrice(currentTotal);
+                    }
+                    if (totalOverrideNewInput) {
+                        totalOverrideNewInput.value = '';
+                        totalOverrideNewInput.focus();
+                    }
+                    if (totalOverrideError) {
+                        totalOverrideError.textContent = '';
+                        totalOverrideError.style.display = 'none';
+                    }
+                    if (totalOverrideReason) {
+                        totalOverrideReason.value = '';
+                    }
+                    if (totalOverrideSubmit) {
+                        totalOverrideSubmit.disabled = true;
+                    }
+                    if (totalOverrideModal) {
+                        $(totalOverrideModal).modal('show');
+                    }
+                });
+            }
+
+            if (totalOverrideNewInput) {
+                totalOverrideNewInput.addEventListener('input', function () {
+                    if (totalOverrideError) {
+                        totalOverrideError.textContent = '';
+                        totalOverrideError.style.display = 'none';
+                    }
+                    const newValue = Number(totalOverrideNewInput.value);
+                    const isValid = Number.isFinite(newValue) && newValue >= 0;
+                    if (totalOverrideSubmit) {
+                        totalOverrideSubmit.disabled = !isValid;
+                    }
+                });
+            }
+
+            if (totalOverrideSubmit) {
+                totalOverrideSubmit.addEventListener('click', async function () {
+                    // The submit button ONLY handles submitting a new request/direct change
+                    // Do NOT use it for pending/approved state management - that's handled by the trigger
+
+                    if (!currentSnapshot) {
+                        setCartStatus('Keranjang tidak tersedia.', 'text-danger', true);
+                        if (totalOverrideModal) $(totalOverrideModal).modal('hide');
+                        return;
+                    }
+
+                    const newTotal = Number(totalOverrideNewInput ? totalOverrideNewInput.value : 0);
+                    const reason = totalOverrideReason ? totalOverrideReason.value.trim() || null : null;
+
+                    if (isNaN(newTotal) || newTotal < 0) {
+                        if (totalOverrideError) {
+                            totalOverrideError.textContent = 'Total harus angka non-negatif.';
+                            totalOverrideError.style.display = 'block';
+                        }
+                        return;
+                    }
+
+                    if (totalOverrideModal) $(totalOverrideModal).modal('hide');
+
+                    try {
+                        const payload = { target_total: newTotal };
+                        if (reason) payload.reason = reason;
+
+                        const response = await jsonRequest(cartTotalOverrideEndpoint, 'POST', payload);
+                        if (!response) {
+                            throw new Error('Gagal mengubah total keranjang.');
+                        }
+
+                        // Refresh cart snapshot to show new approval state
+                        const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
+                        if (snapResponse && snapResponse.cart_snapshot) {
+                            renderCart(snapResponse.cart_snapshot);
+                        }
+                        renderTotalOverrideTrigger();
+
+                        if (response.status === 'request_created') {
+                            setCartStatus('Permintaan perubahan total dikirim. Klik "Periksa Persetujuan" untuk cek status.', 'text-warning');
+                        } else if (response.cart_snapshot) {
+                            setCartStatus('Total keranjang berhasil diubah.', 'text-success');
+                        }
+                    } catch (error) {
+                        setCartStatus(error.message || 'Gagal memproses perubahan total.', 'text-danger', true);
+                    }
+                });
+            }
+
+            if (totalOverrideModal) {
+                totalOverrideModal.addEventListener('hidden.bs.modal', function () {
+                    totalOverrideButton = null;
+                    if (totalOverrideError) {
+                        totalOverrideError.textContent = '';
+                        totalOverrideError.style.display = 'none';
                     }
                 });
             }

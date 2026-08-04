@@ -329,6 +329,7 @@ return [
         'pos.cart.line.reduce' => 'Kurangi Qty Keranjang',
         'pos.overrides.price' => 'Ubah Harga',
         'pos.overrides.discount' => 'Ubah Diskon',
+        'pos.overrides.total-price' => 'Ubah Total Keranjang',
         'pos.checkout.debt' => 'Checkout sebagai Utang',
         'pos.void' => 'Batal Transaksi',
         'pos.supervisor.approval' => 'Persetujuan Supervisor',

@@ -175,7 +175,8 @@ document.addEventListener('DOMContentLoaded', function () {
         'CART_CLEAR': '<span class="badge bg-danger">Hapus Keranjang</span>',
         'LINE_REMOVE': '<span class="badge bg-warning text-dark">Hapus Baris Produk</span>',
         'QTY_REDUCE': '<span class="badge bg-info text-dark">Kurangi Qty Produk</span>',
-        'PRICE_OVERRIDE': '<span class="badge bg-primary">Ubah Harga Jual</span>'
+        'PRICE_OVERRIDE': '<span class="badge bg-primary">Ubah Harga Jual</span>',
+        'TOTAL_PRICE_OVERRIDE': '<span class="badge bg-secondary">Ubah Total Keranjang</span>'
     };
 
     const loadQueue = () => {
@@ -210,6 +211,13 @@ document.addEventListener('DOMContentLoaded', function () {
                         const requestedPrice = Number(req.request_payload?.unit_price || 0);
                         const reason = req.request_payload?.reason ? `<br><small class="text-muted">${req.request_payload.reason}</small>` : '';
                         targetHtml = `Cart Line #${req.target_id}<br><small class="text-primary">Harga diminta: ${requestedPrice.toLocaleString('id-ID')}</small>${reason}`;
+                    } else if (req.action_type === 'TOTAL_PRICE_OVERRIDE') {
+                        const currentTotal = Number(req.request_payload?.source_total || 0);
+                        const requestedTotal = Number(req.request_payload?.target_total || 0);
+                        const delta = requestedTotal - currentTotal;
+                        const deltaSign = delta >= 0 ? '+' : '';
+                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${req.request_payload.reason}</small>` : '';
+                        targetHtml = `Sesi #${req.pos_session_id}<br><small class="text-primary">Total: Rp${currentTotal.toLocaleString('id-ID')} → Rp${requestedTotal.toLocaleString('id-ID')} (${deltaSign}Rp${delta.toLocaleString('id-ID')})</small>${reason}`;
                     }
 
                     tr.innerHTML = `
