@@ -18,6 +18,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::put('/serial-numbers/{serialNumber}', [SerialNumberController::class, 'updateSerial'])
         ->name('serial-numbers.update');
     Route::get('/products/print-barcode', 'BarcodeController@printBarcode')->name('barcode.print');
+    Route::post('/products/print-barcode/batch', 'BarcodeController@batchPrint')
+        ->middleware('can:barcodes.print')
+        ->name('barcode.batch-print');
+    // Non-production diagnostic sheet for physical printer acceptance testing.
+    Route::get('/products/print-barcode/diagnostic', 'BarcodeController@diagnosticPrint')
+        ->middleware('can:barcodes.print')
+        ->name('barcode.diagnostic-print');
 
     // ⟵ keep these URLs & names exactly, just point to the new controller
     Route::group(['middleware' => ['can:products.manage_cross_business_prices']], function () {

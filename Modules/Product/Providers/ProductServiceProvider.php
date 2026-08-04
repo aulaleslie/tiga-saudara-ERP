@@ -101,6 +101,8 @@ class ProductServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.product.product-price-setup', \Modules\Product\Livewire\ProductPriceSetup::class);
         \Livewire\Livewire::component('modules.product.sale-price-setup', \Modules\Product\Livewire\SalePriceSetup::class);
         \Livewire\Livewire::component('product::barcode-initialization', \Modules\Product\Livewire\BarcodeInitialization::class);
+        \Livewire\Livewire::component('modules.product.barcode-batch-workspace', \Modules\Product\Livewire\BarcodeBatchWorkspace::class);
+        \Livewire\Livewire::component('modules.product.barcode-product-search', \Modules\Product\Livewire\BarcodeProductSearch::class);
     }
 
     /**

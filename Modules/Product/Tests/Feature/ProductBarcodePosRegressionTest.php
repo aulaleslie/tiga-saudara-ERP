@@ -128,14 +128,21 @@ class ProductBarcodePosRegressionTest extends TestCase
         $result = $service->assign($product->id, '1234567890', null, $user);
         $this->assertTrue($result['success']);
         
-        $test = \Livewire\Livewire::actingAs($user)
-            ->test(\App\Livewire\Barcode\ProductTable::class)
-            ->call('productSelected', $product->fresh()->toArray())
-            ->call('generateBarcodes', $product->id, 1)
-            ->assertHasNoErrors();
-            
-        $barcodes = $test->get('barcodes');
-        $this->assertCount(1, $barcodes);
-        $this->assertStringContainsString('<svg', $barcodes[0]);
+        $product->forceFill(['product_barcode_symbology' => 'C128'])->save();
+
+        \Illuminate\Support\Facades\DB::table('product_prices')->insert([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => 12500,
+        ]);
+
+        $result = app(\Modules\Product\Services\BarcodeBatchService::class)
+            ->expand([['product_id' => $product->id, 'quantity' => 1]], $setting->id);
+
+        $this->assertSame([], $result['errors']);
+        $this->assertCount(1, $result['labels']);
+
+        $html = view('product::barcode.batch-print', ['labels' => $result['labels']])->render();
+        $this->assertStringContainsString('<svg', $html);
     }
 }
