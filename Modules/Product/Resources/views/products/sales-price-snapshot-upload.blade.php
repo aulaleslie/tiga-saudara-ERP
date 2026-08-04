@@ -40,7 +40,7 @@
                 <div class="col-lg-12">
                     <div class="card">
                         <div class="card-header">
-                            <h5 class="mb-0"><i class="bi bi-tag"></i> Upload Harga Jual Snapshot (Accurate Export)</h5>
+                            <h5 class="mb-0"><i class="bi bi-tag"></i> Upload Harga Jual & Stok Snapshot (Accurate Export)</h5>
                         </div>
                         <div class="card-body">
                             {{-- Import Type Badge --}}
@@ -56,9 +56,9 @@
                                     <div class="alert alert-info d-flex align-items-center">
                                         <i class="bi bi-info-circle-fill me-2" style="font-size: 1.25rem;"></i>
                                         <div class="ms-2">
-                                            <strong>Perhatian:</strong> Import ini khusus untuk memperbarui harga jual (Sale Price, Tier 1, Tier 2) dari file Excel (XLSX) hasil export Accurate. 
+                                            <strong>Perhatian:</strong> Import ini khusus untuk memperbarui harga jual (Sale Price, Tier 1, Tier 2) dan stok dari file Excel (XLSX) hasil export Accurate.
                                             <br>
-                                            Proses ini <strong>TIDAK AKAN</strong> membuat produk baru, mengubah data stok, harga beli, ataupun pajak.
+                                            Proses ini <strong>TIDAK AKAN</strong> membuat produk baru, mengubah harga beli, ataupun pajak.
                                         </div>
                                     </div>
                                 </div>
@@ -114,7 +114,7 @@
                                             @enderror
                                         </div>
                                         <small class="form-text text-muted">Format yang didukung: .xlsx</small>
-                                        <small class="form-text text-muted">Kolom wajib di file Excel: <code>Name*</code> dan <code>SellPrice</code></small>
+                                        <small class="form-text text-muted">Kolom wajib di file Excel: <code>Name*</code>, <code>SellPrice</code>, dan <code>Stock</code></small>
                                     </div>
                                 </div>
                             </div>

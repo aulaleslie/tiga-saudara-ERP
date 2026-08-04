@@ -20,16 +20,13 @@
                             <a href="{{ route('products.upload.page') }}" class="btn btn-primary">
                                 Upload Produk Baru <i class="bi bi-plus"></i>
                             </a>
-                            <a href="{{ route('products.stock-snapshot.upload.page') }}" class="btn btn-info text-white">
-                                <i class="bi bi-box-seam"></i> Upload Stok Snapshot
-                            </a>
                             <a href="{{ route('products.sales-hpp-snapshot.upload.page') }}" class="btn btn-secondary text-white">
                                 <i class="bi bi-file-earmark-spreadsheet"></i> Upload HPP Snapshot
                             </a>
                         @endcan
                         @can("products.edit")
                             <a href="{{ route('products.sales-price-snapshot.upload.page') }}" class="btn btn-warning text-white">
-                                <i class="bi bi-tag"></i> Upload Harga Jual Snapshot
+                                <i class="bi bi-box-seam"></i> Upload Harga Jual & Stok Snapshot
                             </a>
                         @endcan
 
@@ -58,11 +55,11 @@
                                             <td>{{ optional($b->user)->name ?? '-' }}</td>
                                             <td>
                                                 @if($b->import_type === 'stock_snapshot')
-                                                    <span class="badge bg-info text-white">Stok Snapshot</span>
+                                                    <span class="badge bg-info text-white">Stok Snapshot (Legacy)</span>
                                                 @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_HPP_SNAPSHOT)
                                                     <span class="badge bg-secondary text-white">HPP Snapshot</span>
                                                 @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT)
-                                                    <span class="badge bg-warning text-white">Harga Jual Snapshot</span>
+                                                    <span class="badge bg-success text-white">Harga Jual & Stok Snapshot</span>
                                                 @else
                                                     <span class="badge bg-primary text-white">Produk</span>
                                                 @endif
@@ -99,7 +96,7 @@
                                     @empty
                                         <tr>
                                             <td colspan="10" class="text-center text-muted py-4">
-                                                Belum ada batch upload. Klik "Upload Produk Baru" atau "Upload Stok Snapshot" untuk memulai.
+                                                Belum ada batch upload. Klik "Upload Produk Baru" atau "Upload Harga Jual & Stok Snapshot" untuk memulai.
                                             </td>
                                         </tr>
                                     @endforelse

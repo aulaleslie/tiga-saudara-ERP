@@ -27,12 +27,14 @@ class ProductSalesPriceSnapshotIntegrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
         $this->topIt = Setting::factory()->create(['company_name' => 'CV TOP IT INTERNUSA']);
         $this->perdana = Setting::factory()->create(['company_name' => 'PERDANA']);
 
         $this->location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->tigaNusa->id]);
+        \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->topIt->id]);
+        \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->perdana->id]);
         $this->user = \App\Models\User::factory()->create();
     }
 
@@ -77,10 +79,10 @@ class ProductSalesPriceSnapshotIntegrationTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_integration_multi_setting', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Global Laptop', 'GLOBAL-01', '1,200.00'],
-            ['Global Laptop TP', 'GLOBAL-01', '1,300.00'],
-            ['Global Laptop', 'GLOBAL-01', '1,400.00'],
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Global Laptop', 'GLOBAL-01', '1,200.00', '10'],
+            ['Global Laptop TP', 'GLOBAL-01', '1,300.00', '15'],
+            ['Global Laptop', 'GLOBAL-01', '1,400.00', '20'],
         ]);
 
         $batch = ProductImportBatch::create([
@@ -126,11 +128,11 @@ class ProductSalesPriceSnapshotIntegrationTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_integration_duplicates', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Dup Item', 'SKU-DUP', '1000'],
-            ['* Dup Item', 'SKU-DUP', '1000'], // Equivalent duplicate
-            ['* Con Item', 'SKU-CON', '2000'],
-            ['* Con Item', 'SKU-CON', '2500'], // Conflicting duplicate
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Dup Item', 'SKU-DUP', '1000', '10'],
+            ['* Dup Item', 'SKU-DUP', '1000', '10'], // Equivalent duplicate
+            ['* Con Item', 'SKU-CON', '2000', '20'],
+            ['* Con Item', 'SKU-CON', '2500', '20'], // Conflicting duplicate (same stock, different price)
         ]);
 
         $batch = ProductImportBatch::create([

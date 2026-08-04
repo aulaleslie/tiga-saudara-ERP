@@ -26,12 +26,14 @@ class ProductSalesPriceSnapshotResolutionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->tigaNusa = Setting::factory()->create(['company_name' => 'CV TIGA NUSA COMPUTER']);
         $this->topIt = Setting::factory()->create(['company_name' => 'CV TOP IT INTERNUSA']);
         $this->perdana = Setting::factory()->create(['company_name' => 'PERDANA']);
 
         $this->location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->tigaNusa->id]);
+        \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->topIt->id]);
+        \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->perdana->id]);
         $this->user = \App\Models\User::factory()->create();
     }
 
@@ -68,10 +70,10 @@ class ProductSalesPriceSnapshotResolutionTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_resolution', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Laptop', 'SKU-001', '400,000.00'], // Asterisk -> Tiga Nusa
-            ['Mouse TP', '', '150,000'], // TP suffix -> Top IT. Matched by name
-            ['Keyboard', 'SKU-003', '120,000'], // No marker -> Perdana
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Laptop', 'SKU-001', '400,000.00', '50'], // Asterisk -> Tiga Nusa
+            ['Mouse TP', '', '150,000', '75'], // TP suffix -> Top IT. Matched by name
+            ['Keyboard', 'SKU-003', '120,000', '100'], // No marker -> Perdana
         ]);
 
         $batch = ProductImportBatch::create([
@@ -112,10 +114,10 @@ class ProductSalesPriceSnapshotResolutionTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_resolution_errors', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Unknown', 'SKU-999', '400,000.00'], // Product doesn't exist
-            ['* Laptop', 'SKU-001', '-50,000'], // Negative price
-            ['* Laptop', 'SKU-001', 'invalid'], // Non-numeric price
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Unknown', 'SKU-999', '400,000.00', '50'], // Product doesn't exist
+            ['* Laptop', 'SKU-001', '-50,000', '75'], // Negative price
+            ['* Laptop', 'SKU-001', 'invalid', '100'], // Non-numeric price
         ]);
 
         $batch = ProductImportBatch::create([

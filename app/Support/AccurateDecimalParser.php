@@ -63,4 +63,44 @@ class AccurateDecimalParser
 
         return $floatVal;
     }
+
+    /**
+     * Parse signed stock quantity integers from Accurate exports.
+     * Supports positive, zero, and negative integers only.
+     * Rejects fractional quantities, decimal points, and malformed strings.
+     *
+     * @param mixed $value
+     * @return int|null Returns signed integer, or null if invalid/malformed.
+     */
+    public static function parseStock($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        // Reject any string with non-numeric characters except leading minus and thousands separator
+        // Specifically reject decimal points and other symbols
+        if (!preg_match('/^-?\d{1,3}(,\d{3})*$/', $raw) && !preg_match('/^-?\d+$/', $raw)) {
+            return null;
+        }
+
+        // Remove thousands separator (comma)
+        $clean = str_replace(',', '', $raw);
+
+        if ($clean === '' || $clean === '-') {
+            return null;
+        }
+
+        if (!is_numeric($clean)) {
+            return null;
+        }
+
+        $intVal = (int) $clean;
+        return $intVal;
+    }
 }

@@ -49,9 +49,9 @@ class ProductSalesPriceSnapshotWorkbookReaderTest extends TestCase
     public function test_it_reads_valid_accurate_style_input()
     {
         $path = $this->createXlsxFile('test_valid', [
-            ['Name*', 'ProductCode', 'SellPrice', 'OtherCol'],
-            ['* Laptop', 'SKU-001', '400,000.00', 'Ignore'],
-            ['Mouse TP', '', '150,000', 'Ignore'],
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock', 'OtherCol'],
+            ['* Laptop', 'SKU-001', '400,000.00', '50', 'Ignore'],
+            ['Mouse TP', '', '150,000', '100', 'Ignore'],
         ]);
 
         $batch = ProductImportBatch::create([
@@ -76,18 +76,20 @@ class ProductSalesPriceSnapshotWorkbookReaderTest extends TestCase
         $this->assertEquals('* Laptop', $payload1['name*']);
         $this->assertEquals('SKU-001', $payload1['productcode']);
         $this->assertEquals('400,000.00', $payload1['sellprice']);
+        $this->assertEquals('50', $payload1['stock']);
 
         $payload2 = $rows[1]->raw_json;
         $this->assertEquals('Mouse TP', $payload2['name*']);
         $this->assertEquals('', $payload2['productcode']);
         $this->assertEquals('150,000', $payload2['sellprice']);
+        $this->assertEquals('100', $payload2['stock']);
     }
 
     public function test_it_normalizes_bom_case_and_whitespace_in_headers()
     {
         $path = $this->createXlsxFile('test_headers', [
-            ["\xEF\xBB\xBF  nAmE*  ", "  productCode\t", "\nSellprice "],
-            ['Keyboard', 'SKU-003', '500.00'],
+            ["\xEF\xBB\xBF  nAmE*  ", "  productCode\t", "\nSellprice ", "  STOCK  "],
+            ['Keyboard', 'SKU-003', '500.00', '75'],
         ]);
 
         $batch = ProductImportBatch::create([
@@ -102,19 +104,20 @@ class ProductSalesPriceSnapshotWorkbookReaderTest extends TestCase
 
         $batch->refresh();
         $this->assertEquals('completed', $batch->status);
-        
+
         $row = ProductImportRow::where('batch_id', $batch->id)->first();
         $payload = $row->raw_json;
-        
+
         $this->assertEquals('Keyboard', $payload['name*']);
         $this->assertEquals('SKU-003', $payload['productcode']);
         $this->assertEquals('500', $payload['sellprice']);
+        $this->assertEquals('75', $payload['stock']);
     }
 
     public function test_it_fails_batch_for_missing_required_headers()
     {
         $path = $this->createXlsxFile('test_missing_header', [
-            ['Name*', 'ProductCode'], // Missing SellPrice
+            ['Name*', 'ProductCode'], // Missing SellPrice and Stock
             ['Keyboard', 'SKU-003'],
         ]);
 

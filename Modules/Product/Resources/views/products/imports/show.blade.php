@@ -21,7 +21,7 @@
                     </span>
                 @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT)
                     <span class="badge bg-success text-white" style="font-size: 0.85rem;">
-                        <i class="bi bi-tag"></i> Harga Jual Snapshot
+                        <i class="bi bi-box-seam"></i> Harga Jual & Stok Snapshot
                     </span>
                 @else
                     <span class="badge bg-primary text-white" style="font-size: 0.85rem;">
@@ -294,7 +294,7 @@
                         </tbody>
                         </table>
                     @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT)
-                        {{-- Sales Price Snapshot Enhanced Row Table --}}
+                        {{-- Sales Price & Stock Snapshot Enhanced Row Table --}}
                         <table class="table table-sm mb-0 table-striped">
                         <thead>
                         <tr>
@@ -302,10 +302,15 @@
                             <th>Status</th>
                             <th>Produk</th>
                             <th>Pemilik</th>
+                            <th>Lokasi</th>
                             <th>Imported Price</th>
                             <th>Prev Tiers</th>
                             <th>New Tiers</th>
-                            <th>Changed</th>
+                            <th>Imported Stock</th>
+                            <th>Prev Stock</th>
+                            <th>After Stock</th>
+                            <th>Tax / Non-Tax</th>
+                            <th>Txn ID</th>
                             <th>Error</th>
                         </tr>
                         </thead>
@@ -354,6 +359,13 @@
                                     @endif
                                 </td>
                                 <td>
+                                    @if(!empty($meta['target_location_name']))
+                                        <small>{{ $meta['target_location_name'] }}</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
                                     @if(isset($meta['sell_price']))
                                         {{ format_currency($meta['sell_price']) }}
                                     @else
@@ -383,12 +395,51 @@
                                     @endif
                                 </td>
                                 <td>
-                                    @if(isset($meta['changed']))
-                                        @if($meta['changed'])
-                                            <span class="badge bg-info">Ya</span>
-                                        @else
-                                            <span class="badge bg-secondary">Tidak</span>
+                                    @if(isset($meta['imported_stock']))
+                                        <strong>{{ $meta['imported_stock'] }}</strong>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['previous_quantity']))
+                                        {{ $meta['previous_quantity'] }}
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['after_quantity']))
+                                        {{ $meta['after_quantity'] }}
+                                        @if(isset($meta['delta_quantity']) && $meta['delta_quantity'] != 0)
+                                            <br><small class="{{ $meta['delta_quantity'] > 0 ? 'text-success' : 'text-danger' }}">
+                                                {{ $meta['delta_quantity'] > 0 ? '+' : '' }}{{ $meta['delta_quantity'] }}
+                                            </small>
                                         @endif
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(isset($meta['after_quantity_tax']) || isset($meta['after_quantity_non_tax']))
+                                        <small>
+                                            T: {{ $meta['after_quantity_tax'] ?? 0 }}
+                                            @if(isset($meta['delta_quantity_tax']) && $meta['delta_quantity_tax'] != 0)
+                                                (<span class="{{ $meta['delta_quantity_tax'] > 0 ? 'text-success' : 'text-danger' }}">{{ $meta['delta_quantity_tax'] > 0 ? '+' : '' }}{{ $meta['delta_quantity_tax'] }}</span>)
+                                            @endif
+                                            <br>
+                                            NT: {{ $meta['after_quantity_non_tax'] ?? 0 }}
+                                            @if(isset($meta['delta_quantity_non_tax']) && $meta['delta_quantity_non_tax'] != 0)
+                                                (<span class="{{ $meta['delta_quantity_non_tax'] > 0 ? 'text-success' : 'text-danger' }}">{{ $meta['delta_quantity_non_tax'] > 0 ? '+' : '' }}{{ $meta['delta_quantity_non_tax'] }}</span>)
+                                            @endif
+                                        </small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($r->created_txn_id)
+                                        <small class="text-muted">#{{ $r->created_txn_id }}</small>
                                     @else
                                         <span class="text-muted">-</span>
                                     @endif

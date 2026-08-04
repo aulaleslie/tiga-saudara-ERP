@@ -38,4 +38,58 @@ class AccurateDecimalParserTest extends TestCase
         $this->assertEquals(-150.50, AccurateDecimalParser::parse('-150.50'));
         $this->assertEquals(-400000.0, AccurateDecimalParser::parse('-400,000.00'));
     }
+
+    // parseStock() tests
+    public function test_parseStock_accepts_positive_integers()
+    {
+        $this->assertEquals(100, AccurateDecimalParser::parseStock('100'));
+        $this->assertEquals(0, AccurateDecimalParser::parseStock('0'));
+        $this->assertEquals(1000000, AccurateDecimalParser::parseStock('1000000'));
+    }
+
+    public function test_parseStock_accepts_thousands_formatted_integers()
+    {
+        $this->assertEquals(100000, AccurateDecimalParser::parseStock('100,000'));
+        $this->assertEquals(1000000, AccurateDecimalParser::parseStock('1,000,000'));
+        $this->assertEquals(1234567, AccurateDecimalParser::parseStock('1,234,567'));
+    }
+
+    public function test_parseStock_accepts_negative_integers()
+    {
+        $this->assertEquals(-50, AccurateDecimalParser::parseStock('-50'));
+        $this->assertEquals(-100000, AccurateDecimalParser::parseStock('-100,000'));
+        $this->assertEquals(-1234567, AccurateDecimalParser::parseStock('-1,234,567'));
+    }
+
+    public function test_parseStock_rejects_blank_values()
+    {
+        $this->assertNull(AccurateDecimalParser::parseStock(''));
+        $this->assertNull(AccurateDecimalParser::parseStock(null));
+        $this->assertNull(AccurateDecimalParser::parseStock('   '));
+    }
+
+    public function test_parseStock_rejects_fractional_values()
+    {
+        // Reject decimal points
+        $this->assertNull(AccurateDecimalParser::parseStock('100.5'));
+        $this->assertNull(AccurateDecimalParser::parseStock('1.5'));
+        $this->assertNull(AccurateDecimalParser::parseStock('0.99'));
+        $this->assertNull(AccurateDecimalParser::parseStock('-50.25'));
+    }
+
+    public function test_parseStock_rejects_malformed_strings()
+    {
+        // Reject strings with letters
+        $this->assertNull(AccurateDecimalParser::parseStock('12abc'));
+        $this->assertNull(AccurateDecimalParser::parseStock('abc123'));
+        $this->assertNull(AccurateDecimalParser::parseStock('100pcs'));
+
+        // Reject special characters
+        $this->assertNull(AccurateDecimalParser::parseStock('100 units'));
+        $this->assertNull(AccurateDecimalParser::parseStock('$100'));
+        $this->assertNull(AccurateDecimalParser::parseStock('Rp 100,000'));
+
+        // Reject only minus sign
+        $this->assertNull(AccurateDecimalParser::parseStock('-'));
+    }
 }

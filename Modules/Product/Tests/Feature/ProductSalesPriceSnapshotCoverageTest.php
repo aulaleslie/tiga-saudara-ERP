@@ -70,9 +70,9 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_zero_price', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Zero Item', 'SKU-ZERO', '0'],
-            ['* Zero Item', 'SKU-ZERO', ''],
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Zero Item', 'SKU-ZERO', '0', '10'],
+            ['* Zero Item', 'SKU-ZERO', '', '10'],
         ]);
 
         $batch = ProductImportBatch::create([
@@ -104,8 +104,8 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_max_price', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Max Item', 'SKU-MAX', '100000000'], // 100M (too large)
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Max Item', 'SKU-MAX', '100000000', '10'], // 100M (too large)
         ]);
 
         $batch = ProductImportBatch::create([
@@ -132,8 +132,8 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_disagreement', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Item B', 'SKU-A', '1000'],
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Item B', 'SKU-A', '1000', '10'],
         ]);
 
         $batch = ProductImportBatch::create([
@@ -160,8 +160,8 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_collision', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Apple Juice', '', '1000'], // Missing code, relying on name
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Apple Juice', '', '1000', '10'], // Missing code, relying on name
         ]);
 
         $batch = ProductImportBatch::create([
@@ -253,9 +253,9 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
         ]);
 
         $path = $this->createXlsxFile('test_badges', [
-            ['Name*', 'ProductCode', 'SellPrice'],
-            ['* Dup Item', 'SKU-DUP', '1000'],
-            ['* Dup Item', 'SKU-DUP', '1000'], // Equivalent duplicate
+            ['Name*', 'ProductCode', 'SellPrice', 'Stock'],
+            ['* Dup Item', 'SKU-DUP', '1000', '10'],
+            ['* Dup Item', 'SKU-DUP', '1000', '10'], // Equivalent duplicate
         ]);
 
         $batch = ProductImportBatch::create([
@@ -311,11 +311,14 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
             'product_id' => $productId,
             'status' => null,
             'row_number' => 2,
-            'raw_json' => ['name*' => '* FAIL PRODUCT', 'sellprice' => 5000],
+            'raw_json' => ['name*' => '* FAIL PRODUCT', 'sellprice' => 5000, 'stock' => '100'],
             'result_metadata' => [
                 'clean_product_name' => 'FAIL PRODUCT',
                 'sell_price' => 5000.00,
+                'imported_stock' => 100,
                 'setting_id' => $this->setting->id,
+                'target_location_id' => $this->location->id,
+                'is_pkp' => true,
             ],
         ]);
 
