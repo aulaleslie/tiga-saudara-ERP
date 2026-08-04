@@ -34,9 +34,7 @@ The command SHALL use Perdana's latest eligible literal purchase for a product w
 - **THEN** the command SHALL preserve an existing target row's `last_purchase_price`
 - **AND** it SHALL NOT create a missing target row solely from an HPP snapshot
 
-## MODIFIED Requirements
-
-### Requirement: Seeding respects product-price cost buckets
+## MODIFIED: Requirement: Seeding respects product-price cost buckets
 The command SHALL classify imported sale snapshots and target setting rows using CV Tiga Nusa Computer, CV Top IT Internusa, and Perdana as the named HPP source businesses. A Tiga Nusa or Top IT target setting SHALL receive its own latest imported HPP snapshot when available and otherwise Perdana's latest imported HPP snapshot. Perdana SHALL receive its own latest imported HPP snapshot. Every other target setting SHALL receive Perdana's latest imported HPP snapshot only. The command SHALL NOT use an arbitrary non-special business as an HPP default source.
 
 #### Scenario: Special setting uses its isolated latest HPP
@@ -55,7 +53,7 @@ The command SHALL classify imported sale snapshots and target setting rows using
 - **THEN** the command SHALL seed every non-Tiga-Nusa, non-Top-IT setting's product-price row from Perdana's latest snapshot
 - **AND** it SHALL NOT seed those rows from another non-special setting's snapshot
 
-### Requirement: Explicit write mode seeds average and literal last purchase prices
+## MODIFIED: Requirement: Explicit write mode seeds only average purchase price
 When run with `--write`, the command SHALL create or update target `product_prices` rows with `average_purchase_price` from the selected imported HPP snapshot and `last_purchase_price` from the independently selected literal purchase candidate. It SHALL preserve selling/tier prices and tax metadata. For a missing row, it SHALL copy available same-product selling and tax metadata using the existing product-price normalization conventions before setting both resolved purchase-price values.
 
 #### Scenario: Write updates an existing product price without changing selling or tax data

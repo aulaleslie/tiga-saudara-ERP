@@ -65,3 +65,37 @@ When run with `--write`, the command SHALL create or update the target `product_
 - **WHEN** no eligible imported HPP snapshot exists for a product's target bucket or applicable REST/global fallback
 - **THEN** the command SHALL NOT create or update that target setting's product-price row
 
+### Requirement: Seeding reconciles last purchase price from literal purchase history
+When run with `--write`, the command SHALL resolve `last_purchase_price` independently from literal purchase details for the same stock-managed product. An eligible literal purchase detail SHALL belong to a non-archived parent purchase with status `RECEIVED` or `RECEIVED PARTIALLY` and have a positive quantity. The selected candidate's unit price SHALL equal `(sub_total + product_discount_amount) / quantity`, retaining tax and excluding the discount effect.
+
+#### Scenario: Latest eligible received purchase sets last purchase price
+- **WHEN** an existing target `product_prices` row has eligible literal purchase details for the same product in its own setting
+- **THEN** the command SHALL set `last_purchase_price` from the latest eligible candidate's tax-inclusive, discount-excluded unit price
+- **AND** it SHALL select recency by approved receiving timestamp when available, then purchase date, then stable database identifiers
+
+#### Scenario: Ineligible purchase activity does not set last purchase price
+- **WHEN** a purchase detail belongs to an archived, non-received, or non-received-partially purchase, or has non-positive quantity
+- **THEN** the command SHALL NOT select it as a last-purchase-price candidate
+
+#### Scenario: Tax is retained and discount is excluded in the selected price
+- **WHEN** the selected literal purchase detail has a tax-inclusive subtotal and a non-zero line discount
+- **THEN** the command SHALL calculate last purchase price as the line subtotal plus the line discount divided by quantity
+- **AND** it SHALL NOT subtract the line tax or leave the discount applied
+
+### Requirement: Perdana supplies missing default last purchase prices
+The command SHALL use Perdana's latest eligible literal purchase for a product when a target setting has no eligible literal purchase of its own. It SHALL not use another unrelated non-special setting as a default source.
+
+#### Scenario: Own purchase takes precedence over Perdana
+- **WHEN** a target setting and Perdana both have eligible literal purchases for the same product
+- **THEN** the command SHALL set the target row's `last_purchase_price` from the target setting's latest eligible literal purchase
+
+#### Scenario: Perdana supplies a target with no own purchase
+- **WHEN** a target setting has no eligible literal purchase for a product
+- **AND** Perdana has an eligible literal purchase for that product
+- **THEN** the command SHALL set the target row's `last_purchase_price` from Perdana's latest eligible literal purchase
+
+#### Scenario: Missing literal purchase source does not produce a zero price
+- **WHEN** neither a target setting nor Perdana has an eligible literal purchase for a product
+- **THEN** the command SHALL preserve an existing target row's `last_purchase_price`
+- **AND** it SHALL NOT create a missing target row solely from an HPP snapshot
+
