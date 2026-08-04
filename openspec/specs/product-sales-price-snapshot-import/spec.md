@@ -51,7 +51,7 @@ The system SHALL validate the workbook structure and stage source rows before ap
 - **AND** the system SHALL NOT update any product price or stock
 
 ### Requirement: Owner-specific selling-tier synchronization
-For each valid matched row, the system SHALL update the matched product's `product_prices` record for only the resolved owner setting and SHALL set all three selling tiers to the same imported `SellPrice` as part of the atomic price-and-stock snapshot mutation.
+For each valid matched row, the system SHALL update the matched product's `product_prices` record for the resolved owner setting and SHALL set all three selling tiers to the same imported `SellPrice` as part of the atomic price-and-stock snapshot mutation. The system SHALL then initialize missing price rows for that product in every other available setting without changing any existing other-setting price row.
 
 #### Scenario: Existing owner price row is updated
 - **WHEN** a row resolves to a product, owner setting, and positive selling price
@@ -64,9 +64,23 @@ For each valid matched row, the system SHALL update the matched product's `produ
 - **THEN** the system SHALL create that owner-specific price row
 - **AND** `sale_price`, `tier_1_price`, and `tier_2_price` SHALL equal the imported selling price
 
-#### Scenario: Other owner prices remain unchanged
+#### Scenario: Missing other-setting price rows are seeded
+- **WHEN** the resolved owner price is successfully applied for a product
+- **AND** one or more other available settings lack a `product_prices` row for that product
+- **THEN** the system SHALL create a price row for each missing setting in the same transaction
+- **AND** each new row's `sale_price`, `tier_1_price`, and `tier_2_price` SHALL equal the resolved owner's imported selling price
+- **AND** the new rows SHALL use the established zero purchase-price and null tax defaults
+
+#### Scenario: Existing other-setting prices remain unchanged
 - **WHEN** a row updates the resolved owner's price record
-- **THEN** price records for every other setting SHALL remain unchanged
+- **AND** another setting already has a price row for the same product
+- **THEN** the system SHALL leave every value in that other setting's existing price row unchanged
+
+#### Scenario: Later owner row updates only its owner
+- **WHEN** an earlier source row seeded a missing price row for an owner setting
+- **AND** a later source row resolves to that owner and product
+- **THEN** the system SHALL update only that later row's resolved owner price to the later imported value
+- **AND** the system SHALL leave prices in every other setting unchanged
 
 #### Scenario: Non-selling price data remains unchanged
 - **WHEN** a row updates or creates the resolved owner's price record
@@ -75,8 +89,8 @@ For each valid matched row, the system SHALL update the matched product's `produ
 
 #### Scenario: Reimported value already matches
 - **WHEN** all three target selling tiers already equal the imported selling price
-- **THEN** the row SHALL remain eligible to apply its imported stock snapshot
-- **AND** the system SHALL record that no price value changed
+- **THEN** the row SHALL remain eligible to seed any missing other-setting price rows and apply its imported stock snapshot
+- **AND** the system SHALL record that no resolved-owner price value changed
 
 ### Requirement: Duplicate target conflict protection
 The system SHALL prevent workbook order from choosing price or stock when multiple source rows resolve to the same product and owner target inconsistently.

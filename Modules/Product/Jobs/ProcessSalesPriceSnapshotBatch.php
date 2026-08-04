@@ -378,6 +378,10 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
 
     private function applyMutations(ProductImportBatch $batch, array $validRows): void
     {
+        // Load all available settings dynamically once
+        $allSettings = \Modules\Setting\Entities\Setting::all();
+        $allSettingIds = $allSettings->pluck('id')->toArray();
+
         // 1. Group resolved rows by (product_id, setting_id) target
         $groups = [];
         foreach ($validRows as $row) {
@@ -447,6 +451,9 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                     $productPrice->average_purchase_price = 0;
                 }
                 $productPrice->save();
+
+                // Seed missing price rows in other settings
+                $this->seedMissingPricesForOtherSettings($productId, $settingId, $targetPrice, $allSettingIds);
 
                 // Apply stock snapshot mutation
                 $product = \Modules\Product\Entities\Product::findOrFail($productId);
@@ -570,6 +577,30 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                 foreach ($groupRows as $row) {
                     $this->recordFailure($batch, $row, 'Database error during mutation: ' . \Illuminate\Support\Str::limit($e->getMessage(), 500), 'error', $row->result_metadata ?? []);
                 }
+            }
+        }
+    }
+
+    private function seedMissingPricesForOtherSettings(int $productId, int $ownerSettingId, float $sellPrice, array $allSettingIds): void
+    {
+        // Get existing price rows for this product
+        $existingRows = \Modules\Product\Entities\ProductPrice::where('product_id', $productId)
+            ->whereIn('setting_id', $allSettingIds)
+            ->pluck('setting_id')
+            ->toArray();
+
+        // For each setting that doesn't have a price row, create one with the imported price
+        foreach ($allSettingIds as $settingId) {
+            if (!in_array($settingId, $existingRows)) {
+                \Modules\Product\Entities\ProductPrice::create([
+                    'product_id' => $productId,
+                    'setting_id' => $settingId,
+                    'sale_price' => $sellPrice,
+                    'tier_1_price' => $sellPrice,
+                    'tier_2_price' => $sellPrice,
+                    'last_purchase_price' => 0,
+                    'average_purchase_price' => 0,
+                ]);
             }
         }
     }
