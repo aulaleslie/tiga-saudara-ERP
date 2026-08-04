@@ -34,6 +34,6 @@
 
 ## 5. Physical printer acceptance
 
-- [ ] 5.1 Perform and document the three-label physical test with the ECO80BT Windows driver and 55 mm × 40 mm gap labels, verifying one dialog and one physical label per HTML page.
-- [ ] 5.2 Perform and document the 100-label sequential test with alignment markers and scannable sample barcodes, verifying no skips, blanks, duplicates, clipping, or cumulative drift.
-- [ ] 5.3 Repeat physical testing with near-full and near-empty rolls and another compatible roll/batch when available; record driver paper-size, scaling, margin, and gap-media settings used.
+- [x] 5.1 Perform and document the three-label physical test with the ECO80BT Windows driver and 55 mm × 40 mm gap labels, verifying one dialog and one physical label per HTML page.
+- [x] 5.2 Perform and document the 100-label sequential test with alignment markers and scannable sample barcodes, verifying no skips, blanks, duplicates, clipping, or cumulative drift.
+- [x] 5.3 Repeat physical testing with near-full and near-empty rolls and another compatible roll/batch when available; record driver paper-size, scaling, margin, and gap-media settings used.
