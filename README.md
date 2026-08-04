@@ -110,6 +110,11 @@ php artisan product:export-barcodes
 # Export to a specific CSV file and overwrite it without confirmation.
 php artisan product:export-barcodes --path=/path/to/barcodes.csv --force
 
+# Normalize all product base-unit barcodes to EAN-13 values.
+# Run the dry-run first; generated internal codes use the 200–299 prefix range.
+php artisan product:generate-ean13-barcodes --dry-run
+php artisan product:generate-ean13-barcodes
+
 # Export the CV TIGA NUSA COMPUTER product price list to Excel.
 # The default output is storage/app/product_prices_tiga_nusa_export.xlsx.
 php artisan product:export-tiga-nusa-prices
