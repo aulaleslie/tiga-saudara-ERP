@@ -18,6 +18,32 @@ class PurchaseReceivingCompletionService
     ) {}
 
     /**
+     * Build normalizer input for a retained detail, proportionally scaling persisted monetary values.
+     * Retains the line's tax identity and proportionally reduces subtotal and tax amount based on
+     * approved received quantity relative to original ordered quantity.
+     */
+    private function buildRetainedLineInput(PurchaseDetail $detail, float $approvedQty): array
+    {
+        $quantityRatio = $approvedQty / $detail->quantity;
+
+        return [
+            'id' => $detail->product_id,
+            'product_id' => $detail->product_id,
+            'product_name' => $detail->product_name,
+            'product_code' => $detail->product_code,
+            'quantity' => $approvedQty,
+            'unit_price' => $detail->unit_price,
+            'price' => $detail->price,
+            'discount' => $detail->product_discount_amount,
+            'discount_type' => $detail->product_discount_type,
+            'tax_id' => $detail->tax_id,
+            // Scale persisted monetary values proportionally
+            'sub_total' => round($detail->sub_total * $quantityRatio, 2),
+            'product_tax_amount' => round($detail->product_tax_amount * $quantityRatio, 2),
+        ];
+    }
+
+    /**
      * Preview the completion outcome without mutations.
      * Aggregates approved received quantities and calculates final state.
      */
@@ -56,18 +82,7 @@ class PurchaseReceivingCompletionService
         $detailInputs = $purchase->purchaseDetails->map(function (PurchaseDetail $detail) use ($approvedReceivedByDetail) {
             $approvedQty = $approvedReceivedByDetail[$detail->id] ?? 0;
             if ($approvedQty > 0) {
-                return [
-                    'id' => $detail->product_id,
-                    'product_id' => $detail->product_id,
-                    'product_name' => $detail->product_name,
-                    'product_code' => $detail->product_code,
-                    'quantity' => $approvedQty,
-                    'unit_price' => $detail->unit_price,
-                    'price' => $detail->price,
-                    'discount' => $detail->product_discount_amount,
-                    'discount_type' => $detail->product_discount_type,
-                    'tax_id' => $detail->tax_id,
-                ];
+                return $this->buildRetainedLineInput($detail, $approvedQty);
             }
             return null;
         })->filter()->values()->all();
@@ -172,18 +187,7 @@ class PurchaseReceivingCompletionService
 
                 if ($approvedQty > 0) {
                     $positionToDetailId[count($detailInputsForNormalization)] = $detail->id;
-                    $detailInputsForNormalization[] = [
-                        'id' => $detail->product_id,
-                        'product_id' => $detail->product_id,
-                        'product_name' => $detail->product_name,
-                        'product_code' => $detail->product_code,
-                        'quantity' => $approvedQty,
-                        'unit_price' => $detail->unit_price,
-                        'price' => $detail->price,
-                        'discount' => $detail->product_discount_amount,
-                        'discount_type' => $detail->product_discount_type,
-                        'tax_id' => $detail->tax_id,
-                    ];
+                    $detailInputsForNormalization[] = $this->buildRetainedLineInput($detail, $approvedQty);
                 }
             }
 
@@ -224,7 +228,7 @@ class PurchaseReceivingCompletionService
                         'product_discount_type' => $normalizedDetail['product_discount_type'] ?? $detail->product_discount_type,
                         'sub_total' => $normalizedDetail['sub_total'] ?? $detail->sub_total,
                         'product_tax_amount' => $normalizedDetail['product_tax_amount'] ?? $detail->product_tax_amount,
-                        'tax_id' => $normalizedDetail['tax_id'] ?? $detail->tax_id,
+                        'tax_id' => $normalizedDetail['tax_id'] ?? null,
                     ]);
                 } else {
                     if (!$this->hasReceivingHistory($detail)) {

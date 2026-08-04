@@ -11,6 +11,7 @@ use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Services\PurchaseReceivingCompletionService;
+use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
 
 class ReceivingCompletionServiceTest extends TestCase
@@ -324,6 +325,185 @@ class ReceivingCompletionServiceTest extends TestCase
         $this->assertEquals(5000, $purchase->total_amount);
     }
 
+    public function test_pkp_tax_exclusive_shortfall_preserves_proportional_tax()
+    {
+        $this->setting->update(['is_pkp' => true]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10%',
+            'value' => 10,
+        ]);
+
+        $purchase = $this->createPurchaseWithDetails(
+            [['quantity' => 10, 'approved_received' => 5, 'tax_id' => $tax->id, 'product_tax_amount' => 1000, 'sub_total' => 10000]],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $preview = $this->service->preview($purchase);
+        $this->assertEquals(500, $preview['final']['tax_amount']);
+
+        $completion = $this->service->complete($purchase, 'Shortfall', $this->user->id);
+
+        $purchase->refresh();
+        $detail = $purchase->purchaseDetails->first();
+        $this->assertEquals(5, $detail->quantity);
+        $this->assertEquals(500, $detail->product_tax_amount);
+        $this->assertEquals($tax->id, $detail->tax_id);
+        $this->assertEquals(500, $purchase->tax_amount);
+    }
+
+    public function test_pkp_tax_included_shortfall_preserves_proportional_tax()
+    {
+        $this->setting->update(['is_pkp' => true]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10% Inclusive',
+            'value' => 10,
+        ]);
+
+        $purchase = $this->createPurchaseWithDetails(
+            [['quantity' => 10, 'approved_received' => 5, 'tax_id' => $tax->id, 'product_tax_amount' => 909, 'sub_total' => 9090]],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $preview = $this->service->preview($purchase);
+        $completion = $this->service->complete($purchase, 'Shortfall', $this->user->id);
+
+        $purchase->refresh();
+        $detail = $purchase->purchaseDetails->first();
+        $this->assertEquals(5, $detail->quantity);
+        $this->assertEqualsWithDelta(454.5, $detail->product_tax_amount, 0.01);
+        $this->assertEquals($tax->id, $detail->tax_id);
+    }
+
+    public function test_mixed_taxed_untaxed_lines_in_pkp_purchase()
+    {
+        $this->setting->update(['is_pkp' => true]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10%',
+            'value' => 10,
+        ]);
+
+        $purchase = $this->createPurchaseWithDetails(
+            [
+                ['quantity' => 10, 'approved_received' => 5, 'tax_id' => $tax->id, 'product_tax_amount' => 1000, 'sub_total' => 10000],
+                ['quantity' => 8, 'approved_received' => 4, 'tax_id' => null, 'product_tax_amount' => 0, 'sub_total' => 8000],
+                ['quantity' => 6, 'approved_received' => 0, 'tax_id' => $tax->id, 'product_tax_amount' => 600, 'sub_total' => 6000],
+            ],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $thirdDetailId = $purchase->purchaseDetails->where('quantity', 6)->first()->id;
+
+        $completion = $this->service->complete($purchase, 'Shortfall', $this->user->id);
+
+        $purchase->refresh();
+
+        // Assert the third detail was deleted
+        $this->assertNull(PurchaseDetail::find($thirdDetailId));
+
+        // Assert only the two received lines remain
+        $this->assertCount(2, $purchase->purchaseDetails);
+
+        // Find the retained lines by whether they have tax
+        $taxedLine = $purchase->purchaseDetails->where('tax_id', $tax->id)->first();
+        $untaxedLine = $purchase->purchaseDetails->where('tax_id', null)->first();
+
+        // Assert the retained taxed line keeps its prorated tax_id and product_tax_amount
+        $this->assertNotNull($taxedLine, 'Taxed line should exist');
+        $this->assertEquals(5, $taxedLine->quantity);
+        $this->assertEquals(500, $taxedLine->product_tax_amount);
+        $this->assertEquals($tax->id, $taxedLine->tax_id);
+
+        // Assert the retained untaxed line has tax_id = null and product_tax_amount = 0
+        $this->assertNotNull($untaxedLine, 'Untaxed line should exist');
+        $this->assertEquals(4, $untaxedLine->quantity);
+        $this->assertEquals(0, $untaxedLine->product_tax_amount);
+        $this->assertNull($untaxedLine->tax_id);
+
+        // Assert purchase header tax_amount and total_amount equal the sum of retained lines only
+        $this->assertEquals(500, $purchase->tax_amount);
+        // Retained subtotals: 5000 (taxed line prorated) + 4000 (untaxed line prorated) = 9000
+        // Tax: 500 (prorated from 1000)
+        // Total: 9000 (subtotals only, tax included in subtotals for tax-inclusive lines)
+        $this->assertEquals(9000, $purchase->total_amount);
+    }
+
+    public function test_non_pkp_purchase_strips_tax_on_completion()
+    {
+        $this->setting->update(['is_pkp' => false]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10%',
+            'value' => 10,
+        ]);
+
+        $purchase = $this->createPurchaseWithDetails(
+            [['quantity' => 10, 'approved_received' => 5, 'tax_id' => $tax->id, 'product_tax_amount' => 1000, 'sub_total' => 10000]],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $completion = $this->service->complete($purchase, 'Non-PKP shortfall', $this->user->id);
+
+        $purchase->refresh();
+        $detail = $purchase->purchaseDetails->first();
+        $this->assertEquals(5, $detail->quantity);
+        $this->assertEquals(0, $detail->product_tax_amount);
+        $this->assertNull($detail->tax_id);
+        $this->assertEquals(0, $purchase->tax_amount);
+    }
+
+    public function test_rounding_sensitive_proportional_tax()
+    {
+        $this->setting->update(['is_pkp' => true]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10%',
+            'value' => 10,
+        ]);
+
+        // 10 × 333.33 = 3333.30, tax = 333.33
+        // Receiving 3: 3 × 333.33 = 999.99 (rounded), tax should be proportional
+        $purchase = $this->createPurchaseWithDetails(
+            [['quantity' => 10, 'approved_received' => 3, 'tax_id' => $tax->id, 'product_tax_amount' => 333.30, 'unit_price' => 333.33, 'sub_total' => 3333.30]],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $completion = $this->service->complete($purchase, 'Rounding test', $this->user->id);
+
+        $purchase->refresh();
+        $detail = $purchase->purchaseDetails->first();
+        $this->assertEquals(3, $detail->quantity);
+        // 333.30 * (3/10) = 99.99
+        $this->assertEqualsWithDelta(99.99, $detail->product_tax_amount, 0.01);
+        $this->assertEquals($tax->id, $detail->tax_id);
+    }
+
+    public function test_preview_and_persisted_completion_match_for_pkp()
+    {
+        $this->setting->update(['is_pkp' => true]);
+
+        $tax = Tax::create([
+            'name' => 'PPN 10%',
+            'value' => 10,
+        ]);
+
+        $purchase = $this->createPurchaseWithDetails(
+            [['quantity' => 10, 'approved_received' => 5, 'tax_id' => $tax->id, 'product_tax_amount' => 1000, 'sub_total' => 10000]],
+            Purchase::STATUS_RECEIVED_PARTIALLY
+        );
+
+        $preview = $this->service->preview($purchase);
+        $completion = $this->service->complete($purchase, 'Shortfall', $this->user->id);
+
+        $purchase->refresh();
+
+        // Preview and persisted amounts must match
+        $this->assertEquals($preview['final']['tax_amount'], $purchase->tax_amount);
+        $this->assertEquals($preview['final']['total_amount'], $purchase->total_amount);
+        $this->assertEquals($preview['final']['due_amount'], $purchase->due_amount);
+    }
 
     private function createPurchaseWithDetails(array $details, string $status = Purchase::STATUS_RECEIVED_PARTIALLY)
     {
@@ -363,19 +543,24 @@ class ReceivingCompletionServiceTest extends TestCase
             'product_price' => 1000,
             ]);
 
+            $unitPrice = $detail['unit_price'] ?? 1000;
+            $productTaxAmount = $detail['product_tax_amount'] ?? 0;
+            $taxId = $detail['tax_id'] ?? null;
+            $subTotal = $detail['sub_total'] ?? ($detail['quantity'] * $unitPrice);
+
             $purchaseDetail = PurchaseDetail::create([
                 'purchase_id' => $purchase->id,
                 'product_id' => $product->id,
                 'product_name' => $product->product_name,
                 'product_code' => $product->product_code,
                 'quantity' => $detail['quantity'],
-                'unit_price' => 1000,
-                'price' => 1000,
+                'unit_price' => $unitPrice,
+                'price' => $unitPrice,
                 'product_discount_amount' => 0,
                 'product_discount_type' => 'fixed',
-                'sub_total' => $detail['quantity'] * 1000,
-                'product_tax_amount' => 0,
-                'tax_id' => null,
+                'sub_total' => $subTotal,
+                'product_tax_amount' => $productTaxAmount,
+                'tax_id' => $taxId,
             ]);
 
             if ($detail['approved_received'] > 0) {
