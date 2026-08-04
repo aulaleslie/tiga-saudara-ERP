@@ -37,6 +37,7 @@ class ProductServiceProvider extends ServiceProvider
             \Modules\Product\Console\ExportBarcodesCommand::class,
             \Modules\Product\Console\ImportBarcodesCommand::class,
             \Modules\Product\Console\ExportTigaNusaPricesCommand::class,
+            \Modules\Product\Console\GenerateEan13BarcodesCommand::class,
         ]);
     }
 
