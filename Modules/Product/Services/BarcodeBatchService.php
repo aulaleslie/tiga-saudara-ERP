@@ -55,6 +55,29 @@ class BarcodeBatchService
         'UPC-A' => 'UPCA',
     ];
 
+    /** Explicitly recognized EAN-13 spellings that enforce strict validation. */
+    public const EXPLICIT_EAN13_SPELLINGS = ['EAN13', 'EAN-13'];
+
+    /**
+     * Check if a barcode is valid EAN-13 (13 digits with correct check digit).
+     */
+    public function isValidEan13(string $barcode): bool
+    {
+        $barcode = trim($barcode);
+
+        if (mb_strlen($barcode) !== 13 || !ctype_digit($barcode)) {
+            return false;
+        }
+
+        $sum = 0;
+        for ($i = 0; $i < 12; $i++) {
+            $sum += (int) $barcode[$i] * ($i % 2 === 0 ? 1 : 3);
+        }
+
+        $checkDigit = ((10 - ($sum % 10)) % 10);
+        return (int) $barcode[12] === $checkDigit;
+    }
+
     /**
      * Normalize a stored symbology to the renderer's spelling. Unknown values
      * are returned upper-cased so supported-symbology validation can reject them.
@@ -64,6 +87,36 @@ class BarcodeBatchService
         $normalized = strtoupper(trim((string) $symbology));
 
         return self::SYMBOLOGY_ALIASES[$normalized] ?? $normalized;
+    }
+
+    /**
+     * Resolve the print renderer type based on stored symbology and barcode semantics.
+     * Returns 'EAN13' for explicitly stored or inferred valid EAN-13.
+     * Returns 'C128' for other nonblank barcodes.
+     * Returns empty string if barcode is blank (validation error).
+     */
+    public function resolveRendererType(string $barcode, ?string $storedSymbology): string
+    {
+        $barcode = trim($barcode);
+
+        if ($barcode === '') {
+            return '';
+        }
+
+        $normalized = $this->normalizeSymbology($storedSymbology);
+
+        // Explicit EAN13 spelling requires the barcode to be valid EAN-13.
+        if (in_array($normalized, self::EXPLICIT_EAN13_SPELLINGS, true)) {
+            return $this->isValidEan13($barcode) ? 'EAN13' : 'INVALID_EAN13';
+        }
+
+        // Absent or unrecognized symbology: infer EAN13 or fall back to C128.
+        if ($normalized === '' || !in_array($normalized, self::SUPPORTED_SYMBOLOGIES, true)) {
+            return $this->isValidEan13($barcode) ? 'EAN13' : 'C128';
+        }
+
+        // Other recognized symbologies (C128, C39, UPCA, EAN8) use their stored value.
+        return $normalized;
     }
 
     /**
@@ -139,7 +192,7 @@ class BarcodeBatchService
     {
         $identity = $product->product_name . ' (' . $product->product_code . ')';
         $barcode = trim((string) $product->barcode);
-        $symbology = $this->normalizeSymbology($product->product_barcode_symbology);
+        $storedSymbology = $product->product_barcode_symbology;
 
         $valid = true;
 
@@ -148,8 +201,16 @@ class BarcodeBatchService
             $valid = false;
         }
 
-        if ($symbology === '' || ! in_array($symbology, self::SUPPORTED_SYMBOLOGIES, true)) {
-            $errors[] = "Produk {$identity} memiliki simbologi barcode yang tidak didukung.";
+        $rendererType = $this->resolveRendererType($barcode, $storedSymbology);
+
+        // Explicit invalid EAN-13 is a blocking error.
+        if ($rendererType === 'INVALID_EAN13') {
+            $errors[] = "Produk {$identity} memiliki barcode yang tidak valid untuk simbologi EAN-13.";
+            $valid = false;
+        }
+
+        if ($barcode !== '' && $valid && $rendererType === '') {
+            $errors[] = "Produk {$identity} tidak memiliki barcode.";
             $valid = false;
         }
 
@@ -169,10 +230,10 @@ class BarcodeBatchService
             return null;
         }
 
-        $svg = $this->renderSvg($barcode, $symbology);
+        $svg = $this->renderSvg($barcode, $rendererType);
 
         if ($svg === null) {
-            $errors[] = "Barcode produk {$identity} tidak dapat dirender sebagai {$symbology}.";
+            $errors[] = "Barcode produk {$identity} tidak dapat dirender sebagai {$rendererType}.";
 
             return null;
         }
@@ -183,7 +244,7 @@ class BarcodeBatchService
             'product_name' => (string) $product->product_name,
             'product_code' => (string) $product->product_code,
             'barcode' => $barcode,
-            'symbology' => $symbology,
+            'symbology' => $rendererType,
             'sale_price' => (float) $priceRow->sale_price,
         ];
     }

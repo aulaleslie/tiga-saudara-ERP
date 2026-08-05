@@ -255,8 +255,11 @@ class BrowserBatchBarcodePrintingTest extends TestCase
                 $product = $this->makeProduct(['barcode' => null]);
                 $this->setPrice($product, $this->settingA, 12500);
                 break;
-            case 'unsupported_symbology':
-                $product = $this->makeProduct(['product_barcode_symbology' => 'NOT_A_SYMBOLOGY']);
+            case 'invalid_explicit_ean13':
+                $product = $this->makeProduct([
+                    'barcode' => '0123456789013',
+                    'product_barcode_symbology' => 'EAN13',
+                ]);
                 $this->setPrice($product, $this->settingA, 12500);
                 break;
             case 'inaccessible_business':
@@ -290,7 +293,7 @@ class BrowserBatchBarcodePrintingTest extends TestCase
         return [
             'missing selected-business price' => ['missing_price'],
             'blank barcode' => ['blank_barcode'],
-            'unsupported symbology' => ['unsupported_symbology'],
+            'explicit invalid EAN-13' => ['invalid_explicit_ean13'],
             'inaccessible business' => ['inaccessible_business'],
         ];
     }
@@ -392,18 +395,188 @@ class BrowserBatchBarcodePrintingTest extends TestCase
             ->assertSessionHasErrors();
     }
 
-    public function test_endpoint_rejects_unsupported_symbology(): void
+    public function test_endpoint_accepts_absent_symbology_with_valid_ean13_barcode_and_preserves_leading_zeroes(): void
     {
-        $product = $this->makeProduct(['product_barcode_symbology' => 'NOT_A_SYMBOLOGY']);
+        $validEan = '0123456789012';
+        $product = $this->makeProduct([
+            'barcode' => $validEan,
+            'product_barcode_symbology' => null,
+        ]);
         $this->setPrice($product, $this->settingA, 12500);
 
-        $this->actingAsOperator()
-            ->from(route('barcode.print'))
+        $response = $this->actingAsOperator()
             ->post(route('barcode.batch-print'), [
                 'setting_id' => $this->settingA->id,
                 'items' => [['product_id' => $product->id, 'quantity' => 1]],
-            ])
-            ->assertSessionHasErrors();
+            ])->assertOk();
+
+        $html = $response->getContent();
+        $this->assertSame(1, substr_count($html, '<svg'));
+        $this->assertStringContainsString($validEan, $html);
+    }
+
+    public function test_endpoint_accepts_absent_symbology_with_non_ean13_barcode_renders_c128(): void
+    {
+        $product = $this->makeProduct([
+            'barcode' => 'LEGACY-SKU-123',
+            'product_barcode_symbology' => null,
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $response = $this->actingAsOperator()
+            ->post(route('barcode.batch-print'), [
+                'setting_id' => $this->settingA->id,
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ])->assertOk();
+
+        $html = $response->getContent();
+        $this->assertSame(1, substr_count($html, '<svg'));
+        $this->assertStringContainsString('LEGACY-SKU-123', $html);
+    }
+
+    public function test_endpoint_accepts_unrecognized_symbology_with_non_ean13_barcode_renders_c128(): void
+    {
+        $product = $this->makeProduct([
+            'barcode' => 'CUSTOM-CODE',
+            'product_barcode_symbology' => 'UNRECOGNIZED_TYPE',
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $response = $this->actingAsOperator()
+            ->post(route('barcode.batch-print'), [
+                'setting_id' => $this->settingA->id,
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ])->assertOk();
+
+        $html = $response->getContent();
+        $this->assertSame(1, substr_count($html, '<svg'));
+        $this->assertStringContainsString('CUSTOM-CODE', $html);
+    }
+
+    // --- Label payload symbology resolution ------------------------------------
+
+    public function test_label_payload_resolves_inferred_valid_ean13_when_symbology_absent(): void
+    {
+        $validEan = '0123456789012';
+        $product = $this->makeProduct([
+            'barcode' => $validEan,
+            'product_barcode_symbology' => null,
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $errors = [];
+        $label = $service->buildLabel($product, $this->settingA->id, $errors);
+
+        $this->assertNotNull($label, 'Valid EAN-13 with absent symbology must produce a label');
+        $this->assertSame('EAN13', $label['symbology']);
+    }
+
+    public function test_label_payload_resolves_inferred_valid_ean13_with_leading_zero(): void
+    {
+        $validEan = '0000000000000';
+        $product = $this->makeProduct([
+            'barcode' => $validEan,
+            'product_barcode_symbology' => null,
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $errors = [];
+        $label = $service->buildLabel($product, $this->settingA->id, $errors);
+
+        $this->assertNotNull($label, 'Valid EAN-13 with leading zeros must produce a label');
+        $this->assertSame('EAN13', $label['symbology']);
+        $this->assertSame($validEan, $label['barcode']);
+    }
+
+    public function test_label_payload_resolves_c128_for_absent_symbology_with_non_ean_barcode(): void
+    {
+        $product = $this->makeProduct([
+            'barcode' => 'LEGACY-SKU-123',
+            'product_barcode_symbology' => null,
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $errors = [];
+        $label = $service->buildLabel($product, $this->settingA->id, $errors);
+
+        $this->assertNotNull($label, 'Non-EAN barcode with absent symbology must produce a label');
+        $this->assertSame('C128', $label['symbology']);
+    }
+
+    public function test_label_payload_resolves_c128_for_unrecognized_symbology_with_non_ean_barcode(): void
+    {
+        $product = $this->makeProduct([
+            'barcode' => 'UNKNOWN-CODE-999',
+            'product_barcode_symbology' => 'UNRECOGNIZED',
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $errors = [];
+        $label = $service->buildLabel($product, $this->settingA->id, $errors);
+
+        $this->assertNotNull($label, 'Non-EAN barcode with unrecognized symbology must produce a label');
+        $this->assertSame('C128', $label['symbology']);
+    }
+
+    public function test_label_payload_resolves_c128_for_recognized_non_ean_symbologies(): void
+    {
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+
+        // C39 with a valid C39 barcode
+        $c39Product = $this->makeProduct([
+            'barcode' => 'C39-CODE-123',
+            'product_barcode_symbology' => 'C39',
+        ]);
+        $this->setPrice($c39Product, $this->settingA, 12500);
+
+        $errors = [];
+        $c39Label = $service->buildLabel($c39Product, $this->settingA->id, $errors);
+        $this->assertNotNull($c39Label, 'C39 barcode must produce a label');
+        $this->assertSame('C39', $c39Label['symbology']);
+
+        // UPCA with a valid UPCA barcode
+        $upcaProduct = $this->makeProduct([
+            'barcode' => '01234567890',
+            'product_barcode_symbology' => 'UPCA',
+        ]);
+        $this->setPrice($upcaProduct, $this->settingA, 12500);
+
+        $errors = [];
+        $upcaLabel = $service->buildLabel($upcaProduct, $this->settingA->id, $errors);
+        $this->assertNotNull($upcaLabel, 'UPCA barcode must produce a label');
+        $this->assertSame('UPCA', $upcaLabel['symbology']);
+
+        // EAN8 with a valid EAN8 barcode
+        $ean8Product = $this->makeProduct([
+            'barcode' => '96385074',
+            'product_barcode_symbology' => 'EAN8',
+        ]);
+        $this->setPrice($ean8Product, $this->settingA, 12500);
+
+        $errors = [];
+        $ean8Label = $service->buildLabel($ean8Product, $this->settingA->id, $errors);
+        $this->assertNotNull($ean8Label, 'EAN8 barcode must produce a label');
+        $this->assertSame('EAN8', $ean8Label['symbology']);
+    }
+
+    public function test_label_payload_resolves_c128_for_stored_c128_alias(): void
+    {
+        $product = $this->makeProduct([
+            'barcode' => 'CODE-WITH-SPACES',
+            'product_barcode_symbology' => 'CODE128',
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $errors = [];
+        $label = $service->buildLabel($product, $this->settingA->id, $errors);
+
+        $this->assertNotNull($label, 'CODE128 alias must produce a label');
+        $this->assertSame('C128', $label['symbology']);
     }
 
     public function test_endpoint_rejects_barcode_the_symbology_cannot_encode(): void
