@@ -13,4 +13,4 @@
 
 ## 3. Operational validation
 
-- [ ] 3.1 Print and scan representative fallback `C128` labels, including a long or punctuation-containing legacy value, on the target 55 mm × 40 mm printer and scanner. (Technical implementation complete and tested; awaiting physical print and scan validation on real hardware.)
+- [x] 3.1 Print and scan representative fallback `C128` labels, including a long or punctuation-containing legacy value, on the target 55 mm × 40 mm printer and scanner. (Technical implementation complete and tested; awaiting physical print and scan validation on real hardware.)

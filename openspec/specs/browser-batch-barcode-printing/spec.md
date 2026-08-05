@@ -1,9 +1,7 @@
 ## Purpose
 
 Provide authorized users with browser-based batch barcode printing for 55 mm × 40 mm labels, using selected-business non-tier sale prices and one print action per batch.
-
 ## Requirements
-
 ### Requirement: Authorized users can prepare a business-priced barcode batch
 The system SHALL provide the existing Print Barcode workspace to users authorized by `barcodes.print`. The workspace SHALL support selecting multiple products, maintaining one row per product, entering and removing per-product label quantities, showing the aggregate label total, and previewing the complete selected-business batch. SKU on the workspace and label SHALL mean `products.product_code`.
 
@@ -42,7 +40,7 @@ The workspace SHALL default its selected business to `session('setting_id')`. A 
 - **AND** the system SHALL NOT substitute a tier, global, or zero price
 
 ### Requirement: Print submission validates and expands a bounded product batch
-The system SHALL expose a protected dedicated batch-print endpoint accepting a selected setting ID and `items` containing product IDs and quantities. The endpoint SHALL re-authorize the business, validate the complete request, load unique selected products and selected-business price rows in a bounded lookup, and expand each valid quantity into individual label records before rendering.
+The system SHALL expose a protected dedicated batch-print endpoint accepting a selected setting ID and `items` containing product IDs and quantities. The endpoint SHALL re-authorize the business, validate the complete request, load unique selected products and selected-business price rows in a bounded lookup, resolve each nonblank barcode to EAN-13 or general Code 128 according to its barcode semantics and stored symbology, and expand each valid quantity into individual label records before rendering.
 
 #### Scenario: Valid batch expands into individual labels
 - **WHEN** the endpoint receives Product A with quantity 3 and Product B with quantity 2
@@ -60,17 +58,37 @@ The system SHALL expose a protected dedicated batch-print endpoint accepting a s
 - **AND** it SHALL not render a partial document
 
 #### Scenario: Requested product is absent or invalid for printing
-- **WHEN** an item product ID does not resolve to a product, its barcode is blank, or its barcode symbology is unsupported
+- **WHEN** an item product ID does not resolve to a product, its barcode is blank, or its explicitly EAN-13 barcode cannot be rendered as EAN-13
 - **THEN** the endpoint SHALL reject the complete batch
 - **AND** it SHALL identify each affected product ID or resolved product/SKU as applicable
 
 ### Requirement: Each label contains consistent barcode and product information
-For every expanded label record, the system SHALL render the product name, SKU (`product_code`), a server-generated SVG barcode, the barcode value as text, and the formatted selected-business non-tier sale price. SVG SHALL be generated from the stored barcode and its supported stored symbology; product-provided text SHALL be escaped. A SKU of at most 40 characters SHALL be displayed in full; a longer SKU SHALL display its first 39 characters followed by a visible `…`, without altering the stored product code or encoded barcode value.
+For every expanded label record, the system SHALL render the product name, SKU (`product_code`), a server-generated SVG barcode, the barcode value as text, and the formatted selected-business non-tier sale price. Product-provided text SHALL be escaped. The stored symbology SHALL be normalized to recognize `EAN13` and `EAN-13`, as well as recognized renderer types `C128`, `C39`, `UPCA`, `EAN8`, and their supported aliases. When stored symbology is recognized, the system SHALL render the barcode using its normalized renderer type. An explicitly EAN-13 product SHALL render as EAN-13 only when its barcode is valid EAN-13. When stored symbology is absent or unrecognized, the system SHALL render a valid 13-digit EAN-13 barcode as EAN-13 and SHALL otherwise render the nonblank barcode with the installed renderer's general Code 128 type, `C128`. A SKU of at most 40 characters SHALL be displayed in full; a longer SKU SHALL display its first 39 characters followed by a visible `…`, without altering the stored product code or encoded barcode value.
 
 #### Scenario: EAN-13 product is rendered with its stored symbology
 - **WHEN** a selected product has a valid barcode and `product_barcode_symbology` of `EAN13`
 - **THEN** the rendered SVG SHALL represent that barcode using EAN-13
 - **AND** the barcode value printed as text SHALL match the stored value including leading zeroes
+
+#### Scenario: Unspecified symbology infers valid EAN-13
+- **WHEN** a selected product has no stored barcode symbology and its barcode is a 13-digit value with a correct EAN-13 check digit
+- **THEN** the rendered SVG SHALL represent that barcode using EAN-13
+- **AND** the barcode value printed as text SHALL match the stored value including leading zeroes
+
+#### Scenario: Recognized stored symbology is respected
+- **WHEN** a selected product has `product_barcode_symbology` set to a recognized renderer type (`C128`, `CODE128`, `C39`, `CODE39`, `UPCA`, `UPC-A`, `EAN8`, `EAN-8`)
+- **THEN** the rendered SVG SHALL represent that barcode using the normalized renderer type
+- **AND** the label SHALL use the stored symbology regardless of the barcode content
+
+#### Scenario: Unspecified or unrecognized symbology falls back to Code 128
+- **WHEN** a selected product has a nonblank barcode and its stored symbology is absent or unrecognized but its barcode is not valid EAN-13
+- **THEN** the rendered SVG SHALL represent the unchanged barcode value using `C128`
+- **AND** the label SHALL not be rejected solely because its stored symbology is absent or unrecognized
+
+#### Scenario: Explicit invalid EAN-13 is rejected
+- **WHEN** a selected product has `product_barcode_symbology` of `EAN13` or `EAN-13` and its barcode is not valid EAN-13
+- **THEN** preview and print submission SHALL reject the product with an actionable rendering error
+- **AND** the system SHALL NOT silently render it as Code 128
 
 #### Scenario: Label carries all required display data
 - **WHEN** a valid selected product is expanded into a label
@@ -116,3 +134,4 @@ The Print Barcode workspace and print document SHALL communicate the required ca
 - **WHEN** the feature is evaluated for operational acceptance
 - **THEN** testing SHALL include a three-label test and a 100-label sequential test on physical 55 mm × 40 mm gap media
 - **AND** acceptance SHALL require one HTML page per physical label without blank labels, skipped labels, duplicated labels, cumulative drift, clipping, or unscannable barcodes
+
