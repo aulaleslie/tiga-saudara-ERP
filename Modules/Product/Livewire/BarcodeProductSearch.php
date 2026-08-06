@@ -62,6 +62,30 @@ class BarcodeProductSearch extends Component
         $this->updatedQuery();
     }
 
+    public function handleEnter(): void
+    {
+        $trimmed = trim($this->query);
+
+        if (empty($trimmed)) {
+            return;
+        }
+
+        $product = Product::query()
+            ->where('barcode', '=', $trimmed)
+            ->first(['id', 'product_name', 'product_code', 'product_unit']);
+
+        if ($product) {
+            $this->selectProduct([
+                'id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'product_unit' => (string) $product->product_unit,
+            ]);
+        } else {
+            $this->showSearchResults();
+        }
+    }
+
     public function selectProduct($result): void
     {
         $payload = is_array($result) ? $result : (array) $result;

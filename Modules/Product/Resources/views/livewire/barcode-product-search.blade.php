@@ -10,7 +10,7 @@
             <input
                 id="barcode-product-search"
                 wire:keydown.escape="resetQuery"
-                wire:keydown.enter="showSearchResults"
+                wire:keydown.enter="handleEnter"
                 wire:model.live.debounce.500ms="query"
                 type="text"
                 class="form-control"

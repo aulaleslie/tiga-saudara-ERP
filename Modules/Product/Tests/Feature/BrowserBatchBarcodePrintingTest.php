@@ -1039,4 +1039,119 @@ class BrowserBatchBarcodePrintingTest extends TestCase
             ->assertSee('ECO80BT')
             ->assertSee('data-testid="printer-guidance"', false);
     }
+
+    // --- BarcodeProductSearch: primary barcode lookup ---------------------
+
+    public function test_barcode_search_finds_product_by_partial_barcode_match(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Plus', 'barcode' => '1234567890123']);
+
+        $results = Product::query()
+            ->globalSearch('123456')
+            ->get(['id', 'product_name', 'product_code', 'product_unit']);
+
+        $this->assertNotEmpty($results);
+        $this->assertSame($product->id, $results[0]->id);
+    }
+
+    public function test_barcode_search_component_can_select_product_by_barcode_from_results(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Plus', 'barcode' => '1234567890123']);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class);
+
+        $component->call('selectProduct', [
+            'id' => (int) $product->id,
+            'product_name' => 'WIDGET PLUS',
+            'product_code' => $product->product_code,
+            'product_unit' => $product->product_unit,
+        ])
+        ->assertDispatched('productSelected', [
+            'id' => $product->id,
+            'product_name' => 'WIDGET PLUS',
+            'product_code' => $product->product_code,
+            'product_unit' => $product->product_unit,
+        ]);
+
+        $this->assertEmpty($component->get('query'));
+    }
+
+    public function test_enter_on_exact_barcode_match_adds_product_and_clears_input(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Plus', 'barcode' => '1234567890123']);
+
+        Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class)
+            ->set('query', '1234567890123')
+            ->call('handleEnter')
+            ->assertDispatched('productSelected')
+            ->assertSet('query', '');
+    }
+
+    public function test_enter_on_exact_barcode_with_workspace_increments_existing_batch_row(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Plus', 'barcode' => '1234567890123']);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->call('addProduct', ['id' => $product->id]);
+
+        $this->assertSame(1, $component->get('rows')[0]['quantity']);
+
+        $component->dispatch('productSelected', [
+            'id' => $product->id,
+            'product_name' => 'WIDGET PLUS',
+            'product_code' => $product->product_code,
+            'product_unit' => $product->product_unit,
+        ]);
+
+        $this->assertSame(2, $component->get('rows')[0]['quantity']);
+    }
+
+    public function test_enter_on_unmatched_barcode_shows_results_without_adding_product(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Plus', 'barcode' => '1234567890123']);
+
+        Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class)
+            ->set('query', '9999999999999')
+            ->call('handleEnter')
+            ->assertNotDispatched('productSelected')
+            ->assertSee('Produk tidak ditemukan');
+    }
+
+    public function test_enter_on_conversion_barcode_only_does_not_add_product(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Box', 'barcode' => '1111111111111']);
+        $unit = Unit::firstOrCreate(['name' => 'Box', 'short_name' => 'BOX']);
+
+        $conversion = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $this->unit->id,
+            'conversion_factor' => 10,
+            'barcode' => '2222222222222',
+        ]);
+
+        Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class)
+            ->set('query', '2222222222222')
+            ->call('handleEnter')
+            ->assertNotDispatched('productSelected')
+            ->assertSee('Produk tidak ditemukan');
+    }
 }

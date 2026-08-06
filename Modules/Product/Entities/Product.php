@@ -259,6 +259,7 @@ class Product extends BaseModel implements HasMedia
                 $q->where(function ($sub) use ($token) {
                     $sub->where('product_name', 'like', '%' . $token . '%')
                         ->orWhere('product_code', 'like', '%' . $token . '%')
+                        ->orWhere('barcode', 'like', '%' . $token . '%')
                         ->orWhereHas('category', function ($cat) use ($token) {
                             $cat->where('category_name', 'like', '%' . $token . '%');
                         })
