@@ -1154,4 +1154,38 @@ class BrowserBatchBarcodePrintingTest extends TestCase
             ->assertNotDispatched('productSelected')
             ->assertSee('Produk tidak ditemukan');
     }
+
+    public function test_embedded_barcode_search_in_workspace_increments_row_on_exact_primary_barcode_enter(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Scanner Test Product', 'barcode' => '5555555555555']);
+        $this->setPrice($product, $this->settingA, 25000);
+
+        $workspace = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class);
+
+        $workspace->call('addProduct', ['id' => $product->id]);
+        $this->assertSame(1, $workspace->get('rows')[0]['quantity']);
+        $this->assertSame($product->id, $workspace->get('rows')[0]['product_id']);
+
+        $search = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class);
+
+        $search->set('query', '5555555555555')
+            ->call('handleEnter');
+
+        $search->assertDispatched('productSelected')
+            ->assertSet('query', '');
+
+        $workspace->dispatch('productSelected', [
+            'id' => $product->id,
+            'product_name' => 'SCANNER TEST PRODUCT',
+            'product_code' => $product->product_code,
+            'product_unit' => $product->product_unit,
+        ]);
+
+        $this->assertSame(2, $workspace->get('rows')[0]['quantity']);
+        $this->assertSame(1, count($workspace->get('rows')));
+    }
 }
