@@ -15,6 +15,7 @@ class TigaNusaPriceExportCommandTest extends TestCase
     use RefreshDatabase;
 
     private Setting $tigaNusaSetting;
+    private Setting $topItSetting;
     private Setting $otherSetting;
 
     protected function setUp(): void
@@ -23,21 +24,17 @@ class TigaNusaPriceExportCommandTest extends TestCase
 
         Setting::query()->delete();
 
-        $this->tigaNusaSetting = Setting::create([
-            'company_name' => 'CV TIGA NUSA COMPUTER',
-            'company_email' => 'tiga@example.com',
-            'company_phone' => '1234567890',
-            'default_currency_id' => 1,
-            'default_currency_position' => 'left',
-            'notification_email' => 'notify@example.com',
-            'footer_text' => 'Footer',
-            'company_address' => 'Address',
-        ]);
+        $this->tigaNusaSetting = $this->createSetting('CV TIGA NUSA COMPUTER', 'tiga@example.com');
+        $this->topItSetting = $this->createSetting('CV TOP IT INTERNUSA', 'topit@example.com');
+        $this->otherSetting = $this->createSetting('Other Company', 'other@example.com');
+    }
 
-        $this->otherSetting = Setting::create([
-            'company_name' => 'Other Company',
-            'company_email' => 'other@example.com',
-            'company_phone' => '0987654321',
+    private function createSetting(string $companyName, string $email): Setting
+    {
+        return Setting::create([
+            'company_name' => $companyName,
+            'company_email' => $email,
+            'company_phone' => '1234567890',
             'default_currency_id' => 1,
             'default_currency_position' => 'left',
             'notification_email' => 'notify@example.com',
@@ -85,8 +82,22 @@ class TigaNusaPriceExportCommandTest extends TestCase
                 'sale_price' => $prices['sale_price'] ?? null,
                 'tier_1_price' => $prices['tier_1_price'] ?? null,
                 'tier_2_price' => $prices['tier_2_price'] ?? null,
+                'last_purchase_price' => $prices['last_purchase_price'] ?? null,
+                'average_purchase_price' => $prices['average_purchase_price'] ?? null,
             ]
         );
+    }
+
+    private function exportTo(string $path)
+    {
+        if (file_exists($path)) {
+            unlink($path);
+        }
+
+        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
+            ->assertExitCode(0);
+
+        return IOFactory::load($path);
     }
 
     public function test_export_to_default_path()
@@ -104,7 +115,8 @@ class TigaNusaPriceExportCommandTest extends TestCase
         }
 
         $this->artisan('product:export-tiga-nusa-prices')
-            ->expectsOutputToContain('1 products exported successfully')
+            ->expectsOutputToContain('CV TIGA NUSA COMPUTER: 1 products exported successfully')
+            ->expectsOutputToContain('CV TOP IT INTERNUSA: 1 products exported successfully')
             ->assertExitCode(0);
 
         $this->assertFileExists($path);
@@ -116,8 +128,6 @@ class TigaNusaPriceExportCommandTest extends TestCase
         $product = $this->createProduct(['product_name' => 'Test Product']);
         $this->setProductPrice($product, $this->tigaNusaSetting, [
             'sale_price' => 100000,
-            'tier_1_price' => 90000,
-            'tier_2_price' => 80000,
         ]);
 
         $path = storage_path('app/custom_export.xlsx');
@@ -126,43 +136,41 @@ class TigaNusaPriceExportCommandTest extends TestCase
         }
 
         $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path])
-            ->expectsOutputToContain('1 products exported successfully')
+            ->expectsOutputToContain("exported successfully to {$path}")
             ->assertExitCode(0);
 
         $this->assertFileExists($path);
         unlink($path);
     }
 
-    public function test_export_xlsx_format_and_headers()
+    public function test_workbook_has_both_company_sheets_in_order_with_six_headers()
     {
         $product = $this->createProduct(['product_name' => 'Test Product']);
-        $this->setProductPrice($product, $this->tigaNusaSetting, [
-            'sale_price' => 100000,
-            'tier_1_price' => 90000,
-            'tier_2_price' => 80000,
-        ]);
+        $this->setProductPrice($product, $this->tigaNusaSetting, ['sale_price' => 100000]);
 
         $path = storage_path('app/test_export.xlsx');
-        if (file_exists($path)) {
-            unlink($path);
+        $spreadsheet = $this->exportTo($path);
+
+        $this->assertSame(2, $spreadsheet->getSheetCount());
+
+        $expectedHeaders = [
+            'A4' => 'Nama Produk',
+            'B4' => 'Harga Jual',
+            'C4' => 'Harga Tier 1',
+            'D4' => 'Harga Tier 2',
+            'E4' => 'Harga Beli Terakhir',
+            'F4' => 'Harga Beli Rata-rata',
+        ];
+
+        foreach (['CV TIGA NUSA COMPUTER', 'CV TOP IT INTERNUSA'] as $index => $companyName) {
+            $sheet = $spreadsheet->getSheet($index);
+            $this->assertEquals($companyName, $sheet->getCell('A1')->getValue());
+            $this->assertEquals('Daftar Harga Produk', $sheet->getCell('A2')->getValue());
+
+            foreach ($expectedHeaders as $cell => $header) {
+                $this->assertEquals($header, $sheet->getCell($cell)->getValue());
+            }
         }
-
-        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
-            ->assertExitCode(0);
-
-        $this->assertFileExists($path);
-
-        $spreadsheet = IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Check headers (they should be in row 4 after title rows)
-        $this->assertEquals('Nama Produk', $sheet->getCell('A4')->getValue());
-        $this->assertEquals('Harga Jual', $sheet->getCell('B4')->getValue());
-        $this->assertEquals('Harga Tier 1', $sheet->getCell('C4')->getValue());
-        $this->assertEquals('Harga Tier 2', $sheet->getCell('D4')->getValue());
-
-        // Check company name title in row 1
-        $this->assertEquals('CV TIGA NUSA COMPUTER', $sheet->getCell('A1')->getValue());
 
         unlink($path);
     }
@@ -178,17 +186,8 @@ class TigaNusaPriceExportCommandTest extends TestCase
         $this->setProductPrice($productC, $this->tigaNusaSetting, ['sale_price' => 300000]);
 
         $path = storage_path('app/test_export.xlsx');
-        if (file_exists($path)) {
-            unlink($path);
-        }
+        $sheet = $this->exportTo($path)->getSheet(0);
 
-        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
-            ->assertExitCode(0);
-
-        $spreadsheet = IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Check alphabetical order (data starts at row 5)
         $this->assertEquals('Alpha Product', $sheet->getCell('A5')->getValue());
         $this->assertEquals('Beta Product', $sheet->getCell('A6')->getValue());
         $this->assertEquals('Zebra Product', $sheet->getCell('A7')->getValue());
@@ -196,7 +195,7 @@ class TigaNusaPriceExportCommandTest extends TestCase
         unlink($path);
     }
 
-    public function test_export_reports_correct_row_count()
+    public function test_export_reports_correct_row_count_per_company()
     {
         $this->createProduct(['product_name' => 'Product A']);
         $this->createProduct(['product_name' => 'Product B']);
@@ -205,21 +204,27 @@ class TigaNusaPriceExportCommandTest extends TestCase
         $path = storage_path('app/test_export.xlsx');
 
         $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
-            ->expectsOutputToContain('3 products exported successfully')
+            ->expectsOutputToContain('CV TIGA NUSA COMPUTER: 3 products exported successfully')
+            ->expectsOutputToContain('CV TOP IT INTERNUSA: 3 products exported successfully')
             ->assertExitCode(0);
 
         unlink($path);
     }
 
-    public function test_only_tiga_nusa_prices_appear()
+    public function test_each_sheet_shows_only_its_company_selling_and_tier_prices()
     {
         $product = $this->createProduct(['product_name' => 'Test Product']);
 
-        // Set different prices for both settings
         $this->setProductPrice($product, $this->tigaNusaSetting, [
             'sale_price' => 100000,
             'tier_1_price' => 90000,
             'tier_2_price' => 80000,
+        ]);
+
+        $this->setProductPrice($product, $this->topItSetting, [
+            'sale_price' => 555555,
+            'tier_1_price' => 444444,
+            'tier_2_price' => 333333,
         ]);
 
         $this->setProductPrice($product, $this->otherSetting, [
@@ -229,32 +234,25 @@ class TigaNusaPriceExportCommandTest extends TestCase
         ]);
 
         $path = storage_path('app/test_export.xlsx');
-        if (file_exists($path)) {
-            unlink($path);
-        }
+        $spreadsheet = $this->exportTo($path);
 
-        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
-            ->assertExitCode(0);
+        $tigaNusa = $spreadsheet->getSheet(0);
+        $this->assertEquals(100000, $tigaNusa->getCell('B5')->getValue());
+        $this->assertEquals(90000, $tigaNusa->getCell('C5')->getValue());
+        $this->assertEquals(80000, $tigaNusa->getCell('D5')->getValue());
 
-        $spreadsheet = IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Check that only Tiga Nusa prices appear (data row 5)
-        $this->assertEquals(100000, $sheet->getCell('B5')->getValue());
-        $this->assertEquals(90000, $sheet->getCell('C5')->getValue());
-        $this->assertEquals(80000, $sheet->getCell('D5')->getValue());
-
-        // Verify other setting's prices don't appear
-        $this->assertNotEquals(999999, $sheet->getCell('B5')->getValue());
+        $topIt = $spreadsheet->getSheet(1);
+        $this->assertEquals(555555, $topIt->getCell('B5')->getValue());
+        $this->assertEquals(444444, $topIt->getCell('C5')->getValue());
+        $this->assertEquals(333333, $topIt->getCell('D5')->getValue());
 
         unlink($path);
     }
 
-    public function test_products_without_tiga_nusa_price_included_with_blank_cells()
+    public function test_products_without_company_price_included_with_blank_cells()
     {
-        // Create in reverse order to test sorting
         $productWithPrice = $this->createProduct(['product_name' => 'Zebra With Price']);
-        $productWithoutPrice = $this->createProduct(['product_name' => 'Alpha Without Price']);
+        $this->createProduct(['product_name' => 'Alpha Without Price']);
 
         $this->setProductPrice($productWithPrice, $this->tigaNusaSetting, [
             'sale_price' => 100000,
@@ -263,24 +261,111 @@ class TigaNusaPriceExportCommandTest extends TestCase
         ]);
 
         $path = storage_path('app/test_export.xlsx');
-        if (file_exists($path)) {
-            unlink($path);
-        }
+        $sheet = $this->exportTo($path)->getSheet(0);
 
-        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
-            ->assertExitCode(0);
-
-        $spreadsheet = IOFactory::load($path);
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Product without price should still appear in alphabetical order
         $this->assertEquals('Alpha Without Price', $sheet->getCell('A5')->getValue());
         $this->assertEquals('Zebra With Price', $sheet->getCell('A6')->getValue());
 
-        // Price cells for product without price should be empty/null
         $this->assertNull($sheet->getCell('B5')->getValue());
         $this->assertNull($sheet->getCell('C5')->getValue());
         $this->assertNull($sheet->getCell('D5')->getValue());
+
+        unlink($path);
+    }
+
+    public function test_average_purchase_price_falls_back_to_last_purchase_price()
+    {
+        $product = $this->createProduct(['product_name' => 'Fallback Product', 'purchase_price' => 10000]);
+
+        $this->setProductPrice($product, $this->tigaNusaSetting, [
+            'last_purchase_price' => 75000,
+            'average_purchase_price' => 0,
+        ]);
+
+        $path = storage_path('app/test_export.xlsx');
+        $sheet = $this->exportTo($path)->getSheet(0);
+
+        $this->assertEquals(75000, $sheet->getCell('E5')->getValue());
+        $this->assertEquals(75000, $sheet->getCell('F5')->getValue());
+
+        unlink($path);
+    }
+
+    public function test_null_average_purchase_price_falls_back_to_last_purchase_price()
+    {
+        $product = $this->createProduct(['product_name' => 'Null Average Product', 'purchase_price' => 10000]);
+
+        $this->setProductPrice($product, $this->tigaNusaSetting, [
+            'last_purchase_price' => 62000,
+            'average_purchase_price' => null,
+        ]);
+
+        $path = storage_path('app/test_export.xlsx');
+        $sheet = $this->exportTo($path)->getSheet(0);
+
+        $this->assertEquals(62000, $sheet->getCell('F5')->getValue());
+
+        unlink($path);
+    }
+
+    public function test_missing_last_purchase_price_falls_back_to_product_purchase_price()
+    {
+        $product = $this->createProduct(['product_name' => 'Product Fallback', 'purchase_price' => 43000]);
+
+        $this->setProductPrice($product, $this->tigaNusaSetting, [
+            'last_purchase_price' => 0,
+            'average_purchase_price' => null,
+        ]);
+
+        $path = storage_path('app/test_export.xlsx');
+        $sheet = $this->exportTo($path)->getSheet(0);
+
+        $this->assertEquals(43000, $sheet->getCell('E5')->getValue());
+        $this->assertEquals(43000, $sheet->getCell('F5')->getValue());
+
+        unlink($path);
+    }
+
+    public function test_purchase_cost_cells_blank_when_no_positive_value_available()
+    {
+        $product = $this->createProduct(['product_name' => 'No Cost Product', 'purchase_price' => 0]);
+
+        $this->setProductPrice($product, $this->tigaNusaSetting, [
+            'sale_price' => 100000,
+            'last_purchase_price' => 0,
+            'average_purchase_price' => 0,
+        ]);
+
+        $path = storage_path('app/test_export.xlsx');
+        $sheet = $this->exportTo($path)->getSheet(0);
+
+        $this->assertNull($sheet->getCell('E5')->getValue());
+        $this->assertNull($sheet->getCell('F5')->getValue());
+
+        unlink($path);
+    }
+
+    public function test_company_purchase_costs_are_isolated_per_sheet()
+    {
+        $product = $this->createProduct(['product_name' => 'Isolated Cost Product', 'purchase_price' => 1000]);
+
+        $this->setProductPrice($product, $this->tigaNusaSetting, [
+            'last_purchase_price' => 50000,
+            'average_purchase_price' => 48000,
+        ]);
+        $this->setProductPrice($product, $this->topItSetting, [
+            'last_purchase_price' => 70000,
+            'average_purchase_price' => 0,
+        ]);
+
+        $path = storage_path('app/test_export.xlsx');
+        $spreadsheet = $this->exportTo($path);
+
+        $this->assertEquals(50000, $spreadsheet->getSheet(0)->getCell('E5')->getValue());
+        $this->assertEquals(48000, $spreadsheet->getSheet(0)->getCell('F5')->getValue());
+
+        $this->assertEquals(70000, $spreadsheet->getSheet(1)->getCell('E5')->getValue());
+        $this->assertEquals(70000, $spreadsheet->getSheet(1)->getCell('F5')->getValue());
 
         unlink($path);
     }
@@ -301,14 +386,36 @@ class TigaNusaPriceExportCommandTest extends TestCase
         $this->assertFileDoesNotExist($path);
     }
 
-    public function test_fails_when_multiple_target_settings_exist()
+    public function test_fails_when_top_it_setting_not_found()
     {
-        // Database constraint prevents duplicates, but we verify the code handles it
-        // by testing the logic path without creating actual duplicates
+        Setting::where('company_name', 'CV TOP IT INTERNUSA')->delete();
 
-        // This is tested indirectly through the resolveTargetSetting() method
-        // The unique constraint on company_name prevents this scenario in practice
-        $this->assertTrue(true);
+        $path = storage_path('app/test_export_top_it_missing.xlsx');
+        if (file_exists($path)) {
+            unlink($path);
+        }
+
+        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path])
+            ->expectsOutputToContain('No setting found with company name "CV TOP IT INTERNUSA"')
+            ->assertExitCode(1);
+
+        $this->assertFileDoesNotExist($path);
+    }
+
+    public function test_unresolved_top_it_setting_leaves_existing_file_untouched()
+    {
+        Setting::where('company_name', 'CV TOP IT INTERNUSA')->delete();
+
+        $path = storage_path('app/test_export_untouched.xlsx');
+        file_put_contents($path, 'original content');
+
+        $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
+            ->expectsOutputToContain('No setting found with company name "CV TOP IT INTERNUSA"')
+            ->assertExitCode(1);
+
+        $this->assertEquals('original content', file_get_contents($path));
+
+        unlink($path);
     }
 
     public function test_cancels_export_when_file_exists_and_user_declines()
@@ -320,7 +427,6 @@ class TigaNusaPriceExportCommandTest extends TestCase
 
         $path = storage_path('app/test_export.xlsx');
 
-        // Create initial file
         file_put_contents($path, 'original content');
 
         $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path])
@@ -328,7 +434,6 @@ class TigaNusaPriceExportCommandTest extends TestCase
             ->expectsOutputToContain('Export cancelled')
             ->assertExitCode(1);
 
-        // Verify original file is unchanged
         $this->assertEquals('original content', file_get_contents($path));
 
         unlink($path);
@@ -343,13 +448,11 @@ class TigaNusaPriceExportCommandTest extends TestCase
 
         $path = storage_path('app/test_export.xlsx');
 
-        // Create initial file
         file_put_contents($path, 'original content');
 
         $this->artisan('product:export-tiga-nusa-prices', ['--path' => $path, '--force' => true])
             ->assertExitCode(0);
 
-        // Verify file was overwritten
         $this->assertNotEquals('original content', file_get_contents($path));
 
         unlink($path);
