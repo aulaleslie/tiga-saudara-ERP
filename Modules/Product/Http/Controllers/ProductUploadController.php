@@ -369,6 +369,72 @@ class ProductUploadController extends Controller
         return redirect()->route('products.imports.show', $batch);
     }
 
+    /**
+     * Dual-company tier price workbook upload page.
+     */
+    public function dualCompanyTierPriceUploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+        return view('product::products.dual-company-tier-price-upload');
+    }
+
+    /**
+     * Handle the dual-company tier price XLSX upload.
+     *
+     * This import only updates selling tiers on existing company-scoped price rows,
+     * so it deliberately has no stock or location prerequisite.
+     */
+    public function dualCompanyTierPriceUpload(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+
+        $request->validate([
+            'file' => 'required|file',
+        ]);
+
+        $file = $request->file('file');
+
+        if (strtolower($file->getClientOriginalExtension()) !== 'xlsx') {
+            return back()->withErrors(['file' => 'The file must be a file of type: xlsx.']);
+        }
+
+        try {
+            $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+            if (!$reader->canRead($file->getRealPath())) {
+                return back()->withErrors(['file' => 'The uploaded file is not a valid XLSX workbook.']);
+            }
+        } catch (\Throwable $e) {
+            return back()->withErrors(['file' => 'The uploaded file is not a valid XLSX workbook: ' . $e->getMessage()]);
+        }
+
+        Log::info('[DualCompanyTierPriceImport] Upload request received', [
+            'user_id' => auth()->id(),
+            'file_name' => $file->getClientOriginalName(),
+            'file_size_kb' => round($file->getSize() / 1024, 2),
+        ]);
+
+        $path = $file->store('imports/products');
+        $fullPath = Storage::path($path);
+
+        // This import performs no stock operation, so it has no setting or location
+        // prerequisite; the worksheet name alone determines each row's company scope.
+        $batch = ProductImportBatch::create([
+            'user_id'         => auth()->id(),
+            'location_id'     => null,
+            'source_csv_path' => $path,
+            'file_sha256'     => hash_file('sha256', $fullPath),
+            'status'          => 'queued',
+            'import_type'     => ProductImportBatch::TYPE_DUAL_COMPANY_TIER_PRICE,
+            'undo_token'      => Str::random(40),
+        ]);
+
+        Log::info('[DualCompanyTierPriceImport] Batch created', ['batch_id' => $batch->id]);
+        dispatch(new \Modules\Product\Jobs\ProcessDualCompanyTierPriceBatch($batch->id));
+
+        toast("Upload Harga Tier diterima. Batch #{$batch->id} sedang diproses.", 'success');
+        return redirect()->route('products.imports.show', $batch);
+    }
+
     private function resolveSettingId(): ?int
     {
         $id = session('setting_id') ?? Setting::query()->min('id');

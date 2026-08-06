@@ -28,6 +28,9 @@
                             <a href="{{ route('products.sales-price-snapshot.upload.page') }}" class="btn btn-warning text-white">
                                 <i class="bi bi-box-seam"></i> Upload Harga Jual & Stok Snapshot
                             </a>
+                            <a href="{{ route('products.dual-company-tier-price.upload.page') }}" class="btn btn-dark text-white">
+                                <i class="bi bi-tags"></i> Upload Harga Tier Dua Perusahaan
+                            </a>
                         @endcan
 
                         <hr>
@@ -60,6 +63,8 @@
                                                     <span class="badge bg-secondary text-white">HPP Snapshot</span>
                                                 @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_SALES_PRICE_SNAPSHOT)
                                                     <span class="badge bg-success text-white">Harga Jual & Stok Snapshot</span>
+                                                @elseif($b->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_DUAL_COMPANY_TIER_PRICE)
+                                                    <span class="badge bg-dark text-white">Harga Tier Dua Perusahaan</span>
                                                 @else
                                                     <span class="badge bg-primary text-white">Produk</span>
                                                 @endif

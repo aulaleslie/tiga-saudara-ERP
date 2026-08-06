@@ -23,6 +23,10 @@
                     <span class="badge bg-success text-white" style="font-size: 0.85rem;">
                         <i class="bi bi-box-seam"></i> Harga Jual & Stok Snapshot
                     </span>
+                @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_DUAL_COMPANY_TIER_PRICE)
+                    <span class="badge bg-dark text-white" style="font-size: 0.85rem;">
+                        <i class="bi bi-tags"></i> Harga Tier Dua Perusahaan
+                    </span>
                 @else
                     <span class="badge bg-primary text-white" style="font-size: 0.85rem;">
                         <i class="bi bi-box"></i> Produk
@@ -284,6 +288,123 @@
                                     @if(isset($meta['after_cost_unit']))
                                         <span class="text-success">{{ format_currency($meta['after_cost_unit']) }}</span>
                                         <br><small class="text-success">Src: HPP_SNAPSHOT_IMPORT</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td style="max-width:300px;"><small class="text-danger">{{ $r->error_message }}</small></td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                        </table>
+                    @elseif($batch->import_type === \Modules\Product\Entities\ProductImportBatch::TYPE_DUAL_COMPANY_TIER_PRICE)
+                        {{-- Dual-Company Tier Price Row Table (no undo: prices are not generically reversible) --}}
+                        <table class="table table-sm mb-0 table-striped">
+                        <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Status</th>
+                            <th>Worksheet / Perusahaan</th>
+                            <th>Produk</th>
+                            <th>Tier Diisi</th>
+                            <th>Harga Sebelumnya</th>
+                            <th>Harga Setelahnya</th>
+                            <th>Berubah</th>
+                            <th>Error</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach($rows as $r)
+                            @php
+                                $meta = $r->result_metadata ?? [];
+                                $tierLabels = [
+                                    'sale_price' => 'Harga Jual',
+                                    'tier_1_price' => 'Tier 1',
+                                    'tier_2_price' => 'Tier 2',
+                                ];
+                            @endphp
+                            <tr>
+                                <td>{{ $r->row_number }}</td>
+                                <td>
+                                    @if($r->status === 'imported')
+                                        <span class="badge bg-success">imported</span>
+                                    @elseif($r->status === 'error')
+                                        <span class="badge bg-danger">error</span>
+                                    @elseif($r->status === 'skipped' && ($meta['outcome'] ?? '') === 'duplicate')
+                                        <span class="badge bg-warning text-dark">duplicate</span>
+                                    @elseif($r->status === 'skipped')
+                                        <span class="badge bg-secondary">skipped</span>
+                                    @else
+                                        <span class="badge bg-secondary">{{ $r->status ?? 'queued' }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['worksheet']))
+                                        <small>{{ $meta['worksheet'] }}</small>
+                                        @if(!empty($meta['source_row']))
+                                            <br><small class="text-muted">Baris file: {{ $meta['source_row'] }}</small>
+                                        @endif
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['matched_product_name']))
+                                        <span title="Product ID: {{ $r->product_id }}">{{ $meta['matched_product_name'] }}</span>
+                                        @if(!empty($meta['match_strategy']))
+                                            <br><small class="text-info">Match: {{ $meta['match_strategy'] }}</small>
+                                        @endif
+                                    @elseif(!empty($meta['raw_product_name']))
+                                        <span class="text-muted">{{ $meta['raw_product_name'] }}</span>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                    @if(!empty($meta['ambiguous_candidates']))
+                                        <br><small class="text-danger">
+                                            Kandidat: {{ implode(', ', array_map(fn($c) => $c['id'], $meta['ambiguous_candidates'])) }}
+                                        </small>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['supplied_tiers']))
+                                        <small>
+                                        @foreach($meta['supplied_tiers'] as $column => $value)
+                                            {{ $tierLabels[$column] ?? $column }}: {{ format_currency($value) }}<br>
+                                        @endforeach
+                                        </small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['previous_tiers']))
+                                        <small>
+                                        @foreach($tierLabels as $column => $label)
+                                            {{ $label }}: {{ format_currency($meta['previous_tiers'][$column] ?? 0) }}<br>
+                                        @endforeach
+                                        </small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!empty($meta['resulting_tiers']))
+                                        <small class="text-success">
+                                        @foreach($tierLabels as $column => $label)
+                                            {{ $label }}: {{ format_currency($meta['resulting_tiers'][$column] ?? 0) }}<br>
+                                        @endforeach
+                                        </small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(array_key_exists('price_changed', $meta))
+                                        @if($meta['price_changed'])
+                                            <span class="badge bg-success">ya</span>
+                                        @else
+                                            <span class="badge bg-secondary">tidak</span>
+                                        @endif
                                     @else
                                         <span class="text-muted">-</span>
                                     @endif

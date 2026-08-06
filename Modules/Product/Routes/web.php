@@ -51,6 +51,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     // Sales price snapshot import
     Route::get('/products/sales-price-snapshot/upload', [ProductUploadController::class, 'salesPriceSnapshotUploadPage'])->name('products.sales-price-snapshot.upload.page');
     Route::post('/products/sales-price-snapshot/upload', [ProductUploadController::class, 'salesPriceSnapshotUpload'])->name('products.sales-price-snapshot.upload');
+
+    // Dual-company tier price import (round-trip of product:export-tiga-nusa-prices workbook)
+    Route::get('/products/dual-company-tier-price/upload', [ProductUploadController::class, 'dualCompanyTierPriceUploadPage'])->name('products.dual-company-tier-price.upload.page');
+    Route::post('/products/dual-company-tier-price/upload', [ProductUploadController::class, 'dualCompanyTierPriceUpload'])->name('products.dual-company-tier-price.upload');
+
     // Monitor pages (new)
     Route::get('/products/imports',                [ProductImportController::class, 'index'])->name('products.imports.index');
     Route::get('/products/imports/{batch}',        [ProductImportController::class, 'show'])->name('products.imports.show');

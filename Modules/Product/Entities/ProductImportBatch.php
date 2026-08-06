@@ -17,6 +17,7 @@ class ProductImportBatch extends Model
     public const TYPE_STOCK_SNAPSHOT = 'stock_snapshot';
     public const TYPE_SALES_HPP_SNAPSHOT = 'sales_hpp_snapshot';
     public const TYPE_SALES_PRICE_SNAPSHOT = 'sales_price_snapshot';
+    public const TYPE_DUAL_COMPANY_TIER_PRICE = 'dual_company_tier_price';
 
     protected $fillable = [
         'user_id',
@@ -53,6 +54,10 @@ class ProductImportBatch extends Model
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * Null for import types that perform no stock operation, such as
+     * {@see self::TYPE_DUAL_COMPANY_TIER_PRICE}.
+     */
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
@@ -67,6 +72,12 @@ class ProductImportBatch extends Model
 
     public function canUndo(): bool
     {
+        // Dual-company tier price imports have no safe generic reversal; correction
+        // is a subsequent import with deliberate values.
+        if ($this->import_type === self::TYPE_DUAL_COMPANY_TIER_PRICE) {
+            return false;
+        }
+
         return $this->undo_available_until && now()->lte($this->undo_available_until) && is_null($this->undone_at);
     }
 }
