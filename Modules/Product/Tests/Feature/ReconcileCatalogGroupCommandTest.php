@@ -387,7 +387,7 @@ class ReconcileCatalogGroupCommandTest extends TestCase
         $this->assertEquals(550, $audit->actual_migrated_counts['transactions']);
     }
 
-    public function test_injected_mid_migration_failure_rolls_back()
+    public function test_price_conflict_preflight_refusal_leaves_state_unchanged()
     {
         $operator = $this->createUser();
         $survivor = $this->createProduct(['product_name' => 'Test Product A']);
@@ -436,7 +436,7 @@ class ReconcileCatalogGroupCommandTest extends TestCase
             'location_id' => $location,
         ]);
 
-        // Create a price for both retired products (will cause collision after first, before second)
+        // Create a price for both retired products (will cause collision during preflight check)
         DB::table('product_prices')->insert([
             [
                 'product_id' => $survivor->id,
@@ -468,10 +468,10 @@ class ReconcileCatalogGroupCommandTest extends TestCase
             '--confirm' => true,
         ]);
 
-        // Should fail due to price collision
+        // Should fail due to price collision detected at preflight stage
         $this->assertEquals(1, $exitCode);
 
-        // Verify NO transactions were migrated (transaction should be rolled back)
+        // Verify NO transactions were migrated (preflight rejection prevents any mutation)
         $survivor_transaction_count = DB::table('transactions')
             ->where('product_id', $survivor->id)
             ->count();
