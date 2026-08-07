@@ -23,11 +23,11 @@
 - [x] 3.2 Define and implement auditable survivor-selection and redundant-product retirement storage/state without destructive deletion.
 - [x] 3.3 Implement operator-confirmed, per-group transactional reference migration for the supported product relations; reject unsupported or unsafe groups before mutation.
 - [x] 3.4 Add tests for no-op preflight, collision reporting, successful survivor reconciliation, rollback on a failed reference migration, and post-reconciliation canonical uniqueness.
-- [ ] 3.5 Run the preflight against the fresh import database, reconcile the reported duplicate groups with explicit operator selections, then complete canonical-key backfill.
+- [x] 3.5 Run the preflight against the fresh import database, reconcile the reported duplicate groups with explicit operator selections, then complete canonical-key backfill.
 
 ## 4. Verification and operational handoff
 
 - [x] 4.1 Add regression coverage for the reported ambiguous price-upload names and verify they resolve to exactly one product after reconciliation.
 - [x] 4.2 Run focused Product, Purchase, Sales, snapshot, and dual-company tier-price import tests under SQLite.
-- [ ] 4.3 Run `composer test:fresh-sqlite` or an equivalent full migration/test validation and investigate any import-regression failures.
+- [x] 4.3 Run `composer test:fresh-sqlite` or an equivalent full migration/test validation and investigate any import-regression failures.
 - [x] 4.4 Document the initialization order: preflight, explicit reconciliation, canonical backfill, and price workbook re-upload, including rollback/audit expectations.
