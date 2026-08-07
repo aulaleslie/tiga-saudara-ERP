@@ -11,6 +11,8 @@ The sales HPP importer correctly applies source-ledger cost snapshots to matched
 - Current catalog prices are not accidentally overwritten during partial imports
 - Operators can review and approve the seeding process
 
+**Note:** This command seeds only `average_purchase_price`. `last_purchase_price` is owned exclusively by the purchase-import workflow and is never touched by this command.
+
 ## Operator Workflow
 
 ### Step 1: Complete and Review HPP Import
@@ -30,16 +32,17 @@ This command runs in **dry-run mode by default** (does not write to the database
 **Expected output:**
 - `== DRY-RUN MODE ==`
 - Considered products count
-- Skipped (products with no eligible candidates)
-- Created (new rows to create)
-- Updated (existing rows to update)
-- Unchanged (rows already matching the candidate)
+- Created (missing rows to create across all settings)
+- Baseline-filled (existing rows with null/zero average cost to fill from shared baseline)
+- Special-overlay-updated (special company rows to update with their own latest HPP)
+- Unchanged (rows already correct or with positive average cost not affected)
+- Unresolved (products with no eligible HPP baseline in any source)
 
 **Review the output to:**
 - Verify the number of products being seeded
-- Check if source sale dates are recent and expected
-- Confirm that special settings (CV TIGA NUSA COMPUTER, CV TOP IT INTERNUSA) are using their own bucket when available
-- Ensure that regular settings share the REST/global cost correctly
+- Check that created/baseline-filled/special-overlay-updated counts are reasonable
+- Confirm that special settings (CV TIGA NUSA COMPUTER, CV TOP IT INTERNUSA) are using their own HPP when available
+- Review unresolved count; investigate if products should have eligible HPP
 
 ### Step 3: Apply Changes
 
@@ -65,16 +68,25 @@ Only the latest authoritative imported snapshot per product and cost bucket is u
 - Stock-managed products only
 - Latest by: sale date → sale ID → sale-detail ID (deterministic tiebreaking)
 
-### Cost Buckets
+### Cost Buckets and Baseline Resolution
 
-Three buckets are recognized:
-1. **Tiga Nusa**: `CV TIGA NUSA COMPUTER` setting
-2. **Top IT**: `CV TOP IT INTERNUSA` setting
-3. **REST/global**: All other settings
+The command resolves average cost in two stages:
 
-Each setting receives:
-- **Special settings** (Tiga Nusa, Top IT): Own bucket if available, else REST/global fallback
-- **Regular settings**: REST/global only
+**Stage 1: Shared Baseline**
+The command selects a shared baseline in strict priority order:
+1. **Perdana**: Latest Perdana HPP if available
+2. **Top IT**: Latest CV TOP IT INTERNUSA HPP if Perdana unavailable
+3. **Tiga Nusa**: Latest CV TIGA NUSA COMPUTER HPP if both above unavailable
+
+This baseline fills every uninitialized setting (missing row or null/zero average cost), ensuring all businesses have a usable starting value.
+
+**Stage 2: Special Company Overlay**
+After baseline filling:
+- **CV TIGA NUSA COMPUTER** setting: Uses its own latest HPP (if available) instead of baseline
+- **CV TOP IT INTERNUSA** setting: Uses its own latest HPP (if available) instead of baseline
+- **All other settings**: Use the shared baseline only
+
+This two-stage process ensures every business has current pricing while special companies retain owner-specific costs when available.
 
 ### Row Creation
 
@@ -123,11 +135,19 @@ Starting product average-cost seeding in DRY-RUN mode...
 
 == DRY-RUN MODE ==
 Considered products: 1250
-Skipped: 45
 Created: 320
-Updated: 885
-Unchanged: 0
+Baseline-filled: 450
+Special-overlay-updated: 75
+Unchanged: 380
+Unresolved: 25
 ```
+
+In this example:
+- 320 new `product_prices` rows will be created
+- 450 existing rows with zero/null average cost will be filled from the shared baseline
+- 75 special company rows will be updated with their own latest HPP
+- 380 rows are already correct and unchanged
+- 25 products have no eligible HPP baseline and remain unresolved
 
 ## See Also
 

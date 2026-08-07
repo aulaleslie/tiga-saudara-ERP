@@ -1,7 +1,7 @@
 # sales-hpp-average-cost-seeding Specification
 
 ## Purpose
-TBD - created by archiving change seed-average-cost-from-sales-hpp. Update Purpose after archive.
+Enable operators to seed product average purchase prices from imported sales HPP (historical purchase price) snapshots with owner-aware baseline resolution that respects per-business product-price buckets and preserves manual pricing overrides.
 ## Requirements
 ### Requirement: Operator can preview average-cost seeding from imported sales HPP
 The system SHALL provide the `product:seed-average-cost-from-sales-hpp` Artisan command in dry-run mode by default. It SHALL derive candidate current average costs only from stock-managed products' positive `HPP_SNAPSHOT_IMPORT` sale-detail snapshots and SHALL report considered products, skipped products, target buckets, selected source sale dates, product-price rows to create, rows to update, and rows already unchanged without writing `product_prices`.
@@ -30,72 +30,67 @@ For each product and cost bucket, the command SHALL select the eligible imported
 - **AND** when the sale IDs are equal, it SHALL select the candidate with the greater sale-detail ID
 
 ### Requirement: Seeding respects product-price cost buckets
-The command SHALL classify candidate sale snapshots and target setting rows into Tiga Nusa, Top IT, and REST/global buckets using the established product-purchase-price-normalization bucket rules. A target setting SHALL receive its own bucket's latest imported HPP when available; a special setting with no own-bucket candidate SHALL receive REST/global when available; every non-special setting SHALL receive REST/global only.
+For every stock-managed product, the command SHALL resolve the latest eligible imported HPP snapshot separately for the three sales-import source owners: Perdana, Top IT, and Tiga Nusa. It SHALL evaluate these owner sources in explicit priority order—Perdana, then Top IT, then Tiga Nusa—to select the first available shared baseline. It SHALL use the baseline only to fill target setting rows whose `average_purchase_price` is null or non-positive. After baseline filling, it SHALL apply Tiga Nusa's latest eligible HPP only to Tiga Nusa target rows and Top IT's latest eligible HPP only to Top IT target rows. It SHALL preserve a positive average purchase price for every other target setting.
 
-#### Scenario: Special setting uses its isolated latest HPP
-- **WHEN** a product has eligible imported HPP snapshots in the Tiga Nusa or Top IT bucket
-- **AND** the corresponding special setting is a target
-- **THEN** the command SHALL seed that setting's average purchase price from its own bucket's latest snapshot
-- **AND** it SHALL NOT use REST/global while its own bucket has a candidate
+#### Scenario: Perdana baseline fills every uninitialized business
+- **WHEN** a product has an eligible Perdana snapshot and target businesses have missing, null, or zero average purchase prices
+- **THEN** the command SHALL use the latest Perdana snapshot as the shared baseline
+- **AND** it SHALL fill each uninitialized target business with that baseline
+- **AND** it SHALL NOT overwrite another target business's positive average purchase price
 
-#### Scenario: Special setting falls back to REST/global
-- **WHEN** a special setting has no eligible imported HPP snapshot for a product in its own bucket
-- **AND** the product has an eligible REST/global imported HPP snapshot
-- **THEN** the command SHALL seed that special setting's average purchase price from the REST/global latest snapshot
+#### Scenario: Top IT becomes baseline when Perdana is unavailable
+- **WHEN** a product has no eligible Perdana snapshot and has an eligible Top IT snapshot
+- **THEN** the command SHALL use the latest Top IT snapshot as the shared baseline for uninitialized target businesses
 
-#### Scenario: Non-special settings share the REST/global value
-- **WHEN** a product has an eligible REST/global imported HPP snapshot
-- **THEN** the command SHALL seed every non-special setting's product-price row from that REST/global latest snapshot
-- **AND** it SHALL NOT seed those rows from a special-company snapshot
+#### Scenario: Tiga Nusa becomes baseline when Perdana and Top IT are unavailable
+- **WHEN** a product has no eligible Perdana or Top IT snapshot and has an eligible Tiga Nusa snapshot
+- **THEN** the command SHALL use the latest Tiga Nusa snapshot as the shared baseline for uninitialized target businesses
+
+#### Scenario: Special company retains its own latest HPP
+- **WHEN** a product has a shared baseline and Top IT or Tiga Nusa has its own eligible latest HPP snapshot
+- **THEN** the command SHALL set that special company's average purchase price to its own latest snapshot cost
+- **AND** it SHALL NOT apply that special-company cost to another business with a positive average purchase price
+
+#### Scenario: Positive non-special average remains isolated
+- **WHEN** a non-special target business already has a positive average purchase price
+- **THEN** the command SHALL preserve that value during baseline filling
 
 ### Requirement: Explicit write mode seeds only average purchase price
-When run with `--write`, the command SHALL create or update the target `product_prices` rows and set only `average_purchase_price` to the selected imported HPP snapshot value. It SHALL preserve existing `last_purchase_price`, selling/tier prices, and tax metadata. For a missing row, it SHALL copy available same-product selling and tax metadata using the existing product-price normalization conventions before setting the average price.
+When run with `--write`, the command SHALL create or update target `product_prices` rows as required to seed average purchase price from the selected HPP baseline or special-company overlay. It SHALL preserve `last_purchase_price`, selling/tier prices, and tax metadata on existing rows. For a missing row with an eligible HPP baseline, it SHALL create the row without requiring a literal-purchase candidate, copying available same-product selling/tier/tax metadata using existing product-price normalization conventions; if no template exists, it SHALL use safe zero/null non-cost defaults.
 
-#### Scenario: Write updates an existing product price without changing other price data
-- **WHEN** `--write` selects an imported HPP snapshot for a product with an existing target `product_prices` row
-- **THEN** the command SHALL update that row's `average_purchase_price` to the selected `cost_unit_snapshot`
+#### Scenario: Write fills a zero existing average without changing other price data
+- **WHEN** `--write` selects an HPP baseline for an existing target row with null or zero average purchase price
+- **THEN** the command SHALL update only `average_purchase_price`
 - **AND** it SHALL preserve `last_purchase_price`, `sale_price`, `tier_1_price`, `tier_2_price`, `purchase_tax_id`, and `sale_tax_id`
 
-#### Scenario: Write creates a missing target price row
-- **WHEN** `--write` selects an imported HPP snapshot for a product and a target setting has no `product_prices` row
-- **THEN** the command SHALL create the missing row with the selected `average_purchase_price`
-- **AND** it SHALL preserve available same-product sales/tax metadata according to the product-price normalization conventions
+#### Scenario: Write creates a missing target price row from HPP alone
+- **WHEN** `--write` selects an HPP baseline for a target setting that has no `product_prices` row
+- **THEN** the command SHALL create the missing row with the selected average purchase price
+- **AND** it SHALL NOT require an eligible literal purchase candidate
 
-#### Scenario: Products without a bucket candidate remain unchanged
-- **WHEN** no eligible imported HPP snapshot exists for a product's target bucket or applicable REST/global fallback
-- **THEN** the command SHALL NOT create or update that target setting's product-price row
+#### Scenario: Write preserves a positive non-source average
+- **WHEN** a target setting already has a positive average purchase price and is not receiving its own special-company overlay
+- **THEN** the command SHALL NOT update that target row's average purchase price
+
+### Requirement: Products without an eligible HPP baseline remain unresolved
+The command SHALL leave a stock-managed product unchanged when it has no positive `HPP_SNAPSHOT_IMPORT` sale-detail snapshot in Perdana, Top IT, or Tiga Nusa. It SHALL report the product or target rows as unresolved/skipped in dry-run and write mode and SHALL NOT create a product-price row or invent an average purchase price for that product.
+
+#### Scenario: No eligible source does not create a price row
+- **WHEN** a stock-managed product has no eligible imported HPP snapshot in any prioritized bucket
+- **THEN** the command SHALL NOT create or update its `product_prices` rows
+- **AND** it SHALL report the product as unresolved or skipped
+
+## REMOVED Requirements
 
 ### Requirement: Seeding reconciles last purchase price from literal purchase history
-When run with `--write`, the command SHALL resolve `last_purchase_price` independently from literal purchase details for the same stock-managed product. An eligible literal purchase detail SHALL belong to a non-archived parent purchase with status `RECEIVED` or `RECEIVED PARTIALLY` and have a positive quantity. The selected candidate's unit price SHALL equal `(sub_total + product_discount_amount) / quantity`, retaining tax and excluding the discount effect.
 
-#### Scenario: Latest eligible received purchase sets last purchase price
-- **WHEN** an existing target `product_prices` row has eligible literal purchase details for the same product in its own setting
-- **THEN** the command SHALL set `last_purchase_price` from the latest eligible candidate's tax-inclusive, discount-excluded unit price
-- **AND** it SHALL select recency by approved receiving timestamp when available, then purchase date, then stable database identifiers
+**Reason:** Reconciliation of `last_purchase_price` is owned exclusively by the purchase-import workflow. Command-level purchase reconciliation was removed to eliminate duplicate responsibility, reduce code complexity, and clarify that this command is average-cost-focused only.
 
-#### Scenario: Ineligible purchase activity does not set last purchase price
-- **WHEN** a purchase detail belongs to an archived, non-received, or non-received-partially purchase, or has non-positive quantity
-- **THEN** the command SHALL NOT select it as a last-purchase-price candidate
-
-#### Scenario: Tax is retained and discount is excluded in the selected price
-- **WHEN** the selected literal purchase detail has a tax-inclusive subtotal and a non-zero line discount
-- **THEN** the command SHALL calculate last purchase price as the line subtotal plus the line discount divided by quantity
-- **AND** it SHALL NOT subtract the line tax or leave the discount applied
+**Migration:** Purchase-import continues to populate `last_purchase_price` on all `product_prices` rows as part of its purchase receipt workflow. No manual data remediation is required.
 
 ### Requirement: Perdana supplies missing default last purchase prices
-The command SHALL use Perdana's latest eligible literal purchase for a product when a target setting has no eligible literal purchase of its own. It SHALL not use another unrelated non-special setting as a default source.
 
-#### Scenario: Own purchase takes precedence over Perdana
-- **WHEN** a target setting and Perdana both have eligible literal purchases for the same product
-- **THEN** the command SHALL set the target row's `last_purchase_price` from the target setting's latest eligible literal purchase
+**Reason:** This behavior conflated average-cost seeding with purchase-price reconciliation. Purchase-import owns `last_purchase_price` exclusively; this command operates on `average_purchase_price` only.
 
-#### Scenario: Perdana supplies a target with no own purchase
-- **WHEN** a target setting has no eligible literal purchase for a product
-- **AND** Perdana has an eligible literal purchase for that product
-- **THEN** the command SHALL set the target row's `last_purchase_price` from Perdana's latest eligible literal purchase
-
-#### Scenario: Missing literal purchase source does not produce a zero price
-- **WHEN** neither a target setting nor Perdana has an eligible literal purchase for a product
-- **THEN** the command SHALL preserve an existing target row's `last_purchase_price`
-- **AND** it SHALL NOT create a missing target row solely from an HPP snapshot
+**Migration:** Use purchase-import to establish `last_purchase_price` across all target businesses. This command preserves any existing `last_purchase_price` values unchanged.
 

@@ -10,7 +10,7 @@ The current sales-HPP seeding command can overwrite average costs across busines
 - Apply Top IT and CV Tiga Nusa's latest eligible HPP only to their own setting rows after baseline filling.
 - Report products with no eligible baseline as unresolved without fabricating a cost.
 - Preserve dry-run-by-default and explicit `--write` behavior.
-- Keep purchase-import and `last_purchase_price` behavior out of scope.
+- Remove command-level reconciliation of `last_purchase_price` because purchase-import owns that responsibility exclusively.
 
 ## Capabilities
 

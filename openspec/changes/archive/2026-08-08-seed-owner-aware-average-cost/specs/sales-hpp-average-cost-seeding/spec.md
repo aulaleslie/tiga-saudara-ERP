@@ -50,3 +50,17 @@ The command SHALL leave a stock-managed product unchanged when it has no positiv
 - **WHEN** a stock-managed product has no eligible imported HPP snapshot in any prioritized bucket
 - **THEN** the command SHALL NOT create or update its `product_prices` rows
 - **AND** it SHALL report the product as unresolved or skipped
+
+## REMOVED Requirements
+
+### Requirement: Seeding reconciles last purchase price from literal purchase history
+
+**Reason:** Reconciliation of `last_purchase_price` is owned exclusively by the purchase-import workflow. Command-level purchase reconciliation was removed to eliminate duplicate responsibility, reduce code complexity, and clarify that this command is average-cost-focused only.
+
+**Migration:** Purchase-import continues to populate `last_purchase_price` on all `product_prices` rows as part of its purchase receipt workflow. No manual data remediation is required.
+
+### Requirement: Perdana supplies missing default last purchase prices
+
+**Reason:** This behavior conflated average-cost seeding with purchase-price reconciliation. Purchase-import owns `last_purchase_price` exclusively; this command operates on `average_purchase_price` only.
+
+**Migration:** Use purchase-import to establish `last_purchase_price` across all target businesses. This command preserves any existing `last_purchase_price` values unchanged.

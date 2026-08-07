@@ -6,10 +6,6 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
-use Modules\Purchase\Entities\Purchase;
-use Modules\Purchase\Entities\PurchaseDetail;
-use Modules\Purchase\Entities\ReceivedNote;
-use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Setting;
 
@@ -23,16 +19,16 @@ class SeedAverageCostFromSalesHppCommand extends Command
         $isWrite = $this->option('write');
         $mode = $isWrite ? 'WRITE' : 'DRY-RUN';
 
-        $this->info("Starting product average-cost and last-purchase-price seeding in $mode mode...");
+        $this->info("Starting product average-cost seeding in $mode mode...");
 
         $settings = Setting::all();
         $specialSettingIds = $this->getSpecialSettingIds($settings);
-        $perdanaSettingIds = $specialSettingIds['perdana'] ?? [];
 
         $consideredCount = 0;
-        $skippedCount = 0;
+        $unresolvedCount = 0;
         $createdCount = 0;
-        $updatedCount = 0;
+        $baselineFilledCount = 0;
+        $specialOverlayUpdatedCount = 0;
         $unchangedCount = 0;
 
         Product::where('stock_managed', true)
@@ -40,42 +36,45 @@ class SeedAverageCostFromSalesHppCommand extends Command
                 $isWrite,
                 $settings,
                 $specialSettingIds,
-                $perdanaSettingIds,
                 &$consideredCount,
-                &$skippedCount,
+                &$unresolvedCount,
                 &$createdCount,
-                &$updatedCount,
+                &$baselineFilledCount,
+                &$specialOverlayUpdatedCount,
                 &$unchangedCount
             ) {
                 $productIds = $products->pluck('id')->toArray();
-                $literalPurchaseCandidates = $this->getLiteralPurchaseCandidates($productIds, $specialSettingIds, $perdanaSettingIds);
 
                 foreach ($products as $product) {
                     $consideredCount++;
 
-                    $hppBuckets = $this->resolveProductBuckets($product, $settings, $specialSettingIds);
-                    $purchaseCandidates = $literalPurchaseCandidates[$product->id] ?? [];
+                    $candidates = $this->getHppImportCandidates($product);
+                    $baseline = $this->resolveBaselineFromCandidates($candidates, $specialSettingIds);
+                    $specialOverlays = $this->resolveSpecialOverlaysFromCandidates($candidates, $specialSettingIds);
 
-                    $this->processProductBuckets(
+                    $this->processProduct(
                         $product,
-                        $hppBuckets,
-                        $purchaseCandidates,
+                        $settings,
+                        $baseline,
+                        $specialOverlays,
                         $specialSettingIds,
                         $isWrite,
-                        $skippedCount,
+                        $unresolvedCount,
                         $createdCount,
-                        $updatedCount,
+                        $baselineFilledCount,
+                        $specialOverlayUpdatedCount,
                         $unchangedCount
                     );
                 }
             });
 
-        $this->outputDryRunReport(
+        $this->outputReport(
             $mode,
             $consideredCount,
-            $skippedCount,
+            $unresolvedCount,
             $createdCount,
-            $updatedCount,
+            $baselineFilledCount,
+            $specialOverlayUpdatedCount,
             $unchangedCount
         );
 
@@ -106,24 +105,49 @@ class SeedAverageCostFromSalesHppCommand extends Command
         ];
     }
 
-    private function resolveProductBuckets(Product $product, Collection $settings, array $specialSettingIds): array
+    private function resolveBaselineFromCandidates(array $candidates, array $specialSettingIds): ?array
     {
-        $buckets = [
-            'tiga_nusa' => null,
-            'top_it' => null,
-            'perdana' => null,
-        ];
-
-        $candidates = $this->getHppImportCandidates($product);
+        $perdanaCandidate = null;
+        $topItCandidate = null;
+        $tigaNusaCandidate = null;
 
         foreach ($candidates as $candidate) {
             $bucket = $this->getBucketForSetting($candidate['setting_id'], $specialSettingIds);
-            if ($bucket && !isset($buckets[$bucket])) {
-                $buckets[$bucket] = $candidate;
+            if ($bucket === 'perdana' && !$perdanaCandidate) {
+                $perdanaCandidate = $candidate;
+            } elseif ($bucket === 'top_it' && !$topItCandidate) {
+                $topItCandidate = $candidate;
+            } elseif ($bucket === 'tiga_nusa' && !$tigaNusaCandidate) {
+                $tigaNusaCandidate = $candidate;
             }
         }
 
-        return array_filter($buckets, fn($v) => $v !== null);
+        if ($perdanaCandidate) {
+            return $perdanaCandidate;
+        }
+        if ($topItCandidate) {
+            return $topItCandidate;
+        }
+        return $tigaNusaCandidate;
+    }
+
+    private function resolveSpecialOverlaysFromCandidates(array $candidates, array $specialSettingIds): array
+    {
+        $overlays = [
+            'top_it' => null,
+            'tiga_nusa' => null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $bucket = $this->getBucketForSetting($candidate['setting_id'], $specialSettingIds);
+            if ($bucket === 'top_it' && !$overlays['top_it']) {
+                $overlays['top_it'] = $candidate;
+            } elseif ($bucket === 'tiga_nusa' && !$overlays['tiga_nusa']) {
+                $overlays['tiga_nusa'] = $candidate;
+            }
+        }
+
+        return $overlays;
     }
 
     private function getHppImportCandidates(Product $product): array
@@ -171,345 +195,143 @@ class SeedAverageCostFromSalesHppCommand extends Command
         return null;
     }
 
-    private function processProductBuckets(
+    private function processProduct(
         Product $product,
-        array $hppBuckets,
-        array $purchaseCandidates,
+        Collection $settings,
+        ?array $baseline,
+        array $specialOverlays,
         array $specialSettingIds,
         bool $isWrite,
-        &$skippedCount,
+        &$unresolvedCount,
         &$createdCount,
-        &$updatedCount,
+        &$baselineFilledCount,
+        &$specialOverlayUpdatedCount,
         &$unchangedCount
     ): void {
-        $allSettings = Setting::all();
+        if (!$baseline) {
+            $unresolvedCount++;
+            return;
+        }
 
-        foreach ($allSettings as $setting) {
+        $existingPrices = ProductPrice::where('product_id', $product->id)
+            ->get()
+            ->keyBy('setting_id');
+
+        foreach ($settings as $setting) {
             $bucket = $this->getBucketForSetting($setting->id, $specialSettingIds);
-            $hppCandidate = null;
-            $purchaseCandidate = null;
+            $existingPrice = $existingPrices->get($setting->id);
 
-            if ($bucket && isset($hppBuckets[$bucket])) {
-                $hppCandidate = $hppBuckets[$bucket];
-            } elseif ($bucket && in_array($bucket, ['tiga_nusa', 'top_it']) && isset($hppBuckets['perdana'])) {
-                $hppCandidate = $hppBuckets['perdana'];
-            } elseif (!$bucket && isset($hppBuckets['perdana'])) {
-                $hppCandidate = $hppBuckets['perdana'];
+            $hppToUse = $baseline;
+            $isSpecialOverlay = false;
+
+            if ($bucket === 'top_it' && $specialOverlays['top_it']) {
+                $hppToUse = $specialOverlays['top_it'];
+                $isSpecialOverlay = true;
+            } elseif ($bucket === 'tiga_nusa' && $specialOverlays['tiga_nusa']) {
+                $hppToUse = $specialOverlays['tiga_nusa'];
+                $isSpecialOverlay = true;
             }
-
-            if ($purchaseCandidates) {
-                $purchaseCandidate = $this->resolvePurchaseCandidate($purchaseCandidates, $setting, $specialSettingIds);
-            }
-
-            $existingPrice = ProductPrice::where('product_id', $product->id)
-                ->where('setting_id', $setting->id)
-                ->first();
 
             if ($existingPrice) {
-                if ($hppCandidate) {
-                    $this->updateOrSkipProductPrice(
-                        $existingPrice,
-                        $hppCandidate,
-                        $purchaseCandidate,
-                        $isWrite,
-                        $unchangedCount,
-                        $updatedCount
-                    );
-                } else {
-                    $skippedCount++;
-                }
+                $this->updateExistingPrice(
+                    $product,
+                    $existingPrice,
+                    $hppToUse,
+                    $isSpecialOverlay,
+                    $isWrite,
+                    $unchangedCount,
+                    $baselineFilledCount,
+                    $specialOverlayUpdatedCount
+                );
             } else {
-                if (!$hppCandidate) {
-                    $skippedCount++;
-                    continue;
-                }
-
-                if ($purchaseCandidate) {
-                    if ($isWrite) {
-                        $this->createProductPrice($product, $setting, $hppCandidate, $purchaseCandidate);
-                    }
-                    $createdCount++;
-                } else {
-                    $skippedCount++;
-                }
+                $this->createNewPrice(
+                    $product,
+                    $setting,
+                    $hppToUse,
+                    $isWrite,
+                    $createdCount
+                );
             }
         }
     }
 
-    private function getLiteralPurchaseCandidates(array $productIds, array $specialSettingIds, array $perdanaSettingIds): array
-    {
-        $candidates = [];
-
-        PurchaseDetail::whereIn('product_id', $productIds)
-            ->with([
-                'purchase:id,setting_id,date,archived_at,status',
-                'purchase.receivedNotes:id,po_id,approved_at,status'
-            ])
-            ->chunkById(500, function ($details) use (&$candidates, $specialSettingIds, $perdanaSettingIds) {
-                $detailIds = $details->pluck('id')->toArray();
-                $partialApprovedAts = $this->getLatestApprovedAtsForPartialDetails($detailIds);
-
-                foreach ($details as $detail) {
-                    $purchase = $detail->purchase;
-
-                    if ($purchase->archived_at || !in_array($purchase->status, ['RECEIVED', 'RECEIVED PARTIALLY'])) {
-                        continue;
-                    }
-
-                    if (!$detail->quantity || $detail->quantity <= 0) {
-                        continue;
-                    }
-
-                    $approvedAt = null;
-
-                    if ($purchase->status === 'RECEIVED PARTIALLY') {
-                        $approvedAt = $partialApprovedAts[$detail->id] ?? null;
-                        if ($approvedAt === null) {
-                            continue;
-                        }
-                    } else {
-                        if ($purchase->receivedNotes && $purchase->receivedNotes->count() > 0) {
-                            $approvedNotes = $purchase->receivedNotes->filter(fn($n) => $n->status === 'APPROVED');
-                            if ($approvedNotes->count() > 0) {
-                                $latest = $approvedNotes->sortByDesc('approved_at')->first();
-                                if ($latest && $latest->approved_at) {
-                                    $approvedAt = $latest->approved_at;
-                                }
-                            }
-                        }
-                    }
-
-                    $productId = $detail->product_id;
-                    $settingId = $purchase->setting_id;
-
-                    $purchaseDate = is_string($purchase->date)
-                        ? $purchase->date
-                        : $purchase->date->format('Y-m-d H:i:s');
-
-                    $unitPrice = $this->calculateLiteralPurchaseUnitPrice($detail);
-
-                    $candidate = [
-                        'detail_id' => $detail->id,
-                        'purchase_id' => $purchase->id,
-                        'setting_id' => $settingId,
-                        'approved_at' => $approvedAt,
-                        'purchase_date' => $purchaseDate,
-                        'unit_price' => $unitPrice,
-                    ];
-
-                    if (!isset($candidates[$productId])) {
-                        $candidates[$productId] = [];
-                    }
-
-                    $candidates[$productId][] = $candidate;
-                }
-            });
-
-        foreach ($candidates as &$productCandidates) {
-            $this->sortAndGroupPurchaseCandidates($productCandidates);
-        }
-
-        return $candidates;
-    }
-
-    private function getLatestApprovedAtsForPartialDetails(array $detailIds): array
-    {
-        $result = [];
-
-        if (empty($detailIds)) {
-            return $result;
-        }
-
-        $receivedNoteDetails = ReceivedNoteDetail::whereIn('po_detail_id', $detailIds)
-            ->where('quantity_received', '>', 0)
-            ->with(['receivedNote' => function ($q) {
-                $q->where('status', 'APPROVED')
-                  ->whereNotNull('approved_at')
-                  ->select('id', 'approved_at');
-            }])
-            ->select('id', 'po_detail_id', 'received_note_id', 'quantity_received')
-            ->get();
-
-        $detailToLatest = [];
-
-        foreach ($receivedNoteDetails as $rnd) {
-            if (!$rnd->receivedNote || !$rnd->receivedNote->approved_at) {
-                continue;
-            }
-
-            $poDetailId = $rnd->po_detail_id;
-            $approvedAt = is_string($rnd->receivedNote->approved_at)
-                ? $rnd->receivedNote->approved_at
-                : $rnd->receivedNote->approved_at->format('Y-m-d H:i:s');
-
-            if (!isset($detailToLatest[$poDetailId])) {
-                $detailToLatest[$poDetailId] = [
-                    'approved_at' => $approvedAt,
-                    'received_note_detail_id' => $rnd->id,
-                    'received_note_id' => $rnd->received_note_id,
-                ];
-            } else {
-                $current = $detailToLatest[$poDetailId];
-                if ($approvedAt > $current['approved_at']) {
-                    $detailToLatest[$poDetailId] = [
-                        'approved_at' => $approvedAt,
-                        'received_note_detail_id' => $rnd->id,
-                        'received_note_id' => $rnd->received_note_id,
-                    ];
-                } elseif ($approvedAt === $current['approved_at']) {
-                    if ($rnd->id > $current['received_note_detail_id']) {
-                        $detailToLatest[$poDetailId] = [
-                            'approved_at' => $approvedAt,
-                            'received_note_detail_id' => $rnd->id,
-                            'received_note_id' => $rnd->received_note_id,
-                        ];
-                    } elseif ($rnd->id === $current['received_note_detail_id'] && $rnd->received_note_id > $current['received_note_id']) {
-                        $detailToLatest[$poDetailId] = [
-                            'approved_at' => $approvedAt,
-                            'received_note_detail_id' => $rnd->id,
-                            'received_note_id' => $rnd->received_note_id,
-                        ];
-                    }
-                }
-            }
-        }
-
-        foreach ($detailToLatest as $poDetailId => $data) {
-            $result[$poDetailId] = $data['approved_at'];
-        }
-
-        return $result;
-    }
-
-    private function calculateLiteralPurchaseUnitPrice(PurchaseDetail $detail): float
-    {
-        $subTotal = (float) $detail->sub_total;
-        $discount = (float) ($detail->product_discount_amount ?? 0);
-        $quantity = (float) $detail->quantity;
-
-        if ($quantity <= 0) {
-            return 0;
-        }
-
-        $total = $subTotal + $discount;
-        return round($total / $quantity, 2);
-    }
-
-    private function sortAndGroupPurchaseCandidates(array &$candidates): void
-    {
-        usort($candidates, function ($a, $b) {
-            if ($a['approved_at'] !== $b['approved_at']) {
-                if ($a['approved_at'] === null) {
-                    return 1;
-                }
-                if ($b['approved_at'] === null) {
-                    return -1;
-                }
-                return $b['approved_at'] <=> $a['approved_at'];
-            }
-
-            if ($a['purchase_date'] !== $b['purchase_date']) {
-                return $b['purchase_date'] <=> $a['purchase_date'];
-            }
-
-            if ($a['purchase_id'] !== $b['purchase_id']) {
-                return $b['purchase_id'] <=> $a['purchase_id'];
-            }
-
-            return $b['detail_id'] <=> $a['detail_id'];
-        });
-    }
-
-    private function resolvePurchaseCandidate(array $purchaseCandidates, Setting $setting, array $specialSettingIds): ?array
-    {
-        $perdanaIds = $specialSettingIds['perdana'] ?? [];
-
-        foreach ($purchaseCandidates as $candidate) {
-            if ($candidate['setting_id'] === $setting->id) {
-                return $candidate;
-            }
-        }
-
-        foreach ($purchaseCandidates as $candidate) {
-            if (in_array($candidate['setting_id'], $perdanaIds)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
-
-    private function updateOrSkipProductPrice(
+    private function updateExistingPrice(
+        Product $product,
         ProductPrice $price,
-        ?array $hppCandidate,
-        ?array $purchaseCandidate,
+        array $hppCandidate,
+        bool $isSpecialOverlay,
         bool $isWrite,
         &$unchangedCount,
-        &$updatedCount
+        &$baselineFilledCount,
+        &$specialOverlayUpdatedCount
     ): void {
-        $updateData = [];
+        $currentAverage = (float) $price->average_purchase_price;
+        $newAverage = (float) $hppCandidate['cost_unit_snapshot'];
 
-        if ($hppCandidate) {
-            $newAverage = $hppCandidate['cost_unit_snapshot'];
-            if ((float) $price->average_purchase_price !== (float) $newAverage) {
-                $updateData['average_purchase_price'] = $newAverage;
-            }
-        }
-
-        if ($purchaseCandidate) {
-            $newLastPrice = $purchaseCandidate['unit_price'];
-            if ((float) $price->last_purchase_price !== (float) $newLastPrice) {
-                $updateData['last_purchase_price'] = $newLastPrice;
-            }
-        }
-
-        if (!$updateData) {
+        if ($currentAverage > 0 && !$isSpecialOverlay) {
             $unchangedCount++;
             return;
         }
 
-        if ($isWrite) {
-            $price->update($updateData);
+        if ($currentAverage <= 0 || $isSpecialOverlay) {
+            if ($currentAverage !== $newAverage) {
+                if ($isWrite) {
+                    $price->update(['average_purchase_price' => $newAverage]);
+                }
+                if ($isSpecialOverlay) {
+                    $specialOverlayUpdatedCount++;
+                } else {
+                    $baselineFilledCount++;
+                }
+            } else {
+                $unchangedCount++;
+            }
         }
-        $updatedCount++;
     }
 
-    private function createProductPrice(Product $product, Setting $setting, ?array $hppCandidate, ?array $purchaseCandidate = null): void
-    {
+    private function createNewPrice(
+        Product $product,
+        Setting $setting,
+        array $baseline,
+        bool $isWrite,
+        &$createdCount
+    ): void {
         $template = ProductPrice::where('product_id', $product->id)->first();
 
         $data = [
             'product_id' => $product->id,
             'setting_id' => $setting->id,
-            'average_purchase_price' => $hppCandidate['cost_unit_snapshot'] ?? 0,
-            'last_purchase_price' => $purchaseCandidate['unit_price'] ?? 0,
+            'average_purchase_price' => $baseline['cost_unit_snapshot'],
             'sale_price' => $template?->sale_price ?? 0,
+            'tier_1_price' => $template?->tier_1_price ?? 0,
+            'tier_2_price' => $template?->tier_2_price ?? 0,
             'purchase_tax_id' => $template?->purchase_tax_id,
             'sale_tax_id' => $template?->sale_tax_id,
         ];
 
-        if ($template) {
-            $data['tier_1_price'] = $template->tier_1_price;
-            $data['tier_2_price'] = $template->tier_2_price;
+        if ($isWrite) {
+            ProductPrice::create($data);
         }
-
-        ProductPrice::create($data);
+        $createdCount++;
     }
 
-    private function outputDryRunReport(
+    private function outputReport(
         string $mode,
         int $consideredCount,
-        int $skippedCount,
+        int $unresolvedCount,
         int $createdCount,
-        int $updatedCount,
+        int $baselineFilledCount,
+        int $specialOverlayUpdatedCount,
         int $unchangedCount
     ): void {
         $this->line('');
         $this->info("== $mode MODE ==");
         $this->info("Considered products: $consideredCount");
         $this->info("Created: $createdCount");
-        $this->info("Updated: $updatedCount");
+        $this->info("Baseline-filled: $baselineFilledCount");
+        $this->info("Special-overlay-updated: $specialOverlayUpdatedCount");
         $this->info("Unchanged: $unchangedCount");
-        $this->info("Skipped: $skippedCount");
+        $this->info("Unresolved: $unresolvedCount");
     }
+
 }

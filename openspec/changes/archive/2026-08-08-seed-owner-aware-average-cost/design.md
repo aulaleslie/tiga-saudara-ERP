@@ -16,6 +16,7 @@ The system stores one `product_prices` row per product × setting. `average_purc
 
 **Non-Goals:**
 
+- Reconciling `last_purchase_price` at the command level; purchase-import owns that responsibility exclusively.
 - Changing purchase import behavior, `last_purchase_price`, or the shared legacy `products.purchase_price` column.
 - Calculating a moving average from purchase transactions.
 - Creating a synthetic cost for products without any eligible imported HPP source.

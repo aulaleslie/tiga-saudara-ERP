@@ -147,11 +147,12 @@ Barcode CSV files must contain `product_name,barcode`. Import matches an exact p
 
 ### Seed Current Average HPP from Imported Sales
 
-`product:seed-average-cost-from-sales-hpp` is the explicit post-import reconciliation step for historical sales HPP imports. It selects the latest successful `HPP_SNAPSHOT_IMPORT` cost snapshot for each stock-managed product and applies it to the appropriate product-price cost bucket.
+`product:seed-average-cost-from-sales-hpp` is the explicit post-import reconciliation step for historical sales HPP imports. It seeds `product_prices.average_purchase_price` from the latest successful `HPP_SNAPSHOT_IMPORT` cost snapshots for each stock-managed product, creating missing product-price rows as needed.
 
-- Dry-run is the default; review selected source sale dates and created, updated, unchanged, and skipped row counts before writing.
-- `--write` updates only `product_prices.average_purchase_price`; it preserves last purchase price, selling/tier prices, and tax metadata.
-- Tiga Nusa and Top IT use their own latest HPP bucket when available; otherwise they fall back to REST/global. Non-special settings use REST/global only.
+- Dry-run is the default; review selected source sale dates and created, updated, unchanged, and unresolved row counts before writing.
+- `--write` seeds only `product_prices.average_purchase_price`; it preserves existing `last_purchase_price`, selling/tier prices, and tax metadata unchanged.
+- Tiga Nusa and Top IT use their own latest HPP when available; other businesses fall back to shared baseline. Non-special settings use shared baseline only.
+- Purchase-import owns `last_purchase_price` reconciliation exclusively; this command does not touch it.
 - Run this after reviewing the historical HPP import. It does not change historical sale snapshots, stock, purchases, or inventory transactions.
 
 See [the full operator guide](docs/SEED_AVERAGE_COST_FROM_SALES_HPP.md) for the workflow and troubleshooting.
