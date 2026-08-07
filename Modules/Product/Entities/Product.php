@@ -278,4 +278,52 @@ class Product extends BaseModel implements HasMedia
             }
         });
     }
+    
+    /**
+     * Scope a query to only include active (non-merged) products.
+     */
+    public function scopeActive($query)
+    {
+        return $query->whereNull('merged_into_id');
+    }
+    
+    /**
+     * Scope a query to only include retired (merged) products.
+     */
+    public function scopeRetired($query)
+    {
+        return $query->whereNotNull('merged_into_id');
+    }
+    
+    /**
+     * The product this product was merged into.
+     */
+    public function mergedInto(): BelongsTo
+    {
+        return $this->belongsTo(Product::class, 'merged_into_id');
+    }
+    
+    /**
+     * The products that were merged into this product.
+     */
+    public function mergedFrom(): HasMany
+    {
+        return $this->hasMany(Product::class, 'merged_into_id');
+    }
+
+    /**
+     * Merge audits where this product was the survivor.
+     */
+    public function survivorMergeAudits(): HasMany
+    {
+        return $this->hasMany(ProductMergeAudit::class, 'survivor_product_id');
+    }
+
+    /**
+     * Merge audits where this product was retired.
+     */
+    public function retiredMergeAudits(): HasMany
+    {
+        return $this->hasMany(ProductMergeAudit::class, 'retired_product_id');
+    }
 }

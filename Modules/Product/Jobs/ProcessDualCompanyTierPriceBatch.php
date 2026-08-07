@@ -247,19 +247,14 @@ class ProcessDualCompanyTierPriceBatch implements ShouldQueue
             }
         }
 
-        // Index the catalog by normalized product name once.
-        $nameIndex = [];
-        Product::select('id', 'product_name')->chunkById(1000, function ($products) use (&$nameIndex) {
-            foreach ($products as $product) {
-                $nameIndex[$this->normalizeName($product->product_name)][] = $product;
-            }
-        });
+        $resolver = app(\Modules\Product\Services\ProductResolver::class);
+        $resolvedCache = [];
 
         $validRows = [];
 
         ProductImportRow::where('batch_id', $batch->id)
             ->whereNull('status')
-            ->chunkById(500, function ($rows) use ($batch, $settings, $nameIndex, &$validRows) {
+            ->chunkById(500, function ($rows) use ($batch, $settings, $resolver, &$resolvedCache, &$validRows) {
                 foreach ($rows as $row) {
                     $payload = is_array($row->raw_json) ? $row->raw_json : json_decode($row->raw_json, true);
 
@@ -285,35 +280,39 @@ class ProcessDualCompanyTierPriceBatch implements ShouldQueue
                     }
                     $meta['setting_id'] = $setting->id;
 
-                    // Resolve the product by normalized name; exactly one match is required.
-                    $normalizedName = $this->normalizeName($rawName);
-                    if ($normalizedName === '') {
+                    // Resolve the product by canonical identity; exactly one match is required.
+                    if (trim($rawName) === '') {
                         $this->recordFailure($batch, $row, 'Product name is blank.', 'error', $meta);
                         continue;
                     }
 
-                    $matches = $nameIndex[$normalizedName] ?? [];
-                    if (count($matches) === 0) {
-                        $this->recordFailure($batch, $row, "Product not found for name \"{$rawName}\".", 'skipped', $meta);
-                        continue;
+                    if (!array_key_exists($rawName, $resolvedCache)) {
+                        try {
+                            $resolvedCache[$rawName] = $resolver->resolveExisting($rawName);
+                        } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+                            $resolvedCache[$rawName] = $e;
+                        }
                     }
-                    if (count($matches) > 1) {
-                        $meta['ambiguous_candidates'] = array_map(
-                            fn ($p) => ['id' => $p->id, 'name' => $p->product_name],
-                            $matches
-                        );
+
+                    $product = $resolvedCache[$rawName];
+
+                    if ($product instanceof \Exception) {
                         $this->recordFailure(
                             $batch,
                             $row,
-                            'Ambiguous product name matched IDs: ' . implode(',', array_map(fn ($p) => $p->id, $matches)) . '.',
+                            'Ambiguous product name: ' . $product->getMessage(),
                             'error',
                             $meta
                         );
                         continue;
                     }
 
-                    $product = $matches[0];
-                    $meta['match_strategy'] = 'normalized_name';
+                    if (!$product) {
+                        $this->recordFailure($batch, $row, "Product not found for name \"{$rawName}\".", 'skipped', $meta);
+                        continue;
+                    }
+
+                    $meta['match_strategy'] = 'canonical_identity';
                     $meta['matched_product_id'] = $product->id;
                     $meta['matched_product_name'] = $product->product_name;
 

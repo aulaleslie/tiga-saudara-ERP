@@ -23,6 +23,8 @@ use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Product\Services\ProductResolver;
+use Modules\Product\Services\ProductCanonicalizer;
 
 class PurchaseImportService
 {
@@ -62,13 +64,17 @@ class PurchaseImportService
         ?ImportPaymentSummaryResolver $paymentSummaryResolver = null,
         ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null,
         ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null,
-        ?ImportSettlementAllocator $settlementAllocator = null
+        ?ImportSettlementAllocator $settlementAllocator = null,
+        protected ?ProductResolver $productResolver = null,
+        protected ?ProductCanonicalizer $canonicalizer = null
     )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
         $this->documentAdjustmentResolver = $documentAdjustmentResolver ?? app(ImportDocumentAdjustmentResolver::class);
         $this->documentAdjustmentAllocator = $documentAdjustmentAllocator ?? app(ImportDocumentAdjustmentAllocator::class);
         $this->settlementAllocator = $settlementAllocator ?? app(ImportSettlementAllocator::class);
+        $this->productResolver = $productResolver ?? app(ProductResolver::class);
+        $this->canonicalizer = $canonicalizer ?? app(ProductCanonicalizer::class);
     }
 
     /**
@@ -452,82 +458,94 @@ class PurchaseImportService
      */
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null, ?string $importedCode = null): Product
     {
-        $normalizedName = strtolower(trim($cleanName));
-
-        if (isset($this->productsCache[$normalizedName])) {
-            return $this->productsCache[$normalizedName];
+        try {
+            $identity = $this->canonicalizer->canonicalize($cleanName);
+            $canonicalKey = $identity['canonical_key'];
+            $cleanName = $identity['display_name'];
+        } catch (\InvalidArgumentException $e) {
+            $canonicalKey = strtolower(trim($cleanName));
         }
 
-        // Name-first lookup: select lowest-ID matching product for deterministic behavior on legacy duplicates
-        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])
-            ->orderBy('id', 'asc')
-            ->first();
+        if (isset($this->productsCache[$canonicalKey])) {
+            return $this->productsCache[$canonicalKey];
+        }
 
-        if (!$product) {
-            // New product: use imported code if available and unused, otherwise fall back to generated SKU
-            $normalizedUnitName = strtolower(trim($unitName));
-            $unit = $this->unitsCache[$normalizedUnitName] ?? null;
+        try {
+            $product = $this->productResolver->resolveOrCreate($cleanName, function ($displayName, $canonicalKey) use ($unitName, $settingId, $description, $importedCode, $cleanName) {
+                $normalizedUnitName = strtolower(trim($unitName));
+                $unit = $this->unitsCache[$normalizedUnitName] ?? null;
 
-            if (!$unit) {
-                $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
                 if (!$unit) {
-                    $unit = Unit::create([
-                        'name' => ucfirst(strtolower($unitName)),
-                        'short_name' => strtoupper($unitName),
-                    ]);
-                }
-                $this->unitsCache[$normalizedUnitName] = $unit;
-            }
-
-            // Determine product code: use imported code if available and unused, otherwise generate SKU
-            $productCode = $this->resolveProductCodeForNewProduct($importedCode, $cleanName);
-
-            $attributes = [
-                'product_name' => trim($cleanName),
-                'unit_id' => $unit->id,
-                'base_unit_id' => $unit->id,
-                'product_unit' => $unit->short_name ?: $unit->name,
-                'setting_id' => $settingId,
-                'product_cost' => 0,
-                'product_price' => 0,
-                'product_quantity' => 0,
-                'stock_managed' => 1,
-                'is_purchased' => 1,
-                'is_sold' => 1,
-                'product_note' => $description,
-            ];
-
-            try {
-                $product = Product::create($attributes + ['product_code' => $productCode]);
-            } catch (QueryException $e) {
-                // A concurrent import can claim the code between the availability check and this
-                // insert. Retry once with a generated SKU rather than invalidating the invoice
-                // group. Any other database error propagates unchanged.
-                if (!$this->isDuplicateProductCodeException($e)) {
-                    throw $e;
+                    $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
+                    if (!$unit) {
+                        $unit = Unit::create([
+                            'name' => ucfirst(strtolower($unitName)),
+                            'short_name' => strtoupper($unitName),
+                        ]);
+                    }
+                    $this->unitsCache[$normalizedUnitName] = $unit;
                 }
 
-                $retryCode = $this->generateUniqueFallbackSku($cleanName);
+                $productCode = $this->resolveProductCodeForNewProduct($importedCode, $cleanName);
 
-                Log::info('[PurchaseImport] Product code claimed concurrently, retrying with generated SKU', [
-                    'name' => $cleanName,
-                    'attempted_code' => $productCode,
-                    'retry_code' => $retryCode,
-                ]);
-
-                $product = Product::create($attributes + ['product_code' => $retryCode]);
-                $productCode = $retryCode;
+                return [
+                    'unit_id' => $unit->id,
+                    'base_unit_id' => $unit->id,
+                    'product_unit' => $unit->short_name ?: $unit->name,
+                    'setting_id' => $settingId,
+                    'product_cost' => 0,
+                    'product_price' => 0,
+                    'product_quantity' => 0,
+                    'stock_managed' => 1,
+                    'is_purchased' => 1,
+                    'is_sold' => 1,
+                    'product_note' => $description,
+                    'product_code' => $productCode,
+                ];
+            });
+        } catch (QueryException $e) {
+            if (!$this->isDuplicateProductCodeException($e)) {
+                throw $e;
             }
 
+            $retryCode = $this->generateUniqueFallbackSku($cleanName);
+
+            Log::info('[PurchaseImport] Product code claimed concurrently, retrying with generated SKU', [
+                'name' => $cleanName,
+                'retry_code' => $retryCode,
+            ]);
+
+            $product = $this->productResolver->resolveOrCreate($cleanName, function ($displayName, $canonicalKey) use ($unitName, $settingId, $description, $retryCode) {
+                $normalizedUnitName = strtolower(trim($unitName));
+                $unit = $this->unitsCache[$normalizedUnitName];
+
+                return [
+                    'unit_id' => $unit->id,
+                    'base_unit_id' => $unit->id,
+                    'product_unit' => $unit->short_name ?: $unit->name,
+                    'setting_id' => $settingId,
+                    'product_cost' => 0,
+                    'product_price' => 0,
+                    'product_quantity' => 0,
+                    'stock_managed' => 1,
+                    'is_purchased' => 1,
+                    'is_sold' => 1,
+                    'product_note' => $description,
+                    'product_code' => $retryCode,
+                ];
+            });
+        }
+
+        if ($product->wasRecentlyCreated) {
             Log::info('[PurchaseImport] Created new product', [
                 'product_id' => $product->id,
                 'name' => $cleanName,
-                'product_code' => $productCode,
+                'product_code' => $product->product_code,
                 'imported_code' => $importedCode,
             ]);
         }
 
-        $this->productsCache[$normalizedName] = $product;
+        $this->productsCache[$canonicalKey] = $product;
 
         return $product;
     }
@@ -609,29 +627,40 @@ class PurchaseImportService
      */
     protected function preloadProductsForBatch(Collection $rows): void
     {
-        $productNames = $rows->map(function ($row) {
-            $parsed = $this->parseProductName($row->raw_json['produk'] ?? '');
-            return trim($parsed['clean_name']);
-        })->filter()->unique()->values()->toArray();
+        $namesToResolve = [];
+        foreach ($rows as $row) {
+            $rawName = $row->raw_json['produk'] ?? '';
+            $parsed = $this->parseProductName($rawName);
+            $cleanName = trim($parsed['clean_name']);
+            if ($cleanName !== '') {
+                try {
+                    $identity = $this->canonicalizer->canonicalize($cleanName);
+                    if (!isset($namesToResolve[$identity['canonical_key']])) {
+                        $namesToResolve[$identity['canonical_key']] = $cleanName;
+                    }
+                } catch (\InvalidArgumentException $e) {
+                    // Ignore invalid names
+                }
+            }
+        }
 
-        if (empty($productNames)) {
+        if (empty($namesToResolve)) {
             return;
         }
 
-        // Ascending ID so that when legacy duplicates share a normalized name, the first product
-        // created wins the cache slot — matching the lowest-ID rule in findOrCreateProduct().
-        $products = Product::whereIn('product_name', $productNames)
-            ->orderBy('id', 'asc')
-            ->get();
-
-        foreach ($products as $product) {
-            $cacheKey = strtolower($product->product_name);
-
-            if (isset($this->productsCache[$cacheKey])) {
+        foreach ($namesToResolve as $canonicalKey => $cleanName) {
+            if (isset($this->productsCache[$canonicalKey])) {
                 continue;
             }
 
-            $this->productsCache[$cacheKey] = $product;
+            try {
+                $product = $this->productResolver->resolveExisting($cleanName);
+                if ($product) {
+                    $this->productsCache[$canonicalKey] = $product;
+                }
+            } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+                // Do not cache, allowing normal import processing to fail and surface ambiguity
+            }
         }
 
         Log::info('[PurchaseImport] Pre-loaded products', ['count' => count($this->productsCache)]);

@@ -204,30 +204,14 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
 
         $markerResolver = app(\App\Support\SalesImportMarkerResolver::class);
 
-        // Cache products for deterministic matching
-        $allProducts = \Modules\Product\Entities\Product::select('id', 'product_code', 'product_name')->get();
-        $codeMap = [];
-        $exactNameMap = [];
-        $normalizedNameMap = [];
-
-        foreach ($allProducts as $p) {
-            if ($p->product_code !== null && trim($p->product_code) !== '') {
-                $code = mb_strtolower(trim($p->product_code));
-                $codeMap[$code][] = $p;
-            }
-            $cleanName = $markerResolver->parseProductName($p->product_name)['clean_name'] ?? $p->product_name;
-            $cleanNameWs = mb_strtolower(trim(preg_replace('/\s+/', ' ', $cleanName)));
-            $exactNameMap[$cleanNameWs][] = $p;
-
-            $normName = $markerResolver->normalizeProductName($cleanName);
-            $normalizedNameMap[$normName][] = $p;
-        }
+        $resolver = app(\Modules\Product\Services\ProductResolver::class);
+        $resolvedCache = [];
 
         $validRows = [];
 
         \Modules\Product\Entities\ProductImportRow::where('batch_id', $batch->id)
             ->whereNull('status')
-            ->chunkById(500, function ($rows) use ($batch, $settingsMap, $settingsMapNames, $settingsPkpStatus, $settingsLocationMap, $daizuSettingId, $markerResolver, $codeMap, $exactNameMap, $normalizedNameMap, &$validRows) {
+            ->chunkById(500, function ($rows) use ($batch, $settingsMap, $settingsMapNames, $settingsPkpStatus, $settingsLocationMap, $daizuSettingId, $markerResolver, $resolver, &$resolvedCache, &$validRows) {
                 foreach ($rows as $row) {
                     $payload = is_array($row->raw_json) ? $row->raw_json : json_decode($row->raw_json, true);
                     $rawName = $payload['name*'] ?? '';
@@ -288,10 +272,8 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                     $matchStrategy = null;
 
                     if ($productCode !== '') {
-                        $codeLower = mb_strtolower(trim($productCode));
-                        $matches = $codeMap[$codeLower] ?? [];
-                        if (count($matches) === 1) {
-                            $product = $matches[0];
+                        $product = \Modules\Product\Entities\Product::where('product_code', $productCode)->first();
+                        if ($product) {
                             // Check code/name disagreement
                             $dbCleanName = $markerResolver->parseProductName($product->product_name)['clean_name'];
                             $dbNormalizedName = $markerResolver->normalizeProductName($dbCleanName);
@@ -303,33 +285,25 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                                 continue;
                             }
                             $matchStrategy = 'code';
-                        } elseif (count($matches) > 1) {
-                            $meta['ambiguous_candidates'] = array_map(fn($p) => ['id' => $p->id, 'name' => $p->product_name], $matches);
-                            $this->recordFailure($batch, $row, "Multiple products matched by code: IDs " . implode(',', array_column($matches, 'id')), 'error', $meta);
-                            continue;
                         }
                     }
 
                     if (!$product) {
-                        $cleanNameWs = mb_strtolower(trim(preg_replace('/\s+/', ' ', $cleanName)));
-                        $matches = $exactNameMap[$cleanNameWs] ?? [];
-                        if (count($matches) === 1) {
-                            $product = $matches[0];
-                            $matchStrategy = 'exact_clean_name';
-                        } elseif (count($matches) > 1) {
-                            $meta['ambiguous_candidates'] = array_map(fn($p) => ['id' => $p->id, 'name' => $p->product_name], $matches);
-                            $this->recordFailure($batch, $row, "Exact name collision: IDs " . implode(',', array_column($matches, 'id')), 'error', $meta);
-                            continue;
-                        } else {
-                            $matches = $normalizedNameMap[$normalizedName] ?? [];
-                            if (count($matches) === 1) {
-                                $product = $matches[0];
-                                $matchStrategy = 'canonical_name';
-                            } elseif (count($matches) > 1) {
-                                $meta['ambiguous_candidates'] = array_map(fn($p) => ['id' => $p->id, 'name' => $p->product_name], $matches);
-                                $this->recordFailure($batch, $row, "Canonical name collision: IDs " . implode(',', array_column($matches, 'id')), 'error', $meta);
-                                continue;
+                        if (!array_key_exists($rawName, $resolvedCache)) {
+                            try {
+                                $resolvedCache[$rawName] = $resolver->resolveExisting($rawName);
+                            } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+                                $resolvedCache[$rawName] = $e;
                             }
+                        }
+
+                        $product = $resolvedCache[$rawName];
+                        if ($product instanceof \Exception) {
+                            $this->recordFailure($batch, $row, "Ambiguous product name: " . $product->getMessage(), 'error', $meta);
+                            continue;
+                        }
+                        if ($product) {
+                            $matchStrategy = 'canonical_identity';
                         }
                     }
 

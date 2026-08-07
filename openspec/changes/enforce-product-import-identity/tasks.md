@@ -9,17 +9,17 @@
 
 ## 2. Import path integration
 
-- [ ] 2.1 Refactor `PurchaseImportService` product resolution to use the shared resolver while preserving CSV code, owner-routing, units, and purchase-price behavior.
-- [ ] 2.2 Refactor `SalesImportService` product resolution to use the shared resolver while preserving marker-based ownership, units, dispatch, and sales-price behavior.
-- [ ] 2.3 Refactor generic Product CSV import processing to use the shared resolver/canonical key and retain its current duplicate reporting semantics.
-- [ ] 2.4 Refactor HPP and any stock/snapshot import path that can create or resolve a product to use the correct shared resolver operation.
-- [ ] 2.5 Refactor dual-company tier-price import matching to use shared canonical existing-product resolution and retain its no-create behavior.
-- [ ] 2.6 Refactor Accurate sales-price and stock snapshot matching to use shared canonical existing-product resolution and retain actionable unmatched/conflicted outcomes.
-- [ ] 2.7 Add focused integration tests for each path showing formatting and owner-marker variants reuse one product and that distinct identities remain distinct.
+- [x] 2.1 Refactor `PurchaseImportService` product resolution to use the shared resolver while preserving CSV code, owner-routing, units, and purchase-price behavior.
+- [x] 2.2 Refactor `SalesImportService` product resolution to use the shared resolver while preserving marker-based ownership, units, dispatch, and sales-price behavior.
+- [x] 2.3 Refactor generic Product CSV import processing to use the shared resolver/canonical key and retain its current duplicate reporting semantics.
+- [x] 2.4 Refactor HPP and any stock/snapshot import path that can create or resolve a product to use the correct shared resolver operation.
+- [x] 2.5 Refactor dual-company tier-price import matching to use shared canonical existing-product resolution and retain its no-create behavior.
+- [x] 2.6 Refactor Accurate sales-price and stock snapshot matching to use shared canonical existing-product resolution and retain actionable unmatched/conflicted outcomes.
+- [x] 2.7 Add focused integration tests for each path showing formatting and owner-marker variants reuse one product and that distinct identities remain distinct.
 
 ## 3. Existing duplicate remediation
 
-- [ ] 3.1 Implement a read-only catalog identity preflight report/command listing each collision group's products, names, codes, canonical key, and supported reference counts.
+- [x] 3.1 Implement a read-only catalog identity preflight report/command listing each collision group's products, names, codes, canonical key, and supported reference counts.
 - [ ] 3.2 Define and implement auditable survivor-selection and redundant-product retirement storage/state without destructive deletion.
 - [ ] 3.3 Implement operator-confirmed, per-group transactional reference migration for the supported product relations; reject unsupported or unsafe groups before mutation.
 - [ ] 3.4 Add tests for no-op preflight, collision reporting, successful survivor reconciliation, rollback on a failed reference migration, and post-reconciliation canonical uniqueness.

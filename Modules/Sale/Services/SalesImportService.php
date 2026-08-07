@@ -27,6 +27,8 @@ use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Modules\Setting\Entities\Location;
 use App\Support\SalesImportMarkerResolver;
+use Modules\Product\Services\ProductResolver;
+use Modules\Product\Services\ProductCanonicalizer;
 
 class SalesImportService
 {
@@ -77,7 +79,9 @@ class SalesImportService
         ?ImportDocumentAdjustmentResolver $documentAdjustmentResolver = null,
         ?ImportDocumentAdjustmentAllocator $documentAdjustmentAllocator = null,
         ?ImportSettlementAllocator $settlementAllocator = null,
-        protected ?SalesImportMarkerResolver $markerResolver = null
+        protected ?SalesImportMarkerResolver $markerResolver = null,
+        protected ?ProductResolver $productResolver = null,
+        protected ?ProductCanonicalizer $canonicalizer = null
     )
     {
         $this->paymentSummaryResolver = $paymentSummaryResolver ?? app(ImportPaymentSummaryResolver::class);
@@ -85,6 +89,8 @@ class SalesImportService
         $this->documentAdjustmentAllocator = $documentAdjustmentAllocator ?? app(ImportDocumentAdjustmentAllocator::class);
         $this->settlementAllocator = $settlementAllocator ?? app(ImportSettlementAllocator::class);
         $this->markerResolver = $markerResolver ?? app(SalesImportMarkerResolver::class);
+        $this->productResolver = $productResolver ?? app(ProductResolver::class);
+        $this->canonicalizer = $canonicalizer ?? app(ProductCanonicalizer::class);
     }
 
     /**
@@ -385,48 +391,96 @@ class SalesImportService
      */
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
-        $normalizedName = strtolower(trim($cleanName));
-
-        // Check cache first
-        if (isset($this->productsCache[$normalizedName])) {
-            return $this->productsCache[$normalizedName];
+        try {
+            $identity = $this->canonicalizer->canonicalize($cleanName);
+            $canonicalKey = $identity['canonical_key'];
+            $cleanName = $identity['display_name'];
+        } catch (\InvalidArgumentException $e) {
+            $canonicalKey = strtolower(trim($cleanName));
         }
 
-        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
+        // Check cache first
+        if (isset($this->productsCache[$canonicalKey])) {
+            return $this->productsCache[$canonicalKey];
+        }
 
-        if (!$product) {
-            // Find or create unit (use cache)
-            $normalizedUnitName = strtolower(trim($unitName));
-            $unit = $this->unitsCache[$normalizedUnitName] ?? null;
+        try {
+            $product = $this->productResolver->resolveOrCreate($cleanName, function ($displayName, $canonicalKey) use ($unitName, $settingId, $description, $cleanName) {
+                $normalizedUnitName = strtolower(trim($unitName));
+                $unit = $this->unitsCache[$normalizedUnitName] ?? null;
 
-            if (!$unit) {
-                $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
                 if (!$unit) {
-                    $unit = Unit::create([
-                        'name' => ucfirst(strtolower($unitName)),
-                        'short_name' => strtoupper($unitName),
-                    ]);
+                    $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
+                    if (!$unit) {
+                        $unit = Unit::create([
+                            'name' => ucfirst(strtolower($unitName)),
+                            'short_name' => strtoupper($unitName),
+                        ]);
+                    }
+                    $this->unitsCache[$normalizedUnitName] = $unit;
                 }
-                // Cache the unit
-                $this->unitsCache[$normalizedUnitName] = $unit;
+
+                return [
+                    'product_name' => trim($cleanName),
+                    'product_code' => $this->importProductCode($cleanName),
+                    'unit_id' => $unit->id,
+                    'base_unit_id' => $unit->id,
+                    'product_unit' => $unit->short_name ?: $unit->name,
+                    'setting_id' => $settingId,
+                    'product_cost' => 0,
+                    'product_price' => 0,
+                    'product_quantity' => 0,
+                    'stock_managed' => 1,
+                    'is_purchased' => 1,
+                    'is_sold' => 1,
+                    'product_note' => $description,
+                ];
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            $isDuplicateProductCode = false;
+            $sqlState = $e->errorInfo[0] ?? null;
+            $driverCode = $e->errorInfo[1] ?? null;
+
+            if ($sqlState === '23505' || ($sqlState === '23000' && in_array((int) $driverCode, [1062, 19], true))) {
+                if (stripos($e->getMessage(), 'product_code') !== false) {
+                    $isDuplicateProductCode = true;
+                }
             }
 
-            $product = Product::create([
-                'product_name' => trim($cleanName),
-                'product_code' => $this->importProductCode($cleanName),
-                'unit_id' => $unit->id,
-                'base_unit_id' => $unit->id,
-                'product_unit' => $unit->short_name ?: $unit->name,
-                'setting_id' => $settingId,
-                'product_cost' => 0,
-                'product_price' => 0,
-                'product_quantity' => 0,
-                'stock_managed' => 1,
-                'is_purchased' => 1,
-                'is_sold' => 1,
-                'product_note' => $description,
+            if (!$isDuplicateProductCode) {
+                throw $e;
+            }
+
+            $retryCode = $this->importProductCode($cleanName) . '-' . strtoupper(bin2hex(random_bytes(4)));
+
+            Log::info('[SalesImport] Product code claimed concurrently, retrying with generated SKU', [
+                'name' => $cleanName,
+                'retry_code' => $retryCode,
             ]);
 
+            $product = $this->productResolver->resolveOrCreate($cleanName, function ($displayName, $canonicalKey) use ($unitName, $settingId, $description, $retryCode, $cleanName) {
+                $normalizedUnitName = strtolower(trim($unitName));
+                $unit = $this->unitsCache[$normalizedUnitName];
+
+                return [
+                    'product_name' => trim($cleanName),
+                    'product_code' => $retryCode,
+                    'unit_id' => $unit->id,
+                    'base_unit_id' => $unit->id,
+                    'product_unit' => $unit->short_name ?: $unit->name,
+                    'setting_id' => $settingId,
+                    'product_cost' => 0,
+                    'product_price' => 0,
+                    'product_quantity' => 0,
+                    'stock_managed' => 1,
+                    'is_purchased' => 1,
+                    'is_sold' => 1,
+                    'product_note' => $description,
+                ];
+            });
+        }
+
+        if ($product->wasRecentlyCreated) {
             Log::info('[SalesImport] Created new product', [
                 'product_id' => $product->id,
                 'name' => $cleanName,
@@ -437,7 +491,7 @@ class SalesImportService
         }
 
         // Cache it
-        $this->productsCache[$normalizedName] = $product;
+        $this->productsCache[$canonicalKey] = $product;
 
         return $product;
     }
@@ -542,21 +596,40 @@ class SalesImportService
      */
     protected function preloadProductsForBatch(Collection $rows): void
     {
-        // Extract unique product names from rows (preserve case for index usage)
-        $productNames = $rows->map(function ($row) {
-            $parsed = $this->parseProductName($row->raw_json['produk'] ?? '');
-            return trim($parsed['clean_name']);
-        })->filter()->unique()->values()->toArray();
+        $namesToResolve = [];
+        foreach ($rows as $row) {
+            $rawName = $row->raw_json['produk'] ?? '';
+            $parsed = $this->parseProductName($rawName);
+            $cleanName = trim($parsed['clean_name']);
+            if ($cleanName !== '') {
+                try {
+                    $identity = $this->canonicalizer->canonicalize($cleanName);
+                    if (!isset($namesToResolve[$identity['canonical_key']])) {
+                        $namesToResolve[$identity['canonical_key']] = $cleanName;
+                    }
+                } catch (\InvalidArgumentException $e) {
+                    // Ignore invalid names
+                }
+            }
+        }
 
-        if (empty($productNames)) {
+        if (empty($namesToResolve)) {
             return;
         }
 
-        // Load products in a single query using index
-        $products = Product::whereIn('product_name', $productNames)->get();
+        foreach ($namesToResolve as $canonicalKey => $cleanName) {
+            if (isset($this->productsCache[$canonicalKey])) {
+                continue;
+            }
 
-        foreach ($products as $product) {
-            $this->productsCache[strtolower($product->product_name)] = $product;
+            try {
+                $product = $this->productResolver->resolveExisting($cleanName);
+                if ($product) {
+                    $this->productsCache[$canonicalKey] = $product;
+                }
+            } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+                // Do not cache, allowing normal import processing to fail and surface ambiguity
+            }
         }
 
         Log::info('[SalesImport] Pre-loaded products', ['count' => count($this->productsCache)]);

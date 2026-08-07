@@ -320,15 +320,39 @@ class ProcessProductImportBatch implements ShouldQueue
         $tier2Price = $this->dec($this->parsePrice($payload['tier_2_price'] ?? $payload['average_price'] ?? null));
         $purchasePrice = $this->dec($this->parsePrice($payload['purchase_price'] ?? $payload['average_price'] ?? null));
 
-        $nameKey = mb_strtolower($normalizedName);
+        $resolver = app(\Modules\Product\Services\ProductResolver::class);
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
+
+        try {
+            $identity = $canonicalizer->canonicalize($normalizedName);
+            $nameKey = $identity['canonical_key'];
+            $cleanName = $identity['display_name'];
+        } catch (\InvalidArgumentException $e) {
+            $nameKey = mb_strtolower($normalizedName);
+            $cleanName = $normalizedName;
+        }
+
         $codeInput = trim((string) ($payload['product_code'] ?? ''));
 
         $product = null;
         if ($codeInput !== '') {
             $product = Product::where('product_code', $codeInput)->first();
+            if ($product) {
+                $dbNormalizedName = app(\Modules\Product\Services\ProductCanonicalizer::class)->canonicalize($product->product_name)['canonical_key'];
+                if ($dbNormalizedName !== $nameKey) {
+                    $this->recordFailure($row, "Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$normalizedName}'.", 'error');
+                    return;
+                }
+            }
         }
+
         if (!$product) {
-            $product = Product::where('product_name', $normalizedName)->first();
+            try {
+                $product = $resolver->resolveExisting($normalizedName);
+            } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+                $this->recordFailure($row, 'Produk duplikat ambigu.', 'error');
+                return;
+            }
         }
 
         if ($product) {
@@ -347,7 +371,7 @@ class ProcessProductImportBatch implements ShouldQueue
                 ]);
                 DB::commit();
                 $this->recordSuccess($row, $product->id);
-            } catch (Throwable $e) {
+            } catch (\Throwable $e) {
                 DB::rollBack();
                 $this->recordFailure($row, Str::limit($e->getMessage(), 2000));
             }
@@ -370,41 +394,56 @@ class ProcessProductImportBatch implements ShouldQueue
         try {
             DB::beginTransaction();
 
-            $unitId = $this->firstOrCreateUnit($unitName);
+            $product = $resolver->resolveOrCreate($normalizedName, function ($displayName, $canonicalKey) use ($resolvedCode, $unitName) {
+                $unitId = $this->firstOrCreateUnit($unitName);
+                return [
+                    'product_code'            => $resolvedCode ?: null,
+                    'barcode'                 => null,
+                    'category_id'             => null,
+                    'brand_id'                => null,
+                    'base_unit_id'            => $unitId,
+                    'unit_id'                 => $unitId,
+                    'stock_managed'           => 1,
+                    'product_stock_alert'     => 0,
+                    'product_quantity'        => 0,
+                    'serial_number_required'  => 0,
+                    'setting_id'              => $this->defaultSettingId,
+                    'is_purchased'            => 1,
+                    'purchase_price'          => 0,
+                    'purchase_tax_id'         => null,
+                    'is_sold'                 => 1,
+                    'sale_price'              => 0,
+                    'sale_tax_id'             => null,
+                    'tier_1_price'            => 0,
+                    'tier_2_price'            => 0,
+                    'product_price'           => 0,
+                    'product_cost'            => 0,
+                    'product_order_tax'       => 0,
+                    'product_tax_type'        => 0,
+                    'profit_percentage'       => 0,
+                    'last_purchase_price'     => 0,
+                    'average_purchase_price'  => 0,
+                ];
+            });
 
-            $product = Product::create([
-                'product_name'            => $normalizedName,
-                'product_code'            => $resolvedCode ?: null,
-                'barcode'                 => null,
-                'category_id'             => null,
-                'brand_id'                => null,
-                'base_unit_id'            => $unitId,
-                'unit_id'                 => $unitId,
-                'stock_managed'           => 1,
-                'product_stock_alert'     => 0,
-                'product_quantity'        => 0,
-                'serial_number_required'  => 0,
-                'setting_id'              => $this->defaultSettingId,
-                'is_purchased'            => 1,
-                'purchase_price'          => 0,
-                'purchase_tax_id'         => null,
-                'is_sold'                 => 1,
-                'sale_price'              => 0,
-                'sale_tax_id'             => null,
-                'tier_1_price'            => 0,
-                'tier_2_price'            => 0,
-                'product_price'           => 0,
-                'product_cost'            => 0,
-                'product_order_tax'       => 0,
-                'product_tax_type'        => 0,
-                'profit_percentage'       => 0,
-                'last_purchase_price'     => 0,
-                'average_purchase_price'  => 0,
-            ]);
-
-            ProductPrice::seedForSettings(
-                $product->id,
-                [
+            if ($product->wasRecentlyCreated) {
+                ProductPrice::seedForSettings(
+                    $product->id,
+                    [
+                        'sale_price'             => $salePrice,
+                        'tier_1_price'           => $tier1Price,
+                        'tier_2_price'           => $tier2Price,
+                        'last_purchase_price'    => $purchasePrice,
+                        'average_purchase_price' => $purchasePrice,
+                        'purchase_tax_id'        => null,
+                        'sale_tax_id'            => null,
+                    ],
+                    $this->settingIds
+                );
+            } else {
+                ProductPrice::upsertFor([
+                    'product_id'             => $product->id,
+                    'setting_id'             => $this->defaultSettingId,
                     'sale_price'             => $salePrice,
                     'tier_1_price'           => $tier1Price,
                     'tier_2_price'           => $tier2Price,
@@ -412,12 +451,16 @@ class ProcessProductImportBatch implements ShouldQueue
                     'average_purchase_price' => $purchasePrice,
                     'purchase_tax_id'        => null,
                     'sale_tax_id'            => null,
-                ],
-                $this->settingIds
-            );
+                ]);
+            }
 
             DB::commit();
-        } catch (Throwable $e) {
+            $this->recordSuccess($row, $product->id);
+            Log::info('[ProductImportBatch] Row imported successfully', ['batch_id' => $this->batchId, 'row_id' => $row->id, 'product_id' => $product->id]);
+        } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
+            DB::rollBack();
+            $this->recordFailure($row, 'Produk duplikat ambigu.', 'error');
+        } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[ProductImportBatch] Row failed exception', [
                 'batch_id' => $this->batchId,
@@ -1181,59 +1224,67 @@ class ProcessProductImportBatch implements ShouldQueue
 
         if (!empty($payload['product_code'])) {
             $product = Product::where('product_code', $payload['product_code'])->first();
-            if ($product) return $product;
+            if ($product) {
+                $dbNormalizedName = app(\Modules\Product\Services\ProductCanonicalizer::class)->canonicalize($product->product_name)['canonical_key'];
+                $expectedNormalized = app(\Modules\Product\Services\ProductCanonicalizer::class)->canonicalize($cleanName)['canonical_key'];
+                if ($dbNormalizedName !== $expectedNormalized) {
+                    throw new \Exception("Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$cleanName}'.");
+                }
+            }
         }
 
-        $product = Product::whereRaw('LOWER(product_name) = ?', [mb_strtolower($cleanName)])->first();
-        if ($product) return $product;
-
-        $unitId = $this->firstOrCreateUnit((string) ($payload['unit_name'] ?? 'Pcs'));
+        $resolver = app(\Modules\Product\Services\ProductResolver::class);
+        $unitName = (string) ($payload['unit_name'] ?? 'Pcs');
         $codeInput = trim((string) ($payload['product_code'] ?? ''));
         $productCode = $codeInput !== '' ? $codeInput : null;
 
-        $product = Product::create([
-            'product_name'            => $cleanName,
-            'product_code'            => $productCode,
-            'barcode'                 => null,
-            'category_id'             => null,
-            'brand_id'                => null,
-            'base_unit_id'            => $unitId,
-            'unit_id'                 => $unitId,
-            'stock_managed'           => 1,
-            'product_stock_alert'     => 0,
-            'product_quantity'        => 0,
-            'serial_number_required'  => 0,
-            'setting_id'              => $this->defaultSettingId,
-            'is_purchased'            => 1,
-            'purchase_price'          => 0,
-            'purchase_tax_id'         => null,
-            'is_sold'                 => 1,
-            'sale_price'              => 0,
-            'sale_tax_id'             => null,
-            'tier_1_price'            => 0,
-            'tier_2_price'            => 0,
-            'product_price'           => 0,
-            'product_cost'            => 0,
-            'product_order_tax'       => 0,
-            'product_tax_type'        => 0,
-            'profit_percentage'       => 0,
-            'last_purchase_price'     => 0,
-            'average_purchase_price'  => 0,
-        ]);
+        $product = $resolver->resolveOrCreate($cleanName, function ($displayName, $canonicalKey) use ($unitName, $productCode) {
+            $unitId = $this->firstOrCreateUnit($unitName);
+            return [
+                'product_code'            => $productCode,
+                'barcode'                 => null,
+                'category_id'             => null,
+                'brand_id'                => null,
+                'base_unit_id'            => $unitId,
+                'unit_id'                 => $unitId,
+                'stock_managed'           => 1,
+                'product_stock_alert'     => 0,
+                'product_quantity'        => 0,
+                'serial_number_required'  => 0,
+                'setting_id'              => $this->defaultSettingId,
+                'is_purchased'            => 1,
+                'purchase_price'          => 0,
+                'purchase_tax_id'         => null,
+                'is_sold'                 => 1,
+                'sale_price'              => 0,
+                'sale_tax_id'             => null,
+                'tier_1_price'            => 0,
+                'tier_2_price'            => 0,
+                'product_price'           => 0,
+                'product_cost'            => 0,
+                'product_order_tax'       => 0,
+                'product_tax_type'        => 0,
+                'profit_percentage'       => 0,
+                'last_purchase_price'     => 0,
+                'average_purchase_price'  => 0,
+            ];
+        });
 
-        \Modules\Product\Entities\ProductPrice::seedForSettings(
-            $product->id,
-            [
-                'sale_price'             => 0,
-                'tier_1_price'           => 0,
-                'tier_2_price'           => 0,
-                'last_purchase_price'    => 0,
-                'average_purchase_price' => 0,
-                'purchase_tax_id'        => null,
-                'sale_tax_id'            => null,
-            ],
-            $this->settingIds
-        );
+        if ($product->wasRecentlyCreated) {
+            \Modules\Product\Entities\ProductPrice::seedForSettings(
+                $product->id,
+                [
+                    'sale_price'             => 0,
+                    'tier_1_price'           => 0,
+                    'tier_2_price'           => 0,
+                    'last_purchase_price'    => 0,
+                    'average_purchase_price' => 0,
+                    'purchase_tax_id'        => null,
+                    'sale_tax_id'            => null,
+                ],
+                $this->settingIds
+            );
+        }
 
         return $product;
     }

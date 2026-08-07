@@ -100,15 +100,15 @@ class ProductImportChunkStockTest extends TestCase
         $stock = ProductStock::where('product_id', $product->id)->firstOrFail();
         $transaction = Transaction::where('product_id', $product->id)->firstOrFail();
 
-        $this->assertSame(7, $stock->quantity);
-        $this->assertSame(5, $stock->quantity_non_tax);
-        $this->assertSame(2, $stock->quantity_tax);
-        $this->assertSame(0, $stock->broken_quantity_non_tax);
-        $this->assertSame(0, $stock->broken_quantity_tax);
-        $this->assertSame(7, $transaction->quantity);
-        $this->assertSame(5, $transaction->quantity_non_tax);
-        $this->assertSame(2, $transaction->quantity_tax);
-        $this->assertSame(7, $transaction->after_quantity_at_location);
+        $this->assertEquals(7, $stock->quantity);
+        $this->assertEquals(5, $stock->quantity_non_tax);
+        $this->assertEquals(2, $stock->quantity_tax);
+        $this->assertEquals(0, $stock->broken_quantity_non_tax);
+        $this->assertEquals(0, $stock->broken_quantity_tax);
+        $this->assertEquals(7, $transaction->quantity);
+        $this->assertEquals(5, $transaction->quantity_non_tax);
+        $this->assertEquals(2, $transaction->quantity_tax);
+        $this->assertEquals(7, $transaction->after_quantity_at_location);
 
         // Simulate a follow-up adjustment that moves one non-tax unit to broken stock.
         $stock->update([
