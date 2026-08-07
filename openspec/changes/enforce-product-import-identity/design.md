@@ -71,6 +71,46 @@ The survivor default may be the lowest ID for operator convenience, but it must 
 
 Alternative: automatically merge every group to the lowest ID in a migration. Rejected because product codes, price rows, and historical links can require operator review and a migration cannot safely request it.
 
+### 5a. Conflict handling in reconciliation (Task 3.3 specifics)
+
+Reference migration must reject the entire group on conflict rather than auto-deleting or merging. Specific conflict types:
+
+**Product Prices Collisions**: The `(product_id, setting_id)` unique key prevents moving a retired product's price rows if the survivor already has a price row for that setting.
+- **Action:** Reject the collision group and report both conflicting price row IDs and values.
+- **Rationale:** Price reconciliation requires operator judgment (take survivor's, take max, merge average cost, etc.); no automatic behavior is safe.
+- **Future:** A separate, explicitly-designed operator decision workflow may reconcile price values after this merge completes.
+
+**Bundle Item Semantic Conflicts**: After repointing bundle item FK to survivor, if any bundle would contain both the survivor and a retired product as components, reject the group.
+- **Example:** Bundle "Combo A" contains [Retired-5, Item-B]. Repointing Retired-5 → Survivor-2 would create [Survivor-2, Item-B, Survivor-2], a duplicate component.
+- **Action:** Detect semantic duplicates before mutation and reject with full bundle/item details.
+- **Rationale:** Bundle composition changes product cost/pricing; operator must review.
+
+**No Automatic Deletion**: The "action='delete' for conflicting prices" pattern is rejected entirely. Every reference must either migrate (FK update) or be rejected. Deletion is destructive and violates the non-destructive retirement goal.
+
+### 5b. Reconciliation workflow specifics (Task 3.3)
+
+The operator workflow is a strict CLI command (not UI) with explicit arguments:
+
+```
+php artisan product:reconcile-catalog-group \
+  --survivor-id=<ID> \
+  --retired-ids=<ID1>,<ID2>,... \
+  --confirm
+```
+
+Workflow steps inside a single transaction:
+
+1. Re-run the canonical-group plan: verify survivor and all retired IDs share the canonical key, have no unsupported references.
+2. **Preflight conflicts** before any updates:
+   - Iterate `product_prices`: for each retired product's price row, check if survivor already has a row for (product_id, setting_id). If yes, report both rows with values and reject the entire group.
+   - Iterate `product_bundle_items`: for each bundle item referencing a retired product, simulate the FK update and detect semantic duplicates. If any bundle would contain both survivor and retired post-migration, report and reject.
+3. **Migrate simple relations** (11 supported): iterate and update FKs by primary key, recording each moved row in `product_reference_migrations`.
+4. **Verify zero supported refs** on every retired product post-migration.
+5. **Retire products** and assign canonical key to survivor.
+6. On any error in steps 1–5: rollback entire transaction and report reason.
+
+**Result counts:** Return exact count map for all 11 supported relations; zero counts for all unsupported (enforced pre-migration).
+
 ## Risks / Trade-offs
 
 - [Existing duplicate rows prevent a complete backfill] → Add the nullable key first, publish a preflight report, and make duplicate groups explicit conflicts until reconciled.
@@ -90,8 +130,16 @@ Alternative: automatically merge every group to the lowest ID in a migration. Re
 
 Rollback: code can be reverted while retaining the nullable key and audit records. The reconciliation workflow must be transactional per group and retain a mapping/audit trail so a deliberate operational reversal can be performed; no automatic destructive rollback is allowed.
 
-## Open Questions
+## Open Questions (Resolved)
 
-- Which product relations must be supported by the reconciliation workflow in the first implementation (at minimum purchase/sale details, product prices, stocks, transactions, dispatch/return links, bundles, and conversion rows)?
-- Should retired duplicate products be soft-deactivated if the schema supports it, or retained as non-sellable/non-purchasable records with a survivor reference?
-- When an existing canonical product and a source product code disagree, should imports only log the discrepancy or mark the source row for operator review?
+✓ **Supported relations:** Confirmed as 11: transactions, product_prices, product_stocks, purchase_details, sale_details, dispatch_details, sale_return_details, purchase_return_details, product_bundles (parent_product_id), product_bundle_items (product_id), product_unit_conversions.
+
+✓ **Retired product retention:** Soft-archived using `merged_into_id` without deletion; no separate deactivation status needed.
+
+✓ **Product code conflicts:** Import-time discrepancies are logged per existing behavior; reconciliation does not re-evaluate codes.
+
+✓ **Product prices collision handling:** Reject the entire group and report conflicting rows with values; no auto-deletion or "take survivor" merging.
+
+✓ **Bundle item semantic conflicts:** Detect and reject groups where repointing would create duplicate bundle components.
+
+✓ **Conflict handling pattern:** All conflicts → reject and report; no automatic destructive actions; future operator decisions handled separately.
