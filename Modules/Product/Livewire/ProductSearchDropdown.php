@@ -70,7 +70,7 @@ class ProductSearchDropdown extends Component
             return;
         }
 
-        $query = Product::query()
+        $query = Product::query()->active()
             ->where(function ($q) {
                 $q->where('product_name', 'like', '%' . $this->search . '%')
                   ->orWhere('product_code', 'like', '%' . $this->search . '%');

@@ -36,6 +36,7 @@ class TransferScanResolverService
 
         // 1. Exact barcode match on products
         $productByBarcode = Product::query()
+            ->active()
             ->where('setting_id', $settingId)
             ->where('stock_managed', true)
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])

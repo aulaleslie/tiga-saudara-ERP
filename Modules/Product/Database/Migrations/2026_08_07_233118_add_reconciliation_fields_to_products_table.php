@@ -17,7 +17,7 @@ return new class extends Migration
             $table->unsignedBigInteger('merged_into_id')->nullable()->after('canonical_name');
             $table->timestamp('merged_at')->nullable()->after('merged_into_id');
 
-            $table->foreign('merged_into_id')->references('id')->on('products')->onDelete('set null');
+            $table->foreign('merged_into_id')->references('id')->on('products')->onDelete('restrict');
         });
     }
 

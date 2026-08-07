@@ -70,7 +70,7 @@ class BarcodeProductSearch extends Component
             return;
         }
 
-        $product = Product::query()
+        $product = Product::query()->active()
             ->where('barcode', '=', $trimmed)
             ->first(['id', 'product_name', 'product_code', 'product_unit']);
 

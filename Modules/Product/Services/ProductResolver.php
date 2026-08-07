@@ -18,13 +18,15 @@ class ProductResolver
 
     protected function findCandidates(string $canonicalKey)
     {
-        $existing = Product::where('canonical_name', $canonicalKey)
+        $existing = Product::active()
+            ->where('canonical_name', $canonicalKey)
             ->orderBy('id', 'asc')
             ->get();
             
         // Fetch legacy products that haven't been backfilled (e.g. collision groups)
         // We fetch the remaining NULLs and apply the exact same canonicalizer in PHP
-        $legacy = Product::whereNull('canonical_name')
+        $legacy = Product::active()
+            ->whereNull('canonical_name')
             ->orderBy('id', 'asc')
             ->get()
             ->filter(function ($product) use ($canonicalKey) {

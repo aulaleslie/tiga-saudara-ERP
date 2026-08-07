@@ -80,6 +80,7 @@ class GlobalSalesFilters extends Component
 
             // Load products
             $this->products = Product::query()
+                ->active()
                 ->orderBy('product_name')
                 ->limit(200)
                 ->get(['id', 'product_name', 'product_code']);

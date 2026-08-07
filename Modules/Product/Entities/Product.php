@@ -253,16 +253,16 @@ class Product extends BaseModel implements HasMedia
     public function scopeGlobalSearch($query, $search)
     {
         if (empty($search)) {
-            return $query;
+            return $query->active();
         }
 
         $tokens = array_filter(explode(' ', $search), 'strlen');
 
         if (empty($tokens)) {
-            return $query;
+            return $query->active();
         }
 
-        return $query->where(function ($q) use ($tokens) {
+        return $query->active()->where(function ($q) use ($tokens) {
             foreach ($tokens as $token) {
                 $q->where(function ($sub) use ($token) {
                     $sub->where('product_name', 'like', '%' . $token . '%')
@@ -312,11 +312,11 @@ class Product extends BaseModel implements HasMedia
     }
 
     /**
-     * Merge audits where this product was the survivor.
+     * Merge events where this product was the survivor.
      */
-    public function survivorMergeAudits(): HasMany
+    public function survivorMergeEvents(): HasMany
     {
-        return $this->hasMany(ProductMergeAudit::class, 'survivor_product_id');
+        return $this->hasMany(ProductMergeEvent::class, 'survivor_product_id');
     }
 
     /**

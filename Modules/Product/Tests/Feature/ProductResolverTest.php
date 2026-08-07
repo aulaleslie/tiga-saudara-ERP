@@ -98,6 +98,42 @@ class ProductResolverTest extends TestCase
         $this->resolver->resolveExisting('Legacy Dup');
     }
 
+    public function test_retired_legacy_null_duplicate_no_longer_makes_matching_ambiguous()
+    {
+        $survivor = Product::create([
+            'product_name' => 'Legacy Dup',
+            'setting_id' => 1,
+            'unit_id' => 1,
+            'base_unit_id' => 1,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_quantity' => 0,
+            'stock_managed' => 1,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+        ]);
+
+        Product::create([
+            'product_name' => 'Legacy   Dup',
+            'setting_id' => 1,
+            'unit_id' => 1,
+            'base_unit_id' => 1,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_quantity' => 0,
+            'stock_managed' => 1,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'merged_into_id' => $survivor->id,
+        ]);
+
+        // It should not throw an exception anymore because the retired product is excluded
+        $product = $this->resolver->resolveExisting('Legacy Dup');
+        
+        $this->assertNotNull($product);
+        $this->assertEquals($survivor->id, $product->id);
+    }
+
     public function test_resolve_existing_returns_null_if_not_found()
     {
         $product = $this->resolver->resolveExisting('Unknown Product');

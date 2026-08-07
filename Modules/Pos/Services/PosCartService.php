@@ -1203,6 +1203,7 @@ class PosCartService
     private function resolveCartProduct(int $settingId, int $productId): array
     {
         $product = Product::query()
+            ->active()
             ->where('id', $productId)
             ->where(function($q) {
                 $q->where('stock_managed', true)
@@ -1490,7 +1491,7 @@ class PosCartService
             return null;
         }
 
-        $product = Product::query()->whereKey($productId)->with('unit')->first();
+        $product = Product::query()->active()->whereKey($productId)->with('unit')->first();
         if (!$product) {
             return null;
         }

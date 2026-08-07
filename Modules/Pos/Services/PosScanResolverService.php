@@ -46,6 +46,7 @@ class PosScanResolverService
 
         // 1. Exact barcode match on products
         $productByBarcode = Product::query()
+            ->active()
             ->where(function($q) {
                 $q->where('stock_managed', true)
                   ->orWhere('is_sold', true);
