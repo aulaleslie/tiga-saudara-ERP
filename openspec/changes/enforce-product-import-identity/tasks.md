@@ -1,11 +1,11 @@
 ## 1. Canonical identity foundation
 
-- [ ] 1.1 Inventory every production import entry point that resolves or creates `Product` records and document each source's marker policy and creation defaults.
-- [ ] 1.2 Add a shared Product-module canonicalizer that normalizes supported Unicode whitespace, documented source markers, display names, and case-folded identity keys.
-- [ ] 1.3 Add unit tests covering case, repeated/Unicode whitespace, leading `*`, trailing standalone `TP`, and preservation of non-marker punctuation/text.
-- [ ] 1.4 Add a nullable canonical identity key and supporting schema/index changes compatible with MySQL and SQLite; ensure all new import-created products persist it.
-- [ ] 1.5 Implement the shared resolver's explicit existing-only and resolve-or-create operations, including scoped handling of canonical-key unique conflicts.
-- [ ] 1.6 Add concurrency-focused tests proving simultaneous creation attempts for one canonical identity result in one product.
+- [x] 1.1 Inventory every production import entry point that resolves or creates `Product` records and document each source's marker policy and creation defaults.
+- [x] 1.2 Add a shared Product-module canonicalizer that normalizes supported Unicode whitespace, documented source markers, display names, and case-folded identity keys.
+- [x] 1.3 Add unit tests covering case, repeated/Unicode whitespace, leading `*`, trailing standalone `TP`, and preservation of non-marker punctuation/text.
+- [x] 1.4 Add a nullable canonical identity key and supporting schema/index changes compatible with MySQL and SQLite; ensure all new import-created products persist it.
+- [x] 1.5 Implement the shared resolver's explicit existing-only and resolve-or-create operations, including scoped handling of canonical-key unique conflicts.
+- [x] 1.6 Add concurrency-focused tests proving simultaneous creation attempts for one canonical identity result in one product.
 
 ## 2. Import path integration
 

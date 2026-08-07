@@ -27,6 +27,14 @@ class Product extends BaseModel implements HasMedia
 
     protected $with = ['media', 'brand:id,name', 'category:id,category_name'];
 
+    protected function shouldUppercase(string $key): bool
+    {
+        if (in_array($key, ['product_name', 'canonical_name'])) {
+            return false;
+        }
+        return parent::shouldUppercase($key);
+    }
+
     // (Scout requires an index name; we’ll override per-setting at query time)
     public function searchableAs(): string
     {
