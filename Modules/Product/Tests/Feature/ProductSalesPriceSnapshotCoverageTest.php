@@ -176,7 +176,7 @@ class ProductSalesPriceSnapshotCoverageTest extends TestCase
 
         $rows = ProductImportRow::where('batch_id', $batch->id)->get();
         $this->assertEquals('error', $rows[0]->status);
-        $this->assertStringContainsString('Exact name collision', $rows[0]->error_message);
+        $this->assertStringContainsString('Ambiguous product name', $rows[0]->error_message);
     }
 
     public function test_create_versus_edit_permission_behavior()
