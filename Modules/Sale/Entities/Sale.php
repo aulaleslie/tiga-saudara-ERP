@@ -8,10 +8,12 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\ReportingDateAudit;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Spatie\Tags\HasTags;
@@ -32,6 +34,9 @@ class Sale extends BaseModel
         'paid_amount' => 'decimal:2',
         'due_amount' => 'decimal:2',
         'archived_at' => 'datetime',
+        'date' => 'date',
+        'reporting_date' => 'date',
+        'due_date' => 'date',
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';
@@ -81,6 +86,15 @@ class Sale extends BaseModel
     public function serialTrackings(): HasMany
     {
         return $this->hasMany(SalesOrderSerialTracking::class, 'sale_id', 'id');
+    }
+
+    public function reportingDateAudits(): MorphMany
+    {
+        return $this->morphMany(ReportingDateAudit::class, 'auditable');
+    }
+
+    public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
+        return $this->reporting_date ?? $this->date;
     }
 
     public static function boot(): void

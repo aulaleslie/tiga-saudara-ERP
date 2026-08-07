@@ -175,7 +175,7 @@
                 <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
                 <td>{{ $purchase->tax_ref_no ?? '-' }}</td>
                 <td>
-                    {{ $this->formatDate($purchase->date) }}
+                    {{ $this->formatDate($purchase->effective_date) }}
                 </td>
                 <td>
                     {{ $this->formatDate($purchase->due_date) }}

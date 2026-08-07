@@ -21,6 +21,7 @@ use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
 use Modules\Purchase\Http\Controllers\PurchaseUploadController;
 use Modules\Purchase\Http\Controllers\GlobalPurchasePaymentController;
 use Modules\Purchase\Http\Controllers\PurchaseCorrectionController;
+use Modules\Purchase\Http\Controllers\PurchaseReportingDateController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -95,6 +96,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             Route::get('/purchases/{purchase}/receiving-completion/preview', [PurchaseController::class, 'previewReceivingCompletion'])->name('purchases.receiving-completion.preview');
             Route::post('/purchases/{purchase}/receiving-completion/submit', [PurchaseController::class, 'submitReceivingCompletion'])->name('purchases.receiving-completion.submit');
         });
+
+    // Purchase Reporting Date Overrides
+    Route::post('/purchases/{purchase}/reporting-date', [PurchaseReportingDateController::class, 'store'])->name('purchases.reporting-date.store');
+    Route::delete('/purchases/{purchase}/reporting-date', [PurchaseReportingDateController::class, 'destroy'])->name('purchases.reporting-date.destroy');
 
     // Global Purchase Payments
     Route::group(['middleware' => ['can:purchasePayments.global.access']], function () {

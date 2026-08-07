@@ -56,7 +56,7 @@
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
                         <div>Faktur: <strong>INV/{{ $sale->reference }}</strong></div>
-                        <div>Tanggal: {{ Carbon::parse($sale->date)->format('d M, Y') }}</div>
+                        <div>Tanggal: {{ Carbon::parse($sale->effective_date)->format('d M, Y') }}</div>
                         <div class="mt-2">
                             <livewire:sale.tax-ref-no-editor
                                 :saleId="$sale->id"
@@ -443,10 +443,123 @@
                         </a>
                     @endif
                 @endcan
+
+                @can('overrideReportingDate', $sale)
+                    <button type="button" id="reportingDateOverrideButton" class="btn btn-secondary" data-toggle="modal" data-target="#reportingDateOverrideModal">
+                        <i class="bi bi-calendar-event mr-2"></i> Ubah Tanggal Pelaporan
+                    </button>
+                @endcan
             </div>
             @endif
         </div>
+
+        {{-- Reporting Date Override Modal (rendered only with permission) --}}
+        @can('overrideReportingDate', $sale)
+        {{-- Reporting Date Audit History --}}
+        @if($sale->reportingDateAudits->isNotEmpty() || $sale->reporting_date)
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Riwayat Perubahan Tanggal Pelaporan</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Tanggal Asli</th>
+                                <th>Tanggal Sebelumnya</th>
+                                <th>Tanggal Saat Ini</th>
+                                <th>Alasan</th>
+                                <th>Petugas</th>
+                                <th>Waktu</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($sale->reportingDateAudits->sortByDesc('id') as $audit)
+                                <tr>
+                                    <td>{{ $audit->original_date ? Carbon::parse($audit->original_date)->format('d M, Y') : '-' }}</td>
+                                    <td>{{ $audit->prior_override ? Carbon::parse($audit->prior_override)->format('d M, Y') : '-' }}</td>
+                                    <td>{{ $audit->resulting_override ? Carbon::parse($audit->resulting_override)->format('d M, Y') : '-' }}</td>
+                                    <td>{{ $audit->reason }}</td>
+                                    <td>{{ $audit->actor->name ?? '-' }}</td>
+                                    <td>{{ $audit->created_at->format('d M, Y H:i') }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">Belum ada perubahan tanggal pelaporan</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        @endif
     </div>
+        {{-- Reporting Date Override Modal --}}
+        <div class="modal fade" id="reportingDateOverrideModal" tabindex="-1" role="dialog" aria-labelledby="reportingDateOverrideModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="reportingDateOverrideModalLabel">Ubah Tanggal Pelaporan</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="reportingDateErrorAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                        <div class="alert alert-info small mb-3">
+                            <strong>Tanggal Dokumen Asli:</strong> {{ Carbon::parse($sale->date)->format('d M, Y') }}<br>
+                            @if($sale->reporting_date)
+                                <strong>Tanggal Pelaporan Saat Ini:</strong> {{ Carbon::parse($sale->reporting_date)->format('d M, Y') }}
+                            @else
+                                <strong>Tanggal Pelaporan Saat Ini:</strong> -
+                            @endif
+                        </div>
+
+                        <!-- Create/Replace Tab -->
+                        <div class="reportingDateMode" id="createOverrideMode">
+                            <form id="reportingDateOverrideForm">
+                                @csrf
+                                <div class="form-group">
+                                    <label for="reporting_date">Tanggal Pelaporan <span class="text-danger">*</span></label>
+                                    <input type="date" id="reporting_date" name="reporting_date" class="form-control" value="{{ $sale->reporting_date ? $sale->reporting_date->format('Y-m-d') : '' }}" required>
+                                    <small class="form-text text-muted">Tanggal pelaporan bisa berupa tanggal lampau, sekarang, atau masa depan</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="reason">Alasan <span class="text-danger">*</span></label>
+                                    <textarea id="reason" name="reason" class="form-control" rows="3" required placeholder="Masukkan alasan perubahan tanggal pelaporan..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">Simpan Tanggal Pelaporan</button>
+                            </form>
+                        </div>
+
+                        <!-- Clear Tab -->
+                        @if($sale->reporting_date)
+                        <div class="reportingDateMode d-none mt-3 pt-3 border-top" id="clearOverrideMode">
+                            <form id="clearReportingDateForm">
+                                @csrf
+                                <p class="text-muted mb-3">Untuk menghapus override tanggal pelaporan, masukkan alasan:</p>
+                                <div class="form-group">
+                                    <label for="clearReason">Alasan Penghapusan <span class="text-danger">*</span></label>
+                                    <textarea id="clearReason" name="reason" class="form-control" rows="3" required placeholder="Masukkan alasan penghapusan override..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-outline-danger btn-block">Hapus Override</button>
+                            </form>
+                        </div>
+                        @endif
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                        @if($sale->reporting_date)
+                        <button type="button" class="btn btn-outline-warning" id="toggleClearMode">Tampilkan Mode Hapus</button>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endcan
 @endsection
 
 @push('page_scripts')
@@ -506,4 +619,153 @@
 
     {{-- Yajra DataTables scripts for payments --}}
     {!! $dataTable->scripts() !!}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const overrideForm = document.getElementById('reportingDateOverrideForm');
+            const clearForm = document.getElementById('clearReportingDateForm');
+            const errorAlert = document.getElementById('reportingDateErrorAlert');
+            const toggleClearBtn = document.getElementById('toggleClearMode');
+            const createMode = document.getElementById('createOverrideMode');
+            const clearMode = document.getElementById('clearOverrideMode');
+
+            function showError(message) {
+                errorAlert.textContent = message;
+                errorAlert.classList.remove('d-none');
+            }
+
+            function clearError() {
+                errorAlert.classList.add('d-none');
+                errorAlert.textContent = '';
+            }
+
+            function showSuccessToast(message) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Berhasil',
+                    text: message,
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000,
+                });
+            }
+
+            if (toggleClearBtn) {
+                toggleClearBtn.addEventListener('click', function () {
+                    if (createMode.classList.contains('d-none')) {
+                        createMode.classList.remove('d-none');
+                        clearMode.classList.add('d-none');
+                        toggleClearBtn.textContent = 'Tampilkan Mode Hapus';
+                        toggleClearBtn.classList.remove('btn-outline-info');
+                        toggleClearBtn.classList.add('btn-outline-warning');
+                    } else {
+                        createMode.classList.add('d-none');
+                        clearMode.classList.remove('d-none');
+                        toggleClearBtn.textContent = 'Tampilkan Mode Ubah';
+                        toggleClearBtn.classList.remove('btn-outline-warning');
+                        toggleClearBtn.classList.add('btn-outline-info');
+                    }
+                    clearError();
+                });
+            }
+
+            if (overrideForm) {
+                overrideForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    clearError();
+
+                    const reportingDate = document.getElementById('reporting_date').value;
+                    const reason = document.getElementById('reason').value;
+
+                    if (!reportingDate) {
+                        showError('Tanggal pelaporan harus diisi');
+                        return;
+                    }
+
+                    if (!reason.trim()) {
+                        showError('Alasan harus diisi');
+                        return;
+                    }
+
+                    fetch('{{ route("sales.reporting-date.store", $sale->id) }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                        },
+                        body: JSON.stringify({
+                            reporting_date: reportingDate,
+                            reason: reason,
+                        }),
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(data => {
+                                throw new Error(data.message || 'Terjadi kesalahan server');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showSuccessToast(data.message || 'Tanggal pelaporan berhasil disimpan');
+                            setTimeout(() => location.reload(), 1500);
+                        } else {
+                            showError(data.message || 'Terjadi kesalahan');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showError(error.message || 'Terjadi kesalahan saat mengirim data');
+                    });
+                });
+            }
+
+            if (clearForm) {
+                clearForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    clearError();
+
+                    const reason = document.getElementById('clearReason').value;
+
+                    if (!reason.trim()) {
+                        showError('Alasan penghapusan harus diisi');
+                        return;
+                    }
+
+                    fetch('{{ route("sales.reporting-date.destroy", $sale->id) }}', {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                        },
+                        body: JSON.stringify({
+                            reason: reason,
+                        }),
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(data => {
+                                throw new Error(data.message || 'Terjadi kesalahan server');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showSuccessToast(data.message || 'Override tanggal pelaporan berhasil dihapus');
+                            setTimeout(() => location.reload(), 1500);
+                        } else {
+                            showError(data.message || 'Terjadi kesalahan');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showError(error.message || 'Terjadi kesalahan saat mengirim data');
+                    });
+                });
+            }
+        });
+    </script>
 @endpush

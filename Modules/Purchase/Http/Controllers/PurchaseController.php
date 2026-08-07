@@ -267,6 +267,8 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
+        $purchase->load(['reportingDateAudits.actor']);
+
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
         $receivedNotes = ReceivedNote::where('po_id', $purchase->id)

@@ -156,6 +156,7 @@ class SaleController extends Controller
             'saleDispatches.details.product',
             'saleDispatches.details.location',
             'salePayments.paymentMethod',
+            'reportingDateAudits.actor',
         ]);
         Log::info('SaleController::show: relationships loaded');
 

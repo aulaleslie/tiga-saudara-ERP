@@ -28,6 +28,7 @@ class Purchase extends BaseModel implements HasMedia
 
     protected $fillable = [
         'date',
+        'reporting_date',
         'due_date',
         'reference',
         'supplier_id',
@@ -57,6 +58,9 @@ class Purchase extends BaseModel implements HasMedia
 
     protected $casts = [
         'is_tax_included' => 'boolean',
+        'date' => 'date',
+        'reporting_date' => 'date',
+        'due_date' => 'date',
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';
@@ -140,6 +144,14 @@ class Purchase extends BaseModel implements HasMedia
 
     public function receivedNotes() {
         return $this->hasMany(ReceivedNote::class, 'po_id', 'id');
+    }
+
+    public function reportingDateAudits() {
+        return $this->morphMany(ReportingDateAudit::class, 'auditable');
+    }
+
+    public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
+        return $this->reporting_date ?? $this->date;
     }
 
     public static function boot(): void

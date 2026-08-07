@@ -34,9 +34,9 @@ Create a reporting-date audit store with the tenant, document type/id, actor, re
 
 Existing `purchase_corrections` is not reused: it applies only to received purchase monetary corrections and carries payment-reconciliation semantics that are inappropriate for sales or a date-only override.
 
-### Gate the action by a dedicated permission and lifecycle eligibility
+### Gate ordinary users by a dedicated permission and lifecycle eligibility
 
-Introduce `purchases.reporting-date.override` and `sales.reporting-date.override`. Backend authorization must enforce both the dedicated permission and active-setting ownership; hiding an action in the UI is insufficient.
+Introduce `purchases.reporting-date.override` and `sales.reporting-date.override`. For non–Super Admin users, backend authorization must enforce the dedicated permission, active-setting ownership, and eligible lifecycle status; hiding an action in the UI is insufficient. The application-wide `Gate::before` Super Admin bypass remains unchanged and therefore authorizes Super Admins without an explicit reporting-date permission, tenant, or lifecycle gate.
 
 Eligible purchases are `APPROVED`, `RECEIVED PARTIALLY`, `RECEIVED`, `RETURNED PARTIALLY`, or `RETURNED`. Eligible sales are `APPROVED`, `DISPATCHED PARTIALLY`, `DISPATCHED`, `RETURNED PARTIALLY`, or `RETURNED`. Payment status is not an independent condition because the existing workflow only permits payment after the relevant approval stage.
 

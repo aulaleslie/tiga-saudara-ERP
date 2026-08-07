@@ -194,7 +194,7 @@
                     @endif
                 </td>
                 <td>
-                    {{ Carbon::parse($sale->date)->format('d M Y') }}
+                    {{ Carbon::parse($sale->effective_date)->format('d M Y') }}
                 </td>
                 @if ($globalMode)
                 <td>

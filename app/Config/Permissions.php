@@ -181,6 +181,7 @@ return [
         'purchases.approval' => 'Persetujuan',
         'purchases.archive' => 'Arsipkan',
         'purchases.received.correct' => 'Koreksi Penerimaan',
+        'purchases.reporting-date.override' => 'Ubah Tanggal Pelaporan',
     ],
 
     'Penerimaan Barang' => [
@@ -259,6 +260,7 @@ return [
         'sales.show' => 'Tampilkan',
         'sales.approval' => 'Persetujuan',
         'sales.archive' => 'Arsipkan',
+        'sales.reporting-date.override' => 'Ubah Tanggal Pelaporan',
     ],
 
     'Pengiriman Penjualan' => [

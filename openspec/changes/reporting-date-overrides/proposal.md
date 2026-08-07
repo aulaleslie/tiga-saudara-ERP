@@ -4,7 +4,7 @@ Approved and completed purchase and sale documents are intentionally locked from
 
 ## What Changes
 
-- Add a permission-gated reporting-date override for eligible purchase and sale documents.
+- Add a reporting-date override for eligible purchase and sale documents, gated by dedicated permissions and lifecycle rules for ordinary users while preserving the application's existing unrestricted Super Admin authorization bypass.
 - Allow authorized users to create, replace, or clear an override using any valid calendar date; every successful change requires a reason and produces an immutable audit entry.
 - Preserve the original document date and all financial, stock, workflow, reference-number, and due-date data.
 - Show the effective date (`reporting_date` when present, otherwise the original document `date`) as the date on purchase and sale operational lists and detail pages.

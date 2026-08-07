@@ -5,7 +5,9 @@ namespace App\Providers;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
 use App\Policies\PurchasePolicy;
+use App\Policies\SalePolicy;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Sale\Entities\Sale;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -16,6 +18,7 @@ class AuthServiceProvider extends ServiceProvider
      */
     protected $policies = [
         Purchase::class => PurchasePolicy::class,
+        Sale::class => SalePolicy::class,
     ];
 
     /**
