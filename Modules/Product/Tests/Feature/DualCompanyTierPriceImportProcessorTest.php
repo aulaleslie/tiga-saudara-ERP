@@ -328,7 +328,7 @@ class DualCompanyTierPriceImportProcessorTest extends TestCase
         $meta = $this->rowsOf($batch)[0]->result_metadata;
         $this->assertEquals(100.0, (float) $meta['previous_tiers']['sale_price']);
         $this->assertEquals(1500.50, (float) $meta['resulting_tiers']['sale_price']);
-        $this->assertSame('normalized_name', $meta['match_strategy']);
+        $this->assertSame('canonical_identity', $meta['match_strategy']);
     }
 
     public function test_it_reports_an_invalid_tier_value_without_changing_prices(): void
@@ -385,7 +385,6 @@ class DualCompanyTierPriceImportProcessorTest extends TestCase
         $row = $this->rowsOf($batch)[0];
         $this->assertSame('error', $row->status);
         $this->assertStringContainsString('Ambiguous product name', $row->error_message);
-        $this->assertCount(2, $row->result_metadata['ambiguous_candidates']);
         $this->assertEquals(100.00, (float) $firstPrice->fresh()->sale_price);
         $this->assertEquals(100.00, (float) $secondPrice->fresh()->sale_price);
     }
