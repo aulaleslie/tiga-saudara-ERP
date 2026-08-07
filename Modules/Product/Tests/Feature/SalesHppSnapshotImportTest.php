@@ -282,11 +282,11 @@ class SalesHppSnapshotImportTest extends TestCase
         $this->assertEquals(300, $detail2->cost_unit_snapshot);
     }
 
-    public function test_it_handles_normalized_name_differences()
+    public function test_punctuation_differences_require_exact_match()
     {
         $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
         $product = Product::create([
-            'product_name' => 'ALFA-INK CANON BLACK 100CC', // Name with hyphen
+            'product_name' => 'ALFA-INK CANON BLACK 100CC', // Name with hyphen (preserved in identity)
             'product_code' => 'SKU-TEST-5',
             'product_quantity' => 0,
             'product_price' => 0,
@@ -295,7 +295,7 @@ class SalesHppSnapshotImportTest extends TestCase
             'unit_id' => $unit->id,
             'base_unit_id' => $unit->id,
         ]);
-        
+
         $sale = Sale::create([
             'setting_id' => $this->tigaNusa->id,
             'imported_sales_reference_number' => 'INV-001',
@@ -309,24 +309,30 @@ class SalesHppSnapshotImportTest extends TestCase
             'payment_method' => 'Cash',
             'reference' => 'TEST-005',
         ]);
-        
+
         $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'ALFA-INK CANON BLACK 100CC', 'product_code' => 'SKU-TEST-5', 'quantity' => 1, 'price' => 200, 'unit_price' => 200, 'sub_total' => 200, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
 
-        // CSV contains name without hyphen but should still normalize and match
+        // CSV has different punctuation (no hyphen)—must fail without exact match
         $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
                       "Sales Invoice,INV-001,* ALFA INK CANON BLACK 100CC,-1,100\n";
-                      
+
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp.csv', $csvContent);
         $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
 
         $batch = ProductImportBatch::latest()->first();
         (new ProcessProductImportBatch($batch->id))->handle();
-        
+
+        $batch->refresh();
+        // Must fail (punctuation differences not stripped)
+        $this->assertEquals(0, $batch->success_rows);
+        $this->assertEquals(1, $batch->error_rows);
+
         $detail->refresh();
-        $this->assertEquals(100, $detail->cost_unit_snapshot);
+        // Cost should not be updated
+        $this->assertNull($detail->cost_unit_snapshot);
     }
 
-    public function test_it_uses_similarity_fallback_for_alias_differences()
+    public function test_it_rejects_non_matching_product_names_without_fuzzy_fallback()
     {
         $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
         $product = Product::create([
@@ -339,7 +345,7 @@ class SalesHppSnapshotImportTest extends TestCase
             'unit_id' => $unit->id,
             'base_unit_id' => $unit->id,
         ]);
-        
+
         $sale = Sale::create([
             'setting_id' => $this->tigaNusa->id,
             'imported_sales_reference_number' => 'INV-002',
@@ -353,29 +359,34 @@ class SalesHppSnapshotImportTest extends TestCase
             'payment_method' => 'Cash',
             'reference' => 'TEST-006',
         ]);
-        
+
         $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'BATERAI EVEREADY 9V', 'product_code' => 'SKU-TEST-6', 'quantity' => 1, 'price' => 200, 'unit_price' => 200, 'sub_total' => 200, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
 
-        // CSV contains alias difference that won't strictly normalize to exact match
+        // CSV contains different product name (not exact match)—should fail, no fuzzy fallback
         $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
                       "Sales Invoice,INV-002,* BATERAI EVEREADY / CAMELION 9V,-1,100\n";
-                      
+
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp2.csv', $csvContent);
         $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
 
         $batch = ProductImportBatch::latest()->first();
         (new ProcessProductImportBatch($batch->id))->handle();
-        
+
+        $batch->refresh();
+        // Should fail (no exact match, no fuzzy fallback)
+        $this->assertEquals(0, $batch->success_rows);
+        $this->assertEquals(1, $batch->error_rows);
+
         $detail->refresh();
-        // Should be successfully matched via fallback
-        $this->assertEquals(100, $detail->cost_unit_snapshot);
+        // Cost should not be updated
+        $this->assertNull($detail->cost_unit_snapshot);
     }
 
-    public function test_it_uses_explicit_alias_canonicalization_for_weak_matches()
+    public function test_exact_mouse_votre_sanurpro_voxy_hpp_input_succeeds()
     {
         $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
         $product = Product::create([
-            'product_name' => 'MOUSE VOTRE / SANURPRO',
+            'product_name' => 'MOUSE VOTRE / SANURPRO / VOXY',
             'product_code' => 'SKU-TEST-7',
             'product_quantity' => 0,
             'product_price' => 0,
@@ -384,7 +395,7 @@ class SalesHppSnapshotImportTest extends TestCase
             'unit_id' => $unit->id,
             'base_unit_id' => $unit->id,
         ]);
-        
+
         $sale = Sale::create([
             'setting_id' => $this->tigaNusa->id,
             'imported_sales_reference_number' => 'INV-003',
@@ -398,41 +409,92 @@ class SalesHppSnapshotImportTest extends TestCase
             'payment_method' => 'Cash',
             'reference' => 'TEST-007',
         ]);
-        
-        $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'MOUSE VOTRE / SANURPRO', 'product_code' => 'SKU-TEST-7', 'quantity' => 1, 'price' => 200, 'unit_price' => 200, 'sub_total' => 200, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
 
+        $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'MOUSE VOTRE / SANURPRO / VOXY', 'product_code' => 'SKU-TEST-7', 'quantity' => 1, 'price' => 200, 'unit_price' => 200, 'sub_total' => 200, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
+
+        // Exact match with marker: should succeed
         $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
-                      "Sales Invoice,INV-003,* MOUSE VOTRE / VOXY,-1,100\n";
-                      
+                      "Sales Invoice,INV-003,* MOUSE VOTRE / SANURPRO / VOXY,-1,100\n";
+
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp3.csv', $csvContent);
         $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
 
         $batch = ProductImportBatch::latest()->first();
         (new ProcessProductImportBatch($batch->id))->handle();
-        
+
+        $batch->refresh();
+        $this->assertEquals(1, $batch->success_rows);
+
         $detail->refresh();
-        // Should be successfully matched via exact match after alias canonicalization
         $this->assertEquals(100, $detail->cost_unit_snapshot);
     }
 
-    public function test_it_preserves_subtypes_for_odner_via_explicit_aliases()
+    public function test_mouse_votre_voxy_fails_when_source_is_sanurpro()
     {
         $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
-        
+        $product = Product::create([
+            'product_name' => 'MOUSE VOTRE / SANURPRO / VOXY',
+            'product_code' => 'SKU-TEST-7B',
+            'product_quantity' => 0,
+            'product_price' => 0,
+            'product_cost' => 0,
+            'setting_id' => $this->tigaNusa->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->tigaNusa->id,
+            'imported_sales_reference_number' => 'INV-003B',
+            'date' => now(),
+            'customer_name' => 'Test',
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'reference' => 'TEST-007B',
+        ]);
+
+        $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'MOUSE VOTRE / SANURPRO / VOXY', 'product_code' => 'SKU-TEST-7B', 'quantity' => 1, 'price' => 200, 'unit_price' => 200, 'sub_total' => 200, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
+
+        // Different brand variant: must fail
+        $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
+                      "Sales Invoice,INV-003B,* MOUSE VOTRE / VOXY,-1,100\n";
+
+        $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp3b.csv', $csvContent);
+        $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
+
+        $batch = ProductImportBatch::latest()->first();
+        (new ProcessProductImportBatch($batch->id))->handle();
+
+        $batch->refresh();
+        $this->assertEquals(0, $batch->success_rows);
+        $this->assertEquals(1, $batch->error_rows);
+
+        $detail->refresh();
+        $this->assertNull($detail->cost_unit_snapshot, 'Cost should not be updated on rejection');
+    }
+
+    public function test_odner_products_require_exact_name_matching()
+    {
+        $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
+
         $product1 = Product::create([
-            'product_name' => 'ODNER FOLIO 75MM',
+            'product_name' => 'ODNER FOLIO 75MM BENEX LAMI',
             'product_code' => 'SKU-ODN-F',
             'product_quantity' => 0, 'product_price' => 0, 'product_cost' => 0,
             'setting_id' => $this->perdana->id, 'unit_id' => $unit->id, 'base_unit_id' => $unit->id,
         ]);
-        
+
         $product2 = Product::create([
-            'product_name' => 'ODNER KWT 75MM',
+            'product_name' => 'ODNER KWT 75MM BENEX LAMI KECIL KWARTO',
             'product_code' => 'SKU-ODN-K',
             'product_quantity' => 0, 'product_price' => 0, 'product_cost' => 0,
             'setting_id' => $this->perdana->id, 'unit_id' => $unit->id, 'base_unit_id' => $unit->id,
         ]);
-        
+
         $sale = Sale::create([
             'setting_id' => $this->perdana->id,
             'imported_sales_reference_number' => 'JL4940',
@@ -440,38 +502,39 @@ class SalesHppSnapshotImportTest extends TestCase
             'status' => 'DISPATCHED', 'payment_status' => 'Paid', 'payment_method' => 'Cash',
             'reference' => 'TEST-008',
         ]);
-        
-        // Same quantity for both to ensure fallback doesn't mix them up
-        $detail1 = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product1->id, 'product_name' => 'ODNER FOLIO 75MM', 'product_code' => 'SKU-ODN-F', 'quantity' => 20, 'price' => 200, 'unit_price' => 200, 'sub_total' => 4000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
-        $detail2 = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product2->id, 'product_name' => 'ODNER KWT 75MM', 'product_code' => 'SKU-ODN-K', 'quantity' => 20, 'price' => 200, 'unit_price' => 200, 'sub_total' => 4000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
 
+        $detail1 = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product1->id, 'product_name' => 'ODNER FOLIO 75MM BENEX LAMI', 'product_code' => 'SKU-ODN-F', 'quantity' => 20, 'price' => 200, 'unit_price' => 200, 'sub_total' => 4000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
+        $detail2 = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product2->id, 'product_name' => 'ODNER KWT 75MM BENEX LAMI KECIL KWARTO', 'product_code' => 'SKU-ODN-K', 'quantity' => 20, 'price' => 200, 'unit_price' => 200, 'sub_total' => 4000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
+
+        // Exact match required
         $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
                       "Sales Invoice,JL4940,ODNER FOLIO 75MM BENEX LAMI,-20,100\n" .
                       "Sales Invoice,JL4940,ODNER KWT 75MM BENEX LAMI KECIL KWARTO,-20,150\n";
-                      
+
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp_odner.csv', $csvContent);
         $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
 
         $batch = ProductImportBatch::latest()->first();
         (new ProcessProductImportBatch($batch->id))->handle();
-        
+
         $detail1->refresh();
         $detail2->refresh();
-        
+
+        // Both succeed with exact matches
         $this->assertEquals(100, $detail1->cost_unit_snapshot);
         $this->assertEquals(150, $detail2->cost_unit_snapshot);
     }
     
-    public function test_it_uses_explicit_alias_canonicalization_for_sambungan_kabel_lan()
+    public function test_sambungan_kabel_lan_rj45_requires_exact_match()
     {
         $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
         $product = Product::create([
-            'product_name' => 'SAMBUNGAN KABEL LAN',
+            'product_name' => 'SAMBUNGAN KABEL LAN RJ45 INDOOR',
             'product_code' => 'SKU-LAN-1',
             'product_quantity' => 0, 'product_price' => 0, 'product_cost' => 0,
             'setting_id' => $this->perdana->id, 'unit_id' => $unit->id, 'base_unit_id' => $unit->id,
         ]);
-        
+
         $sale = Sale::create([
             'setting_id' => $this->perdana->id,
             'imported_sales_reference_number' => 'INV-004',
@@ -479,20 +542,189 @@ class SalesHppSnapshotImportTest extends TestCase
             'status' => 'DISPATCHED', 'payment_status' => 'Paid', 'payment_method' => 'Cash',
             'reference' => 'TEST-009',
         ]);
-        
-        $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'SAMBUNGAN KABEL LAN', 'product_code' => 'SKU-LAN-1', 'quantity' => 5, 'price' => 200, 'unit_price' => 200, 'sub_total' => 1000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
 
+        $detail = SaleDetails::create(['sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => 'SAMBUNGAN KABEL LAN RJ45 INDOOR', 'product_code' => 'SKU-LAN-1', 'quantity' => 5, 'price' => 200, 'unit_price' => 200, 'sub_total' => 1000, 'product_discount_amount' => 0, 'product_tax_amount' => 0]);
+
+        // Exact match required
         $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
                       "Sales Invoice,INV-004,SAMBUNGAN KABEL LAN RJ45 INDOOR,-5,50\n";
-                      
+
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('hpp_lan.csv', $csvContent);
         $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
 
         $batch = ProductImportBatch::latest()->first();
         (new ProcessProductImportBatch($batch->id))->handle();
-        
+
         $detail->refresh();
         $this->assertEquals(50, $detail->cost_unit_snapshot);
+    }
+
+    public function test_canonicalizer_preserves_mouse_votre_sanurpro_voxy_display_name()
+    {
+        // Test that the canonicalizer preserves the full display name
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
+        $identity = $canonicalizer->canonicalize('MOUSE VOTRE / SANURPRO / VOXY');
+
+        $this->assertEquals('MOUSE VOTRE / SANURPRO / VOXY', $identity['display_name']);
+        $this->assertEquals('mouse votre / sanurpro / voxy', $identity['canonical_key']);
+    }
+
+    public function test_canonicalizer_retains_laptop_without_truncation()
+    {
+        // Test that LAPTOP is not transformed to LAP or similar
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
+        $identity = $canonicalizer->canonicalize('LAPTOP');
+
+        $this->assertEquals('LAPTOP', $identity['display_name']);
+        $this->assertEquals('laptop', $identity['canonical_key']);
+
+        // Also test with various markers
+        $withAsterisk = $canonicalizer->canonicalize('* LAPTOP');
+        $this->assertEquals('LAPTOP', $withAsterisk['display_name']);
+        $this->assertEquals('laptop', $withAsterisk['canonical_key']);
+
+        $withTp = $canonicalizer->canonicalize('LAPTOP TP');
+        $this->assertEquals('LAPTOP', $withTp['display_name']);
+        $this->assertEquals('laptop', $withTp['canonical_key']);
+    }
+
+    public function test_marker_whitespace_and_case_variants_still_match()
+    {
+        // Test that different marker/whitespace/case variants resolve to the same canonical key
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
+
+        $variants = [
+            'LAPTOP ACER',           // base
+            '*  LAPTOP ACER',        // asterisk + extra spaces
+            'Laptop Acer TP',        // case folded + TP
+            ' * laptop  acer tp ',   // all features
+        ];
+
+        $canonicalKeys = array_map(
+            fn($name) => $canonicalizer->canonicalize($name)['canonical_key'],
+            $variants
+        );
+
+        // All variants should have the same canonical key
+        $uniqueKeys = array_unique($canonicalKeys);
+        $this->assertCount(1, $uniqueKeys, 'Variants should canonicalize to the same key');
+    }
+
+    public function test_non_identical_hpp_source_name_does_not_update_and_produces_failure()
+    {
+        $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
+        $product = Product::create([
+            'product_name' => 'LAPTOP DELL',
+            'product_code' => 'SKU-DELL-1',
+            'product_quantity' => 0,
+            'product_price' => 0,
+            'product_cost' => 0,
+            'setting_id' => $this->tigaNusa->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->tigaNusa->id,
+            'imported_sales_reference_number' => 'INV-DELL-001',
+            'date' => now(),
+            'customer_name' => 'Test',
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'reference' => 'TEST-DELL',
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => 'LAPTOP DELL',
+            'product_code' => 'SKU-DELL-1',
+            'quantity' => 1,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        // HPP has a different source name (LAPTOP HP)—not identical, must fail
+        $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
+                      "Sales Invoice,INV-DELL-001,* LAPTOP HP,-1,450\n";
+
+        $file = UploadedFile::fake()->createWithContent('hpp_fail.csv', $csvContent);
+        $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
+
+        $batch = ProductImportBatch::latest()->first();
+        (new ProcessProductImportBatch($batch->id))->handle();
+
+        $batch->refresh();
+        // Must fail (no match, no fuzzy fallback)
+        $this->assertEquals(0, $batch->success_rows);
+        $this->assertEquals(1, $batch->error_rows);
+
+        $detail->refresh();
+        // Cost must not be updated
+        $this->assertNull($detail->cost_unit_snapshot);
+    }
+
+    public function test_legitimate_marker_whitespace_case_variants_still_resolve()
+    {
+        $unit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'pcs']);
+        $product = Product::create([
+            'product_name' => 'LAPTOP ACER',
+            'product_code' => 'SKU-ACER-001',
+            'product_quantity' => 0,
+            'product_price' => 0,
+            'product_cost' => 0,
+            'setting_id' => $this->tigaNusa->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->tigaNusa->id,
+            'imported_sales_reference_number' => 'INV-ACER-001',
+            'date' => now(),
+            'customer_name' => 'Test',
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'reference' => 'TEST-ACER',
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => 'LAPTOP ACER',
+            'product_code' => 'SKU-ACER-001',
+            'quantity' => 1,
+            'price' => 600,
+            'unit_price' => 600,
+            'sub_total' => 600,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        // Multiple whitespace variations + marker + case variations should match
+        $csvContent = "Tipe Transaksi,No. Transaksi,Barang,Mutasi,Harga Rata-rata\n" .
+                      "Sales Invoice,INV-ACER-001,*  Laptop   Acer,-1,550\n"; // Extra spaces, lowercase
+
+        $file = UploadedFile::fake()->createWithContent('hpp_variants.csv', $csvContent);
+        $this->post(route('products.sales-hpp-snapshot.upload'), ['file' => $file]);
+
+        $batch = ProductImportBatch::latest()->first();
+        (new ProcessProductImportBatch($batch->id))->handle();
+
+        $detail->refresh();
+        // Legitimate whitespace/case/marker variants must still match
+        $this->assertEquals(550, $detail->cost_unit_snapshot);
     }
 
     public function test_it_appends_sales_without_hpp_snapshot_report_rows_for_import_period()

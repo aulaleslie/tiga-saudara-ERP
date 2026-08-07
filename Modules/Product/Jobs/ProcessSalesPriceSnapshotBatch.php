@@ -203,6 +203,7 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
         }
 
         $markerResolver = app(\App\Support\SalesImportMarkerResolver::class);
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
 
         $resolver = app(\Modules\Product\Services\ProductResolver::class);
         $resolvedCache = [];
@@ -211,7 +212,7 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
 
         \Modules\Product\Entities\ProductImportRow::where('batch_id', $batch->id)
             ->whereNull('status')
-            ->chunkById(500, function ($rows) use ($batch, $settingsMap, $settingsMapNames, $settingsPkpStatus, $settingsLocationMap, $daizuSettingId, $markerResolver, $resolver, &$resolvedCache, &$validRows) {
+            ->chunkById(500, function ($rows) use ($batch, $settingsMap, $settingsMapNames, $settingsPkpStatus, $settingsLocationMap, $daizuSettingId, $markerResolver, $canonicalizer, $resolver, &$resolvedCache, &$validRows) {
                 foreach ($rows as $row) {
                     $payload = is_array($row->raw_json) ? $row->raw_json : json_decode($row->raw_json, true);
                     $rawName = $payload['name*'] ?? '';
@@ -263,7 +264,6 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                     // 2. Parse Product
                     $parsed = $markerResolver->parseProductName($rawName);
                     $cleanName = $parsed['clean_name'];
-                    $normalizedName = $markerResolver->normalizeProductName($cleanName);
 
                     $meta['clean_product_name'] = $cleanName;
                     $meta['raw_marker'] = $parsed['marker'];
@@ -274,14 +274,22 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                     if ($productCode !== '') {
                         $product = \Modules\Product\Entities\Product::where('product_code', $productCode)->first();
                         if ($product) {
-                            // Check code/name disagreement
-                            $dbCleanName = $markerResolver->parseProductName($product->product_name)['clean_name'];
-                            $dbNormalizedName = $markerResolver->normalizeProductName($dbCleanName);
-                            if ($dbNormalizedName !== $normalizedName) {
+                            // Check code/name disagreement using canonical keys
+                            try {
+                                $incomingIdentity = $canonicalizer->canonicalize($cleanName);
+                                $dbIdentity = $canonicalizer->canonicalize($product->product_name);
+                                if ($incomingIdentity['canonical_key'] !== $dbIdentity['canonical_key']) {
+                                    $meta['ambiguous_candidates'] = [
+                                        ['id' => $product->id, 'name' => $product->product_name]
+                                    ];
+                                    $this->recordFailure($batch, $row, "Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$cleanName}'.", 'error', $meta);
+                                    continue;
+                                }
+                            } catch (\InvalidArgumentException $e) {
                                 $meta['ambiguous_candidates'] = [
                                     ['id' => $product->id, 'name' => $product->product_name]
                                 ];
-                                $this->recordFailure($batch, $row, "Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$normalizedName}'.", 'error', $meta);
+                                $this->recordFailure($batch, $row, "Code/name validation error: {$e->getMessage()}", 'error', $meta);
                                 continue;
                             }
                             $matchStrategy = 'code';

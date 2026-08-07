@@ -36,25 +36,18 @@ class SalesImportMarkerResolver
         ];
     }
 
-    /** @var array<string, string> */
-    private array $aliases = [
-        'MOUSE VOTRE VOXY' => 'MOUSE VOTRE SANURPRO',
-        'ODNER FOLIO 75MM BENEX LAMI' => 'ODNER FOLIO 75MM',
-        'ODNER KWT 75MM BENEX LAMI KECIL KWARTO' => 'ODNER KWT 75MM',
-        'SAMBUNGAN KABEL LAN RJ45 INDOOR' => 'SAMBUNGAN KABEL LAN',
-    ];
-
     /**
-     * Normalize product name: uppercase, remove punctuation, collapse whitespace.
+     * Normalize product name: uppercase, collapse whitespace.
+     * Does NOT rewrite product names via aliases or fuzzy matching.
+     * Preserves punctuation and all words for canonical identity.
      */
     public function normalizeProductName(string $rawName): string
     {
         $normalized = strtoupper($rawName);
-        $normalized = preg_replace('/[^\w\s]/', ' ', $normalized);
         $normalized = preg_replace('/\s+/', ' ', $normalized);
         $normalized = trim($normalized);
 
-        return $this->aliases[$normalized] ?? $normalized;
+        return $normalized;
     }
 
     /**

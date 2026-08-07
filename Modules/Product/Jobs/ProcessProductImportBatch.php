@@ -303,9 +303,9 @@ class ProcessProductImportBatch implements ShouldQueue
 
         $payload = (array) $row->raw_json;
 
-        $normalizedName = $this->normalizeProductName((string) ($payload['product_name'] ?? ''));
-        if ($normalizedName === '') {
-            $this->recordFailure($row, 'Nama produk wajib setelah normalisasi.');
+        $rawName = (string) ($payload['product_name'] ?? '');
+        if ($rawName === '') {
+            $this->recordFailure($row, 'Nama produk wajib.');
             return;
         }
 
@@ -324,12 +324,12 @@ class ProcessProductImportBatch implements ShouldQueue
         $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
 
         try {
-            $identity = $canonicalizer->canonicalize($normalizedName);
+            $identity = $canonicalizer->canonicalize($rawName);
             $nameKey = $identity['canonical_key'];
-            $cleanName = $identity['display_name'];
+            $displayName = $identity['display_name'];
         } catch (\InvalidArgumentException $e) {
-            $nameKey = mb_strtolower($normalizedName);
-            $cleanName = $normalizedName;
+            $this->recordFailure($row, 'Nama produk tidak valid setelah kanonikalisasi: ' . $e->getMessage());
+            return;
         }
 
         $codeInput = trim((string) ($payload['product_code'] ?? ''));
@@ -338,9 +338,9 @@ class ProcessProductImportBatch implements ShouldQueue
         if ($codeInput !== '') {
             $product = Product::where('product_code', $codeInput)->first();
             if ($product) {
-                $dbNormalizedName = app(\Modules\Product\Services\ProductCanonicalizer::class)->canonicalize($product->product_name)['canonical_key'];
+                $dbNormalizedName = $canonicalizer->canonicalize($product->product_name)['canonical_key'];
                 if ($dbNormalizedName !== $nameKey) {
-                    $this->recordFailure($row, "Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$normalizedName}'.", 'error');
+                    $this->recordFailure($row, "Code/name disagreement: Found ID {$product->id} '{$product->product_name}' but expected '{$displayName}'.", 'error');
                     return;
                 }
             }
@@ -348,7 +348,7 @@ class ProcessProductImportBatch implements ShouldQueue
 
         if (!$product) {
             try {
-                $product = $resolver->resolveExisting($normalizedName);
+                $product = $resolver->resolveExisting($rawName);
             } catch (\Modules\Product\Exceptions\AmbiguousProductResolutionException $e) {
                 $this->recordFailure($row, 'Produk duplikat ambigu.', 'error');
                 return;
@@ -394,7 +394,7 @@ class ProcessProductImportBatch implements ShouldQueue
         try {
             DB::beginTransaction();
 
-            $product = $resolver->resolveOrCreate($normalizedName, function ($displayName, $canonicalKey) use ($resolvedCode, $unitName) {
+            $product = $resolver->resolveOrCreate($rawName, function ($displayNameFromResolver, $canonicalKey) use ($resolvedCode, $unitName) {
                 $unitId = $this->firstOrCreateUnit($unitName);
                 return [
                     'product_code'            => $resolvedCode ?: null,
@@ -482,10 +482,10 @@ class ProcessProductImportBatch implements ShouldQueue
         $this->recordSuccess($row, $product->id);
         
         Log::info('[ProductImportBatch] Product created', [
-            'batch_id' => $this->batchId, 
-            'row_id' => $row->id, 
+            'batch_id' => $this->batchId,
+            'row_id' => $row->id,
             'product_id' => $product->id,
-            'product_name' => $normalizedName
+            'product_name' => $displayName
         ]);
     }
 
@@ -549,19 +549,6 @@ class ProcessProductImportBatch implements ShouldQueue
         $this->batch->increment('success_rows');
     }
 
-    private function normalizeProductName(string $name): string
-    {
-        $name = str_replace(["\u{00A0}", "\u{2007}", "\u{202F}"], ' ', $name);
-        $name = preg_replace('/\s+/u', ' ', $name);
-        $name = trim($name);
-
-        // Remove leading asterisk + spaces
-        $name = preg_replace('/^\*\s*/u', '', $name);
-        // Remove trailing "TP"
-        $name = preg_replace('/\s*TP\s*$/iu', '', $name);
-
-        return trim($name);
-    }
 
     private function parsePrice($value): float
     {
@@ -619,13 +606,20 @@ class ProcessProductImportBatch implements ShouldQueue
     private function loadExistingNameKeys(): array
     {
         $set = [];
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
         Product::query()
             ->select('id', 'product_name')
-            ->chunkById(1000, function ($products) use (&$set) {
+            ->chunkById(1000, function ($products) use (&$set, $canonicalizer) {
                 foreach ($products as $product) {
-                    $normalized = $this->normalizeProductName((string) $product->product_name);
-                    if ($normalized !== '') {
-                        $set[mb_strtolower($normalized)] = true;
+                    try {
+                        $identity = $canonicalizer->canonicalize((string) $product->product_name);
+                        $set[$identity['canonical_key']] = true;
+                    } catch (\InvalidArgumentException $e) {
+                        Log::warning('[ProductImportBatch] Failed to canonicalize existing product', [
+                            'product_id' => $product->id,
+                            'product_name' => $product->product_name,
+                            'error' => $e->getMessage(),
+                        ]);
                     }
                 }
             });
@@ -749,17 +743,20 @@ class ProcessProductImportBatch implements ShouldQueue
             return;
         }
 
-        $normalizedName = $this->normalizeProductName($rawName);
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
 
-        if ($normalizedName === '') {
-            $this->recordFailure($row, 'Nama produk wajib.');
+        try {
+            $identity = $canonicalizer->canonicalize($rawName);
+            $displayName = $identity['display_name'];
+        } catch (\InvalidArgumentException $e) {
+            $this->recordFailure($row, 'Nama produk tidak valid setelah kanonikalisasi: ' . $e->getMessage());
             return;
         }
 
         try {
             DB::beginTransaction();
 
-            $product = $this->matchOrCreateProduct($payload, $normalizedName);
+            $product = $this->matchOrCreateProduct($payload, $displayName);
 
             $stockVal = (int) ($payload['total_quantity'] ?? 0);
 
@@ -833,7 +830,7 @@ class ProcessProductImportBatch implements ShouldQueue
             // Build result metadata for UI row-level stock effect display
             $resultMeta = [
                 'raw_marker'          => $rawMarker,
-                'clean_product_name'  => $normalizedName,
+                'clean_product_name'  => $displayName,
                 'owner_setting_id'    => $ownerId,
                 'owner_setting_name'  => $ownerName,
                 'is_pkp'              => $isPkp,
@@ -863,7 +860,7 @@ class ProcessProductImportBatch implements ShouldQueue
     {
         $payload = (array) $row->raw_json;
         $tipeTransaksi = strtolower(trim((string) ($payload['tipe_transaksi'] ?? '')));
-        
+
         if ($tipeTransaksi !== 'sales invoice') {
             $this->recordFailure($row, 'Baris diabaikan: Tipe transaksi bukan Sales Invoice.', 'skipped');
             return;
@@ -876,8 +873,10 @@ class ProcessProductImportBatch implements ShouldQueue
         }
 
         $rawName = (string) ($payload['raw_product_name'] ?? '');
-        $resolver = app(\App\Support\SalesImportMarkerResolver::class);
-        $ownerKey = $resolver->resolveEffectiveOwnerKey($rawName);
+        $markerResolver = app(\App\Support\SalesImportMarkerResolver::class);
+        $canonicalizer = app(\Modules\Product\Services\ProductCanonicalizer::class);
+
+        $ownerKey = $markerResolver->resolveEffectiveOwnerKey($rawName);
 
         if (!$this->settingsLoaded) {
             $this->daizuSetting = \Modules\Setting\Entities\Setting::where('company_name', 'like', '%DAIZU%')->first();
@@ -903,7 +902,15 @@ class ProcessProductImportBatch implements ShouldQueue
         $ownerName = $owner->company_name;
 
         $cleanName = (string) ($payload['cleaned_product_name'] ?? '');
-        $normalizedCleanName = $resolver->normalizeProductName($cleanName);
+
+        // Canonicalize the HPP source name using ProductCanonicalizer
+        try {
+            $hppIdentity = $canonicalizer->canonicalize($cleanName);
+            $hppCanonicalKey = $hppIdentity['canonical_key'];
+        } catch (\InvalidArgumentException $e) {
+            $this->recordFailure($row, "Nama produk HPP tidak valid setelah kanonikalisasi: {$e->getMessage()}");
+            return;
+        }
 
         $reference = trim((string) ($payload['no_transaksi'] ?? ''));
         if ($reference === '') {
@@ -924,56 +931,24 @@ class ProcessProductImportBatch implements ShouldQueue
             ->whereRaw('ABS(quantity - ?) < 0.001', [abs($mutasi)])
             ->get();
 
-        $qtyDisambiguated = $saleDetails->filter(function ($detail) use ($resolver, $normalizedCleanName) {
-            $parsed = $resolver->parseProductName($detail->product_name);
-            $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
-            return $normalizedDetailName === $normalizedCleanName;
+        $qtyDisambiguated = $saleDetails->filter(function ($detail) use ($canonicalizer, $hppCanonicalKey) {
+            try {
+                $detailIdentity = $canonicalizer->canonicalize($detail->product_name);
+                return $detailIdentity['canonical_key'] === $hppCanonicalKey;
+            } catch (\InvalidArgumentException $e) {
+                return false;
+            }
         });
 
         $matchMethod = 'exact';
         $matchScore = 100.0;
-        $matchedProductName = $normalizedCleanName;
 
         if ($qtyDisambiguated->isEmpty()) {
-            $scoredGroups = [];
-
-            foreach ($saleDetails as $detail) {
-                $parsed = $resolver->parseProductName($detail->product_name);
-                $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
-
-                if (!isset($scoredGroups[$normalizedDetailName])) {
-                    similar_text($normalizedCleanName, $normalizedDetailName, $perc);
-                    $scoredGroups[$normalizedDetailName] = $perc;
-                }
-            }
-
-            arsort($scoredGroups);
-            
-            $topName = key($scoredGroups);
-            $topScore = current($scoredGroups);
-            next($scoredGroups);
-            $secondScore = current($scoredGroups);
-
-            // Clear winner criteria: top score >= 80, and at least 10 points better than second (or no second)
-            if ($topName !== null && $topScore >= 80 && ($secondScore === false || ($topScore - $secondScore) >= 10)) {
-                $qtyDisambiguated = $saleDetails->filter(function ($detail) use ($resolver, $topName) {
-                    $parsed = $resolver->parseProductName($detail->product_name);
-                    $normalizedDetailName = $resolver->normalizeProductName($parsed['clean_name'] ?? $detail->product_name);
-                    return $normalizedDetailName === $topName;
-                });
-                
-                $matchMethod = 'fallback';
-                $matchScore = $topScore;
-                $matchedProductName = $topName;
-            }
-
-            if ($qtyDisambiguated->isEmpty()) {
-                $this->recordFailure($row, "Detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}' dengan mutasi " . abs($mutasi) . " tidak ditemukan (fallback ambigu/gagal).");
-                return;
-            }
+            $this->recordFailure($row, "Detail penjualan untuk produk '{$cleanName}' di invoice '{$reference}' dengan mutasi " . abs($mutasi) . " tidak ditemukan (HPP tidak cocok dengan penjualan).");
+            return;
         }
 
-        $groupKey = $reference . '|' . $ownerId . '|' . $normalizedCleanName . '|' . abs($mutasi);
+        $groupKey = $reference . '|' . $ownerId . '|' . $hppCanonicalKey . '|' . abs($mutasi);
 
         if ($qtyDisambiguated->count() > 1) {
             if (!isset($this->salesHppGroupCounts[$groupKey])) {
@@ -981,14 +956,14 @@ class ProcessProductImportBatch implements ShouldQueue
                     ->where('raw_json->no_transaksi', $reference)
                     ->orderBy('id', 'asc')
                     ->get()
-                    ->filter(function ($sRow) use ($resolver, $ownerId, $normalizedCleanName, $mutasi) {
+                    ->filter(function ($sRow) use ($markerResolver, $canonicalizer, $ownerId, $hppCanonicalKey, $mutasi) {
                         $p = (array) $sRow->raw_json;
                         if (strtolower(trim($p['tipe_transaksi'] ?? '')) !== 'sales invoice') return false;
                         if ((float) ($p['source_quantity'] ?? 0) >= 0) return false;
                         if (abs(abs((float) ($p['source_quantity'] ?? 0)) - abs($mutasi)) > 0.001) return false;
-                        
+
                         $rName = (string) ($p['raw_product_name'] ?? '');
-                        $oKey = $resolver->resolveEffectiveOwnerKey($rName);
+                        $oKey = $markerResolver->resolveEffectiveOwnerKey($rName);
                         $o = match ($oKey) {
                             'daizu' => $this->daizuSetting,
                             'marker:asterisk' => $this->tigaNusaSetting,
@@ -996,13 +971,16 @@ class ProcessProductImportBatch implements ShouldQueue
                             default => $this->perdanaSetting,
                         };
                         if (!$o || $o->id !== $ownerId) return false;
-                        
+
                         $cName = (string) ($p['cleaned_product_name'] ?? '');
-                        if ($resolver->normalizeProductName($cName) !== $normalizedCleanName) return false;
-                        
-                        return true;
+                        try {
+                            $identity = $canonicalizer->canonicalize($cName);
+                            return $identity['canonical_key'] === $hppCanonicalKey;
+                        } catch (\InvalidArgumentException $e) {
+                            return false;
+                        }
                     });
-                
+
                 $this->salesHppGroupCounts[$groupKey] = $similarRows->count();
                 $this->salesHppGroupIds[$groupKey] = $similarRows->pluck('id')->values()->all();
             }
@@ -1012,7 +990,7 @@ class ProcessProductImportBatch implements ShouldQueue
                 $this->recordFailure($row, "Ambiguous match: Ditemukan {$qtyDisambiguated->count()} detail penjualan, tapi {$similarSourceRowsCount} baris HPP untuk produk '{$cleanName}' dengan mutasi " . abs($mutasi) . " di invoice '{$reference}'.");
                 return;
             }
-            
+
             $groupIds = $this->salesHppGroupIds[$groupKey] ?? [];
             $matchIndex = array_search($row->id, $groupIds);
             if ($matchIndex === false) $matchIndex = 0;
@@ -1059,7 +1037,7 @@ class ProcessProductImportBatch implements ShouldQueue
                 'matched_sale_id'     => $sale->id,
                 'matched_sale_detail_id' => $saleDetail->id,
                 'matched_product_name'=> $saleDetail->product_name,
-                'matched_normalized_name' => $matchedProductName,
+                'matched_canonical_key' => $hppCanonicalKey,
                 'match_method'        => $matchMethod,
                 'match_score'         => round($matchScore, 2),
                 'source_quantity'     => $mutasi,
