@@ -1,3 +1,9 @@
+## Purpose
+
+Enforce owner-aware pricing for Sales Price & Stock Snapshot imports, ensuring each row's price tiers update only the resolved owner setting and preserving DAIZU precedence in ownership resolution.
+
+## Requirements
+
 ## ADDED Requirements
 
 ### Requirement: Snapshot price tiers are limited to the resolved owner

@@ -39,19 +39,6 @@ class ProductSalesPriceSnapshotIntegrationTest extends TestCase
         $this->user = \App\Models\User::factory()->create();
     }
 
-    private function getDaizuLocationId(): int
-    {
-        $daizu = Setting::where('company_name', 'DAIZU NUSA')->first();
-        if (!$daizu) {
-            $daizu = Setting::factory()->create(['company_name' => 'DAIZU NUSA']);
-        }
-        $location = \Modules\Setting\Entities\Location::where('setting_id', $daizu->id)->first();
-        if (!$location) {
-            $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $daizu->id]);
-        }
-        return $location->id;
-    }
-
     private function createXlsxFile(string $name, array $data): string
     {
         $spreadsheet = new Spreadsheet();
