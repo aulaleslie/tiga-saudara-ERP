@@ -555,6 +555,15 @@ class PosSessionController extends Controller
 
             if (! $approvalResult['approved']) {
                 $reason = $approvalResult['reason'] ?? 'UNKNOWN';
+
+                \Illuminate\Support\Facades\Log::channel('single')->warning('POS Pickup: Supervisor approval rejected', [
+                    'session_id' => $session,
+                    'user_id' => (int) $user->id,
+                    'supervisor_id' => $supervisorId,
+                    'reason' => $reason,
+                    'approval_id' => $approvalResult['approval_id'] ?? null,
+                ]);
+
                 $message = 'Persetujuan supervisor gagal.';
 
                 if ($reason === 'INVALID_SUPERVISOR') {
@@ -590,6 +599,16 @@ class PosSessionController extends Controller
                 'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - $amount),
             ]);
         } catch (DomainException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Pickup: Rejected by DomainException', [
+                'session_id' => $session,
+                'user_id' => (int) $user->id,
+                'supervisor_id' => $supervisorId,
+                'amount' => $amount,
+                'expected_cash' => $expectedCash,
+                'message' => $exception->getMessage(),
+                'origin' => $exception->getFile().':'.$exception->getLine(),
+            ]);
+
             return response()->json([
                 'message' => $exception->getMessage(),
             ], 403);
