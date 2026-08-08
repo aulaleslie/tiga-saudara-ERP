@@ -579,10 +579,8 @@ class PosSessionController extends Controller
                 return response()->json(['message' => $message], 422);
             }
 
-            // Get supervisor for info logging
-            $supervisor = \App\Models\User::find($supervisorId);
-            
-            // Create safe drop with supervisor info (for compatibility with existing service)
+            // Supervisor already verified via OTP above; pass that approval through
+            // so the safe drop does not re-run the PIN-based credential check.
             $result = $safeDropService->createSafeDrop(
                 $settingId,
                 (int) $posSession->id,
@@ -590,8 +588,9 @@ class PosSessionController extends Controller
                 $amount,
                 null, // denominations
                 'Pengambilan kas dari terminal POS',
-                $supervisor?->email ?? "User #$supervisorId",
-                '***otp-verified***'
+                null, // supervisor identifier (unused for OTP flow)
+                null, // supervisor PIN (unused for OTP flow)
+                $approvalResult
             );
 
             return response()->json([

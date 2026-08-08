@@ -42,7 +42,8 @@ class PosSafeDropService
         ?array $denominations = null,
         ?string $notes = null,
         ?string $supervisorIdentifier = null,
-        ?string $supervisorPin = null
+        ?string $supervisorPin = null,
+        ?array $preApproved = null
     ): array {
         if ($amount <= 0) {
             throw new DomainException('Safe drop amount must be greater than zero.');
@@ -80,7 +81,8 @@ class PosSafeDropService
             $normalizedDenominations,
             $notes,
             $supervisorIdentifier,
-            $supervisorPin
+            $supervisorPin,
+            $preApproved
         ) {
             $session = PosSession::query()
                 ->with('terminal.policy')
@@ -113,7 +115,13 @@ class PosSafeDropService
             $approvedBy = null;
             $approvalResult = 'BYPASSED';
 
-            if (! $isSuperAdmin && (bool) $policy->require_pickup_supervisor_approval) {
+            if ($preApproved !== null) {
+                // Supervisor was already verified upstream (e.g. OTP pickup flow);
+                // reuse that approval instead of re-running credential checks.
+                $approvalId = (int) $preApproved['approval_id'];
+                $approvalResult = (string) $preApproved['approval_result'];
+                $approvedBy = isset($preApproved['approved_by']) ? (int) $preApproved['approved_by'] : null;
+            } elseif (! $isSuperAdmin && (bool) $policy->require_pickup_supervisor_approval) {
                 if (! $supervisorIdentifier || ! $supervisorPin) {
                     throw new DomainException('Supervisor credentials are required for safe drop.');
                 }
