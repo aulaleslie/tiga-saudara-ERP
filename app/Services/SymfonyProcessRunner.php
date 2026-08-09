@@ -15,6 +15,7 @@ class SymfonyProcessRunner implements ProcessRunnerInterface
         $process = new Process($command);
         $process->setTimeout(3600);
         $process->setEnv($env);
+        $process->disableOutput();
 
         $errorOutput = '';
 
@@ -28,7 +29,7 @@ class SymfonyProcessRunner implements ProcessRunnerInterface
 
         return [
             'success' => $process->isSuccessful(),
-            'stderr' => $errorOutput ?: $process->getErrorOutput(),
+            'stderr' => $errorOutput,
         ];
     }
 
