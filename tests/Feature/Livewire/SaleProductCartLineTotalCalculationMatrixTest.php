@@ -1164,4 +1164,162 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
             'final total should equal pre-tax subtotal plus tax'
         );
     }
+
+    public function test_non_pkp_non_divisible_line_total_is_preserved()
+    {
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Non-PKP Test Product',
+            'product_code' => 'NONPKP-001',
+            'product_quantity' => 2000,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'product_unit' => 'pcs',
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 2000,
+            'last_purchase_price' => 1000,
+            'average_purchase_price' => 1000,
+        ]);
+
+        $component = Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])
+            ->call('productSelected', [
+                'id' => $product->id,
+                'product_id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+            ]);
+
+        $cartItem = Cart::instance('sale')->content()->first();
+        $rowId = $cartItem->rowId;
+        $id = $cartItem->id;
+
+        $component->set('quantity.' . $id, 1200)
+            ->call('updateQuantity', $rowId, $id);
+
+        $component->set('line_total.' . $id, 1460000)
+            ->call('updateLineTotal', $rowId, $id);
+
+        $updatedItem = Cart::instance('sale')->content()->first();
+
+        $this->assertEquals(1460000, $updatedItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $this->assertEquals(1460000, $updatedItem->options->sub_total_before_tax, 'No tax in non-PKP');
+        $this->assertEquals(0, $updatedItem->options->product_tax_amount, 'No tax in non-PKP');
+        $this->assertEquals('manual_line_total', $updatedItem->options->pricing_source);
+    }
+
+    public function test_pkp_tax_included_non_divisible_total_is_preserved()
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $product = Product::create([
+            'setting_id' => $this->pkpSetting->id,
+            'product_name' => 'PKP Tax Included Product',
+            'product_code' => 'PKPTAXIN-001',
+            'product_quantity' => 2000,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'product_unit' => 'pcs',
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $this->pkpSetting->id,
+            'sale_price' => 2000,
+            'last_purchase_price' => 1000,
+            'average_purchase_price' => 1000,
+        ]);
+
+        $component = Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])
+            ->set('is_tax_included', true)
+            ->call('productSelected', [
+                'id' => $product->id,
+                'product_id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+            ]);
+
+        $cartItem = Cart::instance('sale')->content()->first();
+        $rowId = $cartItem->rowId;
+        $id = $cartItem->id;
+
+        $component->set('quantity.' . $id, 1200)
+            ->call('updateQuantity', $rowId, $id);
+
+        $component->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
+
+        $component->set('line_total.' . $id, 1460000)
+            ->call('updateLineTotal', $rowId, $id);
+
+        $updatedItem = Cart::instance('sale')->content()->first();
+
+        $this->assertEquals(1460000.00, (float) $updatedItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $subtotalBeforeTax = (float) $updatedItem->options->sub_total_before_tax;
+        $tax = (float) $updatedItem->options->product_tax_amount;
+        $this->assertEquals(1460000.00, round($subtotalBeforeTax + $tax, 2), 'sub_total_before_tax + product_tax_amount must equal sub_total');
+        $this->assertEquals('manual_line_total', $updatedItem->options->pricing_source);
+    }
+
+    public function test_pkp_tax_exclusive_non_divisible_total_is_preserved()
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $product = Product::create([
+            'setting_id' => $this->pkpSetting->id,
+            'product_name' => 'PKP Tax Exclusive Product',
+            'product_code' => 'PKPTAXEX-001',
+            'product_quantity' => 2000,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'product_unit' => 'pcs',
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $this->pkpSetting->id,
+            'sale_price' => 2000,
+            'last_purchase_price' => 1000,
+            'average_purchase_price' => 1000,
+        ]);
+
+        $component = Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])
+            ->set('is_tax_included', false)
+            ->call('productSelected', [
+                'id' => $product->id,
+                'product_id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+            ]);
+
+        $cartItem = Cart::instance('sale')->content()->first();
+        $rowId = $cartItem->rowId;
+        $id = $cartItem->id;
+
+        $component->set('quantity.' . $id, 1200)
+            ->call('updateQuantity', $rowId, $id);
+
+        $component->set('product_tax.' . $id, $this->tax11->id)
+            ->call('updateTax', $rowId, $id, $this->tax11->id);
+
+        $component->set('line_total.' . $id, 1460000)
+            ->call('updateLineTotal', $rowId, $id);
+
+        $updatedItem = Cart::instance('sale')->content()->first();
+
+        $this->assertEquals(1460000.00, (float) $updatedItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $subtotalBeforeTax = (float) $updatedItem->options->sub_total_before_tax;
+        $tax = (float) $updatedItem->options->product_tax_amount;
+        $this->assertEquals(1460000.00, round($subtotalBeforeTax + $tax, 2), 'sub_total_before_tax + product_tax_amount must equal sub_total');
+        $this->assertEquals('manual_line_total', $updatedItem->options->pricing_source);
+    }
 }

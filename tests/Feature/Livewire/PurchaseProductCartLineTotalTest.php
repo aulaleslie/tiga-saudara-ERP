@@ -291,4 +291,99 @@ class PurchaseProductCartLineTotalTest extends TestCase
         $this->assertEquals(1000, $cartItem->price);
         $livewire->assertSee('Total baris lebih dari 0 tidak dimungkinkan dengan diskon 100%.');
     }
+
+    public function test_non_pkp_non_divisible_line_total_is_preserved()
+    {
+        $this->product->update(['product_quantity' => 2000]);
+
+        $livewire = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->set('setting_id', $this->setting->id)
+            ->set('isPkp', false)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+            ])
+            ->set('quantity.' . $this->product->id, 1200)
+            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $livewire->set('line_total.' . $this->product->id, 1460000)
+            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $this->assertEquals(1460000, $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $this->assertEquals(1460000, $cartItem->options->sub_total_before_tax, 'No tax in non-PKP');
+        $this->assertEquals(0, $cartItem->options->product_tax_amount, 'No tax in non-PKP');
+        $this->assertEquals(1216.67, round($cartItem->price, 2), 'Derived unit price should be 1460000 / 1200 = 1216.67');
+    }
+
+    public function test_pkp_tax_included_non_divisible_total_is_preserved()
+    {
+        $this->product->update(['product_quantity' => 2000]);
+
+        $livewire = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->set('setting_id', $this->pkpSetting->id)
+            ->set('isPkp', true)
+            ->set('is_tax_included', true)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+            ])
+            ->set('quantity.' . $this->product->id, 1200)
+            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
+            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+
+        $livewire->set('line_total.' . $this->product->id, 1460000)
+            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $this->assertEquals(1460000.00, (float) $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $subtotalBeforeTax = (float) $cartItem->options->sub_total_before_tax;
+        $tax = (float) $cartItem->options->product_tax_amount;
+        $this->assertEquals(1460000.00, round($subtotalBeforeTax + $tax, 2), 'sub_total_before_tax + product_tax_amount must equal sub_total');
+    }
+
+    public function test_pkp_tax_exclusive_non_divisible_total_is_preserved()
+    {
+        $this->product->update(['product_quantity' => 2000]);
+
+        $livewire = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->set('setting_id', $this->pkpSetting->id)
+            ->set('isPkp', true)
+            ->set('is_tax_included', false)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => 2000,
+                'product_unit' => 'pcs',
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+            ])
+            ->set('quantity.' . $this->product->id, 1200)
+            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
+            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+
+        $livewire->set('line_total.' . $this->product->id, 1460000)
+            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $this->assertEquals(1460000.00, (float) $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');
+        $subtotalBeforeTax = (float) $cartItem->options->sub_total_before_tax;
+        $tax = (float) $cartItem->options->product_tax_amount;
+        $this->assertEquals(1460000.00, round($subtotalBeforeTax + $tax, 2), 'sub_total_before_tax + product_tax_amount must equal sub_total');
+    }
 }

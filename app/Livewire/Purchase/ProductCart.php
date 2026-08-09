@@ -708,6 +708,41 @@ class ProductCart extends Component
         ];
     }
 
+    private function allocateTaxFromAuthoritativeTotal(float $committedTotal, ?int $taxId): array
+    {
+        $committedTotal = round($committedTotal, 2);
+
+        $taxRate = 0;
+        if ($taxId) {
+            $tax = $this->taxes->find($taxId);
+            if ($tax) {
+                $taxRate = $tax->value / 100;
+            }
+        }
+
+        if (!$taxId || $taxRate == 0) {
+            return [
+                'sub_total' => $committedTotal,
+                'sub_total_before_tax' => $committedTotal,
+                'product_tax_amount' => 0.0,
+            ];
+        }
+
+        if ($this->is_tax_included) {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $product_tax_amount = $committedTotal - $subtotal_before_tax;
+        } else {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $product_tax_amount = $committedTotal - $subtotal_before_tax;
+        }
+
+        return [
+            'sub_total' => $committedTotal,
+            'sub_total_before_tax' => $subtotal_before_tax,
+            'product_tax_amount' => $product_tax_amount,
+        ];
+    }
+
     public function updatedDiscountType($value, $name)
     {
         $this->item_discount[$name] = 0;
@@ -891,18 +926,32 @@ class ProductCart extends Component
             $base_price = $effective_price + (float) $discount_input;
         }
 
-        // Let updatePrice handle the recalculation and saving to cart
         $this->unit_price[$product_id] = round($base_price, 2);
 
-        $this->updatePrice($row_id, $product_id);
+        $allocated = $this->allocateTaxFromAuthoritativeTotal($requestedLineTotal, $tax_id);
 
-        // Because of rounding, the new subtotal might be slightly different. Update our local state.
-        $updated_cart_item = Cart::instance($this->cart_instance)->search(function ($item) use ($product_id) {
-            return $item->id == $product_id;
-        })->first();
-        if ($updated_cart_item) {
-            $this->line_total[$product_id] = $updated_cart_item->options->sub_total;
+        $discount_amount = $cart_item->options->product_discount ?? 0;
+        if ($discount_type === 'percentage') {
+            $discount_pct = min(100, max(0, (float) $discount_input)) / 100;
+            $discount_amount = round($this->unit_price[$product_id] * $discount_pct, 2);
         }
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'price' => $this->unit_price[$product_id],
+            'unit_price' => $this->unit_price[$product_id],
+            'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $this->unit_price[$product_id],
+                'sub_total' => $allocated['sub_total'],
+                'sub_total_before_tax' => $allocated['sub_total_before_tax'],
+                'product_tax_amount' => $allocated['product_tax_amount'],
+                'product_discount' => $discount_amount,
+                'product_discount_input' => $discount_input,
+                'product_discount_type' => $discount_type,
+            ]),
+        ]);
+
+        $this->line_total[$product_id] = $allocated['sub_total'];
+        $this->recalculateCart();
     }
 
     public function calculate(array $product, $new_price = null): array

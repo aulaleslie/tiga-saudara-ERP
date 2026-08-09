@@ -963,6 +963,45 @@ class ProductCart extends Component
         ];
     }
 
+    private function allocateTaxFromAuthoritativeTotal(float $committedTotal, ?int $taxId): array
+    {
+        if ($this->cart_instance === 'sale' && !$this->isPkp) {
+            $taxId = null;
+        }
+
+        $taxRate = 0;
+        if ($taxId) {
+            $tax = Tax::find($taxId);
+            if ($tax) {
+                $taxRate = $tax->value / 100;
+            }
+        }
+
+        $committedTotal = round($committedTotal, 2);
+
+        if (!$taxId || $taxRate == 0) {
+            return [
+                'sub_total' => $committedTotal,
+                'subtotal_before_tax' => $committedTotal,
+                'tax_amount' => 0.0,
+            ];
+        }
+
+        if ($this->is_tax_included) {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $tax_amount = $committedTotal - $subtotal_before_tax;
+        } else {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $tax_amount = $committedTotal - $subtotal_before_tax;
+        }
+
+        return [
+            'sub_total' => $committedTotal,
+            'subtotal_before_tax' => $subtotal_before_tax,
+            'tax_amount' => $tax_amount,
+        ];
+    }
+
     /**
      * Recalculate bundle item quantities and totals based on the parent quantity.
      *
@@ -1771,20 +1810,32 @@ class ProductCart extends Component
             $base_price = $effective_price + (float) $discount_input;
         }
 
-        // Let updatePrice handle the recalculation and save to cart
         $this->unit_price[$id] = round($base_price, 2);
-        $this->updatePrice($row_id, $id);
 
-        // Correct the pricing_source to manual_line_total (updatePrice sets it to manual_unit_price)
-        // Note: must use the already-updated cart item to preserve unit_price set by updatePrice
-        $updated_cart_item = $this->resolveCartItem($row_id, $id);
-        if ($updated_cart_item) {
-            $currentOptions = $updated_cart_item->options->toArray();
-            $currentOptions['pricing_source'] = 'manual_line_total';
-            Cart::instance($this->cart_instance)->update($updated_cart_item->rowId, [
-                'options' => $currentOptions,
-            ]);
-            $this->line_total[$id] = $updated_cart_item->options->sub_total;
+        $allocated = $this->allocateTaxFromAuthoritativeTotal($requestedLineTotal, $tax_id);
+
+        $discount_amount = $cart_item->options->product_discount ?? 0;
+        if ($discount_type === 'percentage') {
+            $discount_pct = min(100, max(0, (float) $discount_input)) / 100;
+            $discount_amount = round($this->unit_price[$id] * $discount_pct, 2);
         }
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'price' => $this->unit_price[$id],
+            'unit_price' => $this->unit_price[$id],
+            'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $this->unit_price[$id],
+                'sub_total' => $allocated['sub_total'],
+                'sub_total_before_tax' => $allocated['subtotal_before_tax'],
+                'product_tax_amount' => $allocated['tax_amount'],
+                'product_discount' => $discount_amount,
+                'product_discount_input' => $discount_input,
+                'product_discount_type' => $discount_type,
+                'pricing_source' => 'manual_line_total',
+            ]),
+        ]);
+
+        $this->line_total[$id] = $allocated['sub_total'];
+        $this->recalculateCart();
     }
 }
