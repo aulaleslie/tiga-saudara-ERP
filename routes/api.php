@@ -62,7 +62,7 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
     }
 
     $productQuery = \Modules\Product\Entities\Product::query()
-        ->where('products.stock_managed', true)
+        ->where('products.is_sold', true)
         ->globalSearch($search);
 
     $priceSelect = [

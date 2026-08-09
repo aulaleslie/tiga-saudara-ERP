@@ -173,6 +173,7 @@ class SalesImportPriceSyncTest extends TestCase
             'product_cost'     => 0,
             'product_price'    => 0,
             'product_quantity' => 0,
+            'stock_managed'    => true,
         ]);
 
         foreach ([$this->settingA->id, $this->settingB->id] as $settingId) {

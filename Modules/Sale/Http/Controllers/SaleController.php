@@ -412,18 +412,42 @@ class SaleController extends Controller
 
         $aggregatedProducts = [];
 
-        // Aggregate products from sale_details
+        // Bulk-load all products needed for dispatch aggregation
+        $productIds = $sale->saleDetails->pluck('product_id')
+            ->merge(SaleBundleItem::where('sale_id', $sale->id)->pluck('product_id'))
+            ->unique()
+            ->values()
+            ->all();
+        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
+        // Bulk-load bundle items with saleDetail relationship to resolve inherited_tax_id
+        $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
+
+        // Bulk-load all taxes needed for dispatch aggregation
+        $taxIds = $sale->saleDetails->pluck('tax_id')
+            ->merge($bundleItems->map(fn($item) => $item->inherited_tax_id))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $taxes = Tax::whereIn('id', $taxIds)->get()->keyBy('id');
+
+        // Aggregate products from sale_details (only stock-managed products)
         foreach ($sale->saleDetails as $detail) {
+            $product = $products->get($detail->product_id);
+            // Skip non-stock-managed products (only skip if explicitly false)
+            if (!$product || $product->stock_managed === false) {
+                continue;
+            }
+
             $pid = $detail->product_id;
             $taxId = $detail->tax_id; // assumed to exist on sale detail
             $bundleId = 0; // Standard items use 0 as bundle_id for keying
             $key = $pid . '-' . $taxId . '-' . $bundleId; // composite key for grouping
 
             if (!isset($aggregatedProducts[$key])) {
-                // Retrieve product to get the product_code
-                $product = Product::find($pid);
                 // Retrieve tax to get tax_name (if tax_id exists)
-                $tax = $taxId ? Tax::find($taxId) : null;
+                $tax = $taxId ? $taxes->get($taxId) : null;
 
                 $aggregatedProducts[$key] = [
                     'product_id' => $pid,
@@ -441,9 +465,14 @@ class SaleController extends Controller
             $aggregatedProducts[$key]['total_quantity'] += $detail->quantity;
         }
 
-        // Aggregate from bundle items (assumes SaleBundleItem model exists)
-        $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
+        // Aggregate from bundle items (only stock-managed components)
         foreach ($bundleItems as $bundleItem) {
+            $product = $products->get($bundleItem->product_id);
+            // Skip non-stock-managed components (only skip if explicitly false)
+            if (!$product || $product->stock_managed === false) {
+                continue;
+            }
+
             $pid = $bundleItem->product_id;
             // Inherit tax context from parent sale detail
             $taxId = $bundleItem->inherited_tax_id;
@@ -451,8 +480,7 @@ class SaleController extends Controller
             $key = $pid . '-' . $taxId . '-' . $bundleId;
 
             if (!isset($aggregatedProducts[$key])) {
-                $product = Product::find($pid);
-                $tax = $taxId ? Tax::find($taxId) : null;
+                $tax = $taxId ? $taxes->get($taxId) : null;
 
                 $aggregatedProducts[$key] = [
                     'product_id' => $pid,
@@ -518,8 +546,22 @@ class SaleController extends Controller
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
             $serialNumberLocations = $request->input('serialNumberLocations', []);
 
+            // Bulk-load all products needed for validation
+            $productIds = $sale->saleDetails->pluck('product_id')
+                ->merge(SaleBundleItem::where('sale_id', $sale->id)->pluck('product_id'))
+                ->unique()
+                ->values()
+                ->all();
+            $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
             $aggregated = [];
             foreach ($sale->saleDetails as $detail) {
+                $product = $products->get($detail->product_id);
+                // Skip non-stock-managed products (only skip if explicitly false)
+                if (!$product || $product->stock_managed === false) {
+                    continue;
+                }
+
                 $pid = $detail->product_id;
                 $taxId = $detail->tax_id;
                 $bundleId = 0;
@@ -533,9 +575,15 @@ class SaleController extends Controller
                 $aggregated[$key]['total_quantity'] += (int) $detail->quantity;
             }
 
-            // Aggregate from bundle items
+            // Aggregate from bundle items (only stock-managed components)
             $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
             foreach ($bundleItems as $bundleItem) {
+                $product = $products->get($bundleItem->product_id);
+                // Skip non-stock-managed components (only skip if explicitly false)
+                if (!$product || $product->stock_managed === false) {
+                    continue;
+                }
+
                 if (!$bundleItem->saleDetail) {
                     $validator->errors()->add('bundle_items', "Item bundle {$bundleItem->name} tidak memiliki referensi baris induk yang valid.");
                     continue;
@@ -566,28 +614,40 @@ class SaleController extends Controller
                 }
             }
 
+            $hasValidStockManagedDispatch = false;
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
                 $parts = explode('-', $compositeKey);
                 if (count($parts) < 2) continue;
-                
+
                 $productId = $parts[0];
                 $taxId = $parts[1];
                 $bundleId = $parts[2] ?? 0;
-                $product = Product::find($productId);
-                
+                $product = $products->get((int)$productId);
+
                 if (!$product) {
                     $validator->errors()->add("dispatchedQuantities.$compositeKey", "Produk tidak ditemukan.");
                     continue;
                 }
 
+                // Skip non-stock-managed products (only skip if explicitly false)
+                if ($product->stock_managed === false) {
+                    continue;
+                }
+
+                // Validate that the submitted composite key exists in authoritative demand
+                if (!isset($aggregated[$compositeKey])) {
+                    $validator->errors()->add("dispatchedQuantities.$compositeKey", "Kunci pengiriman tidak valid untuk penjualan ini.");
+                    continue;
+                }
+
+                $hasValidStockManagedDispatch = true;
+
                 // Check remaining quantity
-                if (isset($aggregated[$compositeKey])) {
-                    $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
-                    if ((int)$qty > $remaining) {
-                        $validator->errors()->add("dispatchedQuantities.$compositeKey", "Jumlah kirim ({$qty}) melebihi sisa pesanan ({$remaining}).");
-                    }
+                $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
+                if ((int)$qty > $remaining) {
+                    $validator->errors()->add("dispatchedQuantities.$compositeKey", "Jumlah kirim ({$qty}) melebihi sisa pesanan ({$remaining}).");
                 }
 
                 if ($product->serial_number_required) {
@@ -680,6 +740,10 @@ class SaleController extends Controller
                     }
                 }
             }
+
+            if (!$hasValidStockManagedDispatch) {
+                $validator->errors()->add('dispatchedQuantities', 'Pengiriman harus memiliki minimal satu baris produk yang terkelola stok dengan jumlah positif.');
+            }
         });
 
         if ($validator->fails()) {
@@ -703,6 +767,11 @@ class SaleController extends Controller
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
             $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
+
+            // Bulk-load all products for dispatch detail creation
+            $dispatchProductIds = array_unique(array_map(fn($key) => (int) explode('-', $key)[0], array_keys($dispatchedQuantities)));
+            $dispatchProducts = Product::whereIn('id', $dispatchProductIds)->get()->keyBy('id');
+
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
@@ -710,7 +779,13 @@ class SaleController extends Controller
                 $productId = $parts[0];
                 $taxId = $parts[1];
                 $bundleId = $parts[2] ?? 0;
-                
+
+                $product = $dispatchProducts->get($productId);
+                // Skip non-stock-managed products (only skip if explicitly false)
+                if (!$product || $product->stock_managed === false) {
+                    continue;
+                }
+
                 if ($selectedSerialNumbers[$compositeKey] ?? null) {
                     $serials = $selectedSerialNumbers[$compositeKey];
                     $serialsByLocation = [];
@@ -1047,20 +1122,40 @@ class SaleController extends Controller
 
     private function updateSaleStatus(Sale $sale)
     {
-        $totalOrderQty = $sale->saleDetails()->sum('quantity');
-        // Add bundle items if any
+        // Count only non-explicitly-non-stock products for dispatch status calculation
+        // (backward compatible: only skip products explicitly marked stock_managed = false)
+        $stockManagedDetails = $sale->saleDetails()
+            ->whereHas('product', function ($q) {
+                $q->where('stock_managed', '!=', false)->orWhereNull('stock_managed');
+            })
+            ->sum('quantity');
+
+        $totalOrderQty = $stockManagedDetails;
+
+        // Add bundle items only if stock-managed
         if (class_exists('\Modules\Sale\Entities\SaleBundleItem')) {
-            $totalBundleQty = \Modules\Sale\Entities\SaleBundleItem::where('sale_id', $sale->id)->sum('quantity');
+            $totalBundleQty = \Modules\Sale\Entities\SaleBundleItem::where('sale_id', $sale->id)
+                ->whereHas('product', function ($q) {
+                    $q->where('stock_managed', '!=', false)->orWhereNull('stock_managed');
+                })
+                ->sum('quantity');
             $totalOrderQty += $totalBundleQty;
         }
 
         $allDispatchedQty = DispatchDetail::where('sale_id', $sale->id)
             ->whereHas('dispatch', function($q) {
                 $q->where('status', Dispatch::STATUS_APPROVED);
-            })->sum('dispatched_quantity');
+            })
+            ->whereHas('product', function ($q) {
+                $q->where('stock_managed', '!=', false)->orWhereNull('stock_managed');
+            })
+            ->sum('dispatched_quantity');
 
-        if ($allDispatchedQty <= 0) {
-            $sale->status = Sale::STATUS_APPROVED; // Or appropriate status before dispatch
+        if ($totalOrderQty <= 0) {
+            // No stock-managed demand, so sale is already fulfilled
+            $sale->status = Sale::STATUS_APPROVED;
+        } elseif ($allDispatchedQty <= 0) {
+            $sale->status = Sale::STATUS_APPROVED;
         } elseif ($allDispatchedQty < $totalOrderQty) {
             $sale->status = Sale::STATUS_DISPATCHED_PARTIALLY;
         } else {

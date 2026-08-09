@@ -43,7 +43,8 @@ class SearchProduct extends Component
         }
 
         // Fetch products based on the query and setting_id
-        $this->search_results = Product::where('stock_managed', true)
+        // Return active products marked is_sold, regardless of stock_managed
+        $this->search_results = Product::where('is_sold', true)
             ->globalSearch($this->query)
             ->take($this->how_many)
             ->get();

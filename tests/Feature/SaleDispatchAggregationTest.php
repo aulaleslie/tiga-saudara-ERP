@@ -52,6 +52,7 @@ class SaleDispatchAggregationTest extends TestCase
             'product_unit' => 'pcs',
             'product_cost' => 0,
             'setting_id' => 1,
+            'stock_managed' => true,
         ]);
 
         $customer = Customer::factory()->create();

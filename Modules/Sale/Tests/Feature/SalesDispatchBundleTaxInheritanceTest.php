@@ -89,6 +89,7 @@ class SalesDispatchBundleTaxInheritanceTest extends TestCase
             'product_price' => 2000,
             'category_id' => $category->id,
             'product_unit' => $unit->id,
+            'stock_managed' => true,
         ]);
 
         $component = Product::create([
@@ -100,6 +101,7 @@ class SalesDispatchBundleTaxInheritanceTest extends TestCase
             'product_price' => 0,
             'category_id' => $category->id,
             'product_unit' => $unit->id,
+            'stock_managed' => true,
         ]);
 
         // Stock in TAXED pool for component
@@ -206,6 +208,7 @@ class SalesDispatchBundleTaxInheritanceTest extends TestCase
             'product_price' => 2000,
             'category_id' => $category->id,
             'product_unit' => $unit->id,
+            'stock_managed' => true,
         ]);
 
         $component = Product::create([
@@ -215,6 +218,7 @@ class SalesDispatchBundleTaxInheritanceTest extends TestCase
             'product_quantity' => 10,
             'product_cost' => 100,
             'product_price' => 0,
+            'stock_managed' => true,
             'category_id' => $category->id,
             'product_unit' => $unit->id,
         ]);

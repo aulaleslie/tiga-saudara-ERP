@@ -23,6 +23,7 @@ class Product extends BaseModel implements HasMedia
     protected $casts = [
         // Global quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
         'product_quantity' => 'decimal:3',
+        'stock_managed' => 'boolean',
     ];
 
     protected $with = ['media', 'brand:id,name', 'category:id,category_name'];

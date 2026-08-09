@@ -120,6 +120,7 @@ class SaleShowSerialBadgeTest extends TestCase
             'category_id' => $category->id,
             'product_unit' => $unit->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
     }
 

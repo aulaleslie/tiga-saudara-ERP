@@ -16,6 +16,7 @@ class SaleService
 {
     /**
      * Validate stock requirements for a sale.
+     * Only validates stock-managed parent products and stock-managed bundle components.
      *
      * @param iterable $cartItems
      * @return array Array of error messages, empty if valid.
@@ -44,21 +45,24 @@ class SaleService
             }
         }
 
+        $allProductIds = array_unique(array_merge(array_keys($parentQuantities), array_keys($bundleQuantities)));
+        $products = Product::whereIn('id', $allProductIds)->get()->keyBy('id');
+
         $errors = [];
         foreach ($parentQuantities as $productId => $requestedQty) {
-            $product = Product::find($productId);
+            $product = $products->get($productId);
             if (!$product) {
                 $errors[] = "Produk ID {$productId} tidak ditemukan.";
-            } elseif ($requestedQty > $product->product_quantity) {
+            } elseif ($product->stock_managed !== false && $requestedQty > $product->product_quantity) {
                 $errors[] = "Stok produk '{$product->product_name}' tidak mencukupi. Tersedia: {$product->product_quantity}, Diminta: {$requestedQty}";
             }
         }
 
         foreach ($bundleQuantities as $productId => $requestedQty) {
-            $product = Product::find($productId);
+            $product = $products->get($productId);
             if (!$product) {
                 $errors[] = "Produk bundle ID {$productId} tidak ditemukan.";
-            } elseif ($requestedQty > $product->product_quantity) {
+            } elseif ($product->stock_managed !== false && $requestedQty > $product->product_quantity) {
                 $errors[] = "Stok produk bundle '{$product->product_name}' tidak mencukupi untuk memenuhi pesanan. Tersedia: {$product->product_quantity}, Diminta: {$requestedQty}";
             }
         }

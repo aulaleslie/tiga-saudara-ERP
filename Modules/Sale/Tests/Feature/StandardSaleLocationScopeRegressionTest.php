@@ -170,6 +170,7 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
             'product_unit' => 'pcs',
             'product_stock_alert' => 5,
             'setting_id' => $ownerSetting->id,
+            'stock_managed' => true,
         ]);
 
         // 3. User & Permissions
@@ -268,6 +269,7 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
             'product_stock_alert' => 1,
             'setting_id' => $ownerSetting->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         ProductSerialNumber::create([
@@ -331,6 +333,7 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
             'product_stock_alert' => 1,
             'setting_id' => $ownerSetting->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         ProductSerialNumber::create([

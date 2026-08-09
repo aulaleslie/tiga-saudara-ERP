@@ -80,6 +80,7 @@ class SaleNonPkpTaxStrippingTest extends TestCase
             'product_unit' => 'pcs',
             'product_stock_alert' => 5,
             'setting_id' => $this->setting->id,
+            'stock_managed' => true,
         ]);
 
         $this->user = User::factory()->create();

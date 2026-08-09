@@ -70,6 +70,7 @@ class DispatchApprovalTest extends TestCase
             'setting_id' => $setting->id,
             'product_quantity' => 100,
             'product_cost' => 1000,
+            'stock_managed' => true,
             'product_price' => 1500,
             'category_id' => $category->id,
             'product_unit' => $unit->id,

@@ -91,6 +91,7 @@ class SalesDispatchTaxTest extends TestCase
             'category_id' => $category->id,
             'product_unit' => $unit->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         // SN with Tax 1
@@ -231,6 +232,7 @@ class SalesDispatchTaxTest extends TestCase
             'category_id' => $category->id,
             'product_unit' => $unit->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         // Stock ONLY in quantity_non_tax
@@ -311,6 +313,7 @@ class SalesDispatchTaxTest extends TestCase
             'category_id' => $category->id,
             'product_unit' => $unit->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         $sn1 = ProductSerialNumber::create([
