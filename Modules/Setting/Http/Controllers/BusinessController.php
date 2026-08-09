@@ -244,16 +244,25 @@ class BusinessController extends Controller
     public function updateActiveBusiness(Request $request): RedirectResponse
     {
         $settingId = (int) $request->input('setting_id');
+        $user = Auth::user();
+
+        // Resolve the target setting from authoritative data
+        $setting = Setting::find($settingId);
+
+        // Determine if the user is authorized to access this setting
+        $isAuthorized = $user->hasRole('Super Admin') || $user->settings()->where('setting_id', $settingId)->exists();
+
+        // If not authorized or setting does not exist, deny uniformly without mutating context
+        if (!$setting || !$isAuthorized) {
+            abort(403);
+        }
 
         // Update the session with the new setting ID
         $request->session()->put('setting_id', $settingId);
 
         // Refresh the settings cache
         cache()->forget('settings_' . $settingId);
-        $settings = Setting::findOrFail($settingId);
-        cache()->put('settings_' . $settingId, $settings, 24 * 60);
-
-        $user = Auth::user();
+        cache()->put('settings_' . $settingId, $setting, 24 * 60);
 
         // Assign the role for the new setting
         $role = $user->getCurrentSettingRole();
@@ -261,8 +270,8 @@ class BusinessController extends Controller
             $user->syncRoles([$role->name]);
         }
 
-        // Redirect back to the previous page
-        return redirect()->back();
+        // Redirect to the named Home route
+        return redirect()->route('home');
     }
 
     /**
