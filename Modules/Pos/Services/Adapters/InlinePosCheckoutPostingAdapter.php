@@ -129,6 +129,16 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $saleNote .= "\n" . $cartNote;
         }
 
+        // When this Sale carries only non-stock content it has no allocation-derived owner,
+        // so ownership comes from the configured first POS sales-location source. This keeps
+        // non-stock ownership correct with split posting disabled, where this adapter posts
+        // the whole cart directly. With split posting enabled the caller has already resolved
+        // the owner per group, and that resolved setting is preserved unchanged.
+        $saleSettingId = $settingId;
+        if ($this->cartIsEntirelyNonStock($lines)) {
+            $saleSettingId = $this->requireNonStockSource($settingId)['setting_id'];
+        }
+
         $sale = Sale::query()->create([
             'date' => $checkoutDate,
             'due_date' => $dueDate,
@@ -147,7 +157,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'payment_status' => $paymentStatus,
             'payment_term_id' => $salePaymentTermId,
             'note' => $saleNote,
-            'setting_id' => $settingId,
+            'setting_id' => $saleSettingId,
             'is_tax_included' => false,
             'payment_method' => $salePaymentMethodStr,
             'tax_ref_no' => null,
@@ -174,13 +184,23 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Baris checkout tidak valid.');
             }
 
+            // Persisted product classification is the sole authority for choosing between
+            // inventory posting and audit-only posting. The cart snapshot is untrusted input.
+            $parentNotFulfilledByGroup = (bool) ($line['parent_not_fulfilled_by_group'] ?? false);
+            $isStockManaged = $this->resolveAuthoritativeStockManaged(
+                productId: $productId,
+                snapshotStockManaged: $line['stock_managed'] ?? null,
+                label: (string) (($line['product_name'] ?? null) ?: (($line['product_code'] ?? null) ?: "#$productId")),
+                allowSnapshotDowngrade: $parentNotFulfilledByGroup
+            );
+
             // Handle serial assignments (Parent only for now)
             $isSerialTracked = (bool) ($line['serial_number_required'] ?? false);
             $assignedSerials = (array) ($line['assigned_serials'] ?? []);
             $serialRecords = [];
             $serialIds = [];
 
-            if ($isSerialTracked && (bool) ($line['stock_managed'] ?? true)) {
+            if ($isSerialTracked && $isStockManaged && ! $parentNotFulfilledByGroup) {
                 if (count($assignedSerials) !== $qty) {
                     throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memerlukan $qty seri, tetapi " . count($assignedSerials) . " yang diberikan.");
                 }
@@ -201,7 +221,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             // 1. Resolve Parent Allocations
             $parentAllocations = [];
-            if ((bool) ($line['stock_managed'] ?? true)) {
+            if ($isStockManaged && ! $parentNotFulfilledByGroup) {
                 // Try "{index}_P" first (from new bundle-aware resolver lines), fallback to "$index" for backward compatibility
                 $parentAllocations = $allocations["{$index}_P"] ?? ($allocations[$index] ?? []);
 
@@ -250,7 +270,23 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             ]);
 
             // 2. Process Parent Stock Deduction (only for stock-managed products)
-            $isStockManaged = (bool) ($line['stock_managed'] ?? true);
+
+            // Non-stock parents receive an approved audit-only DispatchDetail instead of
+            // any allocation, stock validation, or inventory movement.
+            if (! $isStockManaged && $qty > 0 && ! $parentNotFulfilledByGroup) {
+                $auditAllocations = $allocations["{$index}_P"] ?? ($allocations[$index] ?? []);
+
+                $this->recordNonStockAuditDispatchDetail(
+                    productId: $productId,
+                    qty: $qty,
+                    sale: $sale,
+                    dispatch: $dispatch,
+                    taxId: $taxId,
+                    bundleId: $bundleId,
+                    locationId: $this->resolveNonStockAuditLocationId($settingId, $auditAllocations)
+                );
+            }
+
             if ($isStockManaged && $parentAllocations !== []) {
                 $this->recordStockMovement(
                     $productId,
@@ -329,7 +365,26 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'line_group_key' => "pos-{$index}-{$itemIndex}",
                 ]);
 
-                if ((bool) ($item['stock_managed'] ?? false)) {
+                $childIsStockManaged = $this->resolveAuthoritativeStockManaged(
+                    productId: $childProductId,
+                    snapshotStockManaged: $item['stock_managed'] ?? null,
+                    label: (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"))
+                );
+
+                if (! $childIsStockManaged) {
+                    // Non-stock component: approved audit-only DispatchDetail, no inventory work.
+                    if ($childAllocatedQty > 0) {
+                        $this->recordNonStockAuditDispatchDetail(
+                            productId: $childProductId,
+                            qty: (int) $childAllocatedQty,
+                            sale: $sale,
+                            dispatch: $dispatch,
+                            taxId: $childTaxId,
+                            bundleId: $bundleId,
+                            locationId: $this->resolveNonStockAuditLocationId($settingId, $childAllocations)
+                        );
+                    }
+                } else {
                     if ($childAllocations === []) {
                         $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
                         throw new PosCheckoutValidationException(
@@ -446,6 +501,179 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'actual_grand_total' => (float) $totalPostedGrandTotal,
             'stage_mappings' => $stageMappings ?? [],
         ];
+    }
+
+    /** @var array<int, bool> */
+    private array $stockManagedProductCache = [];
+
+    /**
+     * Re-read the persisted product classification and use it as the sole authority for
+     * choosing between inventory posting and audit-only posting.
+     *
+     * A crafted cart snapshot must never be able to downgrade a stock-managed product
+     * into audit-only content (skipping deduction), nor force a non-stock product through
+     * inventory handling. Any disagreement between the snapshot and the database is a
+     * conflict and fails the checkout rather than silently picking a path.
+     *
+     * @param  bool|int|string|null  $snapshotStockManaged  classification claimed by the cart snapshot
+     * @param  bool  $allowSnapshotDowngrade  true only for planner-authored group lines whose
+     *                                        parent contributes no quantity to this owner group
+     */
+    private function resolveAuthoritativeStockManaged(
+        int $productId,
+        mixed $snapshotStockManaged,
+        string $label,
+        bool $allowSnapshotDowngrade = false
+    ): bool {
+        if ($productId <= 0) {
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Baris checkout tidak valid.');
+        }
+
+        if (! array_key_exists($productId, $this->stockManagedProductCache)) {
+            $product = Product::query()->whereKey($productId)->first(['id', 'stock_managed']);
+
+            if (! $product) {
+                throw new PosCheckoutValidationException(
+                    'PRODUCT_UNRESOLVED',
+                    "Produk $label tidak ditemukan saat posting checkout."
+                );
+            }
+
+            $this->stockManagedProductCache[$productId] = (bool) $product->stock_managed;
+        }
+
+        $persisted = $this->stockManagedProductCache[$productId];
+
+        if ($snapshotStockManaged !== null && ! $allowSnapshotDowngrade) {
+            $claimed = (bool) $snapshotStockManaged;
+
+            if ($claimed !== $persisted) {
+                throw new PosCheckoutValidationException(
+                    'PRODUCT_CLASSIFICATION_CONFLICT',
+                    "Klasifikasi stok produk $label pada keranjang tidak sesuai dengan data produk saat ini. Muat ulang keranjang dan ulangi checkout."
+                );
+            }
+        }
+
+        return $persisted;
+    }
+
+    /**
+     * True when every line in the cart snapshot is non-stock-managed by persisted
+     * classification, meaning this Sale has no allocation-derived owner.
+     *
+     * @param  array<int, array<string, mixed>>  $lines
+     */
+    private function cartIsEntirelyNonStock(array $lines): bool
+    {
+        $sawLine = false;
+
+        foreach ($lines as $line) {
+            $productId = (int) ($line['product_id'] ?? 0);
+            if ($productId <= 0 || (int) ($line['qty'] ?? 0) <= 0) {
+                continue;
+            }
+
+            $sawLine = true;
+
+            // A group line whose parent is not fulfilled here still belongs to the owner
+            // resolved by stock allocation, so it is not purely non-stock content.
+            if ((bool) ($line['parent_not_fulfilled_by_group'] ?? false)) {
+                return false;
+            }
+
+            if ($this->isPersistedStockManaged($productId)) {
+                return false;
+            }
+
+            foreach ((is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : []) as $item) {
+                $childProductId = (int) ($item['product_id'] ?? 0);
+                if ($childProductId > 0 && $this->isPersistedStockManaged($childProductId)) {
+                    return false;
+                }
+            }
+        }
+
+        return $sawLine;
+    }
+
+    private function isPersistedStockManaged(int $productId): bool
+    {
+        if (! array_key_exists($productId, $this->stockManagedProductCache)) {
+            $product = Product::query()->whereKey($productId)->first(['id', 'stock_managed']);
+            // An unresolvable product is reported by the authoritative check during posting.
+            $this->stockManagedProductCache[$productId] = $product ? (bool) $product->stock_managed : true;
+        }
+
+        return $this->stockManagedProductCache[$productId];
+    }
+
+    /**
+     * Resolve the configured first POS sales-location source, or fail with an actionable error.
+     *
+     * @return array{setting_id:int, location_id:int}
+     */
+    private function requireNonStockSource(int $settingId): array
+    {
+        $source = app(\Modules\Pos\Services\PosNonStockSourceResolverService::class)->resolve($settingId);
+
+        if ($source === null) {
+            throw new PosCheckoutValidationException(
+                'NON_STOCK_SOURCE_UNCONFIGURED',
+                'Tidak ada lokasi penjualan POS aktif yang dikonfigurasi untuk konten non-stok.'
+            );
+        }
+
+        return $source;
+    }
+
+    /**
+     * Resolve the audit DispatchDetail location for non-stock content: the planned group
+     * source location when present, otherwise the first configured POS sales location.
+     *
+     * Both this location and the Sale's owning setting derive from the same configured
+     * source, so audit evidence and financial ownership never disagree.
+     *
+     * @param  array<int, array<string, mixed>>  $allocations
+     */
+    private function resolveNonStockAuditLocationId(int $settingId, array $allocations = []): int
+    {
+        foreach ($allocations as $allocation) {
+            $locationId = (int) ($allocation['source_location_id'] ?? 0);
+            if ($locationId > 0) {
+                return $locationId;
+            }
+        }
+
+        return $this->requireNonStockSource($settingId)['location_id'];
+    }
+
+    /**
+     * Persist an approved audit-only DispatchDetail for non-stock content.
+     *
+     * This is fulfilment evidence, never inventory demand: it deliberately performs no
+     * stock lookup, no ProductStock/Product mutation, no serial handling, and no
+     * inventory Transaction write.
+     */
+    private function recordNonStockAuditDispatchDetail(
+        int $productId,
+        int $qty,
+        Sale $sale,
+        Dispatch $dispatch,
+        ?int $taxId,
+        ?int $bundleId,
+        int $locationId
+    ): void {
+        DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'tax_id' => $taxId,
+            'product_id' => $productId,
+            'bundle_id' => $bundleId,
+            'dispatched_quantity' => $qty,
+            'location_id' => $locationId,
+            'serial_numbers' => null,
+        ]);
     }
 
     /**

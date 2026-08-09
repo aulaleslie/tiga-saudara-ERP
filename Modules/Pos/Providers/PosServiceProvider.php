@@ -5,6 +5,7 @@ namespace Modules\Pos\Providers;
 use Illuminate\Support\ServiceProvider;
 use Modules\Pos\Services\Adapters\InlinePosCheckoutPostingAdapter;
 use Modules\Pos\Services\Adapters\LoggingPosCashDrawerAdapter;
+use Modules\Pos\Services\Adapters\OwnerAwarePosCheckoutPostingAdapter;
 use Modules\Pos\Services\Adapters\SplitPosCheckoutPostingAdapter;
 use Modules\Pos\Services\Contracts\PosCashDrawerAdapter;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
@@ -42,7 +43,10 @@ class PosServiceProvider extends ServiceProvider
                 return $app->make(SplitPosCheckoutPostingAdapter::class);
             }
 
-            return $app->make(InlinePosCheckoutPostingAdapter::class);
+            // With split posting disabled, still refuse to collapse a genuinely
+            // multi-owner checkout into one terminal-owned Sale. Stock-only carts keep
+            // the existing inline behavior.
+            return $app->make(OwnerAwarePosCheckoutPostingAdapter::class);
         });
         $this->app->bind(PosCashDrawerAdapter::class, LoggingPosCashDrawerAdapter::class);
     }

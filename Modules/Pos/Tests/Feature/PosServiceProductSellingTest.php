@@ -417,8 +417,9 @@ class PosServiceProductSellingTest extends TestCase
             ->postJson(route('pos.sell.checkout.finalize'), $checkoutPayload);
 
         $checkoutResponse->assertStatus(422);
-        // Verify error response includes product information (name appears in details)
-        $checkoutResponse->assertJsonPath('details.unfulfilled_lines.0.product_name', 'PRODUK HABIS TERJUAL');
+        // Verify error response includes product information (name appears in details).
+        // The name is echoed exactly as stored; nothing in the checkout path upcases it.
+        $checkoutResponse->assertJsonPath('details.unfulfilled_lines.0.product_name', 'Produk Habis Terjual');
     }
 
     public function test_non_stock_managed_line_does_not_trigger_allocation_error(): void
@@ -742,8 +743,12 @@ class PosServiceProductSellingTest extends TestCase
         $this->assertDatabaseMissing('transactions', [
             'product_id' => $serviceProduct->id,
         ]);
-        $this->assertDatabaseMissing('dispatch_details', [
+
+        // Non-stock content still records approved audit-only dispatch evidence.
+        $this->assertDatabaseHas('dispatch_details', [
+            'sale_id' => $saleId,
             'product_id' => $serviceProduct->id,
+            'dispatched_quantity' => 2,
         ]);
     }
 

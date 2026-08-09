@@ -7,11 +7,15 @@ use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
-use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 
 class PosCheckoutSplitPlannerService
 {
+    public function __construct(
+        private readonly PosNonStockSourceResolverService $nonStockSourceResolver = new PosNonStockSourceResolverService()
+    ) {
+    }
+
     /** @var array<int, Setting|null> */
     private array $settingsCache = [];
 
@@ -73,9 +77,9 @@ class PosCheckoutSplitPlannerService
             $myAllocations = $allocations["{$lineIndex}_P"] ?? ($allocations[$lineIndex] ?? []);
 
             if (!$isStockManaged) {
-                // If not stock managed, it doesn't have an allocation record.
-                // We'll place it in the terminal setting group.
-                $lineChunks = $this->resolveTerminalLineChunks($settingId, $line, $lineTaxable);
+                // Non-stock content has no allocation record; ownership comes from the
+                // first configured POS sales-location source.
+                $lineChunks = $this->resolveNonStockLineChunks($settingId, $line);
             } else {
                 $lineChunks = (bool) ($line['serial_number_required'] ?? false)
                     ? $this->resolveSerialLineChunks($settingId, $line, $lineTaxable)
@@ -122,18 +126,13 @@ class PosCheckoutSplitPlannerService
                             'total_qty' => $itemQty,
                         ];
                     } else {
-                        // Stockless component - allocate to first non-PKP source
-                        $nonPkpSource = $this->findFirstNonPkpSource($settingId);
-                        if (! $nonPkpSource) {
-                            throw new PosCheckoutValidationException(
-                                'STOCKLESS_BUNDLE_ALLOCATION_FAILED',
-                                "Gagal mengalokasikan pendapatan untuk komponen stokless '{$bi['product_name']}'. Tidak ada lokasi sumber non-PKP yang dikonfigurasi."
-                            );
-                        }
+                        // Stockless component - owned by the first configured POS sales-location source.
+                        $componentLabel = (string) ($bi['product_name'] ?? ('Produk #' . ($bi['product_id'] ?? '')));
+                        $nonStockSource = $this->requireNonStockSource($settingId, $componentLabel);
 
-                        $sourceSettingId = (int) $nonPkpSource->setting_id;
-                        $sourceLocationId = (int) $nonPkpSource->location_id;
-                        $sourceIsPkp = false;
+                        $sourceSettingId = $nonStockSource['setting_id'];
+                        $sourceLocationId = $nonStockSource['location_id'];
+                        $sourceIsPkp = $this->sourceIsPkp($sourceSettingId);
 
                         // Resolve tax candidate: parent line tax first, then active/default sale tax
                         $candidateTaxId = $line['tax_id'] ?? null;
@@ -149,6 +148,7 @@ class PosCheckoutSplitPlannerService
 
                         $childParts[$childKey] = [
                             'is_stockless' => true,
+                            'source_is_pkp' => $sourceIsPkp,
                             'split_key' => $splitKey,
                             'source_setting_id' => $sourceSettingId,
                             'source_location_id' => $sourceLocationId,
@@ -209,8 +209,10 @@ class PosCheckoutSplitPlannerService
                         'allocated_qty' => $qty * (int) ($bundleItems[explode('_C_', $childKey)[1]]['quantity'] ?? 1),
                         'allocated_minor' => $part['total_minor'],
                         'tax_bucket_used' => (bool) ($part['effective_tax_id'] > 0),
+                        // Audit-only: this component never enters stock allocation or movement.
+                        'is_non_stock_audit' => true,
                         'tax_policy_snapshot' => [
-                            'source_is_pkp' => false,
+                            'source_is_pkp' => (bool) ($part['source_is_pkp'] ?? false),
                             'tax_id' => $part['effective_tax_id'],
                             'tax_name' => $part['tax_name'],
                             'tax_rate' => $part['tax_rate'],
@@ -330,6 +332,11 @@ class PosCheckoutSplitPlannerService
                 if ($rev['parent_qty'] <= 0) {
                     $groupLine['stock_managed'] = false;
                     $groupLine['serial_number_required'] = false;
+                    // This owner group fulfils only a component, so the parent contributes
+                    // no quantity here. This is a planner-authored skip, not a claim that
+                    // the product is non-stock-managed, and must not be posted as audit
+                    // evidence nor rejected as a classification conflict.
+                    $groupLine['parent_not_fulfilled_by_group'] = true;
                 }
 
                 $groupLineIndex = count($groupMap[$splitKey]['lines']);
@@ -350,6 +357,7 @@ class PosCheckoutSplitPlannerService
                             'tax_rate' => (float) ($pc['tax_rate'] ?? 0),
                         ],
                         'serial_numbers' => is_array($pc['serial_numbers'] ?? null) ? $pc['serial_numbers'] : [],
+                        'is_non_stock_audit' => (bool) ($pc['is_non_stock_audit'] ?? false),
                     ];
                 }
                 
@@ -596,33 +604,35 @@ class PosCheckoutSplitPlannerService
     }
 
     /**
-     * Resolve a static chunk for terminal setting for non-stock managed items.
+     * Resolve the ownership chunk for a non-stock-managed parent line.
+     *
+     * Ownership is the first enabled entry of the configured POS sales-location order,
+     * never the terminal setting and never filtered by PKP status. The resolved source
+     * owner's tax policy then determines the split tax bucket.
+     *
+     * @param  array<string, mixed>  $line
+     * @return array<int, array<string, mixed>>
      */
-    private function resolveTerminalLineChunks(int $settingId, array $line, bool $lineTaxable): array
+    private function resolveNonStockLineChunks(int $settingId, array $line): array
     {
-        $sourceIsPkp = $this->sourceIsPkp($settingId);
-        $candidateTaxId = (int) ($line['tax_id'] ?? 0);
+        $productLabel = (string) (($line['product_name'] ?? null) ?: ('Produk #' . ($line['product_id'] ?? '')));
+        $source = $this->requireNonStockSource($settingId, $productLabel);
 
-        $taxRequired = $sourceIsPkp;
+        $sourceSettingId = $source['setting_id'];
+        $sourceLocationId = $source['location_id'];
+        $sourceIsPkp = $this->sourceIsPkp($sourceSettingId);
 
-        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
+        [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
+            $sourceIsPkp,
+            (int) ($line['tax_id'] ?? 0)
+        );
 
         $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
-        
-        // Pick any location for this setting to satisfy schema requirements
-        $locationId = 0;
-        $setting = $this->settingById($settingId);
-        if ($setting) {
-             $location = \Modules\Setting\Entities\Location::where('setting_id', $settingId)->first();
-             $locationId = $location ? (int) $location->id : 0;
-        }
-
-        $splitKey = $this->buildSplitKey($settingId, $locationId, $taxBucket);
 
         return [[
-            'split_key' => $splitKey,
-            'source_setting_id' => $settingId,
-            'source_location_id' => $locationId,
+            'split_key' => $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket),
+            'source_setting_id' => $sourceSettingId,
+            'source_location_id' => $sourceLocationId,
             'tax_bucket' => $taxBucket,
             'source_is_pkp' => $sourceIsPkp,
             'effective_tax_id' => $effectiveTaxId,
@@ -631,6 +641,8 @@ class PosCheckoutSplitPlannerService
             'allocated_qty' => (int) ($line['qty'] ?? 0),
             'serial_numbers' => [],
             'tax_bucket_used' => $effectiveTaxId > 0,
+            // Audit-only: this parent never enters stock allocation or movement.
+            'is_non_stock_audit' => true,
         ]];
     }
 
@@ -894,17 +906,22 @@ class PosCheckoutSplitPlannerService
         return (float) ($activePrice ?? 0);
     }
 
-    private function findFirstNonPkpSource(int $settingId): ?SettingSaleLocation
+    /**
+     * Resolve the configured first POS sales-location source for non-stock content.
+     *
+     * @return array{setting_id:int, location_id:int}
+     */
+    private function requireNonStockSource(int $settingId, string $productLabel): array
     {
-        $locationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+        $source = $this->nonStockSourceResolver->resolve($settingId);
 
-        return SettingSaleLocation::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('location_id', $locationIds)
-            ->where('is_enabled', true)
-            ->whereHas('setting', fn($q) => $q->where('is_pkp', false))
-            ->with('setting:id,is_pkp')
-            ->orderBy('position')
-            ->first();
+        if ($source === null) {
+            throw new PosCheckoutValidationException(
+                'NON_STOCK_SOURCE_UNCONFIGURED',
+                "Gagal menentukan sumber kepemilikan untuk produk non-stok '{$productLabel}'. Tidak ada lokasi penjualan POS aktif yang dikonfigurasi."
+            );
+        }
+
+        return $source;
     }
 }
