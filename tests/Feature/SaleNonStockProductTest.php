@@ -306,7 +306,7 @@ class SaleNonStockProductTest extends TestCase
         $this->assertEquals(0, $saleDetail->cost_total_snapshot);
     }
 
-    public function test_service_only_dispatch_submission_is_rejected()
+    public function test_empty_dispatch_quantities_are_rejected()
     {
         $serviceProduct = $this->createProduct('Service Only', 'SVC-DISP-001', false);
 
@@ -350,7 +350,7 @@ class SaleNonStockProductTest extends TestCase
         $response->assertRedirect(route('sales.index'));
         $sale = Sale::first();
 
-        // Attempt to dispatch service-only sale with empty quantities
+        // Attempt to dispatch with empty quantities
         $response = $this->post(route('sales.storeDispatch', $sale), [
             'dispatch_date' => now()->format('Y-m-d'),
             'dispatchedQuantities' => [],
@@ -364,7 +364,7 @@ class SaleNonStockProductTest extends TestCase
         $this->assertEquals(0, \Modules\Sale\Entities\DispatchDetail::count());
     }
 
-    public function test_non_stock_product_excluded_from_dispatch_details()
+    public function test_mixed_dispatch_can_include_non_stock_acknowledgement_and_stock_detail()
     {
         $serviceProduct = $this->createProduct('Service', 'SVC-EXCL-001', false);
         $physicalProduct = $this->createProduct('Physical', 'PHY-EXCL-001', true, 10, 50000);
@@ -450,10 +450,11 @@ class SaleNonStockProductTest extends TestCase
             'broken_quantity_non_tax' => 0,
         ]);
 
-        // Try to dispatch only the physical product with quantity 5
+        // Submit both service and physical quantities
         $response = $this->post(route('sales.storeDispatch', $sale), [
             'dispatch_date' => now()->format('Y-m-d'),
             'dispatchedQuantities' => [
+                $serviceProduct->id . '--0' => '1',
                 $physicalProduct->id . '--0' => '5',
             ],
             'selectedLocations' => [
@@ -469,9 +470,17 @@ class SaleNonStockProductTest extends TestCase
         $dispatch = \Modules\Sale\Entities\Dispatch::first();
         $details = $dispatch->details;
 
-        // Should only have dispatch detail for physical product, not for service
-        $this->assertEquals(1, $details->count());
-        $this->assertEquals($physicalProduct->id, $details->first()->product_id);
+        // Should have dispatch details for both service and physical product
+        $this->assertEquals(2, $details->count(), 'Dispatch should have both service and physical details');
+
+        $serviceDetail = $details->where('product_id', $serviceProduct->id)->first();
+        $this->assertNotNull($serviceDetail, 'Should have service dispatch detail');
+        $this->assertNull($serviceDetail->location_id, 'Service dispatch detail should have no location');
+        $this->assertNull($serviceDetail->serial_numbers, 'Service dispatch detail should have no serials');
+
+        $physicalDetail = $details->where('product_id', $physicalProduct->id)->first();
+        $this->assertNotNull($physicalDetail, 'Should have physical product detail');
+        $this->assertEquals($location->id, $physicalDetail->location_id, 'Physical detail should retain selected location');
     }
 
     public function test_mixed_sale_reaches_dispatched_after_all_stock_managed_lines_approved()
@@ -585,7 +594,31 @@ class SaleNonStockProductTest extends TestCase
         $dispatch->refresh();
         $this->assertEquals(\Modules\Sale\Entities\Dispatch::STATUS_APPROVED, $dispatch->status);
 
-        // Sale should now be DISPATCHED because all stock-managed lines are dispatched
+        // Sale should now be DISPATCHED_PARTIALLY because the service product still needs acknowledgement
+        $sale->refresh();
+        $this->assertEquals(\Modules\Sale\Entities\Sale::STATUS_DISPATCHED_PARTIALLY, $sale->status);
+
+        // Now dispatch and approve the service product
+        $serviceProduct->refresh();
+        $response = $this->post(route('sales.storeDispatch', $sale), [
+            'dispatch_date' => now()->format('Y-m-d'),
+            'dispatchedQuantities' => [
+                $serviceProduct->id . '--0' => '1',
+            ],
+        ]);
+
+        $response->assertRedirect(route('sales.dispatches.index'));
+        $dispatch2 = \Modules\Sale\Entities\Dispatch::latest('id')->first();
+        $this->assertEquals(\Modules\Sale\Entities\Dispatch::STATUS_PENDING, $dispatch2->status);
+
+        // Approve the service dispatch
+        $response = $this->post(route('dispatches.approve', $dispatch2));
+        $response->assertRedirect();
+
+        $dispatch2->refresh();
+        $this->assertEquals(\Modules\Sale\Entities\Dispatch::STATUS_APPROVED, $dispatch2->status);
+
+        // Now sale should be DISPATCHED
         $sale->refresh();
         $this->assertEquals(\Modules\Sale\Entities\Sale::STATUS_DISPATCHED, $sale->status);
     }

@@ -47,7 +47,7 @@
                                     @endif
                                 </div>
 
-                                @if($serialNumberRequiredFlags[$key])
+                                @if($product['is_inventory_managed'] && $serialNumberRequiredFlags[$key])
                                     <div class="mt-3" wire:ignore>
                                         <div class="input-group input-group-sm mb-1" style="max-width: 250px;">
                                             <div class="input-group-prepend">
@@ -61,7 +61,7 @@
                                                    placeholder="Scan S/N..."
                                                    onkeydown="handleSerialKeydown(event, '{{ $key }}', {{ $product['product_id'] }}, {{ $product['tax_id'] ?? 'null' }})">
                                             <div class="input-group-append">
-                                                <button class="btn btn-primary" type="button" 
+                                                <button class="btn btn-primary" type="button"
                                                         onclick="addSerialFromInput('{{ $key }}', {{ $product['product_id'] }}, {{ $product['tax_id'] ?? 'null' }})">
                                                     <i class="bi bi-plus-lg"></i>
                                                 </button>
@@ -79,7 +79,7 @@
                             {{ $product['dispatched_quantity'] }}
                         </td>
 
-                        @if($serialNumberRequiredFlags[$key])
+                        @if($product['is_inventory_managed'] && $serialNumberRequiredFlags[$key])
                             <td colspan="2" class="text-center">
                                 <span class="text-muted small font-italic">
                                     <i class="bi bi-info-circle mr-1"></i> Per-Serial
@@ -95,7 +95,7 @@
                                            class="form-control text-center bg-light fw-bold text-primary border-primary">
                                 </div>
                             </td>
-                        @else
+                        @elseif($product['is_inventory_managed'])
                             <td class="px-2">
                                 @livewire('modules.setting.location-search-dropdown', [
                                     'name' => $key,
@@ -110,6 +110,24 @@
                                     {{ $stockAtLocations[$key] ?? 0 }}
                                 </span>
                                 <input type="hidden" name="stockAtLocations[{{ $key }}]" value="{{ $stockAtLocations[$key] ?? 0 }}">
+                            </td>
+                            <td>
+                                <div class="input-group input-group-sm mx-auto" style="width: 80px;">
+                                    <input type="number"
+                                           id="quantity-{{ $key }}"
+                                           name="dispatchedQuantities[{{ $key }}]"
+                                           value="{{ $dispatchedQuantities[$key] ?? 0 }}"
+                                           min="0"
+                                           class="form-control text-center shadow-none"
+                                           wire:model="dispatchedQuantities.{{ $key }}"
+                                           wire:change="quantityUpdated($event.target.value, '{{ $key }}')">
+                                </div>
+                            </td>
+                        @else
+                            <td colspan="2" class="text-center">
+                                <span class="text-muted small font-italic">
+                                    <i class="bi bi-briefcase mr-1"></i> Layanan
+                                </span>
                             </td>
                             <td>
                                 <div class="input-group input-group-sm mx-auto" style="width: 80px;">
