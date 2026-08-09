@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sales users can set a final line total
-The Sales cart SHALL provide an editable final line total for each standard non-bundled line. The line total SHALL represent the amount after line discount and applicable tax and before global discount and shipping. A valid committed Total Baris SHALL be the authoritative row `sub_total` to two monetary decimals, even when the derived two-decimal unit price multiplied by quantity differs from that total.
+The Sales cart SHALL provide an editable final line total for each standard non-bundled line. The line total SHALL represent the final tax-inclusive amount after line discount and applicable tax and before global discount and shipping, regardless of whether the document tax setting is tax-included or tax-exclusive. A valid committed Total Baris SHALL be the authoritative row `sub_total` to two monetary decimals, even when the derived two-decimal unit price multiplied by quantity differs from that total. The system SHALL NOT add tax on top of a committed Total Baris in tax-exclusive mode.
 
 A tax SHALL be considered applicable to a Sales line only when the effective business is PKP. When the effective business is not PKP, a Sales line SHALL carry no tax regardless of any tax selection held on that line, and the reverse calculation SHALL NOT remove a tax amount from the committed Total Baris.
 
@@ -51,3 +51,21 @@ A tax SHALL be considered applicable to a Sales line only when the effective bus
 - **THEN** the row `sub_total` SHALL equal the committed Total Baris exactly
 - **AND** the system SHALL extract the tax portion from that amount
 - **AND** the line's pre-tax subtotal plus the line's tax amount SHALL equal the committed Total Baris exactly
+
+### Requirement: Stored Sales manual total survives edit and reload
+When a stored Sale is eligible for editing, its persisted authoritative line subtotal and tax allocation SHALL be hydrated into the edit cart and retained after a user changes Total Baris, saves the Sale, and opens it for editing again.
+
+#### Scenario: Stored PKP Sale is edited and reopened
+- **WHEN** a user opens an eligible stored PKP Sale with a standard row of quantity 1.200
+- **AND** changes that row's Total Baris to Rp1.460.000
+- **AND** saves and reopens the Sale for editing
+- **THEN** the persisted and rehydrated row `sub_total` SHALL equal Rp1.460.000 exactly
+- **AND** the rehydrated `sub_total_before_tax + product_tax_amount` SHALL equal Rp1.460.000 exactly
+- **AND** the row SHALL retain its `manual_line_total` pricing source
+
+#### Scenario: Stored non-PKP Sale is edited and reopened
+- **WHEN** a user opens an eligible stored non-PKP Sale with a standard row of quantity 1.200
+- **AND** changes that row's Total Baris to Rp1.460.000
+- **AND** saves and reopens the Sale for editing
+- **THEN** the persisted and rehydrated row `sub_total` and pre-tax subtotal SHALL equal Rp1.460.000 exactly
+- **AND** the persisted and rehydrated tax amount SHALL equal Rp0

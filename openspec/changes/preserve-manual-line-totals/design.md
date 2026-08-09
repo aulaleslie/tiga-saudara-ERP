@@ -31,7 +31,7 @@ Alternative considered: preserve the full fractional unit price. Rejected becaus
 
 ### Allocate tax from the authoritative final total
 
-For a PKP row with an applicable tax rate, use the same tax-mode semantics as the current cart calculators, but calculate the final split from the committed total and round the monetary components to two decimals. The tax amount is the residual needed to make the components sum exactly to the committed line total.
+For a PKP row with an applicable tax rate, `Total Baris` is always the final tax-inclusive (gross) amount entered by the user. This remains true whether the document tax setting is tax-included or tax-exclusive. Tax mode affects unit-price/DPP derivation and presentation; it SHALL NOT cause tax to be added on top of the committed Total Baris. Calculate the final split from the committed total and round the monetary components to two decimals. The tax amount is the residual needed to make the components sum exactly to the committed line total.
 
 - Tax-included: derive DPP from `total / (1 + rate)`; tax is `total - DPP`.
 - Tax-exclusive current line-total workflow: derive DPP from `total / (1 + rate)`; tax is `total - DPP`, because the entered `Total Baris` is the final amount in this workflow.
@@ -43,7 +43,9 @@ Alternative considered: calculate tax from rounded unit price times quantity. Re
 
 ### Preserve existing downstream authorities
 
-Both document forms already persist `sub_total` and `product_tax_amount` from cart metadata. The change will retain that contract: no new database field or schema migration is needed. Sales will continue marking a total edit as `manual_line_total`; Purchase will preserve the requested monetary metadata in the cart without introducing an unrelated pricing-source migration.
+Both document forms already persist `sub_total` and `product_tax_amount` from cart metadata, and their edit forms hydrate those fields back into cart metadata. The change will retain that contract: no new database field or schema migration is needed. Sales will continue marking a total edit as `manual_line_total`; Purchase will preserve the requested monetary metadata in the cart without introducing an unrelated pricing-source migration.
+
+The implementation must verify the full stored-document path: an existing Purchase or Sale is opened for editing, its Total Baris is changed, the document is saved, and a fresh edit load retains the exact authoritative total and reconciled tax split.
 
 ## Risks / Trade-offs
 

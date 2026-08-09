@@ -20,5 +20,8 @@
 
 ## 4. Integrated verification
 
-- [x] 4.1 Run all focused Purchase and Sales tests added or affected by this change.
-- [x] 4.2 Run the project’s recommended fresh-SQLite test command, or document an environment-specific reason and run the closest viable equivalent.
+- [x] 4.1 Add Purchase create/edit integration coverage that edits an existing stored document's quantity-1.200 line total, saves it, and reopens it; cover non-PKP plus PKP tax-included and tax-exclusive documents.
+- [x] 4.2 Add Sales create/edit integration coverage with the same stored-document edit/save/reopen flows, including retention of `manual_line_total` after reload.
+- [x] 4.3 In the new stored-document coverage, assert that Total Baris is the final tax-inclusive amount in both PKP modes: DPP plus tax equals the entered amount and tax-exclusive mode does not add tax on top.
+- [x] 4.4 Run all focused Purchase and Sales tests added or affected by this change.
+- [x] 4.5 Run the project’s recommended fresh-SQLite test command, or document an environment-specific reason and run the closest viable equivalent.

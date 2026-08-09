@@ -18,6 +18,7 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Throwable;
 
 class EditForm extends Component
@@ -460,19 +461,23 @@ class EditForm extends Component
         $isPkp = $this->isPkpEnabled();
 
         foreach ($this->purchase->purchaseDetails as $detail) {
-            $subTotal = (float) $detail->sub_total;
-            $taxAmount = (float) ($detail->product_tax_amount ?? 0);
-            $subTotalBeforeTax = max(0, $subTotal - $taxAmount);
+            // Edit-load hydration: stored monetary values are authoritative. Never
+            // recompute the line total from price x quantity here.
+            // A non-PKP context discards any stored tax, so the authoritative total
+            // there is the stored DPP rather than the tax-inclusive total.
+            $storedTax = $isPkp ? round((float) ($detail->product_tax_amount ?? 0), 2) : 0.0;
+            $storedTotal = $isPkp
+                ? round((float) $detail->sub_total, 2)
+                : round((float) $detail->sub_total - (float) ($detail->product_tax_amount ?? 0), 2);
+            $storedDpp = round($storedTotal - $storedTax, 2);
             $productTax = $isPkp ? $detail->tax_id : null;
-            $normalizedTaxAmount = $isPkp ? $taxAmount : 0.0;
-            $normalizedSubTotal = $isPkp ? $subTotal : $subTotalBeforeTax;
 
             $discountInput = $detail->product_discount_amount;
             if ($detail->product_discount_type === 'percentage') {
                 $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
             }
 
-            $cart->add([
+            $cartItem = $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
                 'qty' => $detail->quantity,
@@ -482,14 +487,23 @@ class EditForm extends Component
                     'product_discount' => $detail->product_discount_amount,
                     'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
-                    'sub_total' => $normalizedSubTotal,
+                    'sub_total' => $storedTotal,
                     'code' => $detail->product_code,
                     'stock' => $detail->product->product_quantity ?? 0,
                     'product_tax' => $productTax,
                     'unit_price' => $detail->unit_price,
-                    'sub_total_before_tax' => $subTotalBeforeTax,
-                    'product_tax_amount' => $normalizedTaxAmount,
+                    'sub_total_before_tax' => $storedDpp,
+                    'product_tax_amount' => $storedTax,
                 ]
+            ]);
+
+            // Cart::add() may derive its own row total; restore the authoritative trio.
+            $cart->update($cartItem->rowId, [
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'sub_total' => $storedTotal,
+                    'sub_total_before_tax' => $storedDpp,
+                    'product_tax_amount' => $storedTax,
+                ]),
             ]);
         }
     }

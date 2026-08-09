@@ -91,10 +91,19 @@ class EditForm extends Component
                     ->first()
                 : null;
 
-            $subtotalBeforeTax = round((float) ($detail->sub_total - $detail->product_tax_amount), 2);
+            // Edit-load hydration: stored monetary values are authoritative. Never
+            // recompute the line total from price x quantity here.
+            // A non-PKP context discards any stored tax, so the authoritative total
+            // there is the stored DPP rather than the tax-inclusive total.
+            $storedTax = $this->isPkp ? round((float) $detail->product_tax_amount, 2) : 0.0;
+            $storedTotal = $this->isPkp
+                ? round((float) $detail->sub_total, 2)
+                : round((float) $detail->sub_total - (float) $detail->product_tax_amount, 2);
+            $storedDpp = round($storedTotal - $storedTax, 2);
             $normalizedTaxId = $this->isPkp ? $detail->tax_id : null;
-            $normalizedTaxAmount = $this->isPkp ? (float) $detail->product_tax_amount : 0.0;
-            $normalizedSubTotal = $this->isPkp ? (float) $detail->sub_total : $subtotalBeforeTax;
+
+            $pricingSource = $detail->pricing_source ?? 'manual_unit_price';
+
             $pricingMetadata = $this->resolveSalePricingMetadata(
                 (int) $detail->product_id,
                 (float) $detail->unit_price
@@ -105,9 +114,9 @@ class EditForm extends Component
                 'product_id'             => $detail->product_id,
                 'product_discount'       => $detail->product_discount_amount,
                 'product_discount_type'  => $detail->product_discount_type,
-                'sub_total'              => $normalizedSubTotal,
-                'sub_total_before_tax'   => $subtotalBeforeTax,
-                'product_tax_amount'     => $normalizedTaxAmount,
+                'sub_total'              => $storedTotal,
+                'sub_total_before_tax'   => $storedDpp,
+                'product_tax_amount'     => $storedTax,
                 'code'                   => $detail->product_code,
                 'stock'                  => $product?->product_quantity ?? 0,
                 'unit'                   => $product?->product_unit,
@@ -118,7 +127,7 @@ class EditForm extends Component
                 'tier_2_price'           => $pricingMetadata['tier_2_price'],
                 'quantity_non_tax'       => $stockData->quantity_non_tax ?? 0,
                 'quantity_tax'           => $stockData->quantity_tax ?? 0,
-                'pricing_source'         => $detail->pricing_source ?? 'manual_unit_price',
+                'pricing_source'         => $pricingSource,
                 // bundles below
             ];
 
@@ -141,9 +150,9 @@ class EditForm extends Component
 
             $normalizedUnitPrice = (float) $detail->unit_price;
             $normalizedPrice = (float) $detail->price;
-            if (! $this->isPkp && $detail->quantity > 0) {
+            if (! $this->isPkp && $detail->quantity > 0 && $pricingSource !== 'manual_line_total') {
                 // Reversal logic still applies but bundleTotal is now 0 for new bundles.
-                $parentSubTotalBeforeTax = max(0, $subtotalBeforeTax - $bundleTotal);
+                $parentSubTotalBeforeTax = max(0, $storedDpp - $bundleTotal);
                 $normalizedUnitPrice = round(($parentSubTotalBeforeTax / $detail->quantity) + (float) $detail->product_discount_amount, 2);
                 $normalizedPrice = $normalizedUnitPrice;
             }
@@ -158,13 +167,22 @@ class EditForm extends Component
             }
 
             // pass options as array, not object
-            Cart::instance('sale')->add([
+            $cartItem = Cart::instance('sale')->add([
                 'id'      => $detail->id,
                 'name'    => $detail->product_name,
                 'qty'     => $detail->quantity,
                 'price'   => $normalizedPrice,
                 'weight'  => 1,
                 'options' => $options,
+            ]);
+
+            // Cart::add() may derive its own row total; restore the authoritative trio.
+            Cart::instance('sale')->update($cartItem->rowId, [
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'sub_total' => $storedTotal,
+                    'sub_total_before_tax' => $storedDpp,
+                    'product_tax_amount' => $storedTax,
+                ]),
             ]);
         }
     }

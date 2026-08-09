@@ -376,19 +376,49 @@ class ProductCart extends Component
                 null
             );
 
+            // This runs on mount, not as a user edit. A row hydrated from a stored
+            // document already carries an authoritative total; recomputing it from a
+            // rounded unit price would drift it (1460000 -> 1216.67 * 1200 = 1460004).
+            // Only strip tax and normalize the display price for such rows.
+            $storedTotal = $this->resolveAuthoritativeNonPkpTotal($cartItem);
+            $subTotal = $storedTotal ?? $calculated['sub_total'];
+            $subTotalBeforeTax = $storedTotal ?? $calculated['sub_total_before_tax'];
+
             $cart->update($cartItem->rowId, [
                 'price' => $normalizedUnitPrice,
                 'options' => array_merge($cartItem->options->toArray(), [
                     'unit_price' => $normalizedUnitPrice,
                     'product_tax' => null,
-                    'sub_total' => $calculated['sub_total'],
-                    'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                    'sub_total' => $subTotal,
+                    'sub_total_before_tax' => $subTotalBeforeTax,
                     'product_tax_amount' => 0,
                 ]),
             ]);
 
+            $this->line_total[$cartItem->id] = $subTotal;
             $this->product_tax[$cartItem->id] = null;
         }
+    }
+
+    /**
+     * Return the row's already-authoritative non-PKP total, or null when the row has
+     * no consistent stored total and should be recalculated normally.
+     */
+    private function resolveAuthoritativeNonPkpTotal($cartItem): ?float
+    {
+        $subTotal = $cartItem->options->sub_total ?? null;
+        $subTotalBeforeTax = $cartItem->options->sub_total_before_tax ?? null;
+
+        if (! is_numeric($subTotal) || ! is_numeric($subTotalBeforeTax)) {
+            return null;
+        }
+
+        // Non-PKP invariant: sub_total == sub_total_before_tax and tax == 0.
+        if (round((float) $subTotal, 2) !== round((float) $subTotalBeforeTax, 2)) {
+            return null;
+        }
+
+        return round((float) $subTotal, 2);
     }
 
     private function resolveNonPkpUnitPrice($cartItem): float
