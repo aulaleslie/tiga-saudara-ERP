@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 /**
- * Tests for SymfonyProcessRunner output streaming and memory efficiency.
+ * Tests for SymfonyProcessRunner proc_open redirect and memory efficiency.
  */
 class SymfonyProcessRunnerTest extends TestCase
 {
@@ -26,22 +26,19 @@ class SymfonyProcessRunnerTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_disables_symfony_output_buffering()
+    public function test_redirects_stdout_to_file_without_buffering()
     {
         $runner = new SymfonyProcessRunner();
         $outputFile = $this->testDir . DIRECTORY_SEPARATOR . 'output.txt';
-        $handle = fopen($outputFile, 'w');
 
         // Use a simple command that produces output
         $command = ['php', '-r', 'echo "test output\n";'];
-        $result = $runner->run($command, $handle, getenv());
-
-        fclose($handle);
+        $result = $runner->run($command, $outputFile, getenv());
 
         // Process should succeed
         $this->assertTrue($result['success']);
 
-        // Output should have been written to file, not buffered by Symfony
+        // Output should have been written to file via proc_open redirect, not buffered
         $this->assertFileExists($outputFile);
         $content = file_get_contents($outputFile);
         $this->assertStringContainsString('test output', $content);
@@ -54,21 +51,11 @@ class SymfonyProcessRunnerTest extends TestCase
     {
         $runner = new SymfonyProcessRunner();
         $outputFile = $this->testDir . DIRECTORY_SEPARATOR . 'output.txt';
-        $handle = fopen($outputFile, 'w');
 
         // Use a command that writes to both stdout and stderr
-        // On Windows: write stdout then redirect stderr to stdout
-        // On Unix: write to stderr separately
-        $isWindows = PHP_OS_FAMILY === 'Windows';
-        if ($isWindows) {
-            $command = ['php', '-r', 'echo "stdout content\n"; fwrite(STDERR, "stderr content\n");'];
-        } else {
-            $command = ['sh', '-c', 'echo "stdout content"; echo "stderr content" >&2'];
-        }
+        $command = ['php', '-r', 'echo "stdout content\n"; fwrite(STDERR, "stderr content\n");'];
 
-        $result = $runner->run($command, $handle, getenv());
-
-        fclose($handle);
+        $result = $runner->run($command, $outputFile, getenv());
 
         // Process should succeed (exit code 0)
         $this->assertTrue($result['success']);
@@ -84,14 +71,14 @@ class SymfonyProcessRunnerTest extends TestCase
         $this->assertStringContainsString('stderr content', $result['stderr']);
     }
 
-    public function test_large_stdout_stream_not_buffered()
+    public function test_large_stdout_redirected_to_file_without_buffering()
     {
         $runner = new SymfonyProcessRunner();
         $outputFile = $this->testDir . DIRECTORY_SEPARATOR . 'large_output.txt';
-        $handle = fopen($outputFile, 'w');
 
         // Generate 10 MB of output via PHP (simulates large mysqldump output)
-        // This would exhaust memory if Symfony buffered it
+        // This would exhaust memory if buffered by Symfony/PHP
+        // With proc_open file redirect, it bypasses PHP memory entirely
         $sizeInMB = 10;
         $command = [
             'php',
@@ -99,33 +86,28 @@ class SymfonyProcessRunnerTest extends TestCase
             'for ($i = 0; $i < ' . ($sizeInMB * 100) . '; $i++) { echo str_repeat("x", 100000); }',
         ];
 
-        $result = $runner->run($command, $handle, getenv());
-
-        fclose($handle);
+        $result = $runner->run($command, $outputFile, getenv());
 
         // Process should succeed without memory exhaustion
         $this->assertTrue($result['success']);
 
-        // File should contain the data (streamed, not buffered)
+        // File should contain the data (redirected directly via proc_open, not buffered in PHP)
         $this->assertFileExists($outputFile);
         $fileSize = filesize($outputFile);
         // Generated size is exactly $sizeInMB * 100 * 100000 bytes
         $expectedSize = $sizeInMB * 100 * 100000;
         $this->assertEquals($expectedSize, $fileSize,
-            'Large output should be streamed to file without buffering');
+            'Large output should be redirected to file via proc_open without buffering');
     }
 
     public function test_failed_process_captures_stderr_without_buffering_stdout()
     {
         $runner = new SymfonyProcessRunner();
         $outputFile = $this->testDir . DIRECTORY_SEPARATOR . 'output.txt';
-        $handle = fopen($outputFile, 'w');
 
         // Use a command that fails and produces stderr
         $command = ['php', '-r', 'fwrite(STDERR, "error message\n"); exit(1);'];
-        $result = $runner->run($command, $handle, getenv());
-
-        fclose($handle);
+        $result = $runner->run($command, $outputFile, getenv());
 
         // Process should have failed
         $this->assertFalse($result['success']);
@@ -142,15 +124,12 @@ class SymfonyProcessRunnerTest extends TestCase
     {
         $runner = new SymfonyProcessRunner();
         $outputFile = $this->testDir . DIRECTORY_SEPARATOR . 'output.txt';
-        $handle = fopen($outputFile, 'w');
 
         $env = getenv();
         $env['TEST_VAR'] = 'test_value_12345';
 
         $command = ['php', '-r', 'echo getenv("TEST_VAR");'];
-        $result = $runner->run($command, $handle, $env);
-
-        fclose($handle);
+        $result = $runner->run($command, $outputFile, $env);
 
         $this->assertTrue($result['success']);
 

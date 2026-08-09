@@ -152,19 +152,10 @@ class DatabaseBackupService
         $env = getenv();
         $env['MYSQL_PWD'] = $password ?: '';
 
-        $handle = fopen($dumpFile, 'w');
-        if (!$handle) {
-            throw new RuntimeException("Failed to open dump file for writing: {$dumpFile}");
-        }
+        $result = $this->processRunner->run($command, $dumpFile, $env);
 
-        try {
-            $result = $this->processRunner->run($command, $handle, $env);
-
-            if (!$result['success']) {
-                throw new RuntimeException("mysqldump failed: " . trim($result['stderr']));
-            }
-        } finally {
-            fclose($handle);
+        if (!$result['success']) {
+            throw new RuntimeException("mysqldump failed: " . trim($result['stderr']));
         }
 
         if (!file_exists($dumpFile)) {

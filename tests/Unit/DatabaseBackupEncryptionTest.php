@@ -207,17 +207,18 @@ class DatabaseBackupEncryptionTest extends TestCase
  */
 class SuccessfulMockRunner implements ProcessRunnerInterface
 {
-    public function run(array $command, $fileHandle, array $env): array
+    public function run(array $command, string $outputPath, array $env): array
     {
-        // Write valid SQL dump
-        fwrite($fileHandle, "-- MySQL Dump\n");
-        fwrite($fileHandle, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n");
-        fwrite($fileHandle, "USE `test`;\n");
-        fwrite($fileHandle, "CREATE TABLE test_table (id INT PRIMARY KEY, name VARCHAR(255));\n");
-        fwrite($fileHandle, "INSERT INTO test_table VALUES (1, 'test');\n");
-        fwrite($fileHandle, "CREATE PROCEDURE test_proc() READS SQL DATA SELECT 1;\n");
-        fwrite($fileHandle, "CREATE EVENT test_event ON SCHEDULE EVERY 1 DAY DO SELECT 1;\n");
-        fwrite($fileHandle, "CREATE TRIGGER test_trigger BEFORE INSERT ON test_table FOR EACH ROW SELECT NEW.id;\n");
+        // Write valid SQL dump to output file
+        $sql = "-- MySQL Dump\n";
+        $sql .= "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n";
+        $sql .= "USE `test`;\n";
+        $sql .= "CREATE TABLE test_table (id INT PRIMARY KEY, name VARCHAR(255));\n";
+        $sql .= "INSERT INTO test_table VALUES (1, 'test');\n";
+        $sql .= "CREATE PROCEDURE test_proc() READS SQL DATA SELECT 1;\n";
+        $sql .= "CREATE EVENT test_event ON SCHEDULE EVERY 1 DAY DO SELECT 1;\n";
+        $sql .= "CREATE TRIGGER test_trigger BEFORE INSERT ON test_table FOR EACH ROW SELECT NEW.id;\n";
+        file_put_contents($outputPath, $sql);
 
         return [
             'success' => true,

@@ -164,10 +164,10 @@ class DatabaseBackupServiceProcessTest extends TestCase
     {
         // Create a mock runner that writes to both stdout and stderr
         $mockRunner = new class implements ProcessRunnerInterface {
-            public function run(array $command, $fileHandle, array $env): array
+            public function run(array $command, string $outputPath, array $env): array
             {
                 // Simulate a successful dump with warnings in stderr
-                fwrite($fileHandle, "-- Dump content\nCREATE TABLE test (id INT);");
+                file_put_contents($outputPath, "-- Dump content\nCREATE TABLE test (id INT);");
                 return [
                     'success' => true,
                     'stderr' => 'Warning: some non-critical warning from mysqldump',
@@ -224,18 +224,19 @@ class MockProcessRunner implements ProcessRunnerInterface
         $this->stderr = $stderr;
     }
 
-    public function run(array $command, $fileHandle, array $env): array
+    public function run(array $command, string $outputPath, array $env): array
     {
         $this->lastCommand = $command;
         $this->lastEnv = $env;
 
         if ($this->success) {
-            // Write minimal valid SQL to the file handle
-            fwrite($fileHandle, "-- Test SQL Dump\n");
-            fwrite($fileHandle, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n");
-            fwrite($fileHandle, "USE `test`;\n");
-            fwrite($fileHandle, "CREATE TABLE test_table (id INT PRIMARY KEY);\n");
-            fwrite($fileHandle, "INSERT INTO test_table VALUES (1);\n");
+            // Write minimal valid SQL to the output file
+            $sql = "-- Test SQL Dump\n";
+            $sql .= "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n";
+            $sql .= "USE `test`;\n";
+            $sql .= "CREATE TABLE test_table (id INT PRIMARY KEY);\n";
+            $sql .= "INSERT INTO test_table VALUES (1);\n";
+            file_put_contents($outputPath, $sql);
         }
 
         return [
