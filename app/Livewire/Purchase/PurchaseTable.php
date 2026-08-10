@@ -318,7 +318,7 @@ class PurchaseTable extends Component
                     $q->where('due_date', '>=', $this->dueDateFrom);
                 }
                 if (!empty($this->dueDateTo)) {
-                    $q->where('due_date', '<=', $this->dueDateTo);
+                    $q->where('due_date', '<=', Carbon::parse($this->dueDateTo)->endOfDay());
                 }
             })
             ->when($statuses !== null && ! $this->globalMode, function ($q) use ($statuses) {

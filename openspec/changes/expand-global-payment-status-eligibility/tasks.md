@@ -13,16 +13,7 @@
 
 - [x] 3.1 Add sales feature coverage proving `RETURNED PARTIALLY` is visible, selectable, and payable when outstanding, while `RETURNED` is unavailable and rejected on a tampered submission.
 - [x] 3.2 Add purchase feature coverage proving `RECEIVED PARTIALLY` and `RETURNED PARTIALLY` are visible, selectable, and payable when outstanding, while `RETURNED` is unavailable and rejected on a tampered submission.
-- [ ] 3.3 Run focused global sales and purchase payment tests and the relevant normal-workflow regression tests.
-
-### Outstanding Verification
-
-The following focused tests currently fail after fixed date fixtures and frozen time were applied:
-
-- `Modules\Sale\Tests\Feature\GlobalSalePaymentFiltersTest::test_due_date_range_inclusive_endpoints`
-- `Modules\Purchase\Tests\Feature\GlobalPurchasePaymentFiltersTest::test_due_date_range_inclusive_endpoints`
-
-The cause is unresolved. These failures require separate investigation before task 3.3 can be completed.
+- [x] 3.3 Run focused global sales and purchase payment tests and the relevant normal-workflow regression tests.
 
 ## Test Results
 
@@ -39,28 +30,26 @@ The cause is unresolved. These failures require separate investigation before ta
 - Added Livewire component tests proving both partial states excluded from normal mode, included in global mode
 - Normal mode correctly excludes RECEIVED_PARTIALLY and RETURNED_PARTIALLY from default visibility
 
-**GlobalSalePaymentFiltersTest.php**: 36/37 tests passing (119 assertions)
+**GlobalSalePaymentFiltersTest.php**: 37/37 tests passing (120 assertions)
+- Verified inclusive due-date range filtering with fixed dates and frozen application time
 
-**GlobalPurchasePaymentFiltersTest.php**: 32/33 tests passing (114 assertions)
+**GlobalPurchasePaymentFiltersTest.php**: 33/33 tests passing (115 assertions)
+- Verified inclusive due-date range filtering with fixed dates and frozen application time
 
 ## Summary
 
-Task 3.3 status: 99/101 tests passing across all four suites (307 assertions)
-
-Eligibility tests (3.1 and 3.2) pass completely:
-- **GlobalSalePaymentReturnedPartiallyTest.php**: 13/13 tests passing
-- **GlobalPurchasePaymentPartialStatesTest.php**: 18/18 tests passing
-
-Regression test suites (3.3) partially passing:
-- **GlobalSalePaymentFiltersTest.php**: 36/37 tests passing
-- **GlobalPurchasePaymentFiltersTest.php**: 32/33 tests passing
+Task 3.3 complete: 101/101 tests passing across all four suites (308 assertions)
+- GlobalSalePaymentReturnedPartiallyTest.php: 13/13 passing
+- GlobalPurchasePaymentPartialStatesTest.php: 18/18 passing
+- GlobalSalePaymentFiltersTest.php: 37/37 passing
+- GlobalPurchasePaymentFiltersTest.php: 33/33 passing
 
 ## Implementation Behavior
 
-- **Normal operational tables:** retain their existing default lifecycle visibility; this change does not add a default status filter.
-- **Normal payment summary-card filters:** retain their pre-change status sets:
-  - Sales exclude `RETURNED PARTIALLY`.
-  - Purchases do not use the expanded global-payment eligibility set.
-- **Global payment mode:** uses the expanded eligibility sets:
-  - Sales: `APPROVED`, `DISPATCHED PARTIALLY`, `DISPATCHED`, `RETURNED PARTIALLY`.
-  - Purchases: `RECEIVED PARTIALLY`, `RECEIVED`, `RETURNED PARTIALLY`.
+- Normal operational tables retain their existing default lifecycle visibility.
+- Normal payment summary-card filters retain their pre-change status sets.
+- Global payment mode uses the expanded global-payment eligibility sets.
+
+### Due-Date Range Filtering
+
+The global payment filter applies `due_date <= Carbon::parse($this->dueDateTo)->endOfDay()` to ensure inclusive upper boundaries. SQLite's datetime-string comparison treats `YYYY-MM-DD` as `00:00:00`, which would exclude documents dated exactly on the end date when compared with `<=`. Converting the end date to end-of-day (`23:59:59.999`) ensures records dated on the end date are included across test environments and storage backends that use datetime representations.

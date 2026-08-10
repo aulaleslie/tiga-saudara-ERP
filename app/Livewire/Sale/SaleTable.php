@@ -306,7 +306,7 @@ class SaleTable extends Component
                 $query->where('due_date', '>=', $this->dueDateFrom);
             }
             if (!empty($this->dueDateTo)) {
-                $query->where('due_date', '<=', $this->dueDateTo);
+                $query->where('due_date', '<=', Carbon::parse($this->dueDateTo)->endOfDay());
             }
         }
 
