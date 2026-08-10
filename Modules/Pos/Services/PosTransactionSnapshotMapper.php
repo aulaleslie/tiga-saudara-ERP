@@ -38,6 +38,7 @@ class PosTransactionSnapshotMapper
                 $lineMeta = [
                     'barcode' => $line['barcode'] ?? null,
                     'price_source' => $line['price_source'] ?? 'BASE',
+                    'stock_managed' => isset($line['stock_managed']) ? (bool) $line['stock_managed'] : true,
                     'merge_key' => $line['merge_key'] ?? null,
                     'conversion_unit_name' => $line['conversion_unit_name'] ?? null,
                     'bundle_id' => $line['bundle_id'] ?? null,
@@ -121,6 +122,16 @@ class PosTransactionSnapshotMapper
             ->values()
             ->all();
 
+        // Batch-load products for stock_managed fallback resolution
+        $productsById = [];
+        if ($productIds !== []) {
+            $productsById = Product::query()
+                ->whereIn('id', $productIds)
+                ->get(['id', 'stock_managed'])
+                ->keyBy('id')
+                ->all();
+        }
+
         $availableQtyByProduct = [];
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds((int) $transaction->setting_id)->all();
         if ($productIds !== [] && $allowedLocationIds !== []) {
@@ -149,6 +160,9 @@ class PosTransactionSnapshotMapper
             // Restore price_source from metadata, or default to 'BASE'
             $priceSource = $lineMeta['price_source'] ?? 'BASE';
 
+            // Restore stock_managed classification with safe legacy fallback
+            $stockManaged = $this->resolveStockManaged($lineMeta, $dbLine->product_id, $productsById);
+
             // For PACKED lines, restore line_total from minor units
             // Prioritize line_total_minor, fall back to legacy line_total as minor units for backward compat
             $lineTotal = null;
@@ -170,6 +184,7 @@ class PosTransactionSnapshotMapper
                 'product_name' => $dbLine->product_name_snapshot,
                 'product_code' => $dbLine->product_code_snapshot,
                 'barcode' => $lineMeta['barcode'] ?? null,
+                'stock_managed' => $stockManaged,
                 'serial_number_required' => $this->isSerialRequired($dbLine->product_id),
                 'assigned_serials' => $serials,
                 'qty' => $dbLine->qty,
@@ -283,6 +298,33 @@ class PosTransactionSnapshotMapper
         );
 
         return hash('sha256', $json ?: '{}');
+    }
+
+    /**
+     * Resolve stock_managed classification for a hydrated line.
+     * Uses persisted metadata if available; falls back to current product record.
+     * Defaults to conservative stock-managed behavior if product cannot be resolved.
+     *
+     * @param  array<string, mixed>  $lineMeta  Persisted line metadata
+     * @param  int|null  $productId  Product ID from persisted line
+     * @param  array<int, Product>  $productsById  Batch-loaded products
+     * @return bool
+     */
+    private function resolveStockManaged(array $lineMeta, ?int $productId, array $productsById): bool
+    {
+        // If metadata has stock_managed, use it (applies to newly saved or previously saved drafts)
+        if (isset($lineMeta['stock_managed'])) {
+            return (bool) $lineMeta['stock_managed'];
+        }
+
+        // Legacy fallback: resolve from current product record if available
+        if ($productId !== null && isset($productsById[$productId])) {
+            return (bool) $productsById[$productId]->stock_managed;
+        }
+
+        // Conservative default: if product cannot be resolved, treat as stock-managed
+        // This prevents silently bypassing inventory validation
+        return true;
     }
 
     /**

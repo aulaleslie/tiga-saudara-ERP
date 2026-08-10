@@ -30,43 +30,18 @@ The system SHALL provide `Pembayaran Pembelian Global` using the same columns, s
 - **THEN** the list can contain eligible purchases from every `setting_id`
 - **AND** changing the active session setting does not restrict the list to that setting
 
-#### Scenario: Fully received paid and payable purchases are listed
+#### Scenario: Eligible paid and payable purchases are listed
 - **WHEN** the global payment list is queried without a selected summary card
-- **THEN** it contains non-archived purchases whose exact status is `RECEIVED`
+- **THEN** it contains non-archived purchases whose exact status is `RECEIVED PARTIALLY`, `RECEIVED`, or `RETURNED PARTIALLY`
 - **AND** both purchases with a positive current live outstanding balance and fully paid purchases with a live outstanding balance less than or equal to zero are listed
-- **AND** purchases in `APPROVED`, `RECEIVED PARTIALLY`, drafted, waiting-approval, rejected, returned, or archived states are excluded
-
-#### Scenario: Business and document date filters compose with the list
-- **WHEN** an authorized user selects a business and/or an inclusive document-date range
-- **THEN** the list contains only eligible purchases with the selected `setting_id` and whose purchase `date` falls within the supplied boundaries
-- **AND** each global row displays its purchase's business context
-- **AND** the active session setting remains irrelevant
-
-#### Scenario: Search supports operational purchase identifiers and descriptions
-- **WHEN** an authorized user searches the global list
-- **THEN** matching can use purchase reference, supplier purchase number, supplier reference number, tax reference, supplier name, product name/code, purchase note, or tag
-- **AND** a search match does not bypass the selected business, date, lifecycle, archival, or summary-card filters
+- **AND** purchases in `APPROVED`, drafted, waiting-approval, rejected, fully `RETURNED`, or archived states are excluded
 
 #### Scenario: Summary card filters refine the selected list
 - **WHEN** a user selects the outstanding, overdue, or paid summary card while other global list filters are active
 - **THEN** the table retains the active business, document-date, and text-search filters
-- **AND** the outstanding card lists only purchases with a positive current live outstanding balance
-- **AND** the overdue card additionally lists only purchases whose due date is before today
-- **AND** the paid card lists only fully paid purchases that have an active payment within the displayed recent 30-day period
-
-#### Scenario: List omits unrelated purchase operations
-- **WHEN** an authorized user views a payable row on the global payment list
-- **THEN** the page does not expose purchase creation, import, update, deletion, approval, receiving, duplication, archive, or attachment-management actions
-- **AND** the available row actions are limited to the global read-only purchase detail and payment-related actions allowed by the user's permissions
-
-#### Scenario: Fully paid rows remain inspectable but cannot create payment
-- **WHEN** an authorized user views a fully paid row on the global payment list
-- **THEN** global read-only purchase detail and payment history remain available
-- **AND** no create-payment action is displayed or accepted
-
-#### Scenario: Create payment opens supplier allocation page
-- **WHEN** a user with `purchasePayments.create` selects `Buat Pembayaran` for a payable eligible purchase
-- **THEN** the system redirects to the global supplier multi-payment page with that purchase as the starting purchase
+- **AND** the outstanding card lists only eligible purchases with a positive current live outstanding balance
+- **AND** the overdue card additionally lists only eligible purchases whose due date is before today
+- **AND** the paid card lists only eligible fully paid purchases that have an active payment within the displayed recent 30-day period
 
 ### Requirement: Dedicated cross-setting read-only purchase detail
 The system SHALL provide a dedicated global purchase-detail route and context that can display a purchase selected from `Pembayaran Pembelian Global` without applying the active session setting restriction, while leaving the normal setting-scoped purchase-detail route unchanged.
@@ -93,52 +68,31 @@ The system SHALL provide a dedicated global purchase-detail route and context th
 - **AND** global access is granted only through the dedicated authorized global route
 
 ### Requirement: Sample-inspired supplier multi-payment interface
-The system SHALL present a supplier payment form inspired by `report-sample/pembayaran/pembelian-ui.txt`, implemented with the existing ERP Bootstrap/CoreUI conventions and excluding sample fields unsupported by the current purchase-payment domain.
-
-#### Scenario: Supported shared payment fields are displayed
-- **WHEN** an authorized user opens the multi-payment form from an eligible starting purchase
-- **THEN** the page displays the supplier as read-only, transaction date, transaction reference, payment method, memo, one attachment input, subtotal, total, cancel, and save controls
-- **AND** the page does not display unsupported tag, withholding, separate payment due-date, or multiple-attachment controls
+The system SHALL present a supplier payment form using the existing ERP Bootstrap/CoreUI conventions and supported purchase-payment fields.
 
 #### Scenario: Eligible supplier purchases are displayed as allocation rows
 - **WHEN** the multi-payment form loads
-- **THEN** it lists non-archived purchases with the starting purchase's exact `supplier_id`, exact status `RECEIVED`, and positive current outstanding balance
+- **THEN** it lists non-archived purchases with the starting purchase's exact `supplier_id`, a status of `RECEIVED PARTIALLY`, `RECEIVED`, or `RETURNED PARTIALLY`, and a positive current outstanding balance
 - **AND** the candidate query does not apply a `setting_id` restriction
 - **AND** each row displays transaction number, description, due date, total, outstanding balance, and an editable payment amount
 
-#### Scenario: Initial allocations follow the sample behavior
-- **WHEN** the multi-payment form first loads
-- **THEN** the starting purchase amount defaults to its full current outstanding balance
-- **AND** every other candidate purchase amount defaults to zero
-- **AND** subtotal and total equal the sum of positive allocation amounts
-
 #### Scenario: Ineligible starting purchase is rejected
-- **WHEN** the requested starting purchase is archived, is not exactly `RECEIVED`, or has no positive current outstanding balance
+- **WHEN** the requested starting purchase is archived, has a status other than `RECEIVED PARTIALLY`, `RECEIVED`, or `RETURNED PARTIALLY`, or has no positive current outstanding balance
 - **THEN** the system does not render a payable allocation form
 - **AND** no purchase payment is created
 
 ### Requirement: Multi-purchase allocation validation
 The system MUST validate the submitted allocation against current server-side purchase and active-payment data rather than trusting rendered balances or client-provided purchase metadata.
 
-#### Scenario: At least one positive allocation is required
-- **WHEN** all submitted allocation amounts are zero or blank
-- **THEN** validation fails with an Indonesian user-facing message
-- **AND** no purchase payment is created
-
-#### Scenario: Positive allocations cannot exceed live balances
-- **WHEN** any submitted amount is negative or exceeds that purchase's current outstanding balance
-- **THEN** the complete submission is rejected
-- **AND** no purchase payment is created for any row
-
 #### Scenario: Tampered or newly ineligible candidate is rejected
-- **WHEN** a submitted purchase has another `supplier_id`, is outside exact status `RECEIVED`, is archived, is not an allowed candidate, or becomes fully paid before submission
+- **WHEN** a submitted purchase has another `supplier_id`, has a status other than `RECEIVED PARTIALLY`, `RECEIVED`, or `RETURNED PARTIALLY`, is archived, is not an allowed candidate, or becomes fully paid before submission
 - **THEN** the complete submission is rejected
 - **AND** no payment is applied to any selected purchase
 
-#### Scenario: Zero allocations are ignored
-- **WHEN** a valid submission contains both positive and zero allocation amounts
-- **THEN** the system creates payments only for rows with positive amounts
-- **AND** zero-allocation purchases remain unchanged
+#### Scenario: Fully returned purchase is rejected even with a legacy positive balance
+- **WHEN** a submitted purchase has exact status `RETURNED`
+- **THEN** the complete submission is rejected regardless of its stored or live balance
+- **AND** no purchase payment is created
 
 ### Requirement: Atomic reuse of existing purchase payments
 The system SHALL create one existing `PurchasePayment` record per positive allocation and SHALL update every affected purchase using the existing active-payment balance and payment-status semantics in one coordinated operation.

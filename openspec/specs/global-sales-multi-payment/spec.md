@@ -30,39 +30,18 @@ The system SHALL provide a sales-payment list using the established sales table 
 - **THEN** eligible sales from every `setting_id` can be listed
 - **AND** the active session setting does not restrict the results
 
-#### Scenario: Approved-up paid and payable sales are eligible
+#### Scenario: Eligible paid and payable sales are listed
 - **WHEN** the global list is queried without a selected summary card
-- **THEN** it contains non-archived sales whose exact status is `APPROVED`, `DISPATCHED PARTIALLY`, or `DISPATCHED`
+- **THEN** it contains non-archived sales whose exact status is `APPROVED`, `DISPATCHED PARTIALLY`, `DISPATCHED`, or `RETURNED PARTIALLY`
 - **AND** both sales with a positive current live outstanding balance and fully paid sales with a live outstanding balance less than or equal to zero are listed
-- **AND** draft, waiting-approval, rejected, returned, and archived sales are excluded
-
-#### Scenario: Business and document date filters compose with the list
-- **WHEN** an authorized user selects a business and/or an inclusive document-date range
-- **THEN** the list contains only eligible sales with the selected `setting_id` and whose sale `date` falls within the supplied boundaries
-- **AND** each global row displays its sale's business context
-- **AND** the active session setting remains irrelevant
-
-#### Scenario: Search supports operational sales identifiers and stored descriptions
-- **WHEN** an authorized user searches the global list
-- **THEN** matching can use sale reference, imported sales reference, tax reference, customer name/contact, product name/code, sale note, tag, POS receipt number, POS transaction code, or persisted sales bundle-item name
-- **AND** a search match does not bypass the selected business, date, lifecycle, archival, or summary-card filters
+- **AND** draft, waiting-approval, rejected, fully `RETURNED`, and archived sales are excluded
 
 #### Scenario: Summary card filters refine the selected list
 - **WHEN** a user selects the outstanding, overdue, or paid summary card while other global list filters are active
 - **THEN** the table retains the active business, document-date, and text-search filters
-- **AND** the outstanding card lists only sales with a positive current live outstanding balance
-- **AND** the overdue card additionally lists only sales whose due date is before today
-- **AND** the paid card lists only fully paid sales that have an active payment within the displayed recent 30-day period
-
-#### Scenario: Global rows expose payment-only actions
-- **WHEN** an authorized user views a global sales row with a positive current live outstanding balance
-- **THEN** the available actions are limited to read-only detail, payment history, and allowed payment creation
-- **AND** ordinary sale creation, editing, deletion, approval, dispatch, duplication, archive, and attachment-management actions are absent
-
-#### Scenario: Fully paid global rows are read-only
-- **WHEN** an authorized user views a fully paid global sales row
-- **THEN** read-only detail and payment history remain available
-- **AND** no create-payment action is displayed or accepted
+- **AND** the outstanding card lists only eligible sales with a positive current live outstanding balance
+- **AND** the overdue card additionally lists only eligible sales whose due date is before today
+- **AND** the paid card lists only eligible fully paid sales that have an active payment within the displayed recent 30-day period
 
 ### Requirement: Global sales payment summaries
 The system SHALL provide payment-focused summary cards based on eligible sales across all settings.
@@ -142,30 +121,15 @@ The system MUST process only monetary payment-method allocations and MUST NOT ap
 ### Requirement: Server-authoritative allocation validation
 The system MUST validate submitted allocations against current locked sale and active-payment data rather than trusting rendered balances or client metadata.
 
-#### Scenario: At least one positive allocation is required
-- **WHEN** every submitted allocation is zero or blank
-- **THEN** validation fails with an Indonesian user-facing message
-- **AND** no sale payment is created
-
-#### Scenario: Invalid amount rejects the complete batch
-- **WHEN** any allocation is negative or exceeds that sale’s current live outstanding balance
-- **THEN** the complete submission is rejected
-- **AND** no payment is created for any allocation
-
 #### Scenario: Customer mismatch or changed eligibility rejects the batch
-- **WHEN** a submitted sale belongs to another customer, is archived, has an ineligible status, or becomes fully paid
+- **WHEN** a submitted sale belongs to another customer, is archived, has a status other than `APPROVED`, `DISPATCHED PARTIALLY`, `DISPATCHED`, or `RETURNED PARTIALLY`, or becomes fully paid
 - **THEN** the complete submission is rejected
 - **AND** no selected sale is partially settled
 
-#### Scenario: Zero allocations are ignored
-- **WHEN** a valid submission contains positive and zero allocations
-- **THEN** payments are created only for positive allocations
-- **AND** zero-allocation sales remain unchanged
-
-#### Scenario: Concurrent balance change is detected
-- **WHEN** a sale’s outstanding balance changes after form rendering but before commit
-- **THEN** the system locks and revalidates the sale against current settlement data
-- **AND** any now-invalid allocation causes the complete batch to roll back
+#### Scenario: Fully returned sale is rejected even with a legacy positive balance
+- **WHEN** a submitted sale has exact status `RETURNED`
+- **THEN** the complete submission is rejected regardless of its stored or live balance
+- **AND** no sale payment is created
 
 ### Requirement: Canonical live sales balance
 The system SHALL derive global eligibility and reconciliation from canonical active settlement data and SHALL not rely only on a previously stored `due_amount`.

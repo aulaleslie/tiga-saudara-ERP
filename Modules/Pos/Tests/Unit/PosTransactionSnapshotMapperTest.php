@@ -533,6 +533,239 @@ class PosTransactionSnapshotMapperTest extends PosTransactionFeatureTestCase
     }
 
     /**
+     * Task 2.1: Non-stock service line restores with stock_managed = false
+     * Proves draft save/load lifecycle preserves the stock-management classification.
+     */
+    public function test_non_stock_service_line_save_and_load_restores_stock_managed_false(): void
+    {
+        $setting = $this->createSetting('BIZ POS NON-STOCK SERVICE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS NON-STOCK USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        // Create a non-stock product (service)
+        $serviceProduct = $this->createNonStockProduct($setting, 'SERVICE-001', 'Consulting Service', 50000);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-NON-STOCK-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 50000],
+        ]);
+
+        // Simulate cart line with non-stock product
+        $cartLines = [
+            1 => [
+                'line_id' => 1,
+                'product_id' => $serviceProduct->id,
+                'product_name' => $serviceProduct->product_name,
+                'product_code' => $serviceProduct->product_code,
+                'barcode' => null,
+                'stock_managed' => false,  // Non-stock classification
+                'serial_number_required' => false,
+                'assigned_serials' => [],
+                'qty' => 1,
+                'unit_price' => 50000,
+                'tax_id' => null,
+                'tax_name' => null,
+                'tax_rate' => 0,
+                'line_discount_type' => 'fixed',
+                'line_discount_value' => 0,
+            ],
+        ];
+
+        // Persist the cart lines
+        $this->mapper->persistLines($transaction, $cartLines);
+
+        // Reload transaction and hydrate cart
+        $transaction->refresh();
+        $hydrated = $this->mapper->hydrateCart($transaction);
+
+        // Verify stock_managed = false is restored
+        $this->assertCount(1, $hydrated['lines']);
+        $this->assertFalse($hydrated['lines'][1]['stock_managed'], 'Non-stock service line must restore stock_managed = false');
+    }
+
+    /**
+     * Task 2.3: Legacy draft without stock_managed metadata falls back to current product classification
+     * For a non-stock product, the fallback should resolve to stock_managed = false.
+     */
+    public function test_legacy_draft_without_stock_managed_metadata_falls_back_to_current_product(): void
+    {
+        $setting = $this->createSetting('BIZ POS LEGACY FALLBACK');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS LEGACY FALLBACK USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        // Create a non-stock product
+        $serviceProduct = $this->createNonStockProduct($setting, 'SERVICE-FALLBACK-001', 'Legacy Service', 75000);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-LEGACY-FALLBACK-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 75000],
+        ]);
+
+        // Create line with metadata that lacks stock_managed (legacy draft)
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $serviceProduct->id,
+            'product_name_snapshot' => $serviceProduct->product_name,
+            'product_code_snapshot' => $serviceProduct->product_code,
+            'conversion_id' => null,
+            'qty' => 1,
+            'unit_price' => 75000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [
+                'barcode' => null,
+                'price_source' => 'BASE',
+                // Deliberately omitting stock_managed to simulate legacy draft
+            ],
+        ]);
+
+        // Reload and hydrate
+        $transaction->refresh();
+        $hydrated = $this->mapper->hydrateCart($transaction);
+
+        // Verify fallback resolves to current product's stock_managed = false
+        $this->assertCount(1, $hydrated['lines']);
+        $this->assertFalse($hydrated['lines'][1]['stock_managed'], 'Legacy draft must fall back to current product stock_managed = false');
+    }
+
+    /**
+     * Task 2.3: Legacy draft with unresolvable product falls back to conservative stock-managed = true
+     * Since we cannot test with an actually missing product (foreign key constraint), we test
+     * the resolution method behavior with missing products in the loaded batch.
+     */
+    public function test_resolve_stock_managed_defaults_to_true_for_unresolvable_product(): void
+    {
+        // Test the resolveStockManaged method directly by introspection
+        // When metadata lacks stock_managed AND product cannot be resolved,
+        // the fallback must be conservative: true
+
+        // Case 1: Legacy metadata without stock_managed, product not in batch (unresolvable)
+        $lineMeta = [
+            'barcode' => null,
+            'price_source' => 'BASE',
+            // Deliberately omitting stock_managed
+        ];
+        $productId = 999999;  // Non-existent product
+        $productsById = [];  // Empty batch - product unresolvable
+
+        // Call resolveStockManaged via reflection to test the method
+        $reflection = new \ReflectionClass($this->mapper);
+        $method = $reflection->getMethod('resolveStockManaged');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->mapper, $lineMeta, $productId, $productsById);
+
+        // Must default to true (conservative) when product cannot be resolved
+        $this->assertTrue($result, 'Unresolvable product must default to conservative stock_managed = true');
+    }
+
+    /**
+     * Task 2.1: Stock-managed cart line missing stock_managed key should not persist as false
+     * When cart persists a stock-managed product line without stock_managed key, it must:
+     * - Not be persisted as false (unsafe default)
+     * - Restore as stock-managed (true)
+     * - Still fail checkout preflight when stock is insufficient
+     */
+    public function test_missing_stock_managed_key_defaults_to_true_for_persistence(): void
+    {
+        $setting = $this->createSetting('BIZ POS MISSING STOCK_MANAGED');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS MISSING STOCK_MANAGED USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        // Create a stock-managed product
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-MISSING-STOCK-001',
+            'stock_qty' => 10,
+            'serial_number_required' => false,
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-MISSING-STOCK-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 100000],
+        ]);
+
+        // Cart line intentionally missing stock_managed key
+        $cartLines = [
+            1 => [
+                'line_id' => 1,
+                'product_id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'barcode' => $product->barcode,
+                // Intentionally omitting 'stock_managed' key
+                'serial_number_required' => false,
+                'assigned_serials' => [],
+                'qty' => 5,
+                'unit_price' => 20000,
+                'tax_id' => null,
+                'tax_name' => null,
+                'tax_rate' => 0,
+                'line_discount_type' => 'fixed',
+                'line_discount_value' => 0,
+            ],
+        ];
+
+        // Persist the cart lines
+        $this->mapper->persistLines($transaction, $cartLines);
+
+        // Verify persistence: stock_managed should be stored as true (conservative default), not false
+        $transaction->refresh();
+        $line = $transaction->lines()->first();
+        $this->assertTrue(
+            $line->line_meta['stock_managed'],
+            'Missing stock_managed key must persist as true (conservative), not false'
+        );
+
+        // Verify hydration: stock_managed should restore as true
+        $hydrated = $this->mapper->hydrateCart($transaction);
+        $this->assertCount(1, $hydrated['lines']);
+        $this->assertTrue(
+            $hydrated['lines'][1]['stock_managed'],
+            'Line with missing stock_managed key must restore as stock-managed (true)'
+        );
+    }
+
+    /**
      * Verification: Legacy snapshot with stale base_qty metadata is ignored.
      * Quantity contract: `qty` is the sole authoritative base-unit quantity.
      * Scanning one box with factor 5 adds `qty = 5` (not base_qty = 1, qty = 5).

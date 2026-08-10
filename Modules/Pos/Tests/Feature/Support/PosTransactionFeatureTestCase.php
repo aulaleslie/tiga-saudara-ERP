@@ -224,6 +224,61 @@ abstract class PosTransactionFeatureTestCase extends TestCase
         return $product;
     }
 
+    protected function createNonStockProduct(Setting $setting, string $code, string $name, float $salePrice): Product
+    {
+        $createdBy = User::query()->value('id') ?? User::factory()->create(['is_active' => true])->id;
+
+        $category = Category::firstOrCreate(
+            ['category_code' => 'POS-NON-STOCK-CAT-' . $setting->id],
+            [
+                'category_name' => 'POS Non-Stock Category ' . $setting->id,
+                'setting_id' => $setting->id,
+                'created_by' => $createdBy,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'Service',
+            'short_name' => 'SVC',
+        ]);
+
+        $product = Product::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'product_name' => $name,
+            'product_code' => $code,
+            'barcode' => $code . '-BC',
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => $salePrice,
+            'product_unit' => 'SVC',
+            'product_stock_alert' => 0,
+            'stock_managed' => false,  // Non-stock product
+            'is_sold' => true,  // Sellable despite no inventory
+            'serial_number_required' => false,
+        ]);
+
+        // Non-stock products do NOT have product stock records
+        // They are sold but do not consume inventory
+
+        ProductPrice::updateOrCreate([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+        ], [
+            'sale_price' => $salePrice,
+            'tier_1_price' => null,
+            'tier_2_price' => null,
+            'last_purchase_price' => 0,
+            'average_purchase_price' => 0,
+            'purchase_tax_id' => null,
+            'sale_tax_id' => null,
+        ]);
+
+        return $product;
+    }
+
     protected function createSerialNumber(Product $product, Location $location, string $serialNumber): ProductSerialNumber
     {
         return ProductSerialNumber::create([
