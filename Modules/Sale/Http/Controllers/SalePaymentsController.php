@@ -13,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Services\SalePaymentSettlementService;
+use Modules\SalesReturn\Entities\CustomerCredit;
 use Modules\Setting\Entities\PaymentMethod;
 
 class SalePaymentsController extends Controller

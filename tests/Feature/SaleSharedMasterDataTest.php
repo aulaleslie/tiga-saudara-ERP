@@ -160,6 +160,7 @@ class SaleSharedMasterDataTest extends TestCase
 
         $response->assertOk();
         $response->assertViewHas('payment_methods', fn ($methods) => $methods->contains('id', $this->sharedMethod->id));
+        $response->assertViewHas('customerCredits');
     }
 
     public function test_livewire_components_pull_shared_master_data(): void
