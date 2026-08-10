@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
@@ -24,11 +25,11 @@ class PurchaseBySupplierReportQueryService
             ->select(
                 'purchase_details.*',
                 'suppliers.supplier_name',
-                'purchases.date as purchase_date'
+                DB::raw(EffectivePurchaseReportingDate::sqlExpression() . ' as purchase_date')
             )
             ->where('purchases.setting_id', $scopeSettingId)
-            ->where('purchases.date', '>=', $filter->startDate)
-            ->where('purchases.date', '<=', $filter->endDate);
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         // Supplier filter (OR semantics)
         if (!empty($filter->supplierIds)) {
@@ -63,6 +64,7 @@ class PurchaseBySupplierReportQueryService
     public function applySort(Builder $query, string $sortField, string $sortDirection): void
     {
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
+        $effectiveDateExpr = EffectivePurchaseReportingDate::sqlExpression();
 
         if ($sortField === 'supplier_total') {
             // Join a subquery that computes the supplier total for the currently filtered dataset
@@ -70,7 +72,7 @@ class PurchaseBySupplierReportQueryService
             $baseQuery->setEagerLoads([]);
             $baseQuery->getQuery()->columns = [];
             $baseQuery->getQuery()->orders = [];
-            
+
             $supplierTotals = $baseQuery
                 ->select('purchases.supplier_id', DB::raw('SUM(CASE WHEN purchases.is_tax_included = 1 THEN purchase_details.sub_total ELSE purchase_details.sub_total + COALESCE(purchase_details.product_tax_amount, 0) END) as total_nominal'))
                 ->groupBy('purchases.supplier_id');
@@ -78,30 +80,30 @@ class PurchaseBySupplierReportQueryService
             $query->leftJoinSub($supplierTotals, 'st', 'st.supplier_id', '=', 'purchases.supplier_id')
                   ->orderBy('st.total_nominal', $direction)
                   ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('purchases.date', $direction);
+                  ->orderByRaw($effectiveDateExpr . ' ' . $direction);
         } elseif ($sortField === 'supplier_name') {
             $query->orderBy('suppliers.supplier_name', $direction)
                   ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('purchases.date', $direction);
+                  ->orderByRaw($effectiveDateExpr . ' ' . $direction);
         } else {
-            // For date sorting, group suppliers by their max/min date first, so their rows don't interleave
+            // For date sorting, group suppliers by their max/min effective date first, so their rows don't interleave
             $aggFunc = $direction === 'asc' ? 'MIN' : 'MAX';
-            
+
             $baseQuery = clone $query;
             $baseQuery->setEagerLoads([]);
             $baseQuery->getQuery()->columns = [];
             $baseQuery->getQuery()->orders = [];
-            
+
             $supplierDates = $baseQuery
-                ->select('purchases.supplier_id', DB::raw("{$aggFunc}(purchases.date) as group_date"))
+                ->select('purchases.supplier_id', DB::raw("{$aggFunc}({$effectiveDateExpr}) as group_date"))
                 ->groupBy('purchases.supplier_id');
 
             $query->leftJoinSub($supplierDates, 'sd', 'sd.supplier_id', '=', 'purchases.supplier_id')
                   ->orderBy('sd.group_date', $direction)
                   ->orderBy('suppliers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('purchases.date', $direction);
+                  ->orderByRaw($effectiveDateExpr . ' ' . $direction);
         }
-        
+
         $query->orderBy('purchases.id', $direction)->orderBy('purchase_details.id', 'asc');
     }
 
@@ -192,7 +194,7 @@ class PurchaseBySupplierReportQueryService
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
             'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
-            'Tanggal'               => $purchase?->date ?? '-',
+            'Tanggal'               => $purchase?->effective_date ?? '-',
             'Tipe transaksi'        => 'Faktur Pembelian',
             'No. transaksi'         => $purchase?->reference ?? '-',
             'Nama produk'           => $detail->product_name ?? '-',
@@ -209,7 +211,7 @@ class PurchaseBySupplierReportQueryService
             $productTotal -= $discountAmount;
             $rows[] = [
                 'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
-                'Tanggal'               => $purchase?->date ?? '-',
+                'Tanggal'               => $purchase?->effective_date ?? '-',
                 'Tipe transaksi'        => 'Faktur Pembelian',
                 'No. transaksi'         => $purchase?->reference ?? '-',
                 'Nama produk'           => 'Diskon',
@@ -226,7 +228,7 @@ class PurchaseBySupplierReportQueryService
             $taxTotal = $productTotal + $taxAmount;
             $rows[] = [
                 'Supplier'              => $detail->supplier_name ?: ($purchase?->supplier?->supplier_name ?? '-'),
-                'Tanggal'               => $purchase?->date ?? '-',
+                'Tanggal'               => $purchase?->effective_date ?? '-',
                 'Tipe transaksi'        => 'Faktur Pembelian',
                 'No. transaksi'         => $purchase?->reference ?? '-',
                 'Nama produk'           => 'Pajak',

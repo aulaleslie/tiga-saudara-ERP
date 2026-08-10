@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
@@ -35,7 +36,7 @@ class PurchaseReportQueryService
             ->groupBy('rnd.po_detail_id');
 
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
-        $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : 'purchases.date';
+        $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : EffectivePurchaseReportingDate::sqlExpression();
         $effectivePaidExpression = $this->effectivePaidExpression();
 
     $query = PurchaseDetail::query()->with([
@@ -61,7 +62,7 @@ class PurchaseReportQueryService
     private function buildHeaderQuery(PurchaseReportFilterData $filter): Builder
     {
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
-        $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : 'purchases.date';
+        $dateColumn = $filter->dateBasis === 'due_date' ? 'purchases.due_date' : EffectivePurchaseReportingDate::sqlExpression();
         $effectivePaidExpression = $this->effectivePaidExpression();
 
         $query = Purchase::query()->with([
@@ -111,9 +112,18 @@ SQL;
         string $tagRelation
     ): Builder {
         $query
-            ->when(!$filter->isGlobal, fn($builder) => $builder->where('purchases.setting_id', $scopeSettingId))
-            ->where($dateColumn, '>=', $filter->startDate)
-            ->where($dateColumn, '<=', $filter->endDate);
+            ->when(!$filter->isGlobal, fn($builder) => $builder->where('purchases.setting_id', $scopeSettingId));
+
+        if ($dateColumn === EffectivePurchaseReportingDate::sqlExpression()) {
+            $query
+                ->whereRaw($dateColumn . ' >= ?', [$filter->startDate])
+                ->whereRaw($dateColumn . ' <= ?', [$filter->endDate]);
+        } else {
+            // Wrap due_date in DATE() for consistent comparison across SQLite/MySQL
+            $query
+                ->whereRaw('DATE(' . $dateColumn . ') >= ?', [$filter->startDate])
+                ->whereRaw('DATE(' . $dateColumn . ') <= ?', [$filter->endDate]);
+        }
 
         if (!empty($filter->supplierIds)) {
             $query->whereIn('purchases.supplier_id', $filter->supplierIds);
@@ -156,16 +166,16 @@ SQL;
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         match ($sortField) {
-            'date'                     => $query->orderBy('purchases.date', $direction),
+            'date'                     => $query->orderByRaw(EffectivePurchaseReportingDate::sqlExpression() . ' ' . $direction),
             'reference'                => $query->orderBy('purchases.reference', $direction),
             'supplier_purchase_number' => $query->orderBy('purchases.supplier_purchase_number', $direction),
             'supplier_name'            => $query->orderBy('suppliers.supplier_name', $direction),
             'status'                   => $query->orderBy('purchases.status', $direction),
             'payment_status'           => $query->orderByRaw('
-                (CASE 
-                    WHEN derived_active_paid <= 0 THEN 1 
-                    WHEN purchases.total_amount > 0 AND derived_active_paid >= purchases.total_amount THEN 3 
-                    ELSE 2 
+                (CASE
+                    WHEN derived_active_paid <= 0 THEN 1
+                    WHEN purchases.total_amount > 0 AND derived_active_paid >= purchases.total_amount THEN 3
+                    ELSE 2
                 END) ' . $direction
             ),
             'total_amount'             => $query->orderBy('purchases.total_amount', $direction),
@@ -275,7 +285,7 @@ SQL;
         $totalAmount = (float) ($purchase?->total_amount ?? 0);
 
         return [
-            'Tanggal'                     => self::formatDate($purchase?->date),
+            'Tanggal'                     => self::formatDate($purchase?->effective_date),
             'Nomor Transaksi'             => $purchase?->reference ?? '-',
             'Nomor Pembelian Supplier'    => $purchase?->supplier_purchase_number ?? '-',
             'Nama Panggilan'              => $supplier?->supplier_name ?? '-',
@@ -325,7 +335,7 @@ SQL;
         $totalAmount = (float) ($purchase->total_amount ?? 0);
 
         return [
-            'Tanggal' => self::formatDate($purchase->date),
+            'Tanggal' => self::formatDate($purchase->effective_date),
             'Nomor Transaksi' => $purchase->reference ?? '-',
             'Nomor Pembelian Supplier' => $purchase->supplier_purchase_number ?? '-',
             'Nama Panggilan' => $supplier?->supplier_name ?? '-',

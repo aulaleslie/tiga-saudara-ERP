@@ -390,4 +390,52 @@ class PurchaseByProductReportTest extends TestCase
             ->call('applyFilters')
             ->assertSee('Tidak ada data pembelian per produk');
     }
+
+    /** @test */
+    public function it_filters_purchases_by_effective_reporting_date()
+    {
+        $supplier = $this->makeSupplier();
+        $product = $this->makeProduct($this->makeCategory());
+
+        $today = now();
+        $yesterday = $today->clone()->subDay();
+        $tomorrow = $today->clone()->addDay();
+
+        // Purchase without reporting_date override: use date (outside period)
+        $purchaseNoOverride = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => null
+        ]);
+        $this->makePurchaseDetail($purchaseNoOverride, [
+            'product_id' => $product->id,
+            'quantity' => 5,
+            'sub_total' => 5000
+        ]);
+
+        // Purchase with reporting_date override (inside period)
+        $purchaseWithOverride = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => $today->format('Y-m-d')
+        ]);
+        $this->makePurchaseDetail($purchaseWithOverride, [
+            'product_id' => $product->id,
+            'quantity' => 3,
+            'sub_total' => 3000
+        ]);
+
+        $filter = new \App\Services\Reports\PurchaseByProductReportFilterData(
+            startDate: $today->format('Y-m-d'),
+            endDate: $today->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new \App\Services\Reports\PurchaseByProductReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        // Only the purchase with active reporting_date inside the period should be included
+        $this->assertCount(1, $results);
+        $this->assertEquals(3, $results[0]->purchase_quantity);
+        $this->assertEquals(3000, $results[0]->purchase_value);
+    }
+
 }

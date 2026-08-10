@@ -72,7 +72,7 @@
             <div class="mb-3">
                 <label class="form-label small">Tanggal berdasarkan</label>
                 <select wire:model="dateBasis" class="form-control">
-                    <option value="transaction_date">Tanggal Transaksi</option>
+                    <option value="transaction_date">Tanggal Pelaporan (Transaksi atau Override)</option>
                     <option value="due_date">Tanggal Jatuh Tempo</option>
                 </select>
             </div>

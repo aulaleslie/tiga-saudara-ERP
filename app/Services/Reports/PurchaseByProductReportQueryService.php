@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -28,8 +29,8 @@ class PurchaseByProductReportQueryService
                 DB::raw('0 as return_value')
             )
             ->where('purchases.setting_id', $scopeSettingId)
-            ->whereDate('purchases.date', '>=', $filter->startDate)
-            ->whereDate('purchases.date', '<=', $filter->endDate);
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         $this->applyFiltersToPurchase($purchaseQuery, $filter);
 

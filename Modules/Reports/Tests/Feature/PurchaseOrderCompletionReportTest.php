@@ -538,4 +538,182 @@ class PurchaseOrderCompletionReportTest extends TestCase
             ->call('exportExcel')
             ->assertDispatched('alert');
     }
+
+    /** @test */
+    public function it_filters_by_effective_reporting_date()
+    {
+        $supplier = $this->makeSupplier();
+
+        $today = now();
+        $yesterday = $today->clone()->subDay();
+        $tomorrow = $today->clone()->addDay();
+
+        // Purchase without reporting_date override: use date (outside period)
+        $purchaseNoOverride = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => null,
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        // Purchase with reporting_date override (inside period)
+        $purchaseWithOverride = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => $today->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        $filter = new PurchaseOrderCompletionReportFilterData(
+            startDate: $today->format('Y-m-d'),
+            endDate: $today->format('Y-m-d'),
+            scopeSettingId: $this->setting->id,
+            sourceStage: 'Pemesanan'
+        );
+
+        $queryService = new PurchaseOrderCompletionReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        // Only the purchase with effective reporting date inside the period should be included
+        $this->assertCount(1, $results);
+        $this->assertEquals($purchaseWithOverride->id, $results[0]->id);
+        $effectiveDate = $results[0]->reporting_date ?? $results[0]->date;
+        $this->assertEquals($today->format('Y-m-d'), ($effectiveDate instanceof \Carbon\Carbon ? $effectiveDate->format('Y-m-d') : $effectiveDate));
+    }
+
+    /** @test */
+    public function it_sorts_by_effective_reporting_date()
+    {
+        $supplier = $this->makeSupplier();
+
+        $today = now();
+        $yesterday = $today->clone()->subDay();
+        $tomorrow = $today->clone()->addDay();
+
+        // First purchase: original date yesterday, reporting override today
+        $purchase1 = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => $today->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        // Second purchase: original date tomorrow, no override (so uses tomorrow)
+        $purchase2 = $this->makePurchase($supplier, [
+            'date' => $tomorrow->format('Y-m-d'),
+            'reporting_date' => null,
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        $filter = new PurchaseOrderCompletionReportFilterData(
+            startDate: $yesterday->format('Y-m-d'),
+            endDate: $tomorrow->format('Y-m-d'),
+            scopeSettingId: $this->setting->id,
+            sourceStage: 'Pemesanan'
+        );
+
+        $queryService = new PurchaseOrderCompletionReportQueryService();
+        $results = $queryService->build($filter)
+            ->orderByRaw('DATE(COALESCE(purchases.reporting_date, purchases.date)) asc')
+            ->get();
+
+        // Should be sorted by effective date: purchase1 (today) before purchase2 (tomorrow)
+        $this->assertEquals($purchase1->id, $results[0]->id);
+        $this->assertEquals($purchase2->id, $results[1]->id);
+    }
+
+    /** @test */
+    public function it_maps_effective_reporting_date_for_tanggal_pemesanan()
+    {
+        $queryService = new PurchaseOrderCompletionReportQueryService();
+
+        // Purchase with reporting_date override
+        $purchase1 = new Purchase();
+        $purchase1->date = '2026-08-01';
+        $purchase1->reporting_date = '2026-08-10';
+        $purchase1->status = Purchase::STATUS_APPROVED;
+        $purchase1->derived_active_paid = 0;
+        $purchase1->derived_invoice_amount = 0;
+
+        $mapped1 = $queryService->mapRow($purchase1);
+        $this->assertEquals('10/08/2026', $mapped1['Tanggal Pemesanan']);
+
+        // Purchase without reporting_date override
+        $purchase2 = new Purchase();
+        $purchase2->date = '2026-08-05';
+        $purchase2->reporting_date = null;
+        $purchase2->status = Purchase::STATUS_APPROVED;
+        $purchase2->derived_active_paid = 0;
+        $purchase2->derived_invoice_amount = 0;
+
+        $mapped2 = $queryService->mapRow($purchase2);
+        $this->assertEquals('05/08/2026', $mapped2['Tanggal Pemesanan']);
+    }
+
+    /** @test */
+    public function it_exports_effective_reporting_date_in_excel()
+    {
+        Excel::fake();
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $supplier = $this->makeSupplier();
+        $today = now();
+        $yesterday = $today->clone()->subDay();
+
+        // Purchase with reporting_date override
+        $purchaseWithOverride = $this->makePurchase($supplier, [
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => $today->format('Y-m-d'),
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        // Purchase without reporting_date override
+        $purchaseNoOverride = $this->makePurchase($supplier, [
+            'date' => $today->format('Y-m-d'),
+            'reporting_date' => null,
+            'status' => Purchase::STATUS_APPROVED
+        ]);
+
+        $filter = new PurchaseOrderCompletionReportFilterData(
+            startDate: $yesterday->format('Y-m-d'),
+            endDate: $today->format('Y-m-d'),
+            scopeSettingId: $this->setting->id,
+            sourceStage: 'Pemesanan'
+        );
+
+        $queryService = new PurchaseOrderCompletionReportQueryService();
+        $snapshotService = new PurchaseOrderCompletionReportSnapshotService();
+        $snapshotService->createSnapshot($filter, 2);
+
+        Livewire::test(PurchaseOrderCompletionReport::class)
+            ->set('startDate', $filter->startDate)
+            ->set('endDate', $filter->endDate)
+            ->set('sourceStage', $filter->sourceStage)
+            ->set('filterTriggered', true)
+            ->set('appliedFilters', [
+                'startDate' => $filter->startDate,
+                'endDate' => $filter->endDate,
+                'sourceStage' => $filter->sourceStage,
+                'tagLogic' => 'any',
+            ])
+            ->call('exportExcel');
+
+        Excel::assertDownloaded("purchase_order_completion_{$filter->startDate}_{$filter->endDate}.xlsx", function (PurchaseOrderCompletionReportExport $export) use ($purchaseWithOverride, $purchaseNoOverride, $today, $yesterday) {
+            $rows = $export->collection();
+
+            // Find the exported rows by checking the No. Pemesanan in the data property
+            $overrideRow = $rows->firstWhere(fn($row) => $row->data['No. Pemesanan'] === $purchaseWithOverride->reference);
+            $noOverrideRow = $rows->firstWhere(fn($row) => $row->data['No. Pemesanan'] === $purchaseNoOverride->reference);
+
+            // Verify effective dates are exported
+            $this->assertNotNull($overrideRow, 'Override purchase should be exported');
+            $this->assertNotNull($noOverrideRow, 'No-override purchase should be exported');
+
+            // Override purchase should export the reporting_date
+            $this->assertEquals($today->format('d/m/Y'), $overrideRow->data['Tanggal Pemesanan']);
+
+            // No-override purchase should export the original date
+            $this->assertEquals($today->format('d/m/Y'), $noOverrideRow->data['Tanggal Pemesanan']);
+
+            return true;
+        });
+    }
 }

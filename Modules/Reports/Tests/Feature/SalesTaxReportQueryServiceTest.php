@@ -106,7 +106,7 @@ class SalesTaxReportQueryServiceTest extends TestCase
         ]);
 
         $sale = $this->createSale();
-        SaleDetails::create([
+        $saleDetail = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product1->id,
             'tax_id' => $this->tax1->id,
@@ -121,7 +121,7 @@ class SalesTaxReportQueryServiceTest extends TestCase
         ]);
 
         $purchase = $this->createPurchase();
-        PurchaseDetail::create([
+        $purchaseDetail = PurchaseDetail::create([
             'purchase_id' => $purchase->id,
             'product_id' => $product2->id,
             'tax_id' => $this->tax1->id,
@@ -130,10 +130,18 @@ class SalesTaxReportQueryServiceTest extends TestCase
             'quantity' => 1,
             'price' => 2562424312.70,
             'unit_price' => 2562424312.70,
+            'product_discount_type' => 'AMOUNT',
             'product_discount_amount' => 0,
             'product_name' => 'Product B',
             'product_code' => 'B',
         ]);
+
+        // Verify data was created correctly
+        $this->assertNotNull($saleDetail->id);
+        $this->assertNotNull($purchaseDetail->id);
+        $this->assertEquals($this->tax1->id, $purchaseDetail->tax_id);
+        $this->assertEquals($this->tax1->id, $saleDetail->tax_id);
+        $this->assertNotEquals(0, $purchaseDetail->product_tax_amount);
 
         $filter = new SalesTaxReportFilterData(
             startDate: Carbon::today()->format('Y-m-d'),
@@ -200,6 +208,7 @@ class SalesTaxReportQueryServiceTest extends TestCase
             'quantity' => 1,
             'price' => 1000,
             'unit_price' => 1000,
+            'product_discount_type' => 'AMOUNT',
             'product_discount_amount' => 0,
             'product_name' => 'Product B',
             'product_code' => 'B',
@@ -229,5 +238,155 @@ class SalesTaxReportQueryServiceTest extends TestCase
         $results = $this->service->build($filter);
 
         $this->assertCount(0, $results);
+    }
+
+    /** @test */
+    public function it_filters_purchases_by_effective_reporting_date()
+    {
+        $product = \Modules\Product\Entities\Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST',
+            'product_price' => 100,
+            'product_cost' => 100,
+            'product_quantity' => 100,
+            'product_stock_alert' => 10,
+        ]);
+
+        $today = Carbon::today();
+        $tomorrow = $today->clone()->addDay();
+        $yesterday = $today->clone()->subDay();
+
+        // Purchase with original date outside period but active reporting_date inside
+        $purchaseWithReportingDateInside = $this->createPurchase([
+            'status' => Purchase::STATUS_RECEIVED,
+            'date' => $yesterday->format('Y-m-d'),
+            'reporting_date' => $today->format('Y-m-d'),
+        ]);
+        PurchaseDetail::create([
+            'purchase_id' => $purchaseWithReportingDateInside->id,
+            'product_id' => $product->id,
+            'tax_id' => $this->tax1->id,
+            'sub_total' => 1000000,
+            'product_tax_amount' => 100000,
+            'quantity' => 1,
+            'price' => 1000000,
+            'unit_price' => 1000000,
+            'product_discount_type' => 'AMOUNT',
+            'product_discount_amount' => 0,
+            'product_name' => 'Product A',
+            'product_code' => 'A',
+        ]);
+
+        // Purchase with original date inside period but active reporting_date outside
+        $purchaseWithReportingDateOutside = $this->createPurchase([
+            'status' => Purchase::STATUS_RECEIVED,
+            'date' => $today->format('Y-m-d'),
+            'reporting_date' => $tomorrow->format('Y-m-d'),
+        ]);
+        PurchaseDetail::create([
+            'purchase_id' => $purchaseWithReportingDateOutside->id,
+            'product_id' => $product->id,
+            'tax_id' => $this->tax2->id,
+            'sub_total' => 2000000,
+            'product_tax_amount' => 200000,
+            'quantity' => 1,
+            'price' => 2000000,
+            'unit_price' => 2000000,
+            'product_discount_type' => 'AMOUNT',
+            'product_discount_amount' => 0,
+            'product_name' => 'Product B',
+            'product_code' => 'B',
+        ]);
+
+        $filter = new SalesTaxReportFilterData(
+            startDate: $today->format('Y-m-d'),
+            endDate: $today->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $results = $this->service->build($filter);
+
+        $purchaseRows = $results->where('transaction_type', 'Pembelian');
+
+        // Only the first purchase (with reporting_date inside) should be included
+        $this->assertCount(1, $purchaseRows);
+
+        // Verify the included purchase has the expected tax ID and aggregate values
+        $includedRow = $purchaseRows->first();
+        $this->assertEquals($this->tax1->id, $includedRow->tax_id);
+        $this->assertEquals(900000, round($includedRow->dpp, 2));
+        $this->assertEquals(100000, round($includedRow->total_tax, 2));
+
+        // Verify the excluded purchase's tax is not in the results
+        $excludedTaxRow = $results->firstWhere(function ($row) {
+            return $row->transaction_type === 'Pembelian' && $row->tax_id === $this->tax2->id;
+        });
+        $this->assertNull($excludedTaxRow);
+    }
+
+    /** @test */
+    public function it_filters_sales_only_by_sale_date()
+    {
+        $product = \Modules\Product\Entities\Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST',
+            'product_price' => 100,
+            'product_cost' => 100,
+            'product_quantity' => 100,
+            'product_stock_alert' => 10,
+        ]);
+
+        $today = Carbon::today();
+        $tomorrow = $today->clone()->addDay();
+
+        // Sale with date inside period (note: sales use only date, not reporting_date)
+        $saleInside = $this->createSale([
+            'date' => $today->format('Y-m-d'),
+        ]);
+        SaleDetails::create([
+            'sale_id' => $saleInside->id,
+            'product_id' => $product->id,
+            'tax_id' => $this->tax1->id,
+            'sub_total' => 1000,
+            'product_tax_amount' => 100,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'product_discount_amount' => 0,
+            'product_name' => 'Product A',
+            'product_code' => 'A',
+        ]);
+
+        // Sale with date outside period
+        $saleOutside = $this->createSale([
+            'date' => $tomorrow->format('Y-m-d'),
+        ]);
+        SaleDetails::create([
+            'sale_id' => $saleOutside->id,
+            'product_id' => $product->id,
+            'tax_id' => $this->tax1->id,
+            'sub_total' => 1000,
+            'product_tax_amount' => 100,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'product_discount_amount' => 0,
+            'product_name' => 'Product B',
+            'product_code' => 'B',
+        ]);
+
+        $filter = new SalesTaxReportFilterData(
+            startDate: $today->format('Y-m-d'),
+            endDate: $today->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $results = $this->service->build($filter);
+
+        $saleRows = $results->where('transaction_type', 'Penjualan');
+        // Only the sale inside the period should be included
+        $this->assertCount(1, $saleRows);
     }
 }

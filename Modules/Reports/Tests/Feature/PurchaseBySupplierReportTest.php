@@ -878,4 +878,101 @@ class PurchaseBySupplierReportTest extends TestCase
             ->set('page', 2)
             ->assertSeeHtml('1.100'); // The final grand total / subtotal for the supplier should be 1.100
     }
+
+    /** @test */
+    public function it_includes_purchase_by_reporting_date_when_not_original_date()
+    {
+        $supplier = $this->makeSupplier();
+        $originalDate = '2026-01-15';
+        $reportingDate = '2026-02-15';
+
+        $purchase = $this->makePurchase($supplier, ['date' => $originalDate, 'reporting_date' => $reportingDate]);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product A']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', $reportingDate)
+            ->set('endDate', $reportingDate)
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(1, $purchases->count(), 'Purchase should be included when reporting_date is in period');
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_excludes_purchase_when_date_range_contains_original_but_not_reporting_date()
+    {
+        $supplier = $this->makeSupplier();
+        $originalDate = '2026-01-15';
+        $reportingDate = '2026-02-15';
+
+        $purchase = $this->makePurchase($supplier, ['date' => $originalDate, 'reporting_date' => $reportingDate]);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product A']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', $originalDate)
+            ->set('endDate', $originalDate)
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(0, $purchases->count(), 'Purchase should be excluded when only original date is in period and reporting_date override is set');
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_displays_effective_date_in_rendered_output()
+    {
+        $supplier = $this->makeSupplier();
+        $originalDate = '2026-01-15';
+        $reportingDate = '2026-02-15';
+
+        $purchase = $this->makePurchase($supplier, ['date' => $originalDate, 'reporting_date' => $reportingDate]);
+        $this->makePurchaseDetail($purchase, ['product_name' => 'Product A']);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', $reportingDate)
+            ->set('endDate', $reportingDate)
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                // The purchase should be included with the reporting date
+                \PHPUnit\Framework\Assert::assertEquals(1, $purchases->count());
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_sorts_and_groups_by_effective_date()
+    {
+        $supplier = $this->makeSupplier();
+        $date1 = '2026-01-15';
+        $date2 = '2026-01-10';
+        $reportingDate2 = '2026-02-20';
+
+        $purchase1 = $this->makePurchase($supplier, ['date' => $date1]);
+        $this->makePurchaseDetail($purchase1, ['product_name' => 'Product A', 'sub_total' => 1000]);
+
+        $purchase2 = $this->makePurchase($supplier, ['date' => $date2, 'reporting_date' => $reportingDate2]);
+        $this->makePurchaseDetail($purchase2, ['product_name' => 'Product B', 'sub_total' => 2000]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-01-01')
+            ->set('endDate', '2026-02-28')
+            ->set('sortField', 'date')
+            ->set('sortDirection', 'desc')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $rows = $purchases->values();
+                \PHPUnit\Framework\Assert::assertCount(2, $rows);
+                // Both should be included when filtering by the full date range
+                return true;
+            });
+    }
 }

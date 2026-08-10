@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
@@ -94,8 +95,8 @@ SQL;
     ): Builder {
         $query
             ->when(!$filter->isGlobal, fn($builder) => $builder->where('purchases.setting_id', $scopeSettingId))
-            ->where('purchases.date', '>=', $filter->startDate)
-            ->where('purchases.date', '<=', $filter->endDate);
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         if (!empty($filter->supplierIds)) {
             $query->whereIn('purchases.supplier_id', $filter->supplierIds);
@@ -133,7 +134,7 @@ SQL;
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         match ($sortField) {
-            'date'                     => $query->orderBy('purchases.date', $direction),
+            'date'                     => $query->orderByRaw(EffectivePurchaseReportingDate::sqlExpression() . ' ' . $direction),
             'reference'                => $query->orderBy('purchases.reference', $direction),
             'supplier_name'            => $query->orderBy('suppliers.supplier_name', $direction),
             'total_amount'             => $query->orderBy('purchases.total_amount', $direction),
@@ -170,7 +171,7 @@ SQL;
         $deliveryAmount = (float) ($purchase->derived_delivery_amount ?? 0);
 
         return [
-            'Tanggal Pemesanan' => self::formatDate($purchase->date),
+            'Tanggal Pemesanan' => self::formatDate($purchase->effective_date),
             'No. Pemesanan' => $purchase->reference ?? '-',
             'Jumlah Pemesanan' => $totalAmount,
             'Status Pemesanan' => self::derivedOrderStatus($activePaid, $invoiceAmount, $purchase->status),

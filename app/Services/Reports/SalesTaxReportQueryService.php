@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
@@ -65,8 +66,8 @@ class SalesTaxReportQueryService
             ->join('purchases', 'purchases.id', '=', 'purchase_details.purchase_id')
             ->join('taxes', 'taxes.id', '=', 'purchase_details.tax_id')
             ->where('purchases.setting_id', $scopeSettingId)
-            ->where('purchases.date', '>=', $filter->startDate)
-            ->where('purchases.date', '<=', $filter->endDate)
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate])
             ->whereIn('purchases.status', [
                 Purchase::STATUS_APPROVED,
                 Purchase::STATUS_RECEIVED_PARTIALLY,

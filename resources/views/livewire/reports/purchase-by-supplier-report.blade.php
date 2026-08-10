@@ -290,7 +290,7 @@
                     @endif
                     @foreach($mappedRows as $mapped)
                     <tr @if($mapped['is_tax_row']) class="text-muted bg-light" @endif>
-                        <td class="ps-4">{{ date('d/m/Y', strtotime($row->purchase->date)) }}</td>
+                        <td class="ps-4">{{ date('d/m/Y', strtotime($row->purchase->effective_date)) }}</td>
                         <td>{{ $mapped['Tipe transaksi'] }}</td>
                         <td>
                             @can('purchases.show')
