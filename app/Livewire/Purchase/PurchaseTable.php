@@ -245,7 +245,13 @@ class PurchaseTable extends Component
         $this->cardStatusFilter = null;
         $this->selectedCardFilter = null;
 
-        $approvedAndAbove = [
+        $globalPaymentEligible = [
+            Purchase::STATUS_RECEIVED_PARTIALLY,
+            Purchase::STATUS_RECEIVED,
+            Purchase::STATUS_RETURNED_PARTIALLY,
+        ];
+
+        $normalWorkflow = [
             Purchase::STATUS_APPROVED,
             Purchase::STATUS_RECEIVED_PARTIALLY,
             Purchase::STATUS_RECEIVED,
@@ -254,17 +260,17 @@ class PurchaseTable extends Component
         if ($type === 'unpaid') {
             $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->dueAmountOnly = true;
-            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'unpaid';
         } elseif ($type === 'overdue') {
             $this->paymentStatusFilters = $this->globalMode ? null : ['UNPAID', 'PARTIAL'];
             $this->overdueOnly = true;
-            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'overdue';
         } elseif ($type === 'paid') {
             $this->paymentStatusFilter = null; // Filtered via paidLast30DaysOnly instead
             $this->paidLast30DaysOnly = true;
-            $this->cardStatusFilter = $this->globalMode ? [Purchase::STATUS_RECEIVED] : $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'paid';
         } else {
             $this->selectedCardFilter = null;
@@ -292,7 +298,7 @@ class PurchaseTable extends Component
             })
             ->when($this->globalMode, function ($q) {
                 $q->whereNull('archived_at')
-                  ->where('status', Purchase::STATUS_RECEIVED);
+                  ->globalPaymentEligible();
 
                 // Apply business filter if set (empty array means all businesses)
                 if (!empty($this->globalBusinessFilters)) {
@@ -315,7 +321,7 @@ class PurchaseTable extends Component
                     $q->where('due_date', '<=', $this->dueDateTo);
                 }
             })
-            ->when($statuses !== null && !$this->globalMode, function ($q) use ($statuses) {
+            ->when($statuses !== null && ! $this->globalMode, function ($q) use ($statuses) {
                 $q->whereIn('status', $statuses);
             })
             ->when(! empty($this->purchaseId), function ($q) {

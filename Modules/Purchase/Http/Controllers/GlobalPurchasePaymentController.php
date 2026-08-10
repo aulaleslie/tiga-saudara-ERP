@@ -19,7 +19,7 @@ class GlobalPurchasePaymentController extends Controller
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
 
-        $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
+        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
         $supplier = \Modules\People\Entities\Supplier::findOrFail($purchase->supplier_id);
@@ -53,7 +53,7 @@ class GlobalPurchasePaymentController extends Controller
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
 
-        $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
+        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
 
@@ -66,8 +66,8 @@ class GlobalPurchasePaymentController extends Controller
     public function datatable($purchase_id, \Modules\Purchase\DataTables\PurchasePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
-        
-        $purchase = \Modules\Purchase\Entities\Purchase::where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
+
+        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
         
@@ -82,11 +82,11 @@ class GlobalPurchasePaymentController extends Controller
         abort_if(Gate::denies('purchasePayments.global.access') || Gate::denies('purchasePayments.create'), 403);
 
         $supplier = \Modules\People\Entities\Supplier::findOrFail($supplier_id);
-        
+
         // Find candidate purchases for this supplier
-        // Conditions: exact RECEIVED, non-archived, positive live outstanding balance, across all settings
+        // Conditions: global-payment-eligible status, non-archived, positive live outstanding balance, across all settings
         $candidates = \Modules\Purchase\Entities\Purchase::where('supplier_id', $supplier->id)
-            ->where('status', \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED)
+            ->globalPaymentEligible()
             ->whereNull('archived_at')
             ->whereLiveDueAmountGreaterThan(0)
             ->withSum(['purchasePayments as active_payments_sum' => function($q) {

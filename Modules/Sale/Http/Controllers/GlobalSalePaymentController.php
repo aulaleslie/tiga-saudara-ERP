@@ -33,7 +33,7 @@ class GlobalSalePaymentController extends Controller
     {
         abort_if(Gate::denies('salePayments.global.access'), 403);
 
-        $sale = Sale::approvedUp()
+        $sale = Sale::globalPaymentEligible()
             ->whereNull('archived_at')
             ->with([
                 'customer',
@@ -62,7 +62,7 @@ class GlobalSalePaymentController extends Controller
     {
         abort_if(Gate::denies('salePayments.global.access'), 403);
 
-        $sale = Sale::approvedUp()
+        $sale = Sale::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($sale_id);
 
@@ -80,7 +80,7 @@ class GlobalSalePaymentController extends Controller
     {
         abort_if(Gate::denies('salePayments.global.access') || Gate::denies('salePayments.create'), 403);
 
-        $startingSale = Sale::approvedUp()
+        $startingSale = Sale::globalPaymentEligible()
             ->whereNull('archived_at')
             ->with(['customer', 'tenantSetting'])
             ->findOrFail($sale_id);
@@ -91,9 +91,9 @@ class GlobalSalePaymentController extends Controller
             return redirect()->route('sales.global-payments.index');
         }
 
-        // Load all candidates with same customer, approved-up status, positive live due (payable)
+        // Load all candidates with same customer, global-payment-eligible status, positive live due (payable)
         $candidates = Sale::where('customer_id', $startingSale->customer_id)
-            ->approvedUp()
+            ->globalPaymentEligible()
             ->whereNull('archived_at')
             ->whereLiveDueAmountGreaterThan(0)
             ->with(['customer', 'tenantSetting', 'posCheckout.transactions', 'checkoutSale.checkout.transactions'])
@@ -119,7 +119,7 @@ class GlobalSalePaymentController extends Controller
     {
         abort_if(Gate::denies('salePayments.global.access') || Gate::denies('salePayments.create'), 403);
 
-        $startingSale = Sale::approvedUp()
+        $startingSale = Sale::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($sale_id);
 

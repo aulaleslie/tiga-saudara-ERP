@@ -224,7 +224,14 @@ class SaleTable extends Component
         $this->cardStatusFilter = null;
         $this->selectedCardFilter = null;
 
-        $approvedAndAbove = [
+        $globalPaymentEligible = [
+            Sale::STATUS_APPROVED,
+            Sale::STATUS_DISPATCHED_PARTIALLY,
+            Sale::STATUS_DISPATCHED,
+            Sale::STATUS_RETURNED_PARTIALLY,
+        ];
+
+        $normalWorkflow = [
             Sale::STATUS_APPROVED,
             Sale::STATUS_DISPATCHED_PARTIALLY,
             Sale::STATUS_DISPATCHED,
@@ -233,17 +240,17 @@ class SaleTable extends Component
         if ($type === 'unpaid') {
             $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
             $this->dueAmountOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'unpaid';
         } elseif ($type === 'overdue') {
             $this->paymentStatusFilters = ['UNPAID', 'PARTIAL'];
             $this->overdueOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'overdue';
         } elseif ($type === 'paid') {
             $this->paymentStatusFilter = null; // Filtered via paidLast30DaysOnly instead
             $this->paidLast30DaysOnly = true;
-            $this->cardStatusFilter = $approvedAndAbove;
+            $this->cardStatusFilter = $this->globalMode ? $globalPaymentEligible : $normalWorkflow;
             $this->selectedCardFilter = 'paid';
         } else {
             $this->selectedCardFilter = null;
@@ -261,12 +268,13 @@ class SaleTable extends Component
             $statuses = $this->cardStatusFilter;
         }
 
-        // Global mode uses approved-up eligibility by default
+        // Global mode uses global-payment eligibility by default
         if ($this->globalMode && !$statuses) {
             $statuses = [
                 Sale::STATUS_APPROVED,
                 Sale::STATUS_DISPATCHED_PARTIALLY,
                 Sale::STATUS_DISPATCHED,
+                Sale::STATUS_RETURNED_PARTIALLY,
             ];
         }
 

@@ -575,22 +575,31 @@ class GlobalSalePaymentFiltersTest extends TestCase
 
     public function test_due_date_range_inclusive_endpoints()
     {
-        $saleOnStart = $this->createSale(['due_date' => now()->subDays(5)->toDateString()]);
-        $saleInRange = $this->createSale(['due_date' => now()->toDateString()]);
-        $saleOnEnd = $this->createSale(['due_date' => now()->addDays(5)->toDateString()]);
-        $saleOutside = $this->createSale(['due_date' => now()->addDays(10)->toDateString()]);
+        $today = Carbon::parse('2024-08-10 12:00:00');
+        Carbon::setTestNow($today);
 
-        $fromDate = now()->subDays(5)->format('Y-m-d');
-        $toDate = now()->addDays(5)->format('Y-m-d');
+        try {
+            // Create sales with specific due dates using fixed date strings
+            $saleOnStart = $this->createSale(['due_date' => '2024-08-05']);
+            $saleInRange = $this->createSale(['due_date' => '2024-08-10']);
+            $saleOnEnd = $this->createSale(['due_date' => '2024-08-15']);
+            $saleOutside = $this->createSale(['due_date' => '2024-08-20']);
 
-        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
-            ->set('draftDueDateFrom', $fromDate)
-            ->set('draftDueDateTo', $toDate)
-            ->call('applyGlobalFilters')
-            ->assertSee($saleOnStart->reference)
-            ->assertSee($saleInRange->reference)
-            ->assertSee($saleOnEnd->reference)
-            ->assertDontSee($saleOutside->reference);
+            // Filter using the same dates
+            $fromDate = '2024-08-05';
+            $toDate = '2024-08-15';
+
+            Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+                ->set('draftDueDateFrom', $fromDate)
+                ->set('draftDueDateTo', $toDate)
+                ->call('applyGlobalFilters')
+                ->assertSee($saleOnStart->reference)
+                ->assertSee($saleInRange->reference)
+                ->assertSee($saleOnEnd->reference)
+                ->assertDontSee($saleOutside->reference);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_one_sided_due_date_ranges()

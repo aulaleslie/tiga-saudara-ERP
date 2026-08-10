@@ -76,12 +76,11 @@ class SaleSummaryCards extends Component
 
     public function getPiutangBelumTertagihProperty()
     {
-        $query = Sale::query()
-            ->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED])
-            ->whereLiveDueAmountGreaterThan(0);
-
         if ($this->globalMode) {
-            $query->whereNull('archived_at');
+            $query = Sale::query()
+                ->globalPaymentEligible()
+                ->whereLiveDueAmountGreaterThan(0)
+                ->whereNull('archived_at');
 
             // Apply business filter if set (empty array means all businesses)
             if (!empty($this->globalBusinessFilters)) {
@@ -113,29 +112,30 @@ class SaleSummaryCards extends Component
                 'count' => $sales->count(),
                 'total' => (float) $total,
             ];
-        } else {
-            $query->where('setting_id', $this->settingId)
-                  ->where('due_amount', '>', 0);
-
-            $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
-                            ->first();
-
-            return [
-                'count' => (int) ($result->cnt ?? 0),
-                'total' => (float) ($result->total ?? 0),
-            ];
         }
+
+        $query = Sale::query()
+            ->approvedUp()
+            ->where('setting_id', $this->settingId)
+            ->where('due_amount', '>', 0);
+
+        $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+                        ->first();
+
+        return [
+            'count' => (int) ($result->cnt ?? 0),
+            'total' => (float) ($result->total ?? 0),
+        ];
     }
 
     public function getPiutangTelatProperty()
     {
-        $query = Sale::query()
-            ->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED])
-            ->where('due_date', '<', Carbon::today())
-            ->whereLiveDueAmountGreaterThan(0);
-
         if ($this->globalMode) {
-            $query->whereNull('archived_at');
+            $query = Sale::query()
+                ->globalPaymentEligible()
+                ->where('due_date', '<', Carbon::today())
+                ->whereLiveDueAmountGreaterThan(0)
+                ->whereNull('archived_at');
 
             // Apply business filter if set (empty array means all businesses)
             if (!empty($this->globalBusinessFilters)) {
@@ -167,18 +167,21 @@ class SaleSummaryCards extends Component
                 'count' => $sales->count(),
                 'total' => (float) $total,
             ];
-        } else {
-            $query->where('setting_id', $this->settingId)
-                  ->where('due_amount', '>', 0);
-
-            $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
-                            ->first();
-
-            return [
-                'count' => (int) ($result->cnt ?? 0),
-                'total' => (float) ($result->total ?? 0),
-            ];
         }
+
+        $query = Sale::query()
+            ->approvedUp()
+            ->where('due_date', '<', Carbon::today())
+            ->where('setting_id', $this->settingId)
+            ->where('due_amount', '>', 0);
+
+        $result = $query->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
+                        ->first();
+
+        return [
+            'count' => (int) ($result->cnt ?? 0),
+            'total' => (float) ($result->total ?? 0),
+        ];
     }
 
     public function getPenerimaanProperty()
@@ -194,7 +197,7 @@ class SaleSummaryCards extends Component
                 ->where('status', SalePayment::STATUS_ACTIVE)
                 ->whereHas('sale', function ($sq) {
                     $sq->whereNull('archived_at')
-                       ->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED])
+                       ->globalPaymentEligible()
                        ->whereLiveDueAmountLessThanOrEqual(0);
                 });
 
@@ -238,12 +241,12 @@ class SaleSummaryCards extends Component
             ];
         }
 
-        // Non-global mode: keep existing behavior
+        // Non-global mode: keep existing behavior (use approvedUp for normal workflow)
         $query = SalePayment::active()
             ->where('date', '>=', $thirtyDaysAgo)
             ->where('date', '<=', Carbon::today()->endOfDay())
             ->whereHas('sale', function ($q) {
-                $q->whereIn('status', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED_PARTIALLY, Sale::STATUS_DISPATCHED])
+                $q->approvedUp()
                   ->where('setting_id', $this->settingId);
             });
 

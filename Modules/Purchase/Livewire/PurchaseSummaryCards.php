@@ -85,7 +85,7 @@ class PurchaseSummaryCards extends Component
         if ($this->globalMode) {
             $query = Purchase::query()
                 ->whereNull('archived_at')
-                ->where('status', Purchase::STATUS_RECEIVED)
+                ->globalPaymentEligible()
                 ->whereLiveDueAmountGreaterThan(0);
 
             // Apply business filter if set (empty array means all businesses)
@@ -139,7 +139,7 @@ class PurchaseSummaryCards extends Component
         if ($this->globalMode) {
             $query = Purchase::query()
                 ->whereNull('archived_at')
-                ->where('status', Purchase::STATUS_RECEIVED)
+                ->globalPaymentEligible()
                 ->where('due_date', '<', Carbon::today())
                 ->whereLiveDueAmountGreaterThan(0);
 
@@ -203,7 +203,7 @@ class PurchaseSummaryCards extends Component
                 ->where('status', PurchasePayment::STATUS_ACTIVE)
                 ->whereHas('purchase', function ($pq) {
                     $pq->whereNull('archived_at')
-                       ->where('status', Purchase::STATUS_RECEIVED)
+                       ->globalPaymentEligible()
                        ->whereLiveDueAmountLessThanOrEqual(0);
                 });
 

@@ -579,22 +579,31 @@ class GlobalPurchasePaymentFiltersTest extends TestCase
 
     public function test_due_date_range_inclusive_endpoints()
     {
-        $purchaseOnStart = $this->createPurchase(['due_date' => now()->subDays(5)->toDateString()]);
-        $purchaseInRange = $this->createPurchase(['due_date' => now()->toDateString()]);
-        $purchaseOnEnd = $this->createPurchase(['due_date' => now()->addDays(5)->toDateString()]);
-        $purchaseOutside = $this->createPurchase(['due_date' => now()->addDays(10)->toDateString()]);
+        $today = Carbon::parse('2024-08-10 12:00:00');
+        Carbon::setTestNow($today);
 
-        $fromDate = now()->subDays(5)->format('Y-m-d');
-        $toDate = now()->addDays(5)->format('Y-m-d');
+        try {
+            // Create purchases with specific due dates using fixed date strings
+            $purchaseOnStart = $this->createPurchase(['due_date' => '2024-08-05']);
+            $purchaseInRange = $this->createPurchase(['due_date' => '2024-08-10']);
+            $purchaseOnEnd = $this->createPurchase(['due_date' => '2024-08-15']);
+            $purchaseOutside = $this->createPurchase(['due_date' => '2024-08-20']);
 
-        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
-            ->set('draftDueDateFrom', $fromDate)
-            ->set('draftDueDateTo', $toDate)
-            ->call('applyGlobalFilters')
-            ->assertSee($purchaseOnStart->reference)
-            ->assertSee($purchaseInRange->reference)
-            ->assertSee($purchaseOnEnd->reference)
-            ->assertDontSee($purchaseOutside->reference);
+            // Filter using the same dates
+            $fromDate = '2024-08-05';
+            $toDate = '2024-08-15';
+
+            Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+                ->set('draftDueDateFrom', $fromDate)
+                ->set('draftDueDateTo', $toDate)
+                ->call('applyGlobalFilters')
+                ->assertSee($purchaseOnStart->reference)
+                ->assertSee($purchaseInRange->reference)
+                ->assertSee($purchaseOnEnd->reference)
+                ->assertDontSee($purchaseOutside->reference);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_one_sided_due_date_ranges()

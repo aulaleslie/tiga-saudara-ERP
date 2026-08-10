@@ -216,6 +216,15 @@ class Purchase extends BaseModel implements HasMedia
         return $query->where('status', 'Completed');
     }
 
+    public function scopeGlobalPaymentEligible($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_RECEIVED_PARTIALLY,
+            self::STATUS_RECEIVED,
+            self::STATUS_RETURNED_PARTIALLY,
+        ]);
+    }
+
     public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
     {
         return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) > ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);

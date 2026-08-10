@@ -55,7 +55,7 @@ class GlobalPurchasePaymentService
                 // Load purchase across all settings, lock for update
                 $purchase = Purchase::where('id', $purchaseId)
                     ->where('supplier_id', $supplierId)
-                    ->where('status', Purchase::STATUS_RECEIVED)
+                    ->globalPaymentEligible()
                     ->whereNull('archived_at')
                     ->lockForUpdate()
                     ->first();

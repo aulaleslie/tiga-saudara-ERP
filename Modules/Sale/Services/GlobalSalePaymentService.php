@@ -102,7 +102,7 @@ class GlobalSalePaymentService
                     // Load sale across all settings, lock for update
                     $sale = Sale::where('id', $saleId)
                         ->where('customer_id', $customerId)
-                        ->approvedUp()
+                        ->globalPaymentEligible()
                         ->whereNull('archived_at')
                         ->lockForUpdate()
                         ->first();

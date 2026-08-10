@@ -247,6 +247,16 @@ class Sale extends BaseModel
         ]);
     }
 
+    public function scopeGlobalPaymentEligible($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_APPROVED,
+            self::STATUS_DISPATCHED_PARTIALLY,
+            self::STATUS_DISPATCHED,
+            self::STATUS_RETURNED_PARTIALLY,
+        ]);
+    }
+
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'customer_id', 'id');
