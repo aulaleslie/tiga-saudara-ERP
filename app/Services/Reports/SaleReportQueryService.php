@@ -8,6 +8,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Entities\Dispatch;
+use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
 
 class SaleReportQueryService
 {
@@ -32,7 +33,6 @@ class SaleReportQueryService
             ->groupBy('dd.sale_id', 'dd.product_id');
 
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
-        $dateColumn = 'sales.date';
         $effectivePaidExpression = $this->effectivePaidExpression();
 
         $query = SaleDetails::query()->with([
@@ -55,13 +55,12 @@ class SaleReportQueryService
                 DB::raw($effectivePaidExpression . ' as derived_active_paid'),
             );
 
-        return $this->applyCommonFilters($query, $filter, $scopeSettingId, $dateColumn, 'sale.tags');
+        return $this->applyCommonFilters($query, $filter, $scopeSettingId, 'sale.tags');
     }
 
     private function buildHeaderQuery(SaleReportFilterData $filter): Builder
     {
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
-        $dateColumn = 'sales.date';
         $effectivePaidExpression = $this->effectivePaidExpression();
 
         $query = Sale::query()->with([
@@ -75,7 +74,7 @@ class SaleReportQueryService
                 DB::raw($effectivePaidExpression . ' as derived_active_paid'),
             );
 
-        return $this->applyCommonFilters($query, $filter, $scopeSettingId, $dateColumn, 'tags');
+        return $this->applyCommonFilters($query, $filter, $scopeSettingId, 'tags');
     }
 
     private function activePaymentSubquery()
@@ -107,13 +106,13 @@ SQL;
         Builder $query,
         SaleReportFilterData $filter,
         int $scopeSettingId,
-        string $dateColumn,
         string $tagRelation
     ): Builder {
         $query
-            ->when(!$filter->isGlobal, fn($builder) => $builder->where('sales.setting_id', $scopeSettingId))
-            ->where($dateColumn, '>=', $filter->startDate)
-            ->where($dateColumn, '<=', $filter->endDate);
+            ->when(!$filter->isGlobal, fn($builder) => $builder->where('sales.setting_id', $scopeSettingId));
+
+        $query->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+              ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         if (!empty($filter->customerIds)) {
             $query->whereIn('sales.customer_id', $filter->customerIds);
@@ -156,7 +155,7 @@ SQL;
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         match ($sortField) {
-            'date'                     => $query->orderBy('sales.date', $direction),
+            'date'                     => $query->orderByRaw(EffectiveSaleReportingDate::sqlExpression() . ' ' . $direction),
             'reference'                => $query->orderBy('sales.reference', $direction),
             'customer_name'            => $query->orderBy('customers.customer_name', $direction),
             'status'                   => $query->orderBy('sales.status', $direction),
@@ -258,7 +257,7 @@ SQL;
         $totalAmount = (float) ($sale?->total_amount ?? 0);
 
         return [
-            'Tanggal'                     => self::formatDate($sale?->date),
+            'Tanggal'                     => self::formatDate($sale?->effective_date),
             'Nomor Transaksi'             => $sale?->reference ?? '-',
             'Nama Pelanggan'              => $customer?->customer_name ?? '-',
             'Status Dokumen'              => self::documentStatusLabel($sale?->status),
@@ -300,7 +299,7 @@ SQL;
         $totalAmount = (float) ($sale->total_amount ?? 0);
 
         return [
-            'Tanggal' => self::formatDate($sale->date),
+            'Tanggal' => self::formatDate($sale->effective_date),
             'Nomor Transaksi' => $sale->reference ?? '-',
             'Nama Pelanggan' => $customer?->customer_name ?? '-',
             'Status Dokumen' => self::documentStatusLabel($sale->status),

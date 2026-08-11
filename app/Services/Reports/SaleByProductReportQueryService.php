@@ -4,6 +4,7 @@ namespace App\Services\Reports;
 
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
 
 class SaleByProductReportQueryService
 {
@@ -28,8 +29,8 @@ class SaleByProductReportQueryService
                 DB::raw('0 as return_value')
             )
             ->where('sales.setting_id', $scopeSettingId)
-            ->whereDate('sales.date', '>=', $filter->startDate)
-            ->whereDate('sales.date', '<=', $filter->endDate);
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         $this->applyFiltersToSold($soldQuery, $filter);
 

@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
@@ -150,8 +151,8 @@ SQL;
     ): Builder {
         $query
             ->when(!$filter->isGlobal, fn($builder) => $builder->where('sales.setting_id', $scopeSettingId))
-            ->where('sales.date', '>=', $filter->startDate)
-            ->where('sales.date', '<=', $filter->endDate);
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         if (!empty($filter->customerIds)) {
             $query->whereIn('sales.customer_id', $filter->customerIds);
@@ -189,7 +190,7 @@ SQL;
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         match ($sortField) {
-            'date'                     => $query->orderBy('sales.date', $direction),
+            'date'                     => $query->orderByRaw(EffectiveSaleReportingDate::sqlExpression() . ' ' . $direction),
             'reference'                => $query->orderBy('sales.reference', $direction),
             'customer_name'            => $query->orderBy('customers.customer_name', $direction),
             'total_amount'             => $query->orderBy('sales.total_amount', $direction),
@@ -226,7 +227,7 @@ SQL;
         $deliveryAmount = (float) ($sale->derived_delivery_amount ?? 0);
 
         return [
-            'Tanggal Pemesanan' => self::formatDate($sale->date),
+            'Tanggal Pemesanan' => self::formatDate($sale->effective_date),
             'No. Pemesanan' => $sale->reference ?? '-',
             'Jumlah Pesanan' => $totalAmount,
             'Status Pesanan' => self::derivedOrderStatus($activePaid, $invoiceAmount, $sale->status),

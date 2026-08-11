@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
+use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
 
 class SaleByCustomerReportQueryService
 {
@@ -24,11 +25,11 @@ class SaleByCustomerReportQueryService
             ->select(
                 'sale_details.*',
                 'customers.customer_name',
-                'sales.date as sale_date'
+                DB::raw(EffectiveSaleReportingDate::sqlExpression() . ' as sale_date')
             )
             ->where('sales.setting_id', $scopeSettingId)
-            ->where('sales.date', '>=', $filter->startDate)
-            ->where('sales.date', '<=', $filter->endDate);
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
+            ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
         // Customer filter (OR semantics)
         if (!empty($filter->customerIds)) {
@@ -78,11 +79,11 @@ class SaleByCustomerReportQueryService
             $query->leftJoinSub($customerTotals, 'ct', 'ct.customer_id', '=', 'sales.customer_id')
                   ->orderBy('ct.total_nominal', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', $direction);
+                  ->orderByRaw(EffectiveSaleReportingDate::sqlExpression() . ' ' . $direction);
         } elseif ($sortField === 'customer_name') {
             $query->orderBy('customers.customer_name', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', $direction);
+                  ->orderByRaw(EffectiveSaleReportingDate::sqlExpression() . ' ' . $direction);
         } else {
             // For date sorting, group customers by their max/min date first, so their rows don't interleave
             $aggFunc = $direction === 'asc' ? 'MIN' : 'MAX';
@@ -92,14 +93,15 @@ class SaleByCustomerReportQueryService
             $baseQuery->getQuery()->columns = [];
             $baseQuery->getQuery()->orders = [];
             
+            $effectiveDateExpr = EffectiveSaleReportingDate::sqlExpression();
             $customerDates = $baseQuery
-                ->select('sales.customer_id', DB::raw("{$aggFunc}(sales.date) as group_date"))
+                ->select('sales.customer_id', DB::raw("{$aggFunc}({$effectiveDateExpr}) as group_date"))
                 ->groupBy('sales.customer_id');
 
             $query->leftJoinSub($customerDates, 'cd', 'cd.customer_id', '=', 'sales.customer_id')
                   ->orderBy('cd.group_date', $direction)
                   ->orderBy('customers.id', 'asc') // Tie-breaker to prevent interleaving
-                  ->orderBy('sales.date', $direction);
+                  ->orderByRaw($effectiveDateExpr . ' ' . $direction);
         }
         
         $query->orderBy('sales.id', $direction)->orderBy('sale_details.id', 'asc');
@@ -192,7 +194,7 @@ class SaleByCustomerReportQueryService
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
             'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-            'Tanggal'               => $sale?->date ?? '-',
+            'Tanggal'               => $sale?->effective_date ?? '-',
             'Tipe transaksi'        => 'Faktur Penjualan',
             'No. transaksi'         => $sale?->reference ?? '-',
             'Nama produk'           => $detail->product_name ?? '-',
@@ -209,7 +211,7 @@ class SaleByCustomerReportQueryService
             $productTotal -= $discountAmount;
             $rows[] = [
                 'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-                'Tanggal'               => $sale?->date ?? '-',
+                'Tanggal'               => $sale?->effective_date ?? '-',
                 'Tipe transaksi'        => 'Faktur Penjualan',
                 'No. transaksi'         => $sale?->reference ?? '-',
                 'Nama produk'           => 'Diskon',
@@ -226,7 +228,7 @@ class SaleByCustomerReportQueryService
             $taxTotal = $productTotal + $taxAmount;
             $rows[] = [
                 'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-                'Tanggal'               => $sale?->date ?? '-',
+                'Tanggal'               => $sale?->effective_date ?? '-',
                 'Tipe transaksi'        => 'Faktur Penjualan',
                 'No. transaksi'         => $sale?->reference ?? '-',
                 'Nama produk'           => 'Pajak',
