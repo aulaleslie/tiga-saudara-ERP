@@ -190,16 +190,9 @@ class SaleController extends Controller
 
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
-        // Rule: Partially or Fully Dispatched -> Hard Block
-        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
-            abort(403, 'Tidak dapat mengubah penjualan yang sudah dikirim barangnya.');
-        }
-
-        // Rule: Approved -> Require explicit permission
-        if ($sale->status === Sale::STATUS_APPROVED) {
-            if (!auth()->user()->can('sales.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan yang sudah disetujui.');
-            }
+        $editMode = $sale->resolveEditMode();
+        if ($editMode === Sale::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan ini pada status saat ini.');
         }
 
         // Ensure the related bundle items are loaded for each sale detail.
@@ -291,10 +284,17 @@ class SaleController extends Controller
 
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
-        if ($sale->status === Sale::STATUS_APPROVED) {
-            if (Gate::denies('sales.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan yang sudah disetujui.');
-            }
+        $editMode = $sale->resolveEditMode();
+        if ($editMode === Sale::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan ini pada status saat ini.');
+        }
+
+        // SaleService::updateSale() deletes and recreates sale_details and
+        // regenerates cost snapshots, so it cannot serve a post-dispatch edit.
+        // Monetary-only documents are refused here and must go through the
+        // restricted Livewire path.
+        if ($editMode === Sale::EDIT_MODE_MONETARY_ONLY) {
+            abort(422, 'Penjualan yang sudah dikirim hanya dapat diubah melalui mode edit moneter.');
         }
 
         try {

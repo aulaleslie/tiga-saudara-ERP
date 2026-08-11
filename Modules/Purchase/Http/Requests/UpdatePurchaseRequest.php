@@ -4,6 +4,7 @@ namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Modules\Purchase\Entities\Purchase;
 
 class UpdatePurchaseRequest extends FormRequest
 {
@@ -72,6 +73,20 @@ class UpdatePurchaseRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('purchases.update');
+        if (! Gate::allows('purchases.update')) {
+            return false;
+        }
+
+        // This endpoint's persistence deletes and recreates purchase_details,
+        // cascading away received_note_details. A received document must never
+        // reach it, so it is refused here — ahead of rules(), which would
+        // otherwise turn the attempt into a redirect rather than a rejection.
+        $purchase = $this->route('purchase');
+
+        if ($purchase && $purchase->resolveEditMode() === Purchase::EDIT_MODE_MONETARY_ONLY) {
+            abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
+        }
+
+        return true;
     }
 }

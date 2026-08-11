@@ -3,6 +3,7 @@
 namespace App\Livewire\Sale;
 
 use App\Services\EffectiveDocumentBusinessResolver;
+use App\Services\MonetaryEdit\MonetaryEditException;
 use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -14,6 +15,7 @@ use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Services\SaleMonetaryEditService;
 use Modules\Sale\Services\SaleService;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
@@ -38,6 +40,16 @@ class EditForm extends Component
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
+    public $editMode;
+
+    /**
+     * Editable header monetary values, hydrated from the Sale and kept in sync
+     * with the product cart. These are the only header figures the restricted
+     * post-dispatch mode may change.
+     */
+    public $global_discount = 0;
+    public string $global_discount_type = 'percentage';
+    public $shipping = 0;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
@@ -46,23 +58,35 @@ class EditForm extends Component
         'payment-term-changed' => 'handlePaymentTermChanged',
         'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
         'business-selector-changed' => 'handleBusinessSelectorChanged',
+        'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
+        'globalDiscountTypeUpdated' => 'handleGlobalDiscountTypeUpdated',
+        'shippingUpdated' => 'handleShippingUpdated',
     ];
+
+    public function handleGlobalDiscountUpdated($discount): void
+    {
+        $this->global_discount = $discount;
+    }
+
+    public function handleGlobalDiscountTypeUpdated($type): void
+    {
+        $this->global_discount_type = $type;
+    }
+
+    public function handleShippingUpdated($shipping): void
+    {
+        $this->shipping = $shipping;
+    }
 
     public function mount(Sale $sale)
     {
         $sale->loadMissing(['customer', 'tags', 'saleDetails.bundleItems', 'saleDetails.product']);
 
-        // Rule: Partially or Fully Dispatched -> Hard Block
-        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
-            abort(403, 'Tidak dapat mengubah penjualan yang sudah dikirim barangnya.');
+        $editMode = $sale->resolveEditMode();
+        if ($editMode === Sale::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan ini pada status saat ini.');
         }
-
-        // Rule: Approved -> Require explicit permission
-        if ($sale->status === Sale::STATUS_APPROVED) {
-            if (!auth()->user()->can('sales.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan yang sudah disetujui.');
-            }
-        }
+        $this->editMode = $editMode;
 
         $this->sale          = $sale;
         $this->selectedSettingId = $sale->setting_id;
@@ -79,6 +103,20 @@ class EditForm extends Component
         $this->is_tax_included = (bool) $sale->is_tax_included;
         $this->tags          = $sale->tags->pluck('name')->map(fn($n) => is_array($n) ? ($n['en'] ?? reset($n)) : $n)->toArray();
         $this->paymentTerms  = PaymentTerm::all();
+
+        // Hydrate the editable header monetary values from the document, using
+        // the same percentage-or-fixed convention as the product cart.
+        $this->shipping = $sale->shipping_amount ?? 0;
+        if ($sale->discount_percentage > 0) {
+            $this->global_discount_type = 'percentage';
+            $this->global_discount = $sale->discount_percentage;
+        } elseif ($sale->discount_amount > 0) {
+            $this->global_discount_type = 'fixed';
+            $this->global_discount = $sale->discount_amount;
+        } else {
+            $this->global_discount_type = 'percentage';
+            $this->global_discount = 0;
+        }
 
         // Rebuild the cart from the existing sale details
         Cart::instance('sale')->destroy();
@@ -468,6 +506,18 @@ class EditForm extends Component
 
         $this->dispatch('sale:submit-start');
 
+        // Resolve authority from the persisted record before any submitted
+        // header value is applied, so a monetary-only save never even stages a
+        // customer or payment-term change.
+        $editMode = $this->sale->resolveEditMode();
+        if ($editMode === Sale::EDIT_MODE_NONE) {
+            $this->dispatch('sale:submit-finish');
+            abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan ini pada status saat ini.');
+        }
+        if ($editMode === Sale::EDIT_MODE_MONETARY_ONLY) {
+            return $this->submitMonetaryOnly();
+        }
+
         // Use passed values from hidden inputs if available
         if ($customerId !== null && $customerId !== '') {
             $this->customerId = $customerId;
@@ -627,6 +677,61 @@ class EditForm extends Component
             'tier_1_price' => $tier1Price > 0 ? $tier1Price : $salePrice,
             'tier_2_price' => $tier2Price > 0 ? $tier2Price : $salePrice,
         ];
+    }
+
+    /**
+     * Post-dispatch save. Delegates to the single protected persistence path so
+     * this never reaches SaleService::updateSale(), whose delete-and-recreate
+     * branch would drop dispatch links and regenerate HPP cost snapshots.
+     */
+    private function submitMonetaryOnly()
+    {
+        Log::info('Sale update monetary-only started', ['sale_id' => $this->sale->id]);
+
+        if (Cart::instance('sale')->count() === 0) {
+            $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk tidak boleh kosong.']);
+            $this->dispatch('sale:submit-finish');
+            return;
+        }
+
+        $cartItems = Cart::instance('sale')->content();
+
+        try {
+            $this->ensureCartTaxesForPkp($cartItems);
+
+            // Only monetary header inputs are passed. PKP status and the
+            // tax-inclusive flag are derived server-side from the locked
+            // document's own business, never from this component's state.
+            app(SaleMonetaryEditService::class)->apply($this->sale, $cartItems, [
+                'global_discount' => $this->global_discount,
+                'global_discount_type' => $this->global_discount_type,
+                'shipping' => $this->shipping,
+            ]);
+        } catch (MonetaryEditException $e) {
+            Log::warning('sale.submit.monetary_only.rejected', [
+                'sale_id' => $this->sale->id,
+                'message' => $e->getMessage(),
+            ]);
+            $this->dispatch('notify', ['type' => 'error', 'message' => $e->getMessage()]);
+            $this->dispatch('sale:submit-finish');
+            throw \Illuminate\Validation\ValidationException::withMessages([$e->field() => $e->getMessage()]);
+        } catch (Exception $e) {
+            Log::error('sale.submit.monetary_only.exception', [
+                'sale_id' => $this->sale->id,
+                'exception_class' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+            session()->flash('error', 'Gagal memperbarui penjualan moneter.');
+            $this->dispatch('sale:submit-finish');
+            return;
+        }
+
+        $this->sale->refresh();
+        Cart::instance('sale')->destroy();
+        $this->dispatch('sale:submit-finish');
+
+        session()->flash('success', "Pembaruan moneter penjualan '{$this->sale->reference}' berhasil.");
+        return redirect()->route('sales.index');
     }
 
     public function render()

@@ -13,11 +13,13 @@
 @section('content')
     <div class="container-fluid mb-4">
         <!-- Product Search Component -->
+        @if($editMode !== \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY)
         <div class="row">
             <div class="col-12">
                 <livewire:purchase.search-product wire:key="purchase-search-product" />
             </div>
         </div>
+        @endif
 
         <!-- Purchase Form -->
         <div class="row mt-4">

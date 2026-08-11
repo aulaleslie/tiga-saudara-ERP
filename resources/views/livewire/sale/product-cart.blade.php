@@ -92,7 +92,8 @@
                                            class="form-control text-right"
                                            value="{{ $cart_item->qty }}"
                                            min="1"
-                                           wire:blur="updateQuantity('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')">
+                                           wire:blur="updateQuantity('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                           @disabled($monetaryOnly)>
                                 </div>
                                 @if(!empty($quantityBreakdowns[$cart_item->id]))
                                     <div class="text-muted small mt-1">
@@ -218,9 +219,11 @@
                             </td>
 
                             <td class="align-middle text-center">
+                                @unless($monetaryOnly)
                                 <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')">
                                     <i class="bi bi-x-circle font-2xl text-danger"></i>
                                 </a>
+                                @endunless
                             </td>
                         </tr>
 

@@ -76,13 +76,16 @@ $globalMode = $globalMode ?? false;
                         </a>
                     @endif
                 @endcan
-                @can('sales.edit')
-                    @if ($data->status === 'DRAFTED')
-                        <a href="{{ route('sales.edit', $data->id) }}" class="dropdown-item">
+                @php $saleEditMode = $data->resolveEditMode(); @endphp
+                @if($saleEditMode !== \Modules\Sale\Entities\Sale::EDIT_MODE_NONE)
+                    <a href="{{ route('sales.edit', $data->id) }}" class="dropdown-item">
+                        @if($saleEditMode === \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY)
+                            <i class="bi bi-cash-coin mr-2 text-primary" style="line-height: 1;"></i> Ubah Nilai (Moneter)
+                        @else
                             <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
-                        </a>
-                    @endif
-                @endcan
+                        @endif
+                    </a>
+                @endif
                 @endif
                 @can('sales.show')
                     <a href="{{ route('sales.show', $data->id) }}" class="dropdown-item">

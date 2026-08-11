@@ -13,11 +13,13 @@
 @section('content')
     <div class="container-fluid mb-4">
         <!-- Search Product Livewire Component -->
+        @if($sale->resolveEditMode() !== \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY)
         <div class="row">
             <div class="col-12">
                 <livewire:sale.search-product/>
             </div>
         </div>
+        @endif
 
         <!-- Sale Form -->
         <div class="row mt-4">

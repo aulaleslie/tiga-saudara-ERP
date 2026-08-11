@@ -72,6 +72,46 @@ class Purchase extends BaseModel implements HasMedia
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
 
+    const EDIT_MODE_FULL = 'FULL';
+    const EDIT_MODE_MONETARY_ONLY = 'MONETARY_ONLY';
+    const EDIT_MODE_NONE = 'NONE';
+
+    /**
+     * Resolve how far this document may be edited by the given user.
+     *
+     * Pre-approval states keep their historical behaviour: route/controller
+     * `purchases.update` gates already guard entry, so this method does not
+     * re-check it there. The exceptional lifecycle states each require the
+     * ordinary edit permission *plus* their own lifecycle permission.
+     */
+    public function resolveEditMode(?\Illuminate\Contracts\Auth\Authenticatable $user = null): string
+    {
+        $user = $user ?? auth()->user();
+        if (!$user) {
+            return self::EDIT_MODE_NONE;
+        }
+
+        if (in_array($this->status, [self::STATUS_DRAFTED, self::STATUS_WAITING_APPROVAL, self::STATUS_REJECTED])) {
+            return self::EDIT_MODE_FULL;
+        }
+
+        // Beyond approval, ordinary edit authority is a prerequisite for the
+        // lifecycle-specific permission.
+        if (!$user->can('purchases.update')) {
+            return self::EDIT_MODE_NONE;
+        }
+
+        if ($this->status === self::STATUS_APPROVED) {
+            return $user->can('purchases.approved.edit') ? self::EDIT_MODE_FULL : self::EDIT_MODE_NONE;
+        }
+
+        if (in_array($this->status, [self::STATUS_RECEIVED_PARTIALLY, self::STATUS_RECEIVED])) {
+            return $user->can('purchases.received.monetary.edit') ? self::EDIT_MODE_MONETARY_ONLY : self::EDIT_MODE_NONE;
+        }
+
+        return self::EDIT_MODE_NONE;
+    }
+
     public static function getStatuses(): array
     {
         return [

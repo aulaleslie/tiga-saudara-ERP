@@ -66,13 +66,17 @@
                     @endif
                 @endcan
 
-                @can('purchases.update')
-                    @if($data->status === 'DRAFTED')
-                        <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item" @click="open = false">
+                @php $purchaseEditMode = $data->resolveEditMode(); @endphp
+                @if($purchaseEditMode !== Purchase::EDIT_MODE_NONE)
+                    <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item" @click="open = false">
+                        @if($purchaseEditMode === Purchase::EDIT_MODE_MONETARY_ONLY)
+                            {{-- Distinct from "Koreksi Penerimaan" below: no audit, no payment reconciliation, no cost replay. --}}
+                            <i class="bi bi-cash-coin mr-2 text-primary" style="line-height: 1;"></i> Ubah Nilai (Moneter)
+                        @else
                             <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Ubah
-                        </a>
-                    @endif
-                @endcan
+                        @endif
+                    </a>
+                @endif
 
                 @can('correct', $data)
                     @if(in_array($data->status, ['RECEIVED', 'RECEIVED PARTIALLY'], true))

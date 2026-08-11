@@ -88,7 +88,13 @@
                             </td>
 
                             <td class="align-middle text-right">
-                                @include('livewire.includes.product-cart-quantity')
+                                @if($monetaryOnly)
+                                    <div class="input-group d-flex justify-content-center">
+                                        <input type="number" style="min-width: 40px; max-width: 90px;" class="form-control text-right" value="{{ $cart_item->qty }}" disabled>
+                                    </div>
+                                @else
+                                    @include('livewire.includes.product-cart-quantity')
+                                @endif
                                 @if(!empty($quantityBreakdowns[$cart_item->id]))
                                     <div class="text-muted small mt-1">
                                         {{ $quantityBreakdowns[$cart_item->id] }}
@@ -199,9 +205,11 @@
                             </td>
 
                             <td class="align-middle text-center">
+                                @unless($monetaryOnly)
                                 <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
                                     <i class="bi bi-x-circle font-2xl text-danger"></i>
                                 </a>
+                                @endunless
                             </td>
                         </tr>
                     @endforeach

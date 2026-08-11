@@ -1,4 +1,21 @@
 <div class="card-body">
+    @php
+        // Post-dispatch: only monetary inputs stay live. These locks are a
+        // convenience for the user; the server re-derives and enforces the mode.
+        $monetaryOnly = $editMode === \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY;
+    @endphp
+
+    @if($monetaryOnly)
+        <div class="alert alert-warning d-flex align-items-center" role="alert">
+            <i class="bi bi-lock-fill mr-2"></i>
+            <div>
+                <strong>Mode Edit Moneter.</strong>
+                Barang sudah dikirim, sehingga hanya harga, diskon, dan pajak yang dapat diubah.
+                Kuantitas, produk, pelanggan, tanggal, dan pembayaran terkunci.
+            </div>
+        </div>
+    @endif
+
     <form wire:submit.prevent="update">
         <div class="form-row">
             <!-- Business Selector (if user has override permission and document is draft) -->
@@ -34,6 +51,7 @@
             <!-- Pelanggan -->
             <div class="col-lg-6 mb-3">
                 <label for="customer_search">Pelanggan <span class="text-danger">*</span></label>
+                @if(! $monetaryOnly)
                 <livewire:modules.people.customer-search-dropdown
                     name="customer_id"
                     placeholder="Pilih pelanggan..."
@@ -43,6 +61,9 @@
                     :error="$errors->first('customerId')"
                     wire:key="sale-edit-customer-dropdown"
                 />
+                @else
+                <input type="text" class="form-control" readonly value="{{ $sale->customer->customer_name ?? $sale->customer->contact_name ?? 'Pelanggan' }}">
+                @endif
             </div>
 
             <!-- Tanggal -->
@@ -51,7 +72,8 @@
                 <input id="date"
                        type="date"
                        class="form-control @error('date') is-invalid @enderror"
-                       wire:model.live="date">
+                       wire:model.live="date"
+                       @disabled($monetaryOnly)>
                 @error('date')
                 <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
@@ -68,7 +90,8 @@
                        class="form-control @error('dueDate') is-invalid @enderror"
                        wire:model.live="dueDate"
                        wire:key="{{ $dueDateFieldKey }}"
-                       value="{{ $dueDateInputValue }}">
+                       value="{{ $dueDateInputValue }}"
+                       @disabled($monetaryOnly)>
                 @error('dueDate')
                 <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
@@ -76,6 +99,7 @@
             <!-- Term Pembayaran -->
             <div class="col-lg-6 mb-3">
                 <label for="payment_term_search">Term Pembayaran <span class="text-danger">*</span></label>
+                @if(! $monetaryOnly)
                 <livewire:modules.purchase.payment-term-search-dropdown
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
@@ -85,13 +109,16 @@
                     :error="$errors->first('paymentTermId')"
                     wire:key="sale-edit-payment-term-dropdown"
                 />
+                @else
+                <input type="text" class="form-control" readonly value="{{ $sale->paymentTerm->name ?? 'Term' }}">
+                @endif
             </div>
 
             <!-- Nomor Faktur Pajak -->
             @if($isPkp)
             <div class="col-lg-6 mb-3">
                 <label for="tax_ref_no">Nomor Faktur Pajak</label>
-                <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional">
+                <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional" @disabled($monetaryOnly)>
                 @error('tax_ref_no')
                     <div class="invalid-feedback d-block">{{ $message }}</div>
                 @enderror
@@ -101,7 +128,11 @@
             <!-- Tag Penjualan -->
             <div class="col-lg-6 mb-3">
                 <label for="tags">Tag Penjualan</label>
+                @if(! $monetaryOnly)
                 <livewire:utils.tag-selector :initial-tags="$tags ?? []" wire:key="edit-sale-tag-selector" />
+                @else
+                <input type="text" class="form-control" readonly value="{{ implode(', ', $tags ?? []) }}">
+                @endif
             </div>
         </div>
 
@@ -114,6 +145,7 @@
             <textarea id="note"
                       class="form-control @error('note') is-invalid @enderror"
                       wire:model="note"
+                      @disabled($monetaryOnly)
                       rows="3"></textarea>
             @error('note')
             <div class="invalid-feedback">{{ $message }}</div> @enderror

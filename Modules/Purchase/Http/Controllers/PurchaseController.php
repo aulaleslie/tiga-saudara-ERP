@@ -362,16 +362,9 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        // Rule: Partially or Fully Received -> Hard Block
-        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
-            abort(403, 'Tidak dapat mengubah pembelian yang sudah diterima barangnya.');
-        }
-
-        // Rule: Approved -> Require explicit permission
-        if ($purchase->status === Purchase::STATUS_APPROVED) {
-            if (!auth()->user()->can('purchases.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian yang sudah disetujui.');
-            }
+        $editMode = $purchase->resolveEditMode();
+        if ($editMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
         }
 
 
@@ -433,7 +426,7 @@ class PurchaseController extends Controller
         }
 
         // Pass $paymentTerms to the view
-        return view('purchase::edit', compact('purchase', 'paymentTerms', 'suppliers'));
+        return view('purchase::edit', compact('purchase', 'paymentTerms', 'suppliers', 'editMode'));
     }
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
@@ -441,17 +434,19 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.update'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        // Rule: Partially or Fully Received -> Hard Block
-        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
-            abort(403, 'Tidak dapat memperbarui pembelian yang sudah diterima barangnya.');
+        $editMode = $purchase->resolveEditMode();
+        if ($editMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian ini pada status saat ini.');
         }
 
-        // Rule: Approved -> Require explicit permission
-        if ($purchase->status === Purchase::STATUS_APPROVED) {
-            if (!auth()->user()->can('purchases.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian yang sudah disetujui.');
-            }
+        // This endpoint's persistence deletes and recreates purchase_details,
+        // which would cascade-delete received_note_details. It cannot serve a
+        // post-receipt edit safely, so monetary-only documents are refused here
+        // and must go through the restricted Livewire path.
+        if ($editMode === Purchase::EDIT_MODE_MONETARY_ONLY) {
+            abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
         }
+
         Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();

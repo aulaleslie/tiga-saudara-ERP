@@ -4,6 +4,7 @@ namespace Modules\Sale\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Modules\Sale\Entities\Sale;
 
 class UpdateSaleRequest extends FormRequest
 {
@@ -70,6 +71,20 @@ class UpdateSaleRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('sales.edit');
+        if (! Gate::allows('sales.edit')) {
+            return false;
+        }
+
+        // SaleService::updateSale() deletes and recreates sale_details and
+        // regenerates cost snapshots. A dispatched document must never reach
+        // it, so it is refused here — ahead of rules(), which would otherwise
+        // turn the attempt into a redirect rather than a rejection.
+        $sale = $this->route('sale');
+
+        if ($sale && $sale->resolveEditMode() === Sale::EDIT_MODE_MONETARY_ONLY) {
+            abort(422, 'Penjualan yang sudah dikirim hanya dapat diubah melalui mode edit moneter.');
+        }
+
+        return true;
     }
 }

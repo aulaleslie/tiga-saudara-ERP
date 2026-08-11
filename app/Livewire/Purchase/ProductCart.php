@@ -31,6 +31,8 @@ class ProductCart extends Component
     public $unit_price;
     public $line_total;
     public $data;
+    /** True once the document is received: quantity and row membership are locked. */
+    public bool $monetaryOnly = false;
     public $quantityBreakdowns = [];
     public $product;
 
@@ -80,6 +82,8 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
+            $this->monetaryOnly = $data instanceof \Modules\Purchase\Entities\Purchase
+                && $data->resolveEditMode() === \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY;
 
             if ($data->discount_percentage > 0) {
                 $this->global_discount_type = 'percentage';

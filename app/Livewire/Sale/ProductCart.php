@@ -35,6 +35,8 @@ class ProductCart extends Component
     public $item_discount;
     public $unit_price;
     public $data;
+    /** True once the document is dispatched: quantity and row membership are locked. */
+    public bool $monetaryOnly = false;
 
     public $taxes;
     public $product_tax = []; // Array to store selected tax IDs for each product
@@ -80,6 +82,8 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
+            $this->monetaryOnly = $data instanceof \Modules\Sale\Entities\Sale
+                && $data->resolveEditMode() === \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY;
 
             if ($data->discount_percentage > 0) {
                 $this->global_discount_type = 'percentage';

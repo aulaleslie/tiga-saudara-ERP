@@ -3,6 +3,7 @@
 namespace App\Livewire\Purchase;
 use App\Services\EffectiveDocumentBusinessResolver;
 use App\Services\DocumentReferenceService;
+use App\Services\MonetaryEdit\MonetaryEditException;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -16,6 +17,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Purchase\Services\PurchaseMonetaryEditService;
 use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
@@ -33,6 +35,7 @@ class EditForm extends Component
     public $payment_term;
     public $note;
     public $purchase;
+    public $editMode;
 
     public array $tags = [];
 
@@ -64,17 +67,11 @@ class EditForm extends Component
         $this->selectedSettingId = $this->purchase->setting_id;
         $this->isPkp = $this->isPkpEnabled();
 
-        // Rule: Partially or Fully Received -> Hard Block
-        if (in_array($this->purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
-            abort(403, 'Tidak dapat mengubah pembelian yang sudah diterima barangnya.');
+        $editMode = $this->purchase->resolveEditMode();
+        if ($editMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
         }
-
-        // Rule: Approved -> Require explicit permission
-        if ($this->purchase->status === Purchase::STATUS_APPROVED) {
-            if (!auth()->user()->can('purchases.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian yang sudah disetujui.');
-            }
-        }
+        $this->editMode = $editMode;
 
         $this->reference = $this->purchase->reference;
         $this->supplier_id = $this->purchase->supplier_id;
@@ -484,6 +481,10 @@ class EditForm extends Component
                 'price' => $detail->price,
                 'weight' => 1,
                 'options' => [
+                    // Stable identity of the persisted row. Product ID cannot serve
+                    // this purpose: a document may hold several lines per product.
+                    PurchaseMonetaryEditService::DETAIL_ID_OPTION => $detail->id,
+                    'product_id' => $detail->product_id,
                     'product_discount' => $detail->product_discount_amount,
                     'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
@@ -567,6 +568,17 @@ class EditForm extends Component
             'supplier_arg_changed_by_parse' => ($rawSupplierArg !== null && $rawSupplierArg !== '') && ((string) $parsedSupplierArg !== $rawSupplierArg),
             'payment_term_arg_changed_by_parse' => ($rawPaymentTermArg !== null && $rawPaymentTermArg !== '') && ((string) $parsedPaymentTermArg !== $rawPaymentTermArg),
         ]);
+
+        // Resolve authority from the persisted record before any submitted
+        // header value is applied, so a monetary-only save never even stages a
+        // supplier or payment-term change.
+        $resolvedEditMode = $this->purchase->resolveEditMode();
+        if ($resolvedEditMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian ini pada status saat ini.');
+        }
+        if ($resolvedEditMode === Purchase::EDIT_MODE_MONETARY_ONLY) {
+            return $this->submitMonetaryOnly();
+        }
 
         if ($this->isSuspiciousHiddenIdArg($rawSupplierArg) || $this->isSuspiciousHiddenIdArg($rawPaymentTermArg)) {
             $this->purchaseSubmitWarning('purchase.submit.hidden_payload_invalid', [
@@ -821,6 +833,58 @@ class EditForm extends Component
             session()->flash('error', 'Gagal memperbarui pembelian. Silakan coba lagi.');
             return;
         }
+    }
+
+    /**
+     * Post-receipt save. Delegates to the single protected persistence path so
+     * this never reaches the delete-and-recreate detail branch in submit().
+     */
+    private function submitMonetaryOnly()
+    {
+        $this->purchaseSubmitDebug('purchase.submit.monetary_only.start');
+
+        $cart = Cart::instance('purchase');
+
+        if ($cart->count() === 0) {
+            $this->purchaseSubmitWarning('purchase.submit.monetary_only.aborted_empty_cart');
+            $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk tidak boleh kosong']);
+            return;
+        }
+
+        $cartItems = $cart->content();
+        $this->ensureCartTaxesForPkp($cartItems);
+
+        try {
+            // Only monetary header inputs are passed. PKP status and the
+            // tax-inclusive flag are derived server-side from the locked
+            // document's own business, never from this component's state.
+            app(PurchaseMonetaryEditService::class)->apply($this->purchase, $cartItems, [
+                'global_discount' => $this->global_discount,
+                'global_discount_type' => $this->global_discount_type,
+                'shipping' => $this->shipping,
+            ]);
+        } catch (MonetaryEditException $e) {
+            $this->purchaseSubmitWarning('purchase.submit.monetary_only.rejected', [
+                'purchase_id' => $this->purchaseId,
+                'message' => $e->getMessage(),
+            ]);
+            $this->dispatch('notify', ['type' => 'error', 'message' => $e->getMessage()]);
+            throw ValidationException::withMessages([$e->field() => $e->getMessage()]);
+        } catch (\Exception $e) {
+            Log::error('purchase.submit.monetary_only.exception', [
+                'purchase_id' => $this->purchaseId,
+                'exception_class' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+            session()->flash('error', 'Gagal memperbarui pembelian moneter.');
+            return;
+        }
+
+        $this->purchase->refresh();
+        Cart::instance('purchase')->destroy();
+
+        session()->flash('success', 'Pembaruan moneter pembelian berhasil.');
+        return redirect()->route('purchases.index');
     }
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application

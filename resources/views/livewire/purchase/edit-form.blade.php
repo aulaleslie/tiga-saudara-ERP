@@ -4,7 +4,21 @@
         $paymentTermMirrorValue = $paymentTermForView ?? '';
         $dueDateInputValue = $dueDateForView ?? '';
         $dueDateFieldKey = 'purchase-edit-due-date-field-' . $dueDateRenderVersion . '-' . ($dueDateInputValue !== '' ? $dueDateInputValue : 'empty');
+        // Post-receipt: only monetary inputs stay live. These locks are a
+        // convenience for the user; the server re-derives and enforces the mode.
+        $monetaryOnly = $editMode === \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY;
     @endphp
+
+    @if($monetaryOnly)
+        <div class="alert alert-warning d-flex align-items-center" role="alert">
+            <i class="bi bi-lock-fill mr-2"></i>
+            <div>
+                <strong>Mode Edit Moneter.</strong>
+                Barang sudah diterima, sehingga hanya harga, diskon, pajak, dan biaya kirim yang dapat diubah.
+                Kuantitas, produk, pemasok, tanggal, dan pembayaran terkunci.
+            </div>
+        </div>
+    @endif
 
     <div>
         <input type="hidden" id="purchase_supplier_id" wire:model.live="supplier_id" value="{{ $supplierMirrorValue }}">
@@ -36,9 +50,9 @@
                 <input type="text" class="form-control" id="reference" readonly wire:model="reference">
             </div>
 
-            <!-- Supplier -->
             <div class="col-lg-6 mb-3">
                 <label for="supplier_search">Pemasok <span class="text-danger">*</span></label>
+                @if(! $monetaryOnly)
                 <livewire:modules.people.supplier-search-dropdown
                     name="supplier_id"
                     placeholder="Pilih pemasok..."
@@ -48,11 +62,14 @@
                     :error="$errors->first('supplier_id')"
                     wire:key="edit-purchase-supplier-dropdown"
                 />
+                @else
+                <input type="text" class="form-control" readonly value="{{ $purchase->supplier->customer_name ?? $purchase->supplier->contact_name ?? $purchase->supplier->supplier_name ?? 'Pemasok' }}">
+                @endif
             </div>
 
             <div class="col-lg-6 mb-3">
                 <label for="supplier_purchase_number">Nomor Pembelian Supplier</label>
-                <input type="text" class="form-control" id="supplier_purchase_number" wire:model="supplier_purchase_number" placeholder="Opsional">
+                <input type="text" class="form-control" id="supplier_purchase_number" wire:model="supplier_purchase_number" placeholder="Opsional" @disabled($monetaryOnly)>
                 @error('supplier_purchase_number')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -60,7 +77,7 @@
             @if($isPkp)
             <div class="col-lg-6 mb-3">
                 <label for="tax_ref_no">Nomor Faktur Pajak</label>
-                <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional">
+                <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional" @disabled($monetaryOnly)>
                 @error('tax_ref_no')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -69,7 +86,7 @@
             <!-- Tanggal -->
             <div class="col-lg-6 mb-3">
                 <label for="date">Tanggal <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" id="date" wire:model.live="date">
+                <input type="date" class="form-control" id="date" wire:model.live="date" @disabled($monetaryOnly)>
                 @error('date')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -77,7 +94,7 @@
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
                 <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" id="due_date" wire:model.live="due_date" wire:key="{{ $dueDateFieldKey }}" value="{{ $dueDateInputValue }}">
+                <input type="date" class="form-control" id="due_date" wire:model.live="due_date" wire:key="{{ $dueDateFieldKey }}" value="{{ $dueDateInputValue }}" @disabled($monetaryOnly)>
                 @error('due_date')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -85,6 +102,7 @@
             <!-- Payment Term -->
             <div class="col-lg-6 mb-3">
                 <label for="payment_term_search">Term Pembayaran <span class="text-danger">*</span></label>
+                @if(! $monetaryOnly)
                 <livewire:modules.purchase.payment-term-search-dropdown
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
@@ -94,11 +112,18 @@
                     :error="$errors->first('payment_term')"
                     wire:key="edit-purchase-payment-term-dropdown"
                 />
+                @else
+                <input type="text" class="form-control" readonly value="{{ $purchase->paymentTerm->name ?? 'Term' }}">
+                @endif
             </div>
 
             <div class="col-lg-6 mb-3">
                 <label for="tags">Tag Pembelian</label>
+                @if(! $monetaryOnly)
                 <livewire:utils.tag-selector :initial-tags="$tags ?? []" wire:key="edit-purchase-tag-selector" />
+                @else
+                <input type="text" class="form-control" readonly value="{{ implode(', ', $tags ?? []) }}">
+                @endif
             </div>
         </div>
 
@@ -110,7 +135,7 @@
         <!-- Catatan -->
         <div class="form-group">
             <label for="note">Catatan</label>
-            <textarea class="form-control" rows="4" wire:model="note"></textarea>
+            <textarea class="form-control" rows="4" wire:model="note" @disabled($monetaryOnly)></textarea>
             @error('note')
             <div class="text-danger">{{ $message }}</div> @enderror
         </div>

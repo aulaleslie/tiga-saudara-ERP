@@ -179,6 +179,11 @@ class SaleService
     public function updateSale(Sale $sale, array $data, iterable $cartItems): Sale
     {
         // Permission and status checks (Moved from controller for consistency)
+        //
+        // Dispatched documents never reach this path: it deletes and recreates
+        // sale_details, which would drop dispatch/bundle/serial links and
+        // regenerate HPP cost snapshots. Post-dispatch monetary edits go
+        // through SaleMonetaryEditService instead.
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
             throw new Exception('Tidak dapat memperbarui penjualan yang sudah dikirim barangnya.');
         }
