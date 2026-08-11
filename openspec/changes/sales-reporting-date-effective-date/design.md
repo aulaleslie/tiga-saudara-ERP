@@ -33,6 +33,8 @@ Alternative considered: duplicate `COALESCE` calls in each service. Rejected bec
 
 The primary sale report (including global mode), sales by customer, sold aggregate in sales by product, sales-tax sale rows, and sales-order completion are reporting-period views of the sale fact. Their date filters, sorting/grouping, presentation, and exports therefore use the effective date. In the product report, the return aggregate continues to filter `sale_returns.date`, because it represents the completed return event rather than the original sale.
 
+Blade report views that render the date column inline (sales-report, sale-by-customer-report) also use the model's `effective_date` accessor for display consistency with exports and query-service mappings.
+
 Alternative considered: replace every `sales.date` use. Rejected because receivables and delivery reports have separate business clocks and must not silently change their balances, ageing, or delivery-event meaning.
 
 ### Preserve independent operational and accounting clocks

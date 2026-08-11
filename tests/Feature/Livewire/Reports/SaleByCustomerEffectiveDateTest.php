@@ -106,8 +106,13 @@ class SaleByCustomerEffectiveDateTest extends TestCase
             'sale_id' => $sale->id,
             'product_id' => $this->product->id,
             'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
             'quantity' => 1,
             'price' => $amount,
+            'unit_price' => $amount,
+            'product_discount_type' => 'fixed',
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
             'sub_total' => $amount,
         ]);
 

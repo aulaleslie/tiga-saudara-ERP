@@ -28,3 +28,7 @@
 - [x] 5.1 Add regression coverage showing Customer Receivables, Aged Receivables, and Sales Delivery retain their original as-of, ageing, payment, and approved-delivery date semantics after a sale reporting-date override.
 - [x] 5.2 Verify stock, inventory, operational movement, and general-ledger report behavior remains outside this change's implementation scope.
 - [x] 5.3 Run focused sales-report test suites, then run the relevant fresh-SQLite or full test command required by the project plan; record any environment-specific limitations.
+
+## 6. Blade view date display
+- [x] 6.1 Update `sales-report.blade.php` to render the effective date (`$sale->effective_date`) instead of the document date in the Tanggal column.
+- [x] 6.2 Update `sale-by-customer-report.blade.php` to render the effective date (`$row->sale->effective_date`) instead of the document date in the Tanggal column.
