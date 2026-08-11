@@ -4,7 +4,7 @@
 This specification defines the requirements for backend preflight validation of POS cart fulfillability and the associated frontend mismatch signaling.
 ## Requirements
 ### Requirement: Checkout preflight SHALL validate cart fulfillability before payment flow opens
-The POS system SHALL execute a backend preflight validation when cashier clicks `Pilih Pembayaran` and MUST only open staged payment modal when preflight returns success.
+The POS system SHALL execute a backend preflight validation when cashier clicks `Pilih Pembayaran` and MUST only open staged payment modal when preflight returns success. A restored cart line classified as non-stock-managed MUST be excluded from stock-availability validation, while restored stock-managed lines MUST remain subject to existing serial and stock fulfillment validation.
 
 #### Scenario: Preflight passes and payment flow opens
 - **WHEN** cashier clicks `Pilih Pembayaran` and all cart lines are valid for serial and stock fulfillment
@@ -15,6 +15,11 @@ The POS system SHALL execute a backend preflight validation when cashier clicks 
 - **WHEN** cashier clicks `Pilih Pembayaran` and one or more cart lines fail serial/stock validation
 - **THEN** system SHALL return a preflight failure response
 - **AND** staged payment modal MUST NOT open
+
+#### Scenario: Loaded non-stock line does not create a false stock mismatch
+- **WHEN** cashier clicks `Pilih Pembayaran` for a loaded draft whose service line is classified as non-stock-managed and has no product-stock record
+- **THEN** preflight MUST NOT return a stock-unavailable error for that service line
+- **AND** the staged payment modal SHALL be permitted to open when all stock-managed lines are fulfillable
 
 ### Requirement: Preflight failure response SHALL include actionable mismatch details
 For preflight failures, backend SHALL return a structured payload that UI can render into a mismatch dialog without parsing human text. UI consumption of this contract MUST treat `requested_qty` and `allocated_qty` as canonical quantity diagnostics and MUST compute shortage deterministically when a dedicated shortage field is absent.
