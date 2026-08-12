@@ -1,3 +1,7 @@
+## Purpose
+
+Expand the canonical sales permission catalog to support post-dispatch monetary editing authority.
+
 ## ADDED Requirements
 
 ### Requirement: Sales post-dispatch monetary edit permission is canonical and assignable

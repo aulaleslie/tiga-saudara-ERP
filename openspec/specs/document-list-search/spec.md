@@ -76,7 +76,7 @@ The system SHALL allow users to search the operational sale return list by retur
 - **THEN** the list includes the sale return that matches the source sale identifier
 
 ### Requirement: Search composition preserves list behavior
-The system SHALL preserve existing list behavior when expanded search is used.
+The system SHALL preserve existing list behavior, including accessible row action menus, when expanded search is used.
 
 #### Scenario: Search preserves active filters
 - **WHEN** a user searches a supported document list while status filters, payment filters, supplier filters, archive visibility, or summary-card filters are active on that list
@@ -93,4 +93,8 @@ The system SHALL preserve existing list behavior when expanded search is used.
 #### Scenario: Missing snapshot fields are safe
 - **WHEN** a legacy document detail has an empty product snapshot field
 - **THEN** expanded search remains renderable and does not error
+
+#### Scenario: Search preserves available row actions
+- **WHEN** a user searches the Purchase, Sales, Global Purchase Payment, or Global Sales Payment list
+- **THEN** each displayed result retains a usable three-dot menu containing its authorized actions
 

@@ -1,3 +1,7 @@
+## Purpose
+
+Establish canonical purchase permission entries for approved and post-receipt monetary editing authority.
+
 ## ADDED Requirements
 
 ### Requirement: Purchase lifecycle edit permissions are canonical and assignable

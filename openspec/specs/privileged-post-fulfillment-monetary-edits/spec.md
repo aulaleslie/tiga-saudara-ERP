@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Enable privileged users to edit monetary values in fulfilled purchase and sale documents with granular authorization, while preserving execution facts and maintaining separate correction workflows.
+
+## Requirements
 
 ### Requirement: Approved unfulfilled documents remain fully editable with explicit authority
 The system SHALL allow an approved Purchase that has not been received and an approved Sale that has not been dispatched to use the existing full edit behavior, including quantity changes, only when the user has ordinary edit authority and the corresponding approved-document permission.
