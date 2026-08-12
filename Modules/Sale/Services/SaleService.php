@@ -15,62 +15,6 @@ use Modules\Sale\Entities\SaleDetails;
 class SaleService
 {
     /**
-     * Validate stock requirements for a sale.
-     * Only validates stock-managed parent products and stock-managed bundle components.
-     *
-     * @param iterable $cartItems
-     * @return array Array of error messages, empty if valid.
-     */
-    public function validateStock(iterable $cartItems): array
-    {
-        $parentQuantities = [];
-        $bundleQuantities = [];
-
-        foreach ($cartItems as $cart_item) {
-            $productId = $cart_item->options->product_id;
-            if (!isset($parentQuantities[$productId])) {
-                $parentQuantities[$productId] = 0;
-            }
-            $parentQuantities[$productId] += $cart_item->qty;
-
-            if (is_array($cart_item->options->bundle_items)) {
-                foreach ($cart_item->options->bundle_items as $bundleItem) {
-                    $bundleProductId = $bundleItem['product_id'];
-                    $bundleQty = $bundleItem['quantity'] * $cart_item->qty;
-                    if (!isset($bundleQuantities[$bundleProductId])) {
-                        $bundleQuantities[$bundleProductId] = 0;
-                    }
-                    $bundleQuantities[$bundleProductId] += $bundleQty;
-                }
-            }
-        }
-
-        $allProductIds = array_unique(array_merge(array_keys($parentQuantities), array_keys($bundleQuantities)));
-        $products = Product::whereIn('id', $allProductIds)->get()->keyBy('id');
-
-        $errors = [];
-        foreach ($parentQuantities as $productId => $requestedQty) {
-            $product = $products->get($productId);
-            if (!$product) {
-                $errors[] = "Produk ID {$productId} tidak ditemukan.";
-            } elseif ($product->stock_managed !== false && $requestedQty > $product->product_quantity) {
-                $errors[] = "Stok produk '{$product->product_name}' tidak mencukupi. Tersedia: {$product->product_quantity}, Diminta: {$requestedQty}";
-            }
-        }
-
-        foreach ($bundleQuantities as $productId => $requestedQty) {
-            $product = $products->get($productId);
-            if (!$product) {
-                $errors[] = "Produk bundle ID {$productId} tidak ditemukan.";
-            } elseif ($product->stock_managed !== false && $requestedQty > $product->product_quantity) {
-                $errors[] = "Stok produk bundle '{$product->product_name}' tidak mencukupi untuk memenuhi pesanan. Tersedia: {$product->product_quantity}, Diminta: {$requestedQty}";
-            }
-        }
-
-        return $errors;
-    }
-
-    /**
      * Store a new sale.
      *
      * @param array $data
@@ -80,11 +24,6 @@ class SaleService
      */
     public function createSale(array $data, iterable $cartItems): Sale
     {
-        $errors = $this->validateStock($cartItems);
-        if (!empty($errors)) {
-            throw new Exception(implode("\n", $errors));
-        }
-
         return DB::transaction(function () use ($data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $data['setting_id'])->value('is_pkp') ?? false);

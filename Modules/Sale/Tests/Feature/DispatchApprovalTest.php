@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
@@ -221,7 +222,7 @@ class DispatchApprovalTest extends TestCase
             ]);
 
         $response->assertRedirect();
-        
+
         $dispatch->refresh();
         $this->assertEquals(Dispatch::STATUS_REJECTED, $dispatch->status);
         $this->assertEquals('DAMAGED GOODS', $dispatch->rejection_reason); // BaseModel uppercases this!
@@ -235,6 +236,10 @@ class DispatchApprovalTest extends TestCase
         // Verify stock NOT deducted
         $product->refresh();
         $this->assertEquals(100, $product->product_quantity);
+
+        // No inventory transaction should exist
+        $transactionCount = Transaction::where('product_id', $product->id)->count();
+        $this->assertEquals(0, $transactionCount);
     }
 
     public function test_dispatch_rejection_requires_reason(): void
