@@ -1203,10 +1203,12 @@ class SalesImportService
         }
 
         // Check for duplicate sale (same imported_sales_reference_number + setting_id)
+        // Only active (non-archived) sales are treated as duplicates
         $invoiceNo = $data['no_faktur'] ?? null;
         if ($invoiceNo) {
             $existingSale = Sale::where('imported_sales_reference_number', $invoiceNo)
                 ->where('setting_id', $setting->id)
+                ->whereNull('archived_at')
                 ->first();
 
             if ($existingSale) {

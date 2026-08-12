@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
@@ -841,7 +842,14 @@ class CreateForm extends Component
             $failureStage = 'validation';
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
-                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . $resolvedBusiness['setting_id'],
+                'supplier_purchase_number' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                    Rule::unique('purchases', 'supplier_purchase_number')
+                        ->where('setting_id', $resolvedBusiness['setting_id'])
+                        ->whereNull('archived_at'),
+                ],
                 'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . $resolvedBusiness['setting_id'],
                 'date' => 'required|date',
                 'due_date' => 'required|date|after_or_equal:date',

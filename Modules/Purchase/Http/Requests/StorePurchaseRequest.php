@@ -4,6 +4,7 @@ namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Setting\Entities\Setting;
 
@@ -19,7 +20,15 @@ class StorePurchaseRequest extends FormRequest
         return [
             'supplier_id' => 'required|integer|exists:suppliers,id',
             'reference' => 'required|string|max:255|unique:purchases,reference,NULL,id,setting_id,' . session('setting_id'),
-            'supplier_purchase_number' => 'sometimes|nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . session('setting_id'),
+            'supplier_purchase_number' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+                Rule::unique('purchases', 'supplier_purchase_number')
+                    ->where('setting_id', session('setting_id'))
+                    ->whereNull('archived_at'),
+            ],
             'tax_ref_no' => 'sometimes|nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',

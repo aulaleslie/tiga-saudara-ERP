@@ -1120,10 +1120,12 @@ class PurchaseImportService
         }
 
             // Check for duplicate purchase (same supplier_purchase_number + setting_id)
+            // Only active (non-archived) purchases are treated as duplicates
             $invoiceNo = $data['no_faktur'] ?? null;
             if ($invoiceNo) {
                 $existingPurchase = Purchase::where('supplier_purchase_number', $invoiceNo)
                     ->where('setting_id', $setting->id)
+                    ->whereNull('archived_at')
                     ->first();
 
                 if ($existingPurchase) {

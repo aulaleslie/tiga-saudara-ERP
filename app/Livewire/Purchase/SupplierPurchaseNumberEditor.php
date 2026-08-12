@@ -3,6 +3,7 @@
 namespace App\Livewire\Purchase;
 
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Modules\Purchase\Entities\Purchase;
 
@@ -41,7 +42,15 @@ class SupplierPurchaseNumberEditor extends Component
         $this->authorizeEdit();
 
         $data = $this->validate([
-            'supplierPurchaseNumber' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
+            'supplierPurchaseNumber' => [
+                'nullable',
+                'string',
+                'max:255',
+                Rule::unique('purchases', 'supplier_purchase_number')
+                    ->ignore($this->purchaseId)
+                    ->where('setting_id', session('setting_id'))
+                    ->whereNull('archived_at'),
+            ],
         ]);
 
         $purchase = $this->findPurchase();

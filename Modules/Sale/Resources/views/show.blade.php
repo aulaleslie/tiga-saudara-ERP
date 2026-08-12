@@ -55,6 +55,9 @@
                     <!-- Info Faktur -->
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
+                        @if($sale->imported_sales_reference_number)
+                            <div>Nomor Penjualan Pelanggan: <strong>{{ $sale->imported_sales_reference_number }}</strong></div>
+                        @endif
                         <div>Faktur: <strong>INV/{{ $sale->reference }}</strong></div>
                         <div>Tanggal: {{ Carbon::parse($sale->effective_date)->format('d M, Y') }}</div>
                         <div class="mt-2">
