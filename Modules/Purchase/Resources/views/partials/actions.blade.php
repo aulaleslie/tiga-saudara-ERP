@@ -1,5 +1,5 @@
 @php use Modules\Purchase\Entities\Purchase; @endphp
-<div x-data="{
+<div wire:key="purchase-action-{{ $data->id }}-{{ $tableRefreshId ?? 0 }}" x-data="{
     open: false,
     position: { top: 0, left: 0 },
     updatePosition() {

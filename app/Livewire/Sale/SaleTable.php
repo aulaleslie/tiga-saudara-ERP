@@ -31,6 +31,9 @@ class SaleTable extends Component
     #[Locked]
     public bool $globalMode = false;
 
+    #[Locked]
+    public int $tableRefreshId = 0;
+
     public ?string $paymentStatusFilter = null;
     /** @var array<string>|null */
     public ?array $paymentStatusFilters = null;
@@ -110,7 +113,13 @@ class SaleTable extends Component
 
     public function updatedSearch()
     {
+        $this->incrementRefreshId();
         $this->resetPage();
+    }
+
+    private function incrementRefreshId()
+    {
+        $this->tableRefreshId++;
     }
 
     public function applyGlobalFilters()
@@ -137,6 +146,7 @@ class SaleTable extends Component
         $this->dueDateTo = $this->draftDueDateTo;
 
         // Reset pagination and dispatch event to summary cards
+        $this->incrementRefreshId();
         $this->resetPage();
         $this->dispatch('global-sale-filters-changed',
             globalBusinessFilters: $this->globalBusinessFilters,
@@ -173,6 +183,7 @@ class SaleTable extends Component
         $this->selectedCardFilter = null;
 
         // Reset pagination and dispatch event
+        $this->incrementRefreshId();
         $this->resetPage();
         $this->dispatch('global-sale-filters-changed',
             globalBusinessFilters: [],
@@ -187,6 +198,7 @@ class SaleTable extends Component
     public function searchSubmit()
     {
         $this->search = $this->searchText;
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 
@@ -194,6 +206,7 @@ class SaleTable extends Component
     {
         $this->search = '';
         $this->searchText = '';
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 
@@ -205,12 +218,14 @@ class SaleTable extends Component
             $this->sortField = $field;
             $this->sortDirection = 'asc';
         }
+        $this->incrementRefreshId();
     }
 
     #[On('sale-filter')]
     public function applySaleFilter($type = null)
     {
         $this->applyCardFilterType($type);
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 

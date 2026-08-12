@@ -44,6 +44,9 @@ class PurchaseTable extends Component
     #[Locked]
     public bool $globalMode = false;
 
+    #[Locked]
+    public int $tableRefreshId = 0;
+
     // Global mode filters: draft state (not yet applied)
     /** @var array<int>|null */
     public ?array $draftGlobalBusinessFilters = null;
@@ -120,12 +123,19 @@ class PurchaseTable extends Component
 
     public function updatedSearch()
     {
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 
     public function updatedPerPage()
     {
+        $this->incrementRefreshId();
         $this->resetPage();
+    }
+
+    private function incrementRefreshId()
+    {
+        $this->tableRefreshId++;
     }
 
     public function applyGlobalFilters()
@@ -152,6 +162,7 @@ class PurchaseTable extends Component
         $this->dueDateTo = $this->draftDueDateTo;
 
         // Reset pagination and dispatch event to summary cards
+        $this->incrementRefreshId();
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
             globalBusinessFilters: $this->globalBusinessFilters,
@@ -188,6 +199,7 @@ class PurchaseTable extends Component
         $this->selectedCardFilter = null;
 
         // Reset pagination and dispatch event
+        $this->incrementRefreshId();
         $this->resetPage();
         $this->dispatch('global-purchase-filters-changed',
             globalBusinessFilters: [],
@@ -202,6 +214,7 @@ class PurchaseTable extends Component
     public function searchSubmit()
     {
         $this->search = $this->searchText;
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 
@@ -209,6 +222,7 @@ class PurchaseTable extends Component
     {
         $this->search = '';
         $this->searchText = '';
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 
@@ -220,12 +234,14 @@ class PurchaseTable extends Component
             $this->sortField = $field;
             $this->sortDirection = 'asc';
         }
+        $this->incrementRefreshId();
     }
 
     #[On('purchase-filter')]
     public function applyPurchaseFilter($type = null)
     {
         $this->applyCardFilterType($type);
+        $this->incrementRefreshId();
         $this->resetPage();
     }
 

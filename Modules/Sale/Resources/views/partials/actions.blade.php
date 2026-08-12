@@ -3,7 +3,7 @@ $id = $data->id;
 $globalMode = $globalMode ?? false;
 @endphp
 
-<div x-data="{
+<div wire:key="sale-action-{{ $data->id }}-{{ $tableRefreshId ?? 0 }}" x-data="{
     open: false,
     position: { top: 0, left: 0 },
     updatePosition() {

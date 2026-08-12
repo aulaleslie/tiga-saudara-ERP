@@ -1,5 +1,5 @@
 @php use Illuminate\Support\Carbon; @endphp
-<div>
+<div data-purchase-table-root>
     @if ($globalMode)
     <!-- Global Mode Filters Panel -->
     <div class="card mb-4 border-0 shadow-sm">
@@ -201,9 +201,9 @@
                 <td>@include('purchase::partials.payment-status', ['data' => $purchase])</td>
                 <td>
                     @if($globalMode)
-                        @include('purchase::partials.global-payment-actions', ['data' => $purchase])
+                        @include('purchase::partials.global-payment-actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
                     @else
-                        @include('purchase::partials.actions', ['data' => $purchase])
+                        @include('purchase::partials.actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
                     @endif
                 </td>
             </tr>
@@ -255,12 +255,57 @@
 </div>
 @push('scripts')
 <script>
-    document.addEventListener('livewire:updated', () => {
-        $('[data-toggle="tooltip"]').tooltip('dispose').tooltip();
+    const reinitializeGlobalPaymentDropdowns = (containerElement) => {
+        // Dispose and reinitialize Bootstrap dropdowns specifically for global payment actions
+        // Only within the provided container to avoid affecting other components
+        containerElement.querySelectorAll('[data-global-payment-action] [data-toggle="dropdown"]').forEach(el => {
+            const dropdown = $(el).data('bs.dropdown');
+            if (dropdown) {
+                dropdown.dispose();
+            }
+            $(el).dropdown();
+        });
+    };
+
+    const initializeTooltips = (containerElement) => {
+        // Initialize tooltips only within the provided container
+        containerElement.querySelectorAll('[data-toggle="tooltip"]').tooltip('dispose').tooltip();
+    };
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeTooltips(document);
+        reinitializeGlobalPaymentDropdowns(document);
     });
 
-    document.addEventListener('DOMContentLoaded', () => {
-        $('[data-toggle="tooltip"]').tooltip();
-    });
+    // Reinitialize after elements have been morphed by Livewire
+    // morph.updated fires for every updated DOM element, so we coalesce repeated calls
+    // with a pending flag and requestAnimationFrame to run once per table update
+    if (window.Livewire && typeof window.Livewire.hook === 'function') {
+        // Track pending refreshes per component to avoid reinitializing unrelated components
+        const pendingRefreshes = new Map();
+
+        window.Livewire.hook('morph.updated', (detail) => {
+            // Identify this component by its Livewire ID
+            const componentId = detail.component.id;
+
+            // Only reinitialize if this is the PurchaseTable component (marked with data-purchase-table-root)
+            // and the morphed element is within it. This prevents running for summary cards or other components.
+            if (detail.el && detail.component.el &&
+                detail.component.el.matches('[data-purchase-table-root]') &&
+                detail.component.el.contains(detail.el)) {
+                // If no refresh is already scheduled for this component, schedule one
+                if (!pendingRefreshes.get(componentId)) {
+                    pendingRefreshes.set(componentId, true);
+                    requestAnimationFrame(() => {
+                        // Clear the pending flag and reinitialize
+                        pendingRefreshes.set(componentId, false);
+                        initializeTooltips(detail.component.el);
+                        reinitializeGlobalPaymentDropdowns(detail.component.el);
+                    });
+                }
+            }
+        });
+    }
 </script>
 @endpush
