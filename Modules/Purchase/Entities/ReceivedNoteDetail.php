@@ -5,8 +5,10 @@ namespace Modules\Purchase\Entities;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\Transaction;
 
 class ReceivedNoteDetail extends BaseModel
 {
@@ -48,6 +50,15 @@ class ReceivedNoteDetail extends BaseModel
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    /**
+     * The BUY inventory transaction created when this receiving detail was approved.
+     * Populated for new approvals; NULL for legacy receipts before provenance tracking.
+     */
+    public function transaction(): HasOne
+    {
+        return $this->hasOne(Transaction::class, 'received_note_detail_id');
     }
 
     /**

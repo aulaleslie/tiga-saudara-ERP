@@ -534,6 +534,14 @@
                                     @endif
                                 @endcan
 
+                                @can('uomNormalize', $purchase)
+                                    @if (!$purchase->isArchived() && in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY], true))
+                                        <a href="{{ route('purchases.uom-normalize.edit', $purchase->id) }}" class="btn btn-info">
+                                            <i class="bi bi-arrow-repeat mr-2"></i> Normalisasi UOM
+                                        </a>
+                                    @endif
+                                @endcan
+
                                 @can('overrideReportingDate', $purchase)
                                     <button type="button" id="reportingDateOverrideButton" class="btn btn-secondary" data-toggle="modal" data-target="#reportingDateOverrideModal">
                                         <i class="bi bi-calendar-event mr-2"></i> Ubah Tanggal Pelaporan
@@ -691,6 +699,78 @@
     @can('purchases.receive.complete_shortfall')
         <livewire:purchase.modals.purchase-receiving-completion-modal />
     @endcan
+
+    {{-- UOM Normalization Audit History --}}
+    @php
+        $normBatches = \Modules\Purchase\Entities\UomNormalizationBatch::whereHas('lines', function ($q) use ($purchase) {
+            $q->whereHas('purchaseDetail', fn ($q2) => $q2->where('purchase_id', $purchase->id));
+        })
+        ->where('status', 'EXECUTED')
+        ->with(['lines', 'actor', 'product', 'sourceUnit', 'baseUnit'])
+        ->orderByDesc('executed_at')
+        ->get();
+    @endphp
+    @if($normBatches->isNotEmpty())
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="bi bi-arrow-repeat mr-2"></i> Riwayat Normalisasi UOM</h6>
+                    </div>
+                    <div class="card-body">
+                        @foreach($normBatches as $normBatch)
+                        <div class="card mb-3 border-info">
+                            <div class="card-header">
+                                <strong>Batch #{{ $normBatch->id }}</strong>
+                                — {{ $normBatch->product->product_name ?? '—' }}
+                                — {{ optional($normBatch->sourceUnit)->name }} → {{ optional($normBatch->baseUnit)->name }}
+                                (×{{ $normBatch->conversion_factor }})
+                                <span class="float-right text-muted">
+                                    {{ $normBatch->executed_at?->format('d-m-Y H:i') }}
+                                    oleh {{ $normBatch->actor->name ?? '—' }}
+                                </span>
+                            </div>
+                            <div class="card-body">
+                                @if($normBatch->reason)
+                                    <p class="mb-2"><strong>Alasan:</strong> {{ $normBatch->reason }}</p>
+                                @endif
+                                <table class="table table-bordered table-sm mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Detail Pembelian</th>
+                                            <th>Qty Asal</th>
+                                            <th>→ Qty Normal</th>
+                                            <th>Biaya Satuan Normal</th>
+                                            <th>Transaksi ID</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($normBatch->lines as $line)
+                                        <tr>
+                                            <td>#{{ $line->purchase_detail_id }}</td>
+                                            <td>{{ number_format($line->source_quantity, 3) }}</td>
+                                            <td>{{ number_format($line->normalized_quantity, 3) }}</td>
+                                            <td>{{ format_currency($line->normalized_unit_cost) }}</td>
+                                            <td>{{ $line->transaction_id }}</td>
+                                        </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                                @if($normBatch->cost_outcome)
+                                <div class="mt-2 small text-muted">
+                                    <strong>HPP:</strong>
+                                    Sebelum: {{ format_currency($normBatch->cost_outcome['before']['average_purchase_price'] ?? 0) }}
+                                    → Sesudah: {{ format_currency($normBatch->cost_outcome['after']['average_purchase_price'] ?? 0) }}
+                                </div>
+                                @endif
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection
 
 @push('page_css')

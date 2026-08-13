@@ -182,6 +182,21 @@ class Purchase extends BaseModel implements HasMedia
         return $this->hasMany(PurchaseReceivingCompletion::class, 'purchase_id', 'id');
     }
 
+    /**
+     * UOM normalization batches that include lines from this purchase's details.
+     */
+    public function uomNormalizationLines()
+    {
+        return $this->hasManyThrough(
+            UomNormalizationLine::class,
+            PurchaseDetail::class,
+            'purchase_id',         // FK on purchase_details
+            'purchase_detail_id',  // FK on uom_normalization_lines
+            'id',                  // Local key on purchases
+            'id'                   // Local key on purchase_details
+        );
+    }
+
     public function receivedNotes() {
         return $this->hasMany(ReceivedNote::class, 'po_id', 'id');
     }

@@ -184,6 +184,7 @@ return [
         'purchases.reporting-date.override' => 'Ubah Tanggal Pelaporan',
         'purchases.approved.edit' => 'Ubah Pembelian Disetujui',
         'purchases.received.monetary.edit' => 'Ubah Moneter Pembelian Diterima',
+        'purchases.received.uom-normalize' => 'Normalisasi UOM Penerimaan',
     ],
 
     'Penerimaan Barang' => [

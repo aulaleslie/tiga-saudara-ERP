@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 
@@ -34,7 +35,8 @@ class Transaction extends BaseModel
         'quantity_tax',
         'quantity_non_tax',
         'broken_quantity_tax',
-        'broken_quantity_non_tax'
+        'broken_quantity_non_tax',
+        'received_note_detail_id',
     ];
 
     /**
@@ -87,6 +89,15 @@ class Transaction extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The receiving detail that created this BUY transaction.
+     * Nullable for legacy transactions created before provenance tracking.
+     */
+    public function receivedNoteDetail(): BelongsTo
+    {
+        return $this->belongsTo(ReceivedNoteDetail::class);
     }
 
     /**

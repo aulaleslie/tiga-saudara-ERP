@@ -1093,6 +1093,7 @@ class PurchaseController extends Controller
                                 'quantity_tax' => $purchaseDetail->tax_id ? $receivedQuantity : 0,
                                 'broken_quantity_non_tax' => 0,
                                 'broken_quantity_tax' => 0,
+                                'received_note_detail_id' => $detail->id,
                             ]);
 
                             // Commit pending serial numbers to product_serial_numbers table

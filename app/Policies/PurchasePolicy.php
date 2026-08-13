@@ -55,4 +55,32 @@ class PurchasePolicy
         // Check if user has the reporting-date override permission
         return $user->hasPermissionTo('purchases.reporting-date.override');
     }
+
+    /**
+     * Can the user preview or execute UOM normalization for this purchase?
+     */
+    public function uomNormalize(User $user, Purchase $purchase): bool
+    {
+        // Verify purchase is in an eligible received status
+        if (!in_array($purchase->status, [
+            Purchase::STATUS_RECEIVED_PARTIALLY,
+            Purchase::STATUS_RECEIVED,
+        ])) {
+            return false;
+        }
+
+        // Verify purchase belongs to user's current setting (tenant scoped)
+        $currentSettingId = session('setting_id');
+        if ($purchase->setting_id !== $currentSettingId) {
+            return false;
+        }
+
+        // Super Admin bypass (no need to explicitly grant permission)
+        if ($user->hasRole('Super Admin')) {
+            return true;
+        }
+
+        // Check if user has the UOM normalization permission
+        return $user->hasPermissionTo('purchases.received.uom-normalize');
+    }
 }

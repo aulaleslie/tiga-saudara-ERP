@@ -76,4 +76,12 @@ class PurchaseDetail extends BaseModel
     {
         return $this->hasMany(ReceivedNoteDetail::class, 'po_detail_id');
     }
+
+    /**
+     * UOM normalization lines that reference this purchase detail.
+     */
+    public function uomNormalizationLines(): HasMany
+    {
+        return $this->hasMany(UomNormalizationLine::class, 'purchase_detail_id');
+    }
 }
