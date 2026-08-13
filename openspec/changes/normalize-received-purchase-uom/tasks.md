@@ -7,7 +7,7 @@
 
 ## 2. Eligibility and scope
 
-- [x] 2.1 Implement searchable, active-setting product discovery with preliminary eligibility feedback and searchable `Unit`-catalog target selection.
+- [x] 2.1 Implement searchable product discovery scoped to the entry-point Purchase's own products, with preliminary eligibility feedback, and searchable `Unit`-catalog target selection (catalog-wide, not scoped to the Purchase).
 - [x] 2.2 Validate target differs from current base, factor is positive/representable, product is stock-managed/non-serial, and other-setting physical/history footprint is blocked while price-only `ProductPrice` footprint is allowed.
 - [x] 2.3 Discover all old-base purchase/receipt lines for the product; require every line to be selected and fully received, or void/cancelled without stock effect.
 - [x] 2.4 Validate complete global and per-location stock lineage; block opening/import, transfer, adjustment, return, breakage, bundle, or other unexplained stock sources.

@@ -32,7 +32,7 @@ Existing conversion rows that use the old base are migrated only if each factor 
 
 ### Product-wide, location-aware correction scope
 
-The correction applies to one product across its permitted setting scope, not merely the Purchase page used to open the workflow. Product search returns preliminary eligible candidates; a selected product loads only its related receipt/purchase lines and a per-location inventory preview.
+The product selector on the entry-point Purchase page is scoped to that Purchase's own products only, for discovery convenience; the target Unit selector remains catalog-wide and searchable. Once a product is selected, the correction itself applies across that product's complete permitted setting scope, not merely the Purchase page used to open the workflow — a selected product loads its related receipt/purchase lines and a per-location inventory preview from that full scope, not just from the entry-point Purchase.
 
 Every old-base purchase line must be selected and fully received, or void/cancelled without a stock effect. Every current global and per-location quantity/bucket must be explainable by selected receipt-created `BUY` rows. This prevents mixing `BOX` and `PCS` quantities. Opening/import stock, transfers, adjustments, breakage, returns, replacement dispatches, bundle component usage, or any unselected stock source block the initial release unless their correction semantics are explicitly implemented.
 

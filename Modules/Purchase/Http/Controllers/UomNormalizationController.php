@@ -30,35 +30,18 @@ class UomNormalizationController extends Controller
     {
         $this->authorizePurchase($purchase);
 
-        // Optional preselect hint: the purchase's own products, for initial
-        // display convenience only. The searchable product/unit dropdowns
-        // hit dedicated search endpoints and are NOT limited to this list.
-        $purchase->load(['purchaseDetails.product.baseUnit']);
-
-        $preselectProducts = $purchase->purchaseDetails
-            ->pluck('product')
-            ->unique('id')
-            ->filter(fn ($p) => $p && $p->stock_managed && !$p->merged_into_id)
-            ->map(fn ($p) => [
-                'id' => $p->id,
-                'product_name' => $p->product_name,
-                'product_code' => $p->product_code,
-                'display_name' => $p->product_name . ' (' . $p->product_code . ')',
-                'base_unit_id' => $p->base_unit_id,
-                'base_unit_name' => optional($p->baseUnit)->name,
-            ])
-            ->values();
-
         return view('purchase::uom-normalization.edit', [
             'purchase' => $purchase,
-            'preselectProducts' => $preselectProducts,
         ]);
     }
 
     /**
-     * Server-backed product search scoped to the active setting. Not limited
-     * to this Purchase's products — any stock-managed product with purchase
-     * history in the setting is discoverable.
+     * Server-backed product search scoped to the route Purchase: only
+     * products that appear on this Purchase's own lines are discoverable
+     * here. This is a UI-selection boundary only — once a product is
+     * selected, candidateLines()/preview()/store() search that product's
+     * complete eligible purchase history across the active setting, as
+     * required for safe product-wide normalization.
      */
     public function searchProducts(Request $request, Purchase $purchase): JsonResponse
     {
@@ -79,10 +62,11 @@ class UomNormalizationController extends Controller
                   ->orWhere('product_code', 'like', "%{$query}%")
                   ->orWhere('barcode', 'like', "%{$query}%");
             })
-            ->whereHas('purchaseDetails.purchase', function ($q) use ($purchase) {
-                $q->where('setting_id', $purchase->setting_id);
+            ->whereHas('purchaseDetails', function ($q) use ($purchase) {
+                $q->where('purchase_id', $purchase->id);
             })
             ->with('baseUnit')
+            ->distinct()
             ->limit($limit)
             ->get();
 
@@ -132,7 +116,13 @@ class UomNormalizationController extends Controller
     /**
      * Candidate purchase/receipt lines for a single selected product, scoped
      * to the active setting and non-voided purchases. Fetched on demand
-     * rather than rendering every product's lines up front.
+     * rather than rendering every product's lines up front. The selected
+     * product must appear on the route Purchase (UI-selection boundary,
+     * enforced server-side); once that boundary passes, this intentionally
+     * returns the product's complete eligible purchase history across the
+     * active setting, not just lines on the route Purchase, so the
+     * correction can detect and include/block all related old-base
+     * purchase history.
      */
     public function candidateLines(Request $request, Purchase $purchase): JsonResponse
     {
@@ -141,6 +131,13 @@ class UomNormalizationController extends Controller
         $request->validate([
             'product_id' => 'required|integer|exists:products,id',
         ]);
+
+        if (!$this->productBelongsToPurchase($purchase, (int) $request->product_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Produk tidak terdapat pada pembelian ini.',
+            ], 422);
+        }
 
         $lines = \Modules\Purchase\Entities\PurchaseDetail::where('product_id', $request->product_id)
             ->whereHas('purchase', function ($q) use ($purchase) {
@@ -185,6 +182,13 @@ class UomNormalizationController extends Controller
             'purchase_detail_ids.*' => 'integer|exists:purchase_details,id',
         ]);
 
+        if (!$this->productBelongsToPurchase($purchase, (int) $request->product_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Produk tidak terdapat pada pembelian ini.',
+            ], 422);
+        }
+
         $product = Product::findOrFail($request->product_id);
         $targetUnit = Unit::findOrFail($request->target_unit_id);
         $factor = (float) $request->factor;
@@ -221,6 +225,20 @@ class UomNormalizationController extends Controller
             'is_acknowledged' => 'required|accepted',
             'is_sales_price_warning_acknowledged' => 'required|accepted',
         ]);
+
+        if (!$this->productBelongsToPurchase($purchase, (int) $request->product_id)) {
+            $message = 'Produk tidak terdapat pada pembelian ini.';
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $message,
+                ], 422);
+            }
+
+            toast($message, 'error');
+            return redirect()->back();
+        }
 
         $product = Product::findOrFail($request->product_id);
         $targetUnit = Unit::findOrFail($request->target_unit_id);
@@ -298,5 +316,18 @@ class UomNormalizationController extends Controller
     private function authorizePurchase(Purchase $purchase): void
     {
         Gate::authorize('uomNormalize', $purchase);
+    }
+
+    /**
+     * UI-selection boundary: the product must appear on the route Purchase
+     * via a PurchaseDetail. Enforced server-side so candidateLines(),
+     * preview(), and store() cannot be driven with a product that has no
+     * relation to this Purchase, regardless of what the dropdown offered.
+     */
+    private function productBelongsToPurchase(Purchase $purchase, int $productId): bool
+    {
+        return \Modules\Purchase\Entities\PurchaseDetail::where('purchase_id', $purchase->id)
+            ->where('product_id', $productId)
+            ->exists();
     }
 }
