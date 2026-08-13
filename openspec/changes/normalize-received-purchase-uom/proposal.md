@@ -1,31 +1,33 @@
 ## Why
 
-Purchases can be received before the product's packaging conversion is configured, causing a supplier quantity such as `10 BOX` to be recorded as `10 PCS`. This understates stock and makes the product's current HPP incorrect even though the supplier invoice amount is correct. The business needs a safe, auditable way to normalize all explicitly selected, fully received erroneous purchase lines to the product's existing smallest UOM before any stock-affecting sale occurs.
+A product can be created and received in a larger unit such as `BOX`, then discovered to be stocked and sold by its smallest unit such as `PCS` (`1 BOX = 10 PCS`). The conversion did not exist when the purchase was received. This is not an ordinary conversion-unit choice: the product's base accounting UOM itself is wrong. Supplier invoice totals are correct, but stock, purchase unit price, HPP, and last-purchase price are denominated in the wrong unit.
+
+The business needs a safe, auditable base-UOM correction before any stock-affecting outbound activity. The operator supplies only the factual target UOM and factor; the system proposes every derived quantity and purchase-cost result for explicit acknowledgement.
 
 ## What Changes
 
-- Add a privileged, product-level received-purchase UOM normalization workflow that lets an operator select related fully received purchase lines for one non-serial, stock-managed product and one direct source-UOM-to-base-UOM conversion.
-- Provide a preview that shows each selected purchase and receipt line's source quantity, normalized base quantity, preserved supplier monetary amount, transaction match, location effect, and projected current HPP.
-- Update selected existing purchase-detail and approved receiving-detail quantities in place, preserve supplier financial totals and payment state, and recompute the product's current purchase-cost indicators from the normalized receipt history.
-- Update the original linked `BUY` inventory-transaction rows in place, including their quantity and running quantity/bucket snapshots, rather than adding compensating correction movements.
-- Add a durable receiving-detail-to-inventory-transaction link for newly approved receipts. For legacy receipts, resolve a unique existing `BUY` transaction from evidence and refuse to normalize when the match is absent or ambiguous.
-- Enforce execution-time safety checks: all selected lines are fully received; the product has no stock-affecting dispatched Sale or completed POS checkout; the product has no disallowed later inventory movement; the product is not serial-tracked; and the selected rows have not already been normalized.
-- Store immutable normalization audit data, including input conversion snapshot, selected rows, matched transaction IDs, before/after values, actor, reason, timestamps, and recalculation outcome.
-- Add project-native Purchase UI entry points, preview, confirmation, eligibility feedback, and read-only audit visibility on affected purchase records.
+- Replace the existing-base-UOM normalization premise with a privileged, product-level base-UOM correction: `BOX` becomes `PCS`, and the former base becomes a `BOX -> PCS` conversion.
+- Add searchable product and target-unit selectors. The target unit is searched from the Unit catalog, not limited to existing product conversion rows.
+- Let the operator enter only one positive relationship (`1 old base UOM = factor new base UOM`), reason, and explicit acknowledgement of the proposed result; do not require manual calculated-price entry.
+- Rebase all selected purchase and approved receiving quantities, their in-place original `BUY` inventory rows, global stock, and every per-location `product_stocks` row/bucket while preserving each receipt location and all supplier monetary document facts.
+- Recalculate purchase-side unit cost, current HPP, and last-purchase price in the new base UOM. Do not change sale prices, tier prices, conversion sale prices, historical sale/POS monetary values, or sale HPP snapshots; require an acknowledgement and prominent reminder to review sales prices before selling.
+- Convert/reconcile existing product conversions, conversion barcodes, and price denomination only where a safe mechanical migration is defined; otherwise block with a specific remediation reason.
+- Enforce product-wide lineage and execution safety: all old-base purchase/receipt facts in scope must be complete and selected (or void without stock effect), every current stock location must be explainable by that scope, and no serial, completed/dispatched outbound, transfer, return, adjustment, import/opening, or other incompatible stock history may exist. A price-only footprint in another setting is supported by rebasing that setting's purchase-cost indicators; any other-setting physical inventory/history footprint remains a blocker.
+- Keep the durable receipt-to-`BUY` provenance, conservative legacy matching, immutable audit trail, dedicated permission, and Purchase-native UI.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `received-purchase-uom-normalization`: Safely normalize explicitly selected received purchase and receiving quantities into a product's base UOM, reconcile their original inventory transactions and current HPP, and retain complete audit evidence.
+- `received-purchase-uom-normalization`: Safely correct a product's base UOM and its received-purchase inventory/cost facts while retaining complete audit evidence.
 
 ### Modified Capabilities
 
-- `privileged-received-purchase-corrections`: Distinguish the new inventory/UOM normalization authority and workflow from existing received-purchase monetary corrections.
+- `privileged-received-purchase-corrections`: Distinguish the new base-UOM correction workflow from existing received-purchase monetary corrections.
 - `purchase-receiving-notes`: Persist the durable link between an approved receiving detail and its generated inventory transaction.
 
 ## Impact
 
-- Affects `Modules/Purchase` purchase detail, receiving, correction, and cost-replay flows; `Modules/Product` conversion, stock, price, and transaction data; and normal Sale/POS history eligibility checks.
-- Requires additive migrations for normalization audit/case records and transaction-to-receiving-detail linkage, plus a new permission and Purchase routes/controllers/views or Livewire components following existing Bootstrap/CoreUI conventions.
-- Does not change supplier invoice totals, tax, discounts, payments, due amounts, normal Sales draft behavior, or POS draft/loaded-cart behavior.
+- Affects Purchase receiving and cost replay; Product units, conversions, barcodes, stock, prices, and transactions; and the eligibility interaction with Sales, POS, bundles, transfers, returns, adjustments, and imports.
+- Requires a reopened implementation plan, additive audit/schema changes where needed, and project-native searchable UI controls.
+- Does not change supplier invoice totals, tax, discounts, payments, due amounts, or any sales price/cost snapshot. Sales pricing remains an explicit follow-up action for the operator.

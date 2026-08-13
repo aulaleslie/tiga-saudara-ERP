@@ -21,6 +21,8 @@ class UomNormalizationLine extends BaseModel
         'source_tax_amount',
         'normalized_quantity',
         'normalized_unit_cost',
+        'normalized_unit_price',
+        'unit_price_rounding_effect',
         'transaction_snapshot_before',
         'transaction_snapshot_after',
     ];
@@ -32,6 +34,8 @@ class UomNormalizationLine extends BaseModel
         'source_tax_amount' => 'decimal:2',
         'normalized_quantity' => 'decimal:3',
         'normalized_unit_cost' => 'decimal:6',
+        'normalized_unit_price' => 'decimal:2',
+        'unit_price_rounding_effect' => 'decimal:6',
         'transaction_snapshot_before' => 'array',
         'transaction_snapshot_after' => 'array',
         'created_at' => 'datetime',

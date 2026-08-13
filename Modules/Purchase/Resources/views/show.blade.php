@@ -161,6 +161,17 @@
                                                     {{ $breakdown }}
                                                 </div>
                                             @endif
+                                            @if($item->uomNormalizationLines->count() > 0)
+                                                @foreach($item->uomNormalizationLines as $normLine)
+                                                    <div class="alert alert-info py-1 px-2 mt-2 mb-0 small">
+                                                        @if($normLine->batch->isLegacyFormat())
+                                                            <i class="cil-info"></i> Base UOM corrected (legacy record) to {{ optional($normLine->batch->legacyBaseUnit)->name }} on {{ $normLine->batch->executed_at ? $normLine->batch->executed_at->format('Y-m-d') : $normLine->created_at->format('Y-m-d') }}.
+                                                        @else
+                                                            <i class="cil-info"></i> Base UOM corrected from {{ optional($normLine->batch->oldBaseUnit)->name }} to {{ optional($normLine->batch->newBaseUnit)->name }} on {{ $normLine->batch->executed_at ? $normLine->batch->executed_at->format('Y-m-d') : $normLine->created_at->format('Y-m-d') }}.
+                                                        @endif
+                                                    </div>
+                                                @endforeach
+                                            @endif
                                         </td>
 
                                         <td class="align-middle">
@@ -706,7 +717,7 @@
             $q->whereHas('purchaseDetail', fn ($q2) => $q2->where('purchase_id', $purchase->id));
         })
         ->where('status', 'EXECUTED')
-        ->with(['lines', 'actor', 'product', 'sourceUnit', 'baseUnit'])
+        ->with(['lines', 'actor', 'product', 'oldBaseUnit', 'newBaseUnit', 'legacySourceUnit', 'legacyBaseUnit'])
         ->orderByDesc('executed_at')
         ->get();
     @endphp
@@ -723,7 +734,11 @@
                             <div class="card-header">
                                 <strong>Batch #{{ $normBatch->id }}</strong>
                                 — {{ $normBatch->product->product_name ?? '—' }}
-                                — {{ optional($normBatch->sourceUnit)->name }} → {{ optional($normBatch->baseUnit)->name }}
+                                @if($normBatch->isLegacyFormat())
+                                — {{ optional($normBatch->legacySourceUnit)->name }} → {{ optional($normBatch->legacyBaseUnit)->name }}
+                                @else
+                                — {{ optional($normBatch->oldBaseUnit)->name }} → {{ optional($normBatch->newBaseUnit)->name }}
+                                @endif
                                 (×{{ $normBatch->conversion_factor }})
                                 <span class="float-right text-muted">
                                     {{ $normBatch->executed_at?->format('d-m-Y H:i') }}
@@ -734,34 +749,110 @@
                                 @if($normBatch->reason)
                                     <p class="mb-2"><strong>Alasan:</strong> {{ $normBatch->reason }}</p>
                                 @endif
+                                <div class="alert alert-info small mb-2">
+                                    <i class="cil-info"></i>
+                                    Harga satuan pembelian dapat dibulatkan sesuai presisi mata uang. Nilai subtotal pemasok tetap menjadi nilai otoritatif dan tidak berubah.
+                                </div>
                                 <table class="table table-bordered table-sm mb-0">
                                     <thead>
                                         <tr>
                                             <th>Detail Pembelian</th>
                                             <th>Qty Asal</th>
                                             <th>→ Qty Normal</th>
-                                            <th>Biaya Satuan Normal</th>
+                                            <th>Harga Satuan Asal</th>
+                                            <th>Harga Satuan Normal</th>
+                                            <th>Sub Total Pemasok (Tetap)</th>
                                             <th>Transaksi ID</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @foreach($normBatch->lines as $line)
+                                        @php
+                                            $hasRounding = $line->unit_price_rounding_effect !== null
+                                                && abs((float) $line->unit_price_rounding_effect) > 0.0000001;
+                                        @endphp
                                         <tr>
                                             <td>#{{ $line->purchase_detail_id }}</td>
                                             <td>{{ number_format($line->source_quantity, 3) }}</td>
                                             <td>{{ number_format($line->normalized_quantity, 3) }}</td>
-                                            <td>{{ format_currency($line->normalized_unit_cost) }}</td>
+                                            <td>{{ format_currency($line->source_unit_price) }}</td>
+                                            <td>
+                                                {{ format_currency($line->normalized_unit_price ?? $line->normalized_unit_cost) }}
+                                                @if($hasRounding)
+                                                    <span class="badge badge-warning ml-1" title="Harga satuan dibulatkan">
+                                                        <i class="cil-warning"></i> Dibulatkan
+                                                    </span>
+                                                    <div class="text-muted small mt-1">
+                                                        <div>Harga satuan tepat: Rp{{ number_format($line->normalized_unit_price + $line->unit_price_rounding_effect, 6, ',', '.') }}</div>
+                                                        <div>Harga satuan tersimpan: {{ format_currency($line->normalized_unit_price) }}</div>
+                                                        <div>Selisih pembulatan tampilan: Rp{{ number_format($line->unit_price_rounding_effect, 6, ',', '.') }} per unit</div>
+                                                    </div>
+                                                @endif
+                                            </td>
+                                            <td>{{ format_currency($line->source_sub_total) }}</td>
                                             <td>{{ $line->transaction_id }}</td>
                                         </tr>
                                         @endforeach
                                     </tbody>
                                 </table>
                                 @if($normBatch->cost_outcome)
-                                <div class="mt-2 small text-muted">
-                                    <strong>HPP:</strong>
-                                    Sebelum: {{ format_currency($normBatch->cost_outcome['before']['average_purchase_price'] ?? 0) }}
-                                    → Sesudah: {{ format_currency($normBatch->cost_outcome['after']['average_purchase_price'] ?? 0) }}
-                                </div>
+                                    @php
+                                        $costOutcome = $normBatch->cost_outcome;
+                                        // New format nests active-setting facts under
+                                        // 'active_setting'; legacy/pre-cross-setting
+                                        // batches wrote 'before'/'after' at the top level.
+                                        $activeOutcome = $costOutcome['active_setting'] ?? $costOutcome;
+                                        $priceOnlySettings = $costOutcome['price_only_settings'] ?? [];
+                                    @endphp
+                                    <div class="mt-2 small text-muted">
+                                        <strong>HPP (Cabang Aktif):</strong>
+                                        Sebelum: {{ format_currency($activeOutcome['before']['average_purchase_price'] ?? 0) }}
+                                        → Sesudah: {{ format_currency($activeOutcome['after']['average_purchase_price'] ?? 0) }}
+                                    </div>
+
+                                    @if(!empty($priceOnlySettings))
+                                        <div class="mt-3">
+                                            <strong class="small">Rebase Biaya Pembelian — Cabang Lain (Harga Saja):</strong>
+                                            <table class="table table-bordered table-sm mt-1 mb-0">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Cabang</th>
+                                                        <th>HPP Rata-rata (Lama → Baru)</th>
+                                                        <th>Harga Pembelian Terakhir (Lama → Baru)</th>
+                                                        <th>Faktor</th>
+                                                        <th>Efek Pembulatan</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($priceOnlySettings as $settingOutcome)
+                                                    <tr>
+                                                        <td>{{ $settingOutcome['setting_name'] ?? ('Setting #' . ($settingOutcome['setting_id'] ?? '—')) }}</td>
+                                                        <td>
+                                                            {{ format_currency($settingOutcome['before']['average_purchase_price'] ?? 0) }}
+                                                            → {{ format_currency($settingOutcome['after']['average_purchase_price'] ?? 0) }}
+                                                        </td>
+                                                        <td>
+                                                            {{ format_currency($settingOutcome['before']['last_purchase_price'] ?? 0) }}
+                                                            → {{ format_currency($settingOutcome['after']['last_purchase_price'] ?? 0) }}
+                                                        </td>
+                                                        <td>{{ $settingOutcome['factor'] ?? '—' }}</td>
+                                                        <td>
+                                                            @if(isset($settingOutcome['rounding_effect']))
+                                                                Rata-rata: {{ number_format($settingOutcome['rounding_effect']['average_purchase_price'] ?? 0, 6) }},
+                                                                Terakhir: {{ number_format($settingOutcome['rounding_effect']['last_purchase_price'] ?? 0, 6) }}
+                                                            @else
+                                                                —
+                                                            @endif
+                                                        </td>
+                                                    </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                            <p class="text-muted small mb-0 mt-1">
+                                                Hanya biaya pembelian (HPP) yang disesuaikan di cabang lain ini. Harga jual dan harga tingkat tidak diubah.
+                                            </p>
+                                        </div>
+                                    @endif
                                 @endif
                             </div>
                         </div>

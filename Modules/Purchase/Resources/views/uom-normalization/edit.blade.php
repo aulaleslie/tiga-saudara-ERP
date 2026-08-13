@@ -45,7 +45,7 @@
 
     {{-- Normalization Form --}}
     <div id="uomNormalizationApp" x-data="uomNormalization()" x-init="init()">
-        
+
         {{-- Flash Error Message --}}
         <div class="alert alert-danger" x-show="errorMessage" x-cloak>
             <strong x-text="errorMessage"></strong>
@@ -60,57 +60,111 @@
                 <h6 class="mb-0">1. Pilih Produk</h6>
             </div>
             <div class="card-body">
-                <div class="form-group">
-                    <label for="productSelect">Produk</label>
-                    <select id="productSelect" class="form-control" x-model="selectedProductId" @change="onProductChanged()">
-                        <option value="">-- Pilih Produk --</option>
-                        @foreach($products as $product)
-                        <option value="{{ $product->id }}"
-                            data-conversions="{{ $product->conversions->toJson() }}"
-                            data-base-unit="{{ optional($product->baseUnit)->name }}">
-                            {{ $product->product_name }} ({{ $product->product_code }})
-                        </option>
-                        @endforeach
-                    </select>
+                <div class="form-group mb-0">
+                    <label for="uomProductSearchInput">Produk</label>
+                    <div class="position-relative" x-data="uomProductSearch()" x-init="init()">
+                        <input
+                            type="text"
+                            id="uomProductSearchInput"
+                            class="form-control"
+                            x-model="query"
+                            @input.debounce.500ms="search()"
+                            @focus="open = true"
+                            @blur="setTimeout(() => open = false, 150)"
+                            placeholder="Ketik nama produk, kode, atau barcode..."
+                            autocomplete="off"
+                        >
+                        <div class="dropdown-menu w-100 shadow show"
+                             x-show="open && results.length > 0"
+                             x-cloak
+                             style="position: absolute; z-index: 1050; max-height: 250px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                            <template x-for="product in results" :key="product.id">
+                                <button type="button"
+                                    @mousedown.prevent="selectProduct(product)"
+                                    class="dropdown-item"
+                                    x-text="product.display_name"></button>
+                            </template>
+                        </div>
+                        <div class="dropdown-menu w-100 show"
+                             x-show="open && query.length >= 2 && results.length === 0 && !loading"
+                             x-cloak
+                             style="position: absolute; z-index: 1050; top: 100%; left: 0; right: 0;">
+                            <div class="dropdown-item disabled">Produk tidak ditemukan...</div>
+                        </div>
+                    </div>
+                    <div class="mt-2" x-show="selectedProductLabel">
+                        <span class="badge badge-primary p-2" x-text="selectedProductLabel"></span>
+                    </div>
                 </div>
             </div>
         </div>
 
-        {{-- Step 2: Select Conversion --}}
+        {{-- Step 2: Select Target UOM --}}
         <div class="card mb-4" x-show="selectedProductId">
             <div class="card-header bg-light">
-                <h6 class="mb-0">2. Pilih Konversi UOM</h6>
+                <h6 class="mb-0">2. Pilih Unit Base Baru dan Faktor Konversi</h6>
             </div>
             <div class="card-body">
-                <div class="form-group">
-                    <label for="conversionSelect">Konversi</label>
-                    <select id="conversionSelect" class="form-control" x-model="selectedConversionId" @change="onConversionChanged()">
-                        <option value="">-- Pilih Konversi --</option>
-                        <template x-for="conv in availableConversions" :key="conv.id">
-                            <option :value="conv.id"
-                                x-text="(conv.unit ? conv.unit.name : '?') + ' → ' + (conv.base_unit ? conv.base_unit.name : '?') + ' (×' + conv.conversion_factor + ')'">
-                            </option>
-                        </template>
-                    </select>
+                <div class="alert alert-info mt-2">
+                    <strong>Base Unit Saat Ini:</strong> <span x-text="baseUnitName"></span>
                 </div>
-                <div class="alert alert-info mt-2" x-show="selectedConversionId">
-                    <strong>Faktor Konversi:</strong>
-                    <span x-text="selectedConversionFactor"></span>×
-                    — setiap 1 <span x-text="sourceUnitName"></span> = <span x-text="selectedConversionFactor"></span> <span x-text="baseUnitName"></span>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="uomTargetUnitSearchInput">Unit Base Baru</label>
+                        <div class="position-relative" x-data="uomUnitSearch()" x-init="init()">
+                            <input
+                                type="text"
+                                id="uomTargetUnitSearchInput"
+                                class="form-control"
+                                x-model="query"
+                                @input.debounce.500ms="search()"
+                                @focus="open = true"
+                                @blur="setTimeout(() => open = false, 150)"
+                                placeholder="Ketik nama atau singkatan Unit..."
+                                autocomplete="off"
+                            >
+                            <div class="dropdown-menu w-100 shadow show"
+                                 x-show="open && results.length > 0"
+                                 x-cloak
+                                 style="position: absolute; z-index: 1050; max-height: 250px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                <template x-for="unit in results" :key="unit.id">
+                                    <button type="button"
+                                        @mousedown.prevent="selectUnit(unit)"
+                                        class="dropdown-item"
+                                        x-text="unit.display_name"></button>
+                                </template>
+                            </div>
+                            <div class="dropdown-menu w-100 show"
+                                 x-show="open && query.length >= 1 && results.length === 0 && !loading"
+                                 x-cloak
+                                 style="position: absolute; z-index: 1050; top: 100%; left: 0; right: 0;">
+                                <div class="dropdown-item disabled">Unit tidak ditemukan...</div>
+                            </div>
+                        </div>
+                        <div class="mt-2" x-show="targetUnitName">
+                            <span class="badge badge-primary p-2" x-text="targetUnitName"></span>
+                        </div>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label for="factorInput">Faktor Konversi (Qty <span x-text="baseUnitName"></span> / Unit Base Baru)</label>
+                        <input type="number" id="factorInput" class="form-control" x-model="factor" min="0.000001" step="any" @input="previewData = null">
+                    </div>
                 </div>
             </div>
         </div>
 
         {{-- Step 3: Select Purchase Lines --}}
-        <div class="card mb-4" x-show="selectedConversionId">
+        <div class="card mb-4" x-show="targetUnitId && factor > 0">
             <div class="card-header bg-light">
                 <h6 class="mb-0">3. Pilih Baris Pembelian</h6>
             </div>
             <div class="card-body">
-                <table class="table table-bordered table-sm">
+                <div x-show="loadingLines" class="text-muted small mb-2">Memuat baris pembelian...</div>
+                <table class="table table-bordered table-sm" x-show="!loadingLines">
                     <thead>
                         <tr>
                             <th><input type="checkbox" @change="toggleAllLines($event)"></th>
+                            <th>PO Ref</th>
                             <th>Produk</th>
                             <th>Qty Pesan</th>
                             <th>Qty Diterima</th>
@@ -120,35 +174,25 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach($purchase->purchaseDetails as $detail)
-                        <tr>
-                            <td>
-                                <input type="checkbox" value="{{ $detail->id }}"
-                                    data-product-id="{{ $detail->product_id }}"
-                                    class="line-checkbox"
-                                    @change="onLineToggled()">
-                            </td>
-                            <td>{{ $detail->product_name }} ({{ $detail->product_code }})</td>
-                            <td>{{ number_format($detail->quantity, 3) }}</td>
-                            <td>
-                                @php
-                                    $received = $detail->receivedNoteDetails
-                                        ->filter(fn ($rnd) => $rnd->receivedNote && $rnd->receivedNote->status === 'APPROVED')
-                                        ->sum('quantity_received');
-                                @endphp
-                                {{ number_format($received, 3) }}
-                            </td>
-                            <td>
-                                @if($received >= $detail->quantity)
-                                    <span class="badge badge-success">Lengkap</span>
-                                @else
-                                    <span class="badge badge-warning">Belum Lengkap</span>
-                                @endif
-                            </td>
-                            <td>{{ format_currency($detail->unit_price) }}</td>
-                            <td>{{ format_currency($detail->sub_total) }}</td>
-                        </tr>
-                        @endforeach
+                        <template x-for="detail in candidateLines" :key="detail.id">
+                            <tr>
+                                <td>
+                                    <input type="checkbox" :value="detail.id"
+                                        class="line-checkbox"
+                                        @change="onLineToggled($event, detail.id)">
+                                </td>
+                                <td x-text="detail.purchase_reference || '—'"></td>
+                                <td x-text="detail.product_name + ' (' + detail.product_code + ')'"></td>
+                                <td x-text="Number(detail.quantity).toFixed(3)"></td>
+                                <td x-text="Number(detail.received_quantity).toFixed(3)"></td>
+                                <td>
+                                    <span x-show="detail.is_complete" class="badge badge-success">Lengkap</span>
+                                    <span x-show="!detail.is_complete" class="badge badge-warning">Belum Lengkap</span>
+                                </td>
+                                <td x-text="formatCurrency(detail.unit_price)"></td>
+                                <td x-text="formatCurrency(detail.sub_total)"></td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
             </div>
@@ -168,7 +212,7 @@
         </div>
 
         {{-- Preview Button --}}
-        <div class="mb-4" x-show="selectedLines.length > 0 && selectedConversionId">
+        <div class="mb-4" x-show="selectedLines.length > 0 && targetUnitId && factor > 0">
             <button type="button" class="btn btn-info" @click="fetchPreview()" :disabled="loadingPreview">
                 <span x-show="!loadingPreview"><i class="cil-search"></i> Pratinjau Normalisasi</span>
                 <span x-show="loadingPreview"><i class="cil-reload cil-spin"></i> Memuat...</span>
@@ -216,6 +260,12 @@
                     </div>
                 </div>
 
+                {{-- Purchase unit price rounding disclosure --}}
+                <div class="alert alert-info small mb-3">
+                    <i class="cil-info"></i>
+                    Harga satuan pembelian dapat dibulatkan sesuai presisi mata uang. Nilai subtotal pemasok tetap menjadi nilai otoritatif dan tidak berubah.
+                </div>
+
                 {{-- Line Details --}}
                 <table class="table table-bordered table-sm">
                     <thead>
@@ -224,8 +274,9 @@
                             <th>Lokasi</th>
                             <th>Qty Asal</th>
                             <th>→ Qty Normal</th>
-                            <th>Sub Total</th>
-                            <th>Biaya Satuan Normal</th>
+                            <th>Harga Satuan Asal</th>
+                            <th>Harga Satuan Normal</th>
+                            <th>Sub Total Pemasok (Tetap)</th>
                             <th>Transaksi</th>
                         </tr>
                     </thead>
@@ -236,8 +287,23 @@
                                 <td x-text="line.location"></td>
                                 <td x-text="line.source_quantity"></td>
                                 <td x-text="line.normalized_quantity"></td>
+                                <td x-text="formatCurrency(line.source_unit_price)"></td>
+                                <td>
+                                    <span x-text="formatCurrency(line.normalized_unit_price)"></span>
+                                    <span x-show="line.has_unit_price_rounding_effect"
+                                          class="badge badge-warning ml-1"
+                                          title="Harga satuan dibulatkan">
+                                        <i class="cil-warning"></i> Dibulatkan
+                                    </span>
+                                    <template x-if="line.has_unit_price_rounding_effect">
+                                        <div class="text-muted small mt-1">
+                                            <div>Harga satuan tepat: <span x-text="formatCurrencyPrecise(line.exact_normalized_unit_price)"></span></div>
+                                            <div>Harga satuan tersimpan: <span x-text="formatCurrency(line.normalized_unit_price)"></span></div>
+                                            <div>Selisih pembulatan tampilan: <span x-text="formatCurrencyPrecise(line.unit_price_rounding_effect)"></span> per unit</div>
+                                        </div>
+                                    </template>
+                                </td>
                                 <td x-text="formatCurrency(line.source_sub_total)"></td>
-                                <td x-text="formatCurrency(line.normalized_unit_cost)"></td>
                                 <td>
                                     <span x-show="line.transaction_match === 'matched'" class="badge badge-success">Cocok</span>
                                     <span x-show="line.transaction_match === 'missing'" class="badge badge-danger">Tidak Ditemukan</span>
@@ -248,9 +314,51 @@
                     </tbody>
                 </table>
 
-                {{-- Execute Button --}}
-                <div class="mt-3" x-show="previewData?.eligible && reason.trim().length >= 3">
-                    <button type="button" class="btn btn-success btn-lg" @click="executeNormalization()" :disabled="executing">
+                {{-- Per-PurchaseDetail total, distinct from receipt-line
+                     subtotals above — never presented as a receipt-line
+                     value. Shown only when a purchase detail spans more
+                     than one receipt line, to make the allocation's exact
+                     conservation visible. --}}
+                <template x-if="purchaseDetailTotals().length > 0">
+                    <div class="mt-2">
+                        <p class="small text-muted mb-1">Total per Detail Pembelian (bukan subtotal per baris penerimaan):</p>
+                        <table class="table table-bordered table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Detail Pembelian</th>
+                                    <th>Jumlah Baris Penerimaan</th>
+                                    <th>Total Sub Total Pemasok</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="pdTotal in purchaseDetailTotals()" :key="pdTotal.purchase_detail_id">
+                                    <tr>
+                                        <td x-text="'#' + pdTotal.purchase_detail_id"></td>
+                                        <td x-text="pdTotal.line_count"></td>
+                                        <td x-text="formatCurrency(pdTotal.purchase_detail_sub_total)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </template>
+
+                {{-- Execution Confirmations --}}
+                <div class="mt-4" x-show="previewData?.eligible">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="ack1" x-model="isAcknowledged">
+                        <label class="form-check-label" for="ack1">
+                            Saya mengerti bahwa tindakan ini tidak dapat dibatalkan, akan mengubah nilai HPP historis, dan berdampak pada stok.
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="ack2" x-model="isSalesPriceWarningAcknowledged">
+                        <label class="form-check-label" for="ack2">
+                            Saya bertanggung jawab penuh untuk meninjau kembali Harga Jual produk dan konversi yang mungkin terpengaruh.
+                        </label>
+                    </div>
+
+                    <button type="button" class="btn btn-success btn-lg" @click="executeNormalization()" :disabled="executing || !isAcknowledged || !isSalesPriceWarningAcknowledged || reason.trim().length < 3">
                         <span x-show="!executing"><i class="cil-check-circle"></i> Jalankan Normalisasi</span>
                         <span x-show="executing"><i class="cil-reload cil-spin"></i> Memproses...</span>
                     </button>
@@ -292,81 +400,87 @@
 <script>
 function uomNormalization() {
     return {
-        selectedProductId: '',
-        selectedConversionId: '',
-        selectedConversionFactor: 0,
-        sourceUnitName: '',
+        selectedProductId: null,
+        selectedProductLabel: '',
+        targetUnitId: '',
+        targetUnitName: '',
+        factor: '',
         baseUnitName: '',
-        availableConversions: [],
+        baseUnitId: null,
+        candidateLines: [],
+        loadingLines: false,
         selectedLines: [],
         reason: '',
+        isAcknowledged: false,
+        isSalesPriceWarningAcknowledged: false,
         loadingPreview: false,
         executing: false,
         previewData: null,
         executionResult: null,
         errorMessage: null,
 
-        init() {},
+        init() {
+            window.addEventListener('uomProductSelected', (e) => this.onProductSelected(e.detail));
+            window.addEventListener('uomUnitSelected', (e) => this.onUnitSelected(e.detail));
+        },
 
-        onProductChanged() {
-            this.selectedConversionId = '';
+        onProductSelected(product) {
+            this.selectedProductId = product.id;
+            this.selectedProductLabel = product.display_name;
+            this.baseUnitName = product.base_unit_name || '?';
+            this.baseUnitId = product.base_unit_id;
+            window.__uomBaseUnitId = product.base_unit_id;
+            this.targetUnitId = '';
+            this.targetUnitName = '';
+            this.factor = '';
             this.previewData = null;
+            this.candidateLines = [];
+            this.selectedLines = [];
 
-            const select = document.getElementById('productSelect');
-            const option = select.options[select.selectedIndex];
-            if (!option || !option.dataset.conversions) {
-                this.availableConversions = [];
+            this.fetchCandidateLines();
+        },
+
+        onUnitSelected(unit) {
+            this.targetUnitId = unit.id;
+            this.targetUnitName = unit.display_name;
+            this.previewData = null;
+        },
+
+        async fetchCandidateLines() {
+            if (!this.selectedProductId) {
+                this.candidateLines = [];
                 return;
             }
 
+            this.loadingLines = true;
             try {
-                this.availableConversions = JSON.parse(option.dataset.conversions);
-                this.baseUnitName = option.dataset.baseUnit || '?';
+                const params = new URLSearchParams({ product_id: this.selectedProductId });
+                const response = await fetch("{{ route('purchases.uom-normalize.candidate-lines', $purchase->id) }}?" + params, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                this.candidateLines = await response.json();
             } catch (e) {
-                this.availableConversions = [];
+                this.errorMessage = 'Gagal memuat baris pembelian.';
+                console.error(e);
+            } finally {
+                this.loadingLines = false;
             }
-
-            // Filter checkboxes to only show matching product lines
-            this.updateLineVisibility();
-        },
-
-        onConversionChanged() {
-            this.previewData = null;
-            const conv = this.availableConversions.find(c => c.id == this.selectedConversionId);
-            this.selectedConversionFactor = conv ? conv.conversion_factor : 0;
-            this.sourceUnitName = conv && conv.unit ? conv.unit.name : '?';
-            this.baseUnitName = conv && conv.base_unit ? conv.base_unit.name : '?';
-        },
-
-        updateLineVisibility() {
-            const checkboxes = document.querySelectorAll('.line-checkbox');
-            checkboxes.forEach(cb => {
-                const row = cb.closest('tr');
-                if (this.selectedProductId && cb.dataset.productId != this.selectedProductId) {
-                    row.style.display = 'none';
-                    cb.checked = false;
-                } else {
-                    row.style.display = '';
-                }
-            });
-            this.onLineToggled();
         },
 
         toggleAllLines(event) {
             const checked = event.target.checked;
             const checkboxes = document.querySelectorAll('.line-checkbox');
-            checkboxes.forEach(cb => {
-                const row = cb.closest('tr');
-                if (row.style.display !== 'none') {
-                    cb.checked = checked;
-                }
-            });
-            this.onLineToggled();
+            checkboxes.forEach(cb => { cb.checked = checked; });
+            this.selectedLines = checked ? this.candidateLines.map(l => l.id) : [];
+            this.previewData = null;
         },
 
-        onLineToggled() {
-            const checkboxes = document.querySelectorAll('.line-checkbox:checked');
-            this.selectedLines = Array.from(checkboxes).map(cb => parseInt(cb.value));
+        onLineToggled(event, id) {
+            if (event.target.checked) {
+                if (!this.selectedLines.includes(id)) this.selectedLines.push(id);
+            } else {
+                this.selectedLines = this.selectedLines.filter(x => x !== id);
+            }
             this.previewData = null;
         },
 
@@ -385,7 +499,8 @@ function uomNormalization() {
                     },
                     body: JSON.stringify({
                         product_id: parseInt(this.selectedProductId),
-                        conversion_id: parseInt(this.selectedConversionId),
+                        target_unit_id: parseInt(this.targetUnitId),
+                        factor: parseFloat(this.factor),
                         purchase_detail_ids: this.selectedLines,
                     }),
                 });
@@ -424,9 +539,12 @@ function uomNormalization() {
                     },
                     body: JSON.stringify({
                         product_id: parseInt(this.selectedProductId),
-                        conversion_id: parseInt(this.selectedConversionId),
+                        target_unit_id: parseInt(this.targetUnitId),
+                        factor: parseFloat(this.factor),
                         purchase_detail_ids: this.selectedLines,
                         reason: this.reason,
+                        is_acknowledged: this.isAcknowledged,
+                        is_sales_price_warning_acknowledged: this.isSalesPriceWarningAcknowledged,
                     }),
                 });
 
@@ -452,6 +570,149 @@ function uomNormalization() {
         formatCurrency(value) {
             if (value === null || value === undefined) return '—';
             return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2 }).format(value);
+        },
+
+        // Higher-precision display for exact unrounded unit prices and
+        // rounding residuals (6 decimals), used only in the rounding
+        // disclosure — never for supplier subtotal recalculation.
+        formatCurrencyPrecise(value) {
+            if (value === null || value === undefined) return '—';
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(value);
+        },
+
+        // Groups preview lines by purchase_detail_id, returning only the
+        // PurchaseDetail-level totals for details spanning MORE THAN ONE
+        // receipt line — surfaced separately from the per-receipt subtotal
+        // column so the allocation's exact conservation is visible without
+        // ever presenting this total as a single receipt line's subtotal.
+        purchaseDetailTotals() {
+            const lines = this.previewData?.lines || [];
+            const grouped = {};
+            for (const line of lines) {
+                const id = line.purchase_detail_id;
+                if (!grouped[id]) {
+                    grouped[id] = {
+                        purchase_detail_id: id,
+                        line_count: 0,
+                        purchase_detail_sub_total: line.purchase_detail_sub_total,
+                    };
+                }
+                grouped[id].line_count += 1;
+            }
+            return Object.values(grouped).filter(g => g.line_count > 1);
+        },
+    };
+}
+
+function uomProductSearch() {
+    return {
+        query: '',
+        results: [],
+        open: false,
+        loading: false,
+        abortController: null,
+
+        init() {},
+
+        async search() {
+            if (this.query.length < 2) {
+                this.results = [];
+                this.open = false;
+                return;
+            }
+
+            this.loading = true;
+            this.open = true;
+
+            if (this.abortController) {
+                this.abortController.abort();
+            }
+            this.abortController = new AbortController();
+
+            try {
+                const params = new URLSearchParams({ query: this.query, limit: 20 });
+                const response = await fetch("{{ route('purchases.uom-normalize.products.search', $purchase->id) }}?" + params, {
+                    signal: this.abortController.signal,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                if (!response.ok) throw new Error('Network response was not ok');
+                this.results = await response.json();
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('Product search error:', error);
+                    this.results = [];
+                }
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        selectProduct(product) {
+            this.query = '';
+            this.results = [];
+            this.open = false;
+            window.dispatchEvent(new CustomEvent('uomProductSelected', { detail: product }));
+        },
+    };
+}
+
+function uomUnitSearch() {
+    return {
+        query: '',
+        results: [],
+        open: false,
+        loading: false,
+        abortController: null,
+
+        init() {
+            window.addEventListener('uomProductSelected', () => {
+                // Product changed: clear any stale unit search results.
+                this.query = '';
+                this.results = [];
+            });
+        },
+
+        async search() {
+            if (this.query.length < 1) {
+                this.results = [];
+                this.open = false;
+                return;
+            }
+
+            this.loading = true;
+            this.open = true;
+
+            if (this.abortController) {
+                this.abortController.abort();
+            }
+            this.abortController = new AbortController();
+
+            try {
+                const excludeUnitId = window.__uomBaseUnitId || null;
+                const params = new URLSearchParams({ query: this.query, limit: 20 });
+                if (excludeUnitId) params.set('exclude_unit_id', excludeUnitId);
+
+                const response = await fetch("{{ route('purchases.uom-normalize.units.search', $purchase->id) }}?" + params, {
+                    signal: this.abortController.signal,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                if (!response.ok) throw new Error('Network response was not ok');
+                this.results = await response.json();
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('Unit search error:', error);
+                    this.results = [];
+                }
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        selectUnit(unit) {
+            this.query = '';
+            this.results = [];
+            this.open = false;
+            window.dispatchEvent(new CustomEvent('uomUnitSelected', { detail: unit }));
         },
     };
 }

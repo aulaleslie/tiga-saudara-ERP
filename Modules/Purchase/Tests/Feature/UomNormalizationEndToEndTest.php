@@ -62,14 +62,21 @@ class UomNormalizationEndToEndTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
-        $this->pcsUnit = Unit::firstOrCreate(['name' => 'PCS'], ['short_name' => 'PCS']);
-        $this->boxUnit = Unit::firstOrCreate(['name' => 'BOX'], ['short_name' => 'BOX']);
+        $this->pcsUnit = Unit::firstOrCreate(
+            ['name' => 'PCS'],
+            ['short_name' => 'PCS']
+        );
+
+        $this->boxUnit = Unit::firstOrCreate(
+            ['name' => 'BOX'],
+            ['short_name' => 'BOX']
+        );
 
         $this->product = Product::create([
-            'product_name' => 'Test Product',
-            'product_code' => 'TP-001',
-            'product_cost' => 10000,
-            'product_price' => 15000,
+            'product_name' => 'End To End Product',
+            'product_code' => 'E2E-001',
+            'product_cost' => 1000,
+            'product_price' => 2000,
             'product_quantity' => 0,
             'setting_id' => $this->setting->id,
             'stock_managed' => true,
@@ -77,19 +84,15 @@ class UomNormalizationEndToEndTest extends TestCase
             'base_unit_id' => $this->pcsUnit->id,
         ]);
 
-        $this->conversion = ProductUnitConversion::create([
-            'product_id' => $this->product->id,
-            'unit_id' => $this->boxUnit->id,
-            'base_unit_id' => $this->pcsUnit->id,
-            'conversion_factor' => 12,
-        ]);
+        $this->targetUnit = $this->boxUnit;
+        $this->factor = 12;
     }
 
     public function test_multi_purchase_normalization_e2e()
     {
         // 1. Create Purchase 1 (5 BOX)
         [$purchase1, $pd1, $rn1, $rnd1] = $this->createReceivedPurchase(5, 50000); // 5 BOX, 10,000 per BOX
-        
+
         // 2. Create Purchase 2 (10 BOX)
         [$purchase2, $pd2, $rn2, $rnd2] = $this->createReceivedPurchase(10, 105000); // 10 BOX, 10,500 per BOX
 
@@ -101,15 +104,15 @@ class UomNormalizationEndToEndTest extends TestCase
         // Calculate original average cost: (5 * 10k + 10 * 10.5k) / 15 = 155k / 15 = 10,333.33
         $this->assertEquals(10333.33, round((float) $this->product->priceForSetting($this->setting->id)->average_purchase_price, 2));
 
-        // 3. Normalize Purchase 1 (5 BOX * 12 = 60 PCS)
+        // 3. Normalize Purchase 1 & Purchase 2 together (5 BOX + 10 BOX = 15 BOX * 12 = 180 PCS)
         $service = app(UomNormalizationExecutionService::class);
         $result1 = $service->execute(
             $this->product,
-            $this->conversion,
-            collect([$pd1->id]),
+            $this->targetUnit, (float) $this->factor,
+            collect([$pd1->id, $pd2->id]),
             $this->authorizedUser,
             $this->setting->id,
-            'Normalize PO1'
+            'Normalize PO1 and PO2'
         );
         $this->assertTrue($result1['success']);
 
@@ -124,20 +127,10 @@ class UomNormalizationEndToEndTest extends TestCase
         $txn1 = Transaction::where('received_note_detail_id', $rnd1->id)->first();
         $this->assertEquals(60.0, (float) $txn1->quantity);
 
-        // 4. Normalize Purchase 2 (10 BOX * 12 = 120 PCS)
-        $result2 = $service->execute(
-            $this->product,
-            $this->conversion,
-            collect([$pd2->id]),
-            $this->authorizedUser,
-            $this->setting->id,
-            'Normalize PO2'
-        );
-        $this->assertTrue($result2['success']);
-
         // Assert Purchase 2 updated
         $this->assertEquals(120.0, (float) $pd2->fresh()->quantity);
         $this->assertEquals(120.0, (float) $rnd2->fresh()->quantity_received);
+
 
         // Total stock should now be 180 PCS (60 + 120)
         $this->assertEquals(180.0, (float) $this->product->fresh()->product_quantity);
@@ -194,7 +187,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $service = app(UomNormalizationExecutionService::class);
         $result = $service->execute(
             $this->product,
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd->id]),
             $this->authorizedUser,
             $this->setting->id,
@@ -231,7 +224,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $service->execute(
             $this->product->fresh(),
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd2->id]),
             $this->authorizedUser,
             $this->setting->id,
@@ -245,7 +238,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $this->product->update(['stock_managed' => true]);
 
         // Create completed POS transaction
-        
+
         $session = \Modules\Pos\Entities\PosSession::create([
             'setting_id' => $this->setting->id,
             'cashier_user_id' => $this->authorizedUser->id,
@@ -266,7 +259,7 @@ class UomNormalizationEndToEndTest extends TestCase
             'last_saved_by' => $this->authorizedUser->id,
             'created_at' => now()->addMinutes(10), // after receipt
         ]);
-        
+
         \Modules\Pos\Entities\PosTransactionLine::create([
             'product_name_snapshot' => 'Test Product',
             'product_code_snapshot' => 'TP-001',
@@ -280,14 +273,19 @@ class UomNormalizationEndToEndTest extends TestCase
         ]);
 
         $service = app(UomNormalizationEligibilityService::class);
+        $factor = (float) $this->factor;
+        $targetUnit = $this->targetUnit;
+
+
         $result = $service->generatePreview(
             $this->product->fresh(),
-            $this->conversion,
+            $targetUnit, $factor,
             collect([$pd->id]),
             $this->setting->id
         );
 
         $this->assertFalse($result['eligible'], 'Preview should be ineligible due to POS transaction');
+        $this->assertStringContainsString('transaksi POS yang menghalangi', implode(' ', $result['errors']));
         $this->assertStringContainsString('transaksi POS', implode(' ', $result['errors']));
 
         $execService = app(UomNormalizationExecutionService::class);
@@ -295,7 +293,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $this->expectExceptionMessage('menghalangi');
         $execService->execute(
             $this->product->fresh(),
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd->id]),
             $this->authorizedUser,
             $this->setting->id,
@@ -306,7 +304,7 @@ class UomNormalizationEndToEndTest extends TestCase
     public function test_completed_pos_bundle_component_blocks_normalization()
     {
         [$purchase, $pd, $rn, $rnd] = $this->createReceivedPurchase(5, 50000);
-        
+
         // Create bundle parent
         $parentProduct = Product::create([
             'product_name' => 'Bundle Parent',
@@ -316,13 +314,13 @@ class UomNormalizationEndToEndTest extends TestCase
             'product_price' => 2000,
             'product_quantity' => 0,
         ]);
-        
+
         $bundle = \Modules\Product\Entities\ProductBundle::create([
             'parent_product_id' => $parentProduct->id,
             'setting_id' => $this->setting->id,
             'name' => 'Test Bundle',
         ]);
-        
+
         \Modules\Product\Entities\ProductBundleItem::create([
             'bundle_id' => $bundle->id,
             'product_id' => $this->product->id,
@@ -330,7 +328,7 @@ class UomNormalizationEndToEndTest extends TestCase
         ]);
 
         // Create POS txn with parent product
-        
+
         $session = \Modules\Pos\Entities\PosSession::create([
             'setting_id' => $this->setting->id,
             'cashier_user_id' => $this->authorizedUser->id,
@@ -351,7 +349,7 @@ class UomNormalizationEndToEndTest extends TestCase
             'last_saved_by' => $this->authorizedUser->id,
             'created_at' => now()->addMinutes(10),
         ]);
-        
+
         \Modules\Pos\Entities\PosTransactionLine::create([
             'product_name_snapshot' => 'Test Product',
             'product_code_snapshot' => 'TP-001',
@@ -367,7 +365,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $service = app(UomNormalizationEligibilityService::class);
         $result = $service->generatePreview(
             $this->product->fresh(),
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd->id]),
             $this->setting->id
         );
@@ -378,7 +376,7 @@ class UomNormalizationEndToEndTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $execService->execute(
             $this->product->fresh(),
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd->id]),
             $this->authorizedUser,
             $this->setting->id,
@@ -389,7 +387,7 @@ class UomNormalizationEndToEndTest extends TestCase
     public function test_pos_non_blocking_state_matrix()
     {
         [$purchase, $pd, $rn, $rnd] = $this->createReceivedPurchase(5, 50000);
-        
+
         $parentProduct = Product::create([
             'product_name' => 'Bundle Parent 2',
             'product_code' => 'BNDL-002',
@@ -398,13 +396,13 @@ class UomNormalizationEndToEndTest extends TestCase
             'product_price' => 2000,
             'product_quantity' => 0,
         ]);
-        
+
         $bundle = \Modules\Product\Entities\ProductBundle::create([
             'parent_product_id' => $parentProduct->id,
             'setting_id' => $this->setting->id,
             'name' => 'Test Bundle 2',
         ]);
-        
+
         \Modules\Product\Entities\ProductBundleItem::create([
             'bundle_id' => $bundle->id,
             'product_id' => $this->product->id,
@@ -418,7 +416,7 @@ class UomNormalizationEndToEndTest extends TestCase
         ];
 
         foreach ($states as $state) {
-            
+
         $session = \Modules\Pos\Entities\PosSession::create([
             'setting_id' => $this->setting->id,
             'cashier_user_id' => $this->authorizedUser->id,
@@ -439,7 +437,7 @@ class UomNormalizationEndToEndTest extends TestCase
                 'status' => $state,
                 'created_at' => now()->addMinutes(10),
             ]);
-            
+
             \Modules\Pos\Entities\PosTransactionLine::create([
                 'product_name_snapshot' => 'Test Product',
                 'product_code_snapshot' => 'TP-001',
@@ -449,7 +447,7 @@ class UomNormalizationEndToEndTest extends TestCase
                 'qty' => 1,
                 'unit_price' => 15000,
             ]);
-            
+
             \Modules\Pos\Entities\PosTransactionLine::create([
                 'product_name_snapshot' => 'Test Product',
                 'product_code_snapshot' => 'TP-001',
@@ -462,9 +460,13 @@ class UomNormalizationEndToEndTest extends TestCase
         }
 
         $service = app(UomNormalizationEligibilityService::class);
+        $factor = (float) $this->factor;
+        $targetUnit = $this->targetUnit;
+
+
         $result = $service->generatePreview(
             $this->product->fresh(),
-            $this->conversion,
+            $targetUnit, $factor,
             collect([$pd->id]),
             $this->setting->id
         );
@@ -483,12 +485,12 @@ class UomNormalizationEndToEndTest extends TestCase
         // Add second receipt to cover chronological distinct receipts
         [$purchase2, $pd2, $rn2, $rnd2] = $this->createReceivedPurchase(10, 540000); // 10 BOX, 54k per BOX
         // Latest receipt is $purchase2 (54k/BOX, should be 4.5k/PCS)
-        // Original last_purchase_price would be 54,000. 
+        // Original last_purchase_price would be 54,000.
 
         $execService = app(UomNormalizationExecutionService::class);
         $result = $execService->execute(
             $this->product->fresh(),
-            $this->conversion,
+            $this->targetUnit, (float) $this->factor,
             collect([$pd1->id, $pd2->id]),
             $this->authorizedUser,
             $this->setting->id,

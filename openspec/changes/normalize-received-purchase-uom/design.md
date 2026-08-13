@@ -1,93 +1,81 @@
 ## Context
 
-The product catalog stores product-specific direct conversions to `base_unit_id`, but purchase details and receiving details persist quantities without a UOM/conversion snapshot. Receiving approval increments stock and creates one `BUY` transaction per approved receiving detail. The current transaction schema records product, location, type, quantities, and a human-readable purchase reference in `reason`, but has no durable foreign key back to the receipt that produced it.
+`products.base_unit_id` is the accounting/stock unit. `product_unit_conversions` point a larger unit at that base, while `product_prices` hold per-setting base-unit sale, tier, last-purchase, and average-purchase prices. Purchase and receiving details persist quantities without a durable UOM snapshot; receipt approval creates a `BUY` transaction and increments both global product quantity and location stock.
 
-When a supplier delivery was entered in a package UOM before its conversion existed, the system records the package count as the base quantity. The supplier invoice amount is still correct, but inventory and average HPP are understated. This change is deliberately limited to products with no stock-affecting outbound history, allowing historical quantities and their original `BUY` rows to be corrected in place rather than using a compensating inventory movement.
+The incident begins with `BOX` as the product base UOM. After receiving, the business discovers that it must stock and sell `PCS`, for example `1 BOX = 10 PCS`. It follows that all quantities and purchase-side unit costs must be rebased. Supplier document money must not change.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Normalize a user-selected set of fully received erroneous lines for one product and one direct conversion into the existing base UOM.
-- Preserve each supplier document's monetary values and existing row identity while correcting its quantity and per-base-unit cost basis.
-- Update the original receipt-created `BUY` transaction rows and all running quantity/bucket snapshots consistently.
-- Recalculate current product cost indicators from normalized receipt history, without replaying sales HPP.
-- Make the operation traceable, permissioned, atomic, idempotent, and consistent with existing Purchase Blade/CoreUI UI patterns.
+- Correct one eligible non-serial, stock-managed product from its current base UOM to a searched target base UOM with one explicit positive factor.
+- Preserve supplier monetary facts while rebasing selected receipt/purchase quantities, original `BUY` transaction facts, stock facts, and purchase cost indicators.
+- Rebase every product-stock location consistently and preserve its location ownership.
+- Present calculated results for acknowledgement; the operator enters only target unit, factor, and reason.
+- Keep sales pricing and all historical sales/POS values unchanged, while explicitly warning the operator to review sales prices before selling.
 
 **Non-Goals:**
 
-- No hold/reservation or proactive cross-module blocking while an operator waits for incomplete receipts.
-- No serial-tracked products, changes to a product's base unit, chained conversion paths, conversion-factor inference, or financial/payment correction.
-- No normalization after dispatched Sales, completed POS checkouts, purchase returns, transfer/adjustment/breakage, or other later stock movement for the product.
-- No automatic discovery of every historically incorrect purchase; operators explicitly select the related lines.
-- No sale-HPP snapshot replay, new compensating inventory transaction, or destructive rewrite of unrelated transactions.
+- No automatic sale/tier/conversion-price repricing, historical sales/POS rewrite, sale-HPP replay, or compensating inventory movement.
+- No serial-tracked products, chained factor inference, reverse/undo flow, or a hold/reservation mechanism.
+- No implicit conversion of stock facts that cannot be traced safely to the correction scope.
 
 ## Decisions
 
-### Product-level, explicitly selected batch
+### Base-UOM correction is distinct from ordinary conversion
 
-Create a normalization header and selected-line records for one product, one source UOM, the product's current base UOM, and one direct positive factor. A preview may exist before all selected lines are fully received; execution is disabled until they are all complete.
+The source is always the product's current base UOM. The target is a different Unit selected by searchable catalog lookup; it is not restricted to existing conversions. The operator states `1 source = factor target`. On successful execution, product base and primary/display UOM move to the target; the former base is retained/created as a direct conversion to the target with the supplied factor.
 
-This represents one business mistake spanning several purchases while avoiding accidental inclusion of correct historical purchases. A line/receiving detail can belong to only one completed normalization and cannot be selected by concurrent active normalizations.
+Existing conversion rows that use the old base are migrated only if each factor can be mechanically multiplied into the new base and no duplicate unit/base relationship or barcode conflict occurs. Their conversion selling prices remain prices for their own conversion units, and their barcode column/registry ownership is left untouched by the rebase.
 
-Alternative: normalize one purchase at a time. Rejected because several erroneous receipts would leave product stock and HPP in an intermediate incorrect state.
+**Barcode migration mechanics (authoritative registry-driven):** ownership is proven only via the `barcode_identities` registry, which enforces exactly one owner (`product_id` XOR `product_unit_conversion_id`) at the database level. If `products.barcode` is set and a matching `BarcodeIdentity` row with `product_id` exists, the barcode is treated as belonging to the former base unit and is migrated in the same transaction: the newly created former-base `ProductUnitConversion` row receives the barcode value, the `BarcodeIdentity` row is re-pointed to that conversion (`product_id` cleared, `product_unit_conversion_id` set) in a single atomic update, and `products.barcode` is cleared. If `products.barcode` is set but no matching registry row exists (unbackfilled legacy data), ownership cannot be proven and the correction is blocked before any mutation. A proactive uniqueness check against other conversions' legacy `barcode` values also blocks before mutation if the intended migration would collide.
 
-### In-place correction with immutable audit
+### Product-wide, location-aware correction scope
 
-At execution, retain `purchase_details` and `received_note_details` IDs and update their selected quantities from source quantity to base quantity. Do not change header/document monetary values, active payment rows, supplier identity, tax identity, or receipt locations. Store detailed source and final snapshots, conversion IDs/names/factor, transaction IDs, actor, reason, and cost outcome in new immutable normalization records.
+The correction applies to one product across its permitted setting scope, not merely the Purchase page used to open the workflow. Product search returns preliminary eligible candidates; a selected product loads only its related receipt/purchase lines and a per-location inventory preview.
 
-Alternative: create a compensating `ADJ` transaction. Rejected per business preference because the original receipt should present as the correct inventory fact and no later stock movement is allowed.
+Every old-base purchase line must be selected and fully received, or void/cancelled without a stock effect. Every current global and per-location quantity/bucket must be explainable by selected receipt-created `BUY` rows. This prevents mixing `BOX` and `PCS` quantities. Opening/import stock, transfers, adjustments, breakage, returns, replacement dispatches, bundle component usage, or any unselected stock source block the initial release unless their correction semantics are explicitly implemented.
 
-### Durable transaction provenance plus conservative legacy matching
+Completed/dispatched standard Sales and completed POS—including consumed bundle components—block execution. Sales/POS drafts, loaded carts, and non-dispatched Sales do not block, but are not rebased. The UI must warn that they may need review before they are later completed.
 
-Add nullable, unique `transactions.received_note_detail_id` pointing to `received_note_details`. Receiving approval writes that link when it creates its `BUY` transaction. For legacy rows without the link, resolve candidates using the receipt's product, setting, location, `BUY` type, purchase reference in reason, quantity, and approval chronology. Bind and update only a unique candidate. Zero or multiple candidates blocks execution and exposes the mismatch in preview.
+Because a product base UOM is global while product prices can exist per setting, a price-only footprint in another setting is safe and SHALL be rebased atomically: each setting's existing `last_purchase_price` and `average_purchase_price` is divided by the factor and captured in the batch audit. This preserves that setting's independent purchase-cost basis while changing its denomination from old base UOM to new base UOM. `sale_price`, tier prices, and conversion selling prices remain untouched in every setting.
 
-Alternative: match by the text reason alone. Rejected because duplicate product/location deliveries and repeated purchase references can make it ambiguous.
+Any other-setting stock, purchase/receipt history, inventory transaction, or other physical/history footprint remains a blocker. Those facts would otherwise retain old-base quantities, so the correction must name the setting(s) and refuse execution rather than partially normalize a global product.
 
-### Correct original transaction snapshots in chronological order
+### In-place correction and chronological ledger rebuild
 
-For each matched original `BUY` row, update quantity, tax/non-tax quantity, current quantity, and before/after global and location quantity snapshots. Rebuild those snapshots for the selected product in chronological receipt/transaction order so one corrected receipt becomes the next corrected row's opening balance. Update aggregate `products` and `product_stocks` quantities/buckets to the reconstructed final values.
+Within one database transaction, lock the product, all in-scope purchase/receipt rows, matched `BUY` transactions, all product stock rows, conversions/prices, and relevant history. Revalidate all eligibility under lock.
 
-Execution blocks if any relevant later transaction exists, which limits the reconstruction to purchase-receipt history and prevents rewriting a ledger after consumption or relocation.
+Multiply selected purchase and approved receipt quantities, `BUY` quantities, tax/non-tax quantity buckets, and global/per-location good-stock quantity by the factor. Preserve document headers, line totals, taxes, discounts, payments, supplier identity, and receipt locations. Rebuild global and per-location transaction snapshots in chronological order; no correction transaction is created.
 
-Alternative: modify only `transactions.quantity`. Rejected because stock mutation reports rely on the stored running snapshots and would become internally inconsistent.
+**Conservative broken-stock policy:** any non-zero `broken_quantity` (or its tax/non-tax buckets) on any `ProductStock` row for the product, in any location, blocks the entire correction before mutation. Broken/damaged stock is never rebased by this feature — there is no code path that multiplies broken quantities by the factor. This removes an earlier draft's assumption that broken buckets would be rebased alongside good stock.
 
-### Strict execution-time eligibility, no hold
+The durable receipt-detail provenance is used when available. Legacy `BUY` rows must resolve uniquely from product, setting, location, reference, quantity, and chronology; zero or multiple candidates blocks the entire transaction.
 
-The form can display projected availability while related receipts are incomplete, but it does not reserve product stock or prevent drafts. Submission locks the product, selected purchases/details/receipts, linked transaction candidates, product stock rows, and relevant history, then repeats all checks within one DB transaction.
+### Purchase-cost-only rebase and acknowledgement
 
-The product must be stock-managed and non-serial; all selected receipts must be approved and collectively complete their purchase line; no selected row has prior normalization; and there must be no stock-affecting dispatched standard Sale, completed POS checkout, return, transfer, adjustment, breakage, replacement dispatch, import/initialization movement, or other transaction after the earliest affected receipt. Standard sale drafts/approvals and POS draft/loaded/cancelled transactions are not blockers.
+For each selected receipt, preserve its monetary value and divide its purchase unit cost by the factor. Replay corrected receipt cost history to calculate current average and last purchase price in the new base UOM. Use higher internal precision and show any displayed/storage rounding in the preview.
 
-Alternative: create a hold that blocks outgoing operations while incomplete receipts await normalization. Deferred because it broadens scope across Sales, POS, Transfer, Returns, and Adjustment workflows.
+Do not update `sale_price`, tier prices, conversion sale prices, historical sale/POS monetary rows, or sale HPP snapshots. The preview and confirmation require the operator to acknowledge both the proposed inventory/purchase-cost change and the warning that sales prices must be reviewed before the product is sold or dispatched.
 
-### Current HPP recalculation only
+### Purchase-native searchable UI and immutable audit
 
-Convert each selected line's existing tax-exclusive cost basis to its normalized base quantity and replay eligible purchase/return receipt history needed to compute current per-setting `ProductPrice` average and last purchase price, plus the synchronized product average. Do not alter any sale-cost snapshot because an executed sale makes the batch ineligible.
+Use the established project searchable controls for product and Unit catalog lookup. The screen shows a read-only source UOM, searchable target UOM, factor input, only the selected product's in-scope lines, per-location before/after quantities, derived purchase costs/HPP, conversion/barcode impacts, blockers, and acknowledgement checkboxes.
 
-Rounding uses the application's monetary precision for totals and a higher internal per-unit precision; invoice total remains authoritative and unchanged.
-
-### Purchase-native UI
-
-Add an authorized action near existing Purchase “Koreksi Penerimaan” actions, a dedicated Bootstrap/CoreUI card-and-table normalization screen, preview/confirmation feedback, and read-only audit cards on affected purchase details. Disabled/unavailable execution explicitly names the blocking receipt, history row, transaction mismatch, or eligibility reason.
+Persist immutable source/final snapshots: old/new primary and base UOM, factor, conversion/barcode changes, selected rows, matched transaction IDs, location values, cost results, untouched-sales-price warning acknowledgement, actor, time, and reason. Display audit history on every affected purchase.
 
 ## Risks / Trade-offs
 
-- [Legacy transaction cannot be matched uniquely] → Block execution; display candidates; require data repair/linking before retry.
-- [Concurrent receipt approval or POS completion during confirmation] → Lock affected rows and revalidate history in the execution transaction.
-- [Multiple historical purchases at distinct costs] → Preserve each line's total and calculate unit costs per line before chronological HPP replay.
-- [Factor precision causes non-representable quantity] → Require direct factor and normalized result compatible with the three-decimal quantity contract before execution.
-- [Existing reports expect supplier UOM] → Keep supplier financial amounts unchanged and surface base-UOM normalization/audit context on purchase views.
-- [Incomplete batch is forgotten] → No system hold is introduced; preview clearly labels incomplete lines and execution remains disabled.
+- [Factor or unit is wrong] → Operator supplies only the factual relationship; calculated impact preview and mandatory acknowledgements make the irreversible decision visible.
+- [Price division cannot be represented exactly] → Keep document totals authoritative, use higher internal precision, display effective rounded purchase costs, and record rounding in audit.
+- [Draft commercial documents become semantically stale] → Do not mutate them; warn users to review drafts before completion. Completed outbound documents remain a hard gate.
+- [Global base UOM with other-setting footprint] → Rebase purchase-cost-only `ProductPrice` rows in every setting; block stock, receipt, purchase-history, or transaction footprint in another setting rather than leaving old-base quantities.
+- [Location stock is not receipt-explainable] → Block and name the location/source rather than producing mixed-unit inventory.
 
 ## Migration Plan
 
-1. Add additive normalization header/line/audit schema and nullable transaction receipt-detail provenance key/index; do not rewrite existing data during migration.
-2. Start writing the provenance key for new receiving approvals.
-3. Release the privileged UI/service with preview-only legacy matching.
-4. Execute normalization only when every selected legacy link resolves uniquely; record newly bound provenance atomically with the correction.
-5. Rollback disables the new routes/actions while retaining correction/audit data and the nullable linkage; no destructive rollback of completed normalization facts.
-
-## Open Questions
-
-- Whether Super Admin alone is sufficient or a new `purchases.received.uom-normalize` permission must be explicitly granted to non-admin users. The design assumes the new dedicated permission.
-- Whether the existing `transactions.type` vocabulary needs a neutral normalization marker or the audit linkage/reason is sufficient. The design assumes existing `BUY` is retained because the transaction remains a corrected receipt.
+1. Extend/revise audit schema to capture base-UOM correction and sales-price-warning acknowledgement.
+2. Preserve and continue writing receipt-to-`BUY` provenance.
+3. Replace the current implementation's existing-conversion flow with searchable product/target-unit preview and strict scope validation.
+4. Release only after full execution, rollback, precision, multi-location, barcode/conversion, and sales-price-nonmutation coverage passes.
+5. Rollback disables the route/action but retains immutable completed correction facts; no destructive rollback of a completed correction.

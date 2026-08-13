@@ -62,6 +62,14 @@ class ReceivedNoteDetail extends BaseModel
     }
 
     /**
+     * UOM normalization lines that reference this receiving detail.
+     */
+    public function uomNormalizationLines(): HasMany
+    {
+        return $this->hasMany(UomNormalizationLine::class, 'received_note_detail_id');
+    }
+
+    /**
      * Relationship with ProductSerialNumber
      * A ReceivedNoteDetail can have multiple ProductSerialNumbers.
      */

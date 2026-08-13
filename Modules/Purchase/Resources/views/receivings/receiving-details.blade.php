@@ -13,7 +13,16 @@
         @foreach($data->receivedNoteDetails as $detail)
             <tr>
                 <td>{{ optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
-                <td>{{ $detail->quantity_received }}</td>
+                <td>
+                    {{ $detail->quantity_received }}
+                    @if($detail->uomNormalizationLines && $detail->uomNormalizationLines->count() > 0)
+                        @foreach($detail->uomNormalizationLines as $normLine)
+                            <div class="alert alert-info py-1 px-2 mt-2 mb-0 small">
+                                <i class="cil-info"></i> Base UOM corrected from {{ optional($normLine->batch->oldBaseUnit)->name }} to {{ optional($normLine->batch->newBaseUnit)->name }} on {{ $normLine->batch->executed_at ? $normLine->batch->executed_at->format('Y-m-d') : $normLine->created_at->format('Y-m-d') }}.
+                            </div>
+                        @endforeach
+                    @endif
+                </td>
                 <td>
                     @php
                         $regularSerials = $detail->productSerialNumbers ?? collect([]);
