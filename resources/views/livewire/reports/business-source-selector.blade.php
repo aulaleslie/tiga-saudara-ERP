@@ -1,9 +1,13 @@
-<div class="form-group">
-    <label>Perusahaan</label>
+<div class="form-group mb-0">
+    @if(!isset($hideLabel) || !$hideLabel)
+    <label class="form-label">{{ $label ?? 'Perusahaan' }}</label>
+    @endif
     <div wire:ignore class="business-source-setting-select">
         <select id="{{ $selectId ?? 'settingIds' }}" multiple class="form-control" style="width: 100%;">
             @forelse($availableSettings as $setting)
-                <option value="{{ $setting['id'] }}">{{ $setting['company_name'] }}</option>
+                <option value="{{ $setting['id'] }}" 
+                    @if(in_array($setting['id'], $selectedValues ?? [])) selected @endif
+                >{{ $setting['company_name'] }}</option>
             @empty
                 <option disabled>Tidak ada perusahaan</option>
             @endforelse
@@ -55,20 +59,34 @@
 
 <script>
     document.addEventListener('livewire:initialized', () => {
-        const $select = $('#{{ $selectId ?? 'settingIds' }}');
+        const selectId = '{{ $selectId ?? 'settingIds' }}';
+        const propertyName = '{{ $livewireProperty ?? 'selectedSettingIds' }}';
+        const $select = $('#' + selectId);
 
         if ($select.hasClass('select2-hidden-accessible')) {
             $select.select2('destroy');
+            $select.off('change');
         }
 
         $select.select2({
-            placeholder: 'Pilih perusahaan...',
+            placeholder: '{{ $placeholder ?? 'Pilih perusahaan...' }}',
             allowClear: true,
             theme: 'coreui',
             width: '100%'
-        }).on('change', function() {
-            const values = $(this).val() || [];
-            @this.set('selectedSettingIds', values);
+        }).on('change', function(e) {
+            // Only update Livewire if triggered by a user interaction, not programmatically
+            if (e.originalEvent) {
+                const values = $(this).val() || [];
+                @this.set(propertyName, values);
+            }
+        });
+
+        Livewire.on('sync-select2-' + selectId, (data) => {
+            // Livewire 3 dispatch payload handling
+            let payload = Array.isArray(data) ? data[0] : data;
+            let values = payload.values || payload || [];
+            
+            $select.val(values).trigger('change.select2');
         });
     });
 </script>

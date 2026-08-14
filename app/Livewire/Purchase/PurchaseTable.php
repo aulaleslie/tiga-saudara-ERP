@@ -201,6 +201,7 @@ class PurchaseTable extends Component
         // Reset pagination and dispatch event
         $this->incrementRefreshId();
         $this->resetPage();
+        $this->dispatch('sync-select2-globalPurchaseBusinessFilters', values: []);
         $this->dispatch('global-purchase-filters-changed',
             globalBusinessFilters: [],
             documentDateFrom: null,
@@ -418,7 +419,19 @@ class PurchaseTable extends Component
             ? 'livewire.purchase.purchase-table'
             : 'livewire.purchase.purchase-receiving-table';
 
-        return view($view, compact('purchases'));
+        $availableSettings = [];
+        if ($this->globalMode) {
+            $availableSettings = \Modules\Setting\Entities\Setting::query()
+                ->orderBy('company_name')
+                ->select('id', 'company_name')
+                ->get()
+                ->toArray();
+        }
+
+        return view($view, compact('purchases'), [
+            'globalMode' => $this->globalMode,
+            'availableSettings' => $availableSettings,
+        ]);
     }
 
     public function sortIcon($field)

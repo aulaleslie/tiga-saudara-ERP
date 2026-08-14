@@ -7,13 +7,14 @@
             <div class="row g-3">
                 <!-- Business Filter (Multi-select) -->
                 <div class="col-md-4">
-                    <label class="form-label">Bisnis</label>
-                    <select class="form-select" wire:model="draftGlobalBusinessFilters" multiple size="5">
-                        @forelse (\Modules\Setting\Entities\Setting::all() as $setting)
-                            <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
-                        @empty
-                        @endforelse
-                    </select>
+                    @include('livewire.reports.business-source-selector', [
+                        'selectId' => 'globalSalesBusinessFilters',
+                        'availableSettings' => $availableSettings,
+                        'livewireProperty' => 'draftGlobalBusinessFilters',
+                        'selectedValues' => $draftGlobalBusinessFilters,
+                        'label' => 'Bisnis',
+                        'placeholder' => 'Pilih bisnis (kosongkan untuk semua)'
+                    ])
                     <small class="text-muted d-block mt-1">Pilih bisnis (kosongkan untuk semua)</small>
                 </div>
 

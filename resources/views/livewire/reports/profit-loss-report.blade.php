@@ -8,7 +8,9 @@
                             <div class="col-lg-6">
                                 @include('livewire.reports.business-source-selector', [
                                     'selectId' => 'profitLossSettingIds',
-                                    'availableSettings' => $availableSettings
+                                    'availableSettings' => $availableSettings,
+                                    'livewireProperty' => 'selectedSettingIds',
+                                    'selectedValues' => $selectedSettingIds
                                 ])
                             </div>
                         </div>

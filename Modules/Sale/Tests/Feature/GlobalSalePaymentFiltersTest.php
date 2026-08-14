@@ -399,6 +399,7 @@ class GlobalSalePaymentFiltersTest extends TestCase
         $this->assertEquals([], $component->get('draftGlobalBusinessFilters'));
         $this->assertNull($component->get('draftDocumentDateFrom'));
         $this->assertNull($component->get('draftDocumentDateTo'));
+        $component->assertDispatched('sync-select2-globalSalesBusinessFilters', values: []);
         $component->assertDispatched('global-sale-filters-changed');
     }
 

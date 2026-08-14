@@ -185,6 +185,7 @@ class SaleTable extends Component
         // Reset pagination and dispatch event
         $this->incrementRefreshId();
         $this->resetPage();
+        $this->dispatch('sync-select2-globalSalesBusinessFilters', values: []);
         $this->dispatch('global-sale-filters-changed',
             globalBusinessFilters: [],
             documentDateFrom: null,
@@ -409,8 +410,18 @@ class SaleTable extends Component
 
         $sales = $query->paginate($this->perPage);
 
+        $availableSettings = [];
+        if ($this->globalMode) {
+            $availableSettings = \Modules\Setting\Entities\Setting::query()
+                ->orderBy('company_name')
+                ->select('id', 'company_name')
+                ->get()
+                ->toArray();
+        }
+
         return view('livewire.sale.sale-table', compact('sales'), [
             'globalMode' => $this->globalMode,
+            'availableSettings' => $availableSettings,
         ]);
     }
 
