@@ -410,8 +410,8 @@ class SaleMonetaryValuesTest extends TestCase
 
         $bundleItem = $detail->bundleItems->first();
         $this->assertNotNull($bundleItem);
-        $this->assertEquals(3.25, (float) $bundleItem->price);
-        $this->assertEquals(6.50, (float) $bundleItem->sub_total);
+        $this->assertEquals(0.0, (float) $bundleItem->price);
+        $this->assertEquals(0.0, (float) $bundleItem->sub_total);
         $this->assertEquals(2, (int) $bundleItem->quantity);
     }
 
@@ -430,8 +430,8 @@ class SaleMonetaryValuesTest extends TestCase
         $bundleItem = SaleBundleItem::latest('id')->first();
 
         $this->assertNotNull($bundleItem);
-        $this->assertEquals(3.25, (float) $bundleItem->price);
-        $this->assertEquals(6.50, (float) $bundleItem->sub_total);
+        $this->assertEquals(0.0, (float) $bundleItem->price);
+        $this->assertEquals(0.0, (float) $bundleItem->sub_total);
         $this->assertEquals(2, (int) $bundleItem->quantity);
     }
 

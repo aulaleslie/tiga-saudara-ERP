@@ -174,7 +174,8 @@ class PosTransactionService
         int $settingId,
         int $sessionId,
         PosTransaction $transaction,
-        User $user
+        User $user,
+        bool $acknowledgeLifecycleWarning = false
     ): array {
         // Check cart is empty
         $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
@@ -192,7 +193,7 @@ class PosTransactionService
         }
 
         // Load into cart and update status
-        $hydratedCart = DB::transaction(function () use ($transaction, $settingId, $sessionId) {
+        $hydratedCart = DB::transaction(function () use ($transaction, $settingId, $sessionId, $acknowledgeLifecycleWarning) {
             $transaction = PosTransaction::query()
                 ->where('setting_id', $settingId)
                 ->whereKey($transaction->id)
@@ -221,6 +222,37 @@ class PosTransactionService
                 throw new PosTransactionConflictException(
                     'SNAPSHOT_DRIFT',
                     'Data transaksi berubah dan perlu disimpan ulang.'
+                );
+            }
+
+            // Always evaluate captured bundle lifecycle warnings before mutating transaction state
+            $transaction->loadMissing(['lines']);
+            $cartLinesForEval = [];
+            foreach ($transaction->lines as $line) {
+                $lineMeta = $line->line_meta ?? [];
+                $cartLinesForEval[] = [
+                    'product_id' => $line->product_id,
+                    'product_name' => $line->product_name_snapshot,
+                    'bundle_id' => $lineMeta['bundle_id'] ?? null,
+                    'bundle_items' => $lineMeta['bundle_items'] ?? [],
+                ];
+            }
+
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluatePosCartSnapshot($cartLinesForEval, $settingId);
+
+            // Only block if warnings exist and not acknowledged
+            if ($evalResult->hasWarnings() && ! $acknowledgeLifecycleWarning) {
+                throw new PosTransactionValidationException(
+                    'BUNDLE_LIFECYCLE_WARNING',
+                    'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                    [
+                        'warning' => [
+                            'code' => 'BUNDLE_LIFECYCLE_WARNING',
+                            'message' => 'Terdapat perubahan status pada paket produk dalam transaksi ini. Lanjutkan untuk tetap menggunakan komposisi yang tersimpan.',
+                            'items' => $evalResult->warnings,
+                        ],
+                    ]
                 );
             }
 

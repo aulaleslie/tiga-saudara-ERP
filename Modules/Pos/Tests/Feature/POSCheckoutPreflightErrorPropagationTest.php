@@ -23,7 +23,12 @@ class POSCheckoutPreflightErrorPropagationTest extends POSCheckoutPreflightTest
     public function test_stock_mismatch_includes_canonical_quantity_fields(): void
     {
         $context = $this->createCheckoutContext('STOCK CANONICAL');
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-QTY-CANONICAL', 100000, false, 10);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], [
+            'product_code' => 'PROD-QTY-CANONICAL',
+            'sale_price' => 100000,
+            'serial_number_required' => false,
+            'stock_qty' => 10,
+        ]);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 10);
 
@@ -51,7 +56,12 @@ class POSCheckoutPreflightErrorPropagationTest extends POSCheckoutPreflightTest
     public function test_mismatch_line_includes_product_identifiers(): void
     {
         $context = $this->createCheckoutContext('PRODUCT ID FALLBACK');
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-ID-FB', 100000, false, 5);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], [
+            'product_code' => 'PROD-ID-FB',
+            'sale_price' => 100000,
+            'serial_number_required' => false,
+            'stock_qty' => 5,
+        ]);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 5);
 
@@ -84,7 +94,11 @@ class POSCheckoutPreflightErrorPropagationTest extends POSCheckoutPreflightTest
     public function test_serial_mismatch_returns_invalid_lines_detail(): void
     {
         $context = $this->createCheckoutContext('SERIAL DETAIL');
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-DETAIL', 100000, true);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], [
+            'product_code' => 'PROD-SER-DETAIL',
+            'sale_price' => 100000,
+            'serial_number_required' => true,
+        ]);
 
         // Add serial product without assigning serial numbers
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -108,7 +122,11 @@ class POSCheckoutPreflightErrorPropagationTest extends POSCheckoutPreflightTest
     public function test_preflight_success_clean_response_structure(): void
     {
         $context = $this->createCheckoutContext('SUCCESS CLEAN');
-        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CLEAN', 100000, false);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], [
+            'product_code' => 'PROD-CLEAN',
+            'sale_price' => 100000,
+            'serial_number_required' => false,
+        ]);
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
 

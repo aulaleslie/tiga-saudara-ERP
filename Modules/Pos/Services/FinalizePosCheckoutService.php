@@ -185,6 +185,27 @@ class FinalizePosCheckoutService
 
         // Not a confirmed replay - proceed with normal checkout flow
         // Now we can safely run mutable operations (validation, authorization, etc)
+        $acknowledgeLifecycleWarning = (bool) ($paymentPayload['acknowledge_lifecycle_warning'] ?? false);
+
+        // Always evaluate lifecycle warnings, regardless of acknowledgement
+        $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluatePosCartSnapshot($cartLines, $settingId);
+
+        // Only block if warnings exist and not acknowledged
+        if ($evalResult->hasWarnings() && ! $acknowledgeLifecycleWarning) {
+            throw new PosCheckoutValidationException(
+                'BUNDLE_LIFECYCLE_WARNING',
+                'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                [
+                    'warning' => [
+                        'code' => 'BUNDLE_LIFECYCLE_WARNING',
+                        'message' => 'Terdapat perubahan status pada paket produk dalam transaksi ini. Lanjutkan untuk tetap menggunakan komposisi yang tersimpan.',
+                        'items' => $evalResult->warnings,
+                    ],
+                ]
+            );
+        }
 
         // Determine if legacy single-payment or multi-payment path
         $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
@@ -322,10 +343,30 @@ class FinalizePosCheckoutService
      * @param  PosSession  $activeSession
      * @return array{status:string}
      */
-    public function preflight(int $settingId, PosSession $activeSession): array
+    public function preflight(int $settingId, PosSession $activeSession, bool $acknowledgeLifecycleWarning = false): array
     {
         $sessionId = (int) $activeSession->id;
         $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
+
+        // Always evaluate lifecycle warnings, regardless of acknowledgement
+        $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluatePosCartSnapshot($cartLines, $settingId);
+
+        // Only block if warnings exist and not acknowledged
+        if ($evalResult->hasWarnings() && ! $acknowledgeLifecycleWarning) {
+            throw new PosCheckoutValidationException(
+                'BUNDLE_LIFECYCLE_WARNING',
+                'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                [
+                    'warning' => [
+                        'code' => 'BUNDLE_LIFECYCLE_WARNING',
+                        'message' => 'Terdapat perubahan status pada paket produk dalam transaksi ini. Lanjutkan untuk tetap menggunakan komposisi yang tersimpan.',
+                        'items' => $evalResult->warnings,
+                    ],
+                ]
+            );
+        }
 
         $this->validateCartFulfillability($settingId, $cartSnapshot);
 

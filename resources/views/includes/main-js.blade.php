@@ -1,5 +1,6 @@
 <script src="{{ asset('vendor/jquery/jquery-3.7.0.min.js') }}"></script>
 <script src="{{ asset('js/select2.min.js') }}"></script>
+<script src="{{ asset('js/bundle-lifecycle-warning.js') }}"></script>
 @vite('resources/js/app.js')
 
 @livewireScripts

@@ -71,6 +71,7 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
             'is_debt' => ['nullable', 'boolean'],
             'payment_term_id' => ['nullable', 'integer', 'exists:payment_terms,id'],
             'approval_token' => ['nullable', 'string'],
+            'acknowledge_lifecycle_warning' => ['nullable', 'boolean'],
         ];
 
         // If cart_token is provided, we'll fetch payments from session, so payment fields are optional

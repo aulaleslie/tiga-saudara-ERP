@@ -143,6 +143,50 @@
 
         window.addEventListener('sale:submit-start', () => setButtonProcessing(true));
         window.addEventListener('sale:submit-finish', () => setButtonProcessing(false));
+
+        window.addEventListener('sale:lifecycle-warning', async (event) => {
+            setButtonProcessing(false);
+            const data = event.detail?.[0] || event.detail || {};
+            const helper = (typeof window !== 'undefined' && window.BundleLifecycleWarning)
+                || (typeof BundleLifecycleWarning !== 'undefined' ? BundleLifecycleWarning : null);
+
+            if (!helper || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                console.error('BundleLifecycleWarning helper is unavailable.');
+                return;
+            }
+
+            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                data,
+                'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                'Apakah Anda ingin melanjutkan dan menyimpan penjualan dengan komposisi ini?'
+            );
+
+            if (typeof Swal !== 'undefined') {
+                const result = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Peringatan Status Paket',
+                    html: modalHtml,
+                    showCancelButton: true,
+                    confirmButtonText: 'Lanjutkan Simpan',
+                    cancelButtonText: 'Batal',
+                });
+
+                if (result.isConfirmed) {
+                    const wire = resolveLivewireComponent();
+                    if (wire) {
+                        setButtonProcessing(true);
+                        if (typeof wire.set === 'function') {
+                            wire.set('acknowledgeLifecycleWarning', true);
+                        } else if (typeof wire.$set === 'function') {
+                            wire.$set('acknowledgeLifecycleWarning', true);
+                        }
+                        submitViaComponent();
+                    }
+                }
+            } else {
+                console.error('SweetAlert is not available for lifecycle warning modal.');
+            }
+        });
     });
 </script>
 @endpush

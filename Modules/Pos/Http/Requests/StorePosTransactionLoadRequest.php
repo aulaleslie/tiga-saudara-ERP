@@ -14,6 +14,8 @@ class StorePosTransactionLoadRequest extends FormRequest
 
     public function rules(): array
     {
-        return [];
+        return [
+            'acknowledge_lifecycle_warning' => ['nullable', 'boolean'],
+        ];
     }
 }

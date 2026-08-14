@@ -18,7 +18,7 @@
             </div>
         @endif
 
-        <form action="{{ route('sales.storeDispatch', $sale->id) }}" method="POST">
+        <form action="{{ route('sales.storeDispatch', $sale->id) }}" method="POST" data-store-dispatch-id="{{ $sale->id }}">
             @csrf
             <livewire:sale.dispatch-sale-header :sale="$sale"/>
 
@@ -257,4 +257,5 @@
             }
         }
     </script>
+    @include('sale::partials.lifecycle-warning-modal')
 @endpush

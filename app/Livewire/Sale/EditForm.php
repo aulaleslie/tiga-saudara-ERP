@@ -41,6 +41,8 @@ class EditForm extends Component
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
     public $editMode;
+    public ?string $lifecycleWarning = null;
+    public bool $acknowledgeLifecycleWarning = false;
 
     /**
      * Editable header monetary values, hydrated from the Sale and kept in sync
@@ -221,6 +223,20 @@ class EditForm extends Component
                     'sub_total_before_tax' => $storedDpp,
                     'product_tax_amount' => $storedTax,
                 ]),
+            ]);
+        }
+
+        // Evaluate bundle lifecycle for loaded items and notify if warnings exist
+        $saleDetails = $sale->saleDetails->loadMissing('bundleItems');
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluateSalesSnapshot($saleDetails, (int) $sale->setting_id);
+        if ($evalResult->hasWarnings()) {
+            $count = count($evalResult->warnings);
+            $this->lifecycleWarning = "Terdapat {$count} paket produk dalam penjualan ini dengan perubahan status atau kedaluwarsa. Data tersimpan tetap dipertahankan.";
+            session()->flash('warning', $this->lifecycleWarning);
+            $this->dispatch('sale:initial-lifecycle-warning', [
+                'message' => $this->lifecycleWarning,
+                'items' => $evalResult->warnings,
             ]);
         }
     }
@@ -587,6 +603,18 @@ class EditForm extends Component
             $failureStage = 'ensure_cart_taxes_for_pkp';
             $cartItems = Cart::instance('sale')->content();
             $this->ensureCartTaxesForPkp($cartItems);
+
+            // Evaluate bundle lifecycle on updated cart items snapshot
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateSalesSnapshot($cartItems, (int) $resolvedBusiness['setting_id']);
+            if ($evalResult->hasWarnings() && ! $this->acknowledgeLifecycleWarning) {
+                $this->dispatch('sale:submit-finish');
+                $this->dispatch('sale:lifecycle-warning', [
+                    'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                    'items' => $evalResult->warnings,
+                ]);
+                return;
+            }
 
             $failureStage = 'calculating_totals';
             $isPkp = $resolvedBusiness['is_pkp'];

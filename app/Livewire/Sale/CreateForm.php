@@ -39,6 +39,7 @@ class CreateForm extends Component
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
+    public bool $acknowledgeLifecycleWarning = false;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
@@ -404,6 +405,18 @@ class CreateForm extends Component
             $failureStage = 'ensure_cart_taxes_for_pkp';
             $cartItems = Cart::instance('sale')->content();
             $this->ensureCartTaxesForPkp($cartItems);
+
+            // Evaluate bundle lifecycle on cart items snapshot
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateSalesSnapshot($cartItems, (int) $resolvedBusiness['setting_id']);
+            if ($evalResult->hasWarnings() && ! $this->acknowledgeLifecycleWarning) {
+                $this->dispatch('sale:submit-finish');
+                $this->dispatch('sale:lifecycle-warning', [
+                    'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                    'items' => $evalResult->warnings,
+                ]);
+                return;
+            }
 
             $failureStage = 'idempotency_claim';
             if (! IdempotencyService::claim($this->idempotencyToken, 'sales.store', auth()->id())) {

@@ -127,11 +127,17 @@ class POSBundleDraftRoundtripTest extends PosTransactionFeatureTestCase
         $this->actingAsInSetting($user, $setting);
 
         $parent = $this->createStockedProduct($setting, $location);
+        $child = $this->createStockedProduct($setting, $location);
         $bundle = ProductBundle::create([
             'setting_id' => $setting->id,
             'parent_product_id' => $parent->id,
             'name' => 'Bundle A',
             'bundle_sale_price' => 1000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
         ]);
 
         $this->postJson(route('pos.sell.cart.lines.store'), [

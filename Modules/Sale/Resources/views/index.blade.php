@@ -40,3 +40,7 @@
     </div>
 @endsection
 
+@push('page_scripts')
+    @include('sale::partials.lifecycle-warning-modal')
+@endpush
+

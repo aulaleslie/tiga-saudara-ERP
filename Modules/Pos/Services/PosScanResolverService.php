@@ -175,10 +175,7 @@ class PosScanResolverService
             return false;
         }
 
-        return DB::table('product_bundles')
-            ->where('parent_product_id', $productId)
-            ->where('setting_id', $settingId)
-            ->exists();
+        return \App\Support\ProductBundleResolver::forProduct($productId, $settingId)->isNotEmpty();
     }
 
     /**

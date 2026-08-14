@@ -1,4 +1,14 @@
 <div class="card-body">
+    @if($lifecycleWarning)
+        <div class="alert alert-warning d-flex align-items-center" role="alert">
+            <i class="bi bi-exclamation-triangle-fill mr-2"></i>
+            <div>
+                <strong>Peringatan Paket Produk.</strong>
+                {{ $lifecycleWarning }}
+            </div>
+        </div>
+    @endif
+
     @php
         // Post-dispatch: only monetary inputs stay live. These locks are a
         // convenience for the user; the server re-derives and enforces the mode.

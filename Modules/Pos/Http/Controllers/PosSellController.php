@@ -779,7 +779,8 @@ class PosSellController extends Controller
         }
 
         try {
-            $result = $finalizeService->preflight($settingId, $activeSession);
+            $acknowledge = (bool) $request->input('acknowledge_lifecycle_warning', false);
+            $result = $finalizeService->preflight($settingId, $activeSession, $acknowledge);
             return response()->json($result);
         } catch (PosCheckoutValidationException $exception) {
             $payload = [
@@ -790,6 +791,9 @@ class PosSellController extends Controller
             $details = $exception->details();
             if ($details !== []) {
                 $payload['details'] = $details;
+                if (isset($details['warning'])) {
+                    $payload['warning'] = $details['warning'];
+                }
             }
 
             return response()->json($payload, 422);
@@ -838,6 +842,7 @@ class PosSellController extends Controller
             $paymentPayload['is_debt'] = $request->boolean('is_debt');
             $paymentPayload['payment_term_id'] = $request->input('payment_term_id');
             $paymentPayload['approval_token'] = $request->input('approval_token');
+            $paymentPayload['acknowledge_lifecycle_warning'] = $request->boolean('acknowledge_lifecycle_warning');
 
             // If no payments in request, check if there's a staged payment chain in session
             if (empty($request->input('payment')) && empty($request->input('payments')) && ! empty($cartToken)) {

@@ -79,6 +79,9 @@ window.PosStagedPayment = (function () {
     // Finalization Idempotency
     let currentFinalizeIdempotencyKey = null;
 
+    // Lifecycle Warning Acknowledgement State
+    let isLifecycleAcknowledged = false;
+
     // Checkout Context State
     let currentCartToken = null;
     let currentCustomerName = null;
@@ -975,10 +978,11 @@ window.PosStagedPayment = (function () {
         if (stagedMethodSearchInput) stagedMethodSearchInput.focus();
     }
 
-    // Reset full checkout context (debt state, etc)
+    // Reset full checkout context (debt state, lifecycle acknowledgement, etc)
     function resetCheckoutContext() {
         if (stagedIsDebtToggle) stagedIsDebtToggle.checked = false;
         if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
+        isLifecycleAcknowledged = false;
         handleDebtToggle();
     }
 
@@ -1157,6 +1161,7 @@ window.PosStagedPayment = (function () {
             const payload = {
                 cart_token: paymentChain.cart_token,
                 idempotency_key: currentFinalizeIdempotencyKey,
+                acknowledge_lifecycle_warning: isLifecycleAcknowledged,
             };
 
             if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
@@ -1183,6 +1188,47 @@ window.PosStagedPayment = (function () {
                 console.log('[PosStagedPayment] Finalize response:', { status: response.status, ok: response.ok, data });
 
                 if (!response.ok) {
+                    const helper = (typeof window !== 'undefined' && window.BundleLifecycleWarning)
+                        || (typeof BundleLifecycleWarning !== 'undefined' ? BundleLifecycleWarning : null);
+
+                    if (data.code === 'BUNDLE_LIFECYCLE_WARNING' || data.warning || data.details?.warning) {
+                        if (!helper || typeof helper.resolveLifecycleWarning !== 'function' || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                            console.error('BundleLifecycleWarning helper is unavailable.');
+                            throw new Error('Gagal memverifikasi status paket: modul peringatan tidak tersedia.');
+                        }
+
+                        const warningData = helper.resolveLifecycleWarning(data);
+                        if (warningData && (Array.isArray(warningData.items) || data.code === 'BUNDLE_LIFECYCLE_WARNING')) {
+                            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                                warningData,
+                                'Terdapat perubahan status pada paket produk dalam transaksi ini. Lanjutkan untuk tetap menggunakan komposisi yang tersimpan.',
+                                'Apakah Anda ingin melanjutkan transaksi dengan komposisi yang tersimpan?'
+                            );
+
+                            if (typeof Swal !== 'undefined') {
+                                const result = await Swal.fire({
+                                    icon: 'warning',
+                                    title: 'Peringatan Status Paket',
+                                    html: modalHtml,
+                                    showCancelButton: true,
+                                    confirmButtonText: 'Lanjutkan Transaksi',
+                                    cancelButtonText: 'Batal',
+                                });
+
+                                if (result.isConfirmed) {
+                                    isLifecycleAcknowledged = true;
+                                    payload.acknowledge_lifecycle_warning = true;
+                                    return performFinalize(token);
+                                } else {
+                                    throw new Error('Konfirmasi status paket dibatalkan.');
+                                }
+                            } else {
+                                console.error('SweetAlert is not available for lifecycle warning modal.');
+                                throw new Error('Validasi status paket memerlukan konfirmasi modal.');
+                            }
+                        }
+                    }
+
                     if (data.code === 'APPROVAL_REQUIRED' || (data.message && data.message.includes('otorisasi'))) {
                         throw new Error('APPROVAL_REQUIRED');
                     }
@@ -1455,8 +1501,9 @@ window.PosStagedPayment = (function () {
 
     // Helper: Escape HTML
     function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text);
         return div.innerHTML;
     }
 
@@ -1538,6 +1585,9 @@ window.PosStagedPayment = (function () {
         setOnComplete,
         loadPaymentMethods,
         printReceipt,
+        setLifecycleAcknowledged: function (acknowledged) {
+            isLifecycleAcknowledged = !!acknowledged;
+        },
         setPaymentMethods: function (methods) {
             cachedPaymentMethods = methods || [];
         },

@@ -13,6 +13,7 @@ use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
@@ -54,6 +55,8 @@ class POSProductSearchScanTest extends TestCase
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
+
+        \App\Support\ProductBundleResolver::clearCache();
     }
 
     public function test_search_endpoint_follows_pos_session_guard_when_cashier_has_no_active_session(): void
@@ -277,7 +280,7 @@ class POSProductSearchScanTest extends TestCase
         ]);
 
         $excluded = $this->createStockedProduct(
-            setting: $setting,
+            setting: $otherSetting,
             location: $disallowedLocation,
             code: 'SKU-OUT-01',
             name: 'Produk Keluar',
@@ -316,10 +319,27 @@ class POSProductSearchScanTest extends TestCase
             createdBy: $cashier->id
         );
 
-        ProductBundle::create([
+        $child1 = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'CHILD-SERIAL-01',
+            name: 'Komponen Serial',
+            barcode: 'CHILD-SERIAL-01',
+            availableQty: 10,
+            salePrice: 10000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $bundle1 = ProductBundle::create([
             'setting_id' => $setting->id,
             'parent_product_id' => $serialBundleParent->id,
             'name' => 'Paket Serial',
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle1->id,
+            'product_id' => $child1->id,
+            'quantity' => 1,
         ]);
 
         $response = $this->actingAs($cashier)
@@ -349,10 +369,27 @@ class POSProductSearchScanTest extends TestCase
             createdBy: $cashier->id
         );
 
-        ProductBundle::create([
+        $child2 = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'CHILD-SCAN-01',
+            name: 'Komponen Scan',
+            barcode: 'CHILD-SCAN-01',
+            availableQty: 10,
+            salePrice: 10000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $bundle2 = ProductBundle::create([
             'setting_id' => $setting->id,
             'parent_product_id' => $bundleParent->id,
             'name' => 'Paket Scan',
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle2->id,
+            'product_id' => $child2->id,
+            'quantity' => 1,
         ]);
 
         $response = $this->actingAs($cashier)

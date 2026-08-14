@@ -497,9 +497,8 @@ class ProductCart extends Component
     {
         Log::info('Product Selected:', $product);
 
-        $bundles = ProductBundle::with('items.product')
-            ->where('parent_product_id', $product['id'])
-            ->get();
+        $settingId = (int) ($this->settingId ?? $this->selectedSettingId ?? session('setting_id'));
+        $bundles = \App\Support\ProductBundleResolver::forProduct((int) $product['id'], $settingId);
 
         if ($bundles->isNotEmpty()) {
             $this->pendingProduct = $product;
@@ -670,10 +669,24 @@ class ProductCart extends Component
     public function confirmBundleSelection($bundleId): void
     {
         $cart = Cart::instance($this->cart_instance);
+        $settingId = (int) ($this->settingId ?? $this->selectedSettingId ?? session('setting_id'));
+        $parentProductId = $this->pendingProduct ? (int) ($this->pendingProduct['id'] ?? 0) : null;
+
         $bundle = ProductBundle::with('items.product')->find($bundleId);
 
         if (!$bundle) {
             session()->flash('message', 'Invalid bundle selected.');
+            return;
+        }
+
+        if ($settingId <= 0 && $bundle->setting_id) {
+            $settingId = (int) $bundle->setting_id;
+        }
+
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluateForSelection($bundle, $settingId, $parentProductId);
+        if (! $evalResult->isEligible) {
+            session()->flash('message', $evalResult->primaryMessage() ?? 'Paket tidak memenuhi syarat operasional.');
             return;
         }
 

@@ -109,7 +109,7 @@ $globalMode = $globalMode ?? false;
 
                 @can('sales.approval')
                     @if ($data->status === 'WAITING_APPROVAL')
-                        <form method="POST" action="{{ route('sales.updateStatus', $data->id) }}">
+                        <form method="POST" action="{{ route('sales.updateStatus', $data->id) }}" data-sale-approval-id="{{ $data->id }}" data-status="APPROVED">
                             @csrf
                             @method('PATCH')
                             <input type="hidden" name="status" value="APPROVED">

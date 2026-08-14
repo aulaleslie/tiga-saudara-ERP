@@ -382,9 +382,9 @@
                                                     @if($dispatch->isPending())
                                                         @can('salesDispatches.approval')
                                                             <div class="btn-group">
-                                                                <form action="{{ route('dispatches.approve', $dispatch->id) }}" method="POST" class="d-inline">
+                                                                <form action="{{ route('dispatches.approve', $dispatch->id) }}" method="POST" class="d-inline" data-dispatch-approval-id="{{ $dispatch->id }}">
                                                                     @csrf
-                                                                    <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Setujui pengiriman ini? Stok akan dikurangi.')">
+                                                                    <button type="submit" class="btn btn-sm btn-success js-dispatch-approve-btn" title="Setujui Pengiriman">
                                                                         <i class="bi bi-check-circle"></i>
                                                                     </button>
                                                                 </form>
@@ -510,7 +510,7 @@
 
                 @can('sales.approval')
                     @if ($sale->status === Sale::STATUS_WAITING_APPROVAL)
-                        <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
+                        <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline" data-sale-approval-id="{{ $sale->id }}" data-status="{{ Sale::STATUS_APPROVED }}">
                             @csrf
                             @method('PATCH')
                             <input type="hidden" name="status" value="{{ Sale::STATUS_APPROVED }}">
@@ -911,6 +911,30 @@
                     });
                 });
             }
+
+            document.querySelectorAll('.js-dispatch-approve-btn').forEach(function (btn) {
+                btn.addEventListener('click', async function (e) {
+                    e.preventDefault();
+                    const form = this.closest('form');
+                    if (typeof Swal !== 'undefined') {
+                        const result = await Swal.fire({
+                            icon: 'question',
+                            title: 'Konfirmasi Persetujuan',
+                            text: 'Setujui pengiriman ini? Stok akan dikurangi.',
+                            showCancelButton: true,
+                            confirmButtonText: 'Setujui',
+                            cancelButtonText: 'Batal',
+                            confirmButtonColor: '#28a745',
+                        });
+                        if (result.isConfirmed) {
+                            form.submit();
+                        }
+                    } else {
+                        console.error('SweetAlert is not available for approval confirmation.');
+                    }
+                });
+            });
         });
     </script>
+    @include('sale::partials.lifecycle-warning-modal')
 @endpush

@@ -10,6 +10,10 @@ class ProductBundle extends BaseModel
 {
     protected $guarded = [];
 
+    protected $attributes = [
+        'is_active' => true,
+    ];
+
     protected $casts = [
         'is_active' => 'boolean',
         'active_from' => 'date',

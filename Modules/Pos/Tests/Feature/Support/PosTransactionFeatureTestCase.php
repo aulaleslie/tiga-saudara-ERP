@@ -63,6 +63,8 @@ abstract class PosTransactionFeatureTestCase extends TestCase
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
+
+        \App\Support\ProductBundleResolver::clearCache();
     }
 
     protected function createSetting(string $name, bool $isPkp = false): Setting

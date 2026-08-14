@@ -63,11 +63,19 @@ class POSBundleCartManagementTest extends TestCase
         
         $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000);
         
+        $child1 = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD1', 10000);
+        $child2 = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD2', 20000);
+
         $bundleA = ProductBundle::create([
             'parent_product_id' => $parent->id,
             'setting_id' => $context['setting']->id,
             'name' => 'Bundle A',
             'price' => 10000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundleA->id,
+            'product_id' => $child1->id,
+            'quantity' => 1,
         ]);
 
         $bundleB = ProductBundle::create([
@@ -75,6 +83,11 @@ class POSBundleCartManagementTest extends TestCase
             'setting_id' => $context['setting']->id,
             'name' => 'Bundle B',
             'price' => 20000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundleB->id,
+            'product_id' => $child2->id,
+            'quantity' => 1,
         ]);
 
         // Add Product + Bundle A
@@ -100,6 +113,7 @@ class POSBundleCartManagementTest extends TestCase
         $context = $this->createCheckoutContext('BUNDLE MERGE');
         
         $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD', 10000);
         
         $bundle = ProductBundle::create([
             'parent_product_id' => $parent->id,
@@ -107,6 +121,11 @@ class POSBundleCartManagementTest extends TestCase
             'name' => 'Bundle A',
             'bundle_sale_price' => 110000,
             'price' => 10000, // legacy
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
         ]);
 
         // Add Product + Bundle A twice
@@ -125,6 +144,8 @@ class POSBundleCartManagementTest extends TestCase
         $context = $this->createCheckoutContext('BUNDLE SERIAL');
         
         $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000, true);
+        $child1 = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD1', 10000);
+        $child2 = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD2', 20000);
         
         $bundleA = ProductBundle::create([
             'parent_product_id' => $parent->id,
@@ -132,12 +153,22 @@ class POSBundleCartManagementTest extends TestCase
             'name' => 'Bundle A',
             'price' => 10000,
         ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundleA->id,
+            'product_id' => $child1->id,
+            'quantity' => 1,
+        ]);
 
         $bundleB = ProductBundle::create([
             'parent_product_id' => $parent->id,
             'setting_id' => $context['setting']->id,
             'name' => 'Bundle B',
             'price' => 20000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundleB->id,
+            'product_id' => $child2->id,
+            'quantity' => 1,
         ]);
 
         $snA = $this->createSerial($parent, $context['location'], 'SN-A');

@@ -281,11 +281,14 @@ class PosTransactionController extends Controller
                 ], 500);
             }
 
+            $acknowledge = (bool) $request->input('acknowledge_lifecycle_warning', false);
+
             $cartSnapshot = $this->transactionService->loadToCart(
                 $settingId,
                 $activeSession->id,
                 $transaction,
-                $request->user()
+                $request->user(),
+                $acknowledge
             );
 
             return response()->json([
@@ -298,10 +301,16 @@ class PosTransactionController extends Controller
                 ],
             ], 200);
         } catch (PosTransactionValidationException $e) {
-            return response()->json([
+            $payload = [
                 'code' => $e->errorCode(),
                 'message' => $e->getMessage(),
-            ], 422);
+            ];
+            $details = $e->details();
+            if ($details !== []) {
+                $payload = array_merge($payload, $details);
+            }
+
+            return response()->json($payload, 422);
         } catch (PosTransactionConflictException $e) {
             return response()->json([
                 'code' => $e->errorCode(),

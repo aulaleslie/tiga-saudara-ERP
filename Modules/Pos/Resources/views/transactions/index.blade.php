@@ -150,7 +150,13 @@
                 }
 
                 if (!response.ok) {
-                    throw new Error(body && body.message ? body.message : 'Permintaan gagal diproses.');
+                    const errorMessage = body && body.message ? body.message : 'Permintaan gagal diproses.';
+                    const err = new Error(errorMessage);
+                    err.code = body && body.code ? body.code : null;
+                    err.details = body && body.details ? body.details : null;
+                    err.warning = body && body.warning ? body.warning : null;
+                    err.status = response.status;
+                    throw err;
                 }
 
                 return body;
@@ -474,10 +480,50 @@
 
                     loadButton.disabled = true;
                     try {
-                        await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {});
+                        await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {
+                            acknowledge_lifecycle_warning: false
+                        });
                         window.location.href = @json(route('pos.sell'));
                     } catch (error) {
-                        setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                        const helper = window.BundleLifecycleWarning;
+                        if (!helper || typeof helper.resolveLifecycleWarning !== 'function' || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                            console.error('BundleLifecycleWarning helper is unavailable.');
+                            setStatus('Gagal memverifikasi status paket produk: modul peringatan tidak tersedia.', 'danger');
+                            return;
+                        }
+
+                        const warningData = helper.resolveLifecycleWarning(error);
+
+                        if (warningData && Array.isArray(warningData.items) && warningData.items.length > 0) {
+                            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                                warningData,
+                                'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                                'Apakah Anda ingin melanjutkan memuat dengan komposisi yang tersimpan?'
+                            );
+
+                            const result = await Swal.fire({
+                                icon: 'warning',
+                                title: 'Peringatan Status Paket',
+                                html: modalHtml,
+                                showCancelButton: true,
+                                confirmButtonText: 'Lanjutkan Muat',
+                                cancelButtonText: 'Batal',
+                            });
+
+                            if (result.isConfirmed) {
+                                try {
+                                    await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {
+                                        acknowledge_lifecycle_warning: true
+                                    });
+                                    window.location.href = @json(route('pos.sell'));
+                                    return;
+                                } catch (ackError) {
+                                    setStatus(ackError.message || 'Gagal memuat transaksi.', 'danger');
+                                }
+                            }
+                        } else {
+                            setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                        }
                     } finally {
                         loadButton.disabled = false;
                     }

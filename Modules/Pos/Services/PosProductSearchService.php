@@ -102,7 +102,10 @@ class PosProductSearchService
             ->limit($safeLimit)
             ->get();
 
-        $results = $rows->map(function ($row) {
+        $productIds = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $bundlesByProduct = \App\Support\ProductBundleResolver::forProducts($productIds, $settingId);
+
+        $results = $rows->map(function ($row) use ($bundlesByProduct) {
             $matchedBy = 'name_partial';
 
             if ((int) $row->barcode_exact_match === 1) {
@@ -115,6 +118,8 @@ class PosProductSearchService
                 $matchedBy = 'sku_partial';
             }
 
+            $hasEligibleBundles = isset($bundlesByProduct[(int) $row->id]) && $bundlesByProduct[(int) $row->id]->isNotEmpty();
+
             return [
                 'id' => (int) $row->id,
                 'product_name' => (string) $row->product_name,
@@ -125,7 +130,7 @@ class PosProductSearchService
                 'serial_number_required' => (bool) $row->serial_number_required,
                 'stock_managed' => (bool) $row->stock_managed,
                 'matched_by' => $matchedBy,
-                'is_bundle_parent' => (bool) $row->is_bundle_parent,
+                'is_bundle_parent' => $hasEligibleBundles,
                 'conversion' => null,
             ];
         })->values();

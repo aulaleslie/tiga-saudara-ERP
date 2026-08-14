@@ -95,6 +95,12 @@ class PosCartService
             if (! $bundle) {
                 throw new DomainException('Paket tidak ditemukan untuk produk ini.');
             }
+
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateForSelection($bundle, $settingId, $productId);
+            if (! $evalResult->isEligible) {
+                throw new DomainException($evalResult->primaryMessage() ?? 'Paket tidak memenuhi syarat operasional.');
+            }
         }
 
         // Resolve pricing: conversion price (if provided) or base product price

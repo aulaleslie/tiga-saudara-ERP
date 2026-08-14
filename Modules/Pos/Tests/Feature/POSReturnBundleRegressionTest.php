@@ -70,6 +70,7 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             'parent_product_id' => $parent->id,
             'setting_id' => $this->setting->id,
             'name' => 'Samsung Bundle Header',
+            'is_active' => true,
         ]);
 
         $bi1 = \Modules\Product\Entities\ProductBundleItem::create([
@@ -199,6 +200,7 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             'line_no' => 1,
             'line_meta' => [
                 'is_bundle' => true,
+                'bundle_id' => $bundle->id,
                 'bundle_items' => [
                     ['product_id' => $comp1->id, 'product_name' => $comp1->product_name, 'quantity' => 1],
                     ['product_id' => $comp2->id, 'product_name' => $comp2->product_name, 'quantity' => 2],
@@ -248,13 +250,13 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             ->set('identifier', $transaction->code)
             ->call('lookup')
             ->assertHasNoErrors()
-            ->assertSee('SAMSUNG BUNDLE')
+            ->assertSee('Samsung Bundle')
             ->assertSee('SN-001')
             ->assertSee('SN-002')
             ->assertDontSee('Comp 1 (Split)') // Task 7.14
             ->set("lineSelections.{$lineKey1}.resolution", "product_replacement")
             ->assertSee('Komponen Trace') // Task 7.13
-            ->assertSee('COMP 1')
+            ->assertSee('Comp 1')
             ->assertSee('(Stok: 30)'); // Task 7.16
 
         // 6. Verify Draft Save (Task 7.15, 7.17)

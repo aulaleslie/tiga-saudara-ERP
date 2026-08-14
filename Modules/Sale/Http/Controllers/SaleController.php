@@ -326,7 +326,27 @@ class SaleController extends Controller
                     Sale::STATUS_APPROVED,
                     Sale::STATUS_REJECTED
                 ]),
+            'acknowledge_lifecycle_warning' => 'nullable|boolean',
         ]);
+
+        if ($validated['status'] === Sale::STATUS_APPROVED) {
+            $saleDetails = $sale->saleDetails->loadMissing('bundleItems');
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateSalesSnapshot($saleDetails, (int) $sale->setting_id);
+            $acknowledge = (bool) ($validated['acknowledge_lifecycle_warning'] ?? false);
+
+            if ($evalResult->hasWarnings() && ! $acknowledge) {
+                return redirect()->back()
+                    ->with('error', 'Peringatan status paket: ' . $evalResult->warnings[0]['message'])
+                    ->with('lifecycle_warning', [
+                        'target_type' => 'sale_approval',
+                        'sale_id' => $sale->id,
+                        'status' => $validated['status'],
+                        'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                        'items' => $evalResult->warnings,
+                    ]);
+            }
+        }
 
         try {
             $sale->update(['status' => $validated['status']]);
@@ -539,7 +559,26 @@ class SaleController extends Controller
             'selectedSerialNumbers' => 'nullable|array',
             'serialNumberLocations' => 'nullable|array',
             'stockAtLocations' => 'nullable|array',
+            'acknowledge_lifecycle_warning' => 'nullable|boolean',
         ]);
+
+        // Evaluate bundle lifecycle
+        $saleDetails = $sale->saleDetails->loadMissing('bundleItems');
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluateSalesSnapshot($saleDetails, (int) $sale->setting_id);
+        $acknowledge = (bool) $request->input('acknowledge_lifecycle_warning', false);
+
+        if ($evalResult->hasWarnings() && ! $acknowledge) {
+            return redirect()->back()
+                ->with('error', 'Peringatan status paket: ' . $evalResult->warnings[0]['message'])
+                ->with('lifecycle_warning', [
+                    'target_type' => 'store_dispatch',
+                    'sale_id' => $sale->id,
+                    'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                    'items' => $evalResult->warnings,
+                ])
+                ->withInput();
+        }
 
         $validator->after(function ($validator) use ($request, $sale, $allowedLocationIds) {
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
@@ -897,10 +936,27 @@ class SaleController extends Controller
             return redirect()->back();
         }
 
+        $sale = $dispatch->sale;
+        $saleDetails = $sale->saleDetails->loadMissing('bundleItems');
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluateSalesSnapshot($saleDetails, (int) $sale->setting_id);
+        $acknowledge = (bool) request()->input('acknowledge_lifecycle_warning', false);
+
+        if ($evalResult->hasWarnings() && ! $acknowledge) {
+            return redirect()->back()
+                ->with('error', 'Peringatan status paket: ' . $evalResult->warnings[0]['message'])
+                ->with('lifecycle_warning', [
+                    'target_type' => 'dispatch_approval',
+                    'dispatch_id' => $dispatch->id,
+                    'sale_id' => $sale->id,
+                    'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                    'items' => $evalResult->warnings,
+                ]);
+        }
+
         DB::beginTransaction();
         try {
             $dispatch->load('details.product');
-            $sale = $dispatch->sale;
 
             foreach ($dispatch->details as $detail) {
                 // Only apply stock mutations to inventory-managed products
