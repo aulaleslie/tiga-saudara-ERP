@@ -59,8 +59,8 @@
 
 <script>
     document.addEventListener('livewire:initialized', () => {
-        const selectId = '{{ $selectId ?? 'settingIds' }}';
-        const propertyName = '{{ $livewireProperty ?? 'selectedSettingIds' }}';
+        const selectId = @js($selectId ?? 'settingIds');
+        const propertyName = @js($livewireProperty ?? 'selectedSettingIds');
         const $select = $('#' + selectId);
 
         if ($select.hasClass('select2-hidden-accessible')) {
@@ -68,14 +68,15 @@
             $select.off('change');
         }
 
+        let synchronizing = false;
+
         $select.select2({
-            placeholder: '{{ $placeholder ?? 'Pilih perusahaan...' }}',
+            placeholder: @js($placeholder ?? 'Pilih perusahaan...'),
             allowClear: true,
             theme: 'coreui',
             width: '100%'
         }).on('change', function(e) {
-            // Only update Livewire if triggered by a user interaction, not programmatically
-            if (e.originalEvent) {
+            if (!synchronizing) {
                 const values = $(this).val() || [];
                 @this.set(propertyName, values);
             }
@@ -86,7 +87,12 @@
             let payload = Array.isArray(data) ? data[0] : data;
             let values = payload.values || payload || [];
             
-            $select.val(values).trigger('change.select2');
+            synchronizing = true;
+            try {
+                $select.val(values).trigger('change.select2');
+            } finally {
+                synchronizing = false;
+            }
         });
     });
 </script>

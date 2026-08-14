@@ -280,6 +280,34 @@ class ProfitLossReportTest extends TestCase
             });
     }
 
+    public function test_livewire_component_renders_business_selector()
+    {
+        $user = \App\Models\User::factory()->create();
+        $user->givePermissionTo('reports.access');
+
+        $currency = Currency::factory()->create(['code' => 'IDR']);
+        $setting2 = Setting::factory()->create(['default_currency_id' => $currency->id, 'company_name' => 'Test Company 2']);
+
+        $component = Livewire::actingAs($user)
+            ->test(ProfitLossReport::class)
+            ->set('selectedSettingIds', [$this->setting->id]);
+            
+        // Assert Select2 selector markup and configuration
+        $component->assertSeeHtml('id="profitLossSettingIds"')
+            ->assertSeeHtml('selectedSettingIds')
+            ->assertSeeHtml('Pilih perusahaan...')
+            ->assertSeeHtml('change.select2');
+            
+        // Assert restored IDs render as selected options
+        $html = $component->html();
+        $this->assertStringContainsString('<option value="' . $this->setting->id . '"', $html);
+        $this->assertStringContainsString('selected', $html);
+        $this->assertStringContainsString('>' . $this->setting->company_name . '</option>', $html);
+        
+        $this->assertStringContainsString('<option value="' . $setting2->id . '"', $html);
+        $this->assertStringContainsString('>' . $setting2->company_name . '</option>', $html);
+    }
+
     public function test_excel_export_structure()
     {
         $user = \App\Models\User::factory()->create();

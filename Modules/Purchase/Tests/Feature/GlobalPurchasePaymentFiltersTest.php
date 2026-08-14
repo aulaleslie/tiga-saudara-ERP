@@ -136,6 +136,28 @@ class GlobalPurchasePaymentFiltersTest extends TestCase
             ->assertSee($purchase2->reference);
     }
 
+    public function test_livewire_component_renders_business_selector()
+    {
+        $component = Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->set('draftGlobalBusinessFilters', [$this->setting1->id]);
+
+        $html = $component->html();
+
+        // Assert Select2 selector markup and configuration
+        $this->assertStringContainsString('id="globalPurchaseBusinessFilters"', $html);
+        $this->assertStringContainsString('draftGlobalBusinessFilters', $html);
+        $this->assertStringContainsString('Pilih bisnis (kosongkan untuk semua)', $html);
+        $this->assertStringContainsString('change.select2', $html);
+
+        // Assert restored IDs render as selected options
+        $this->assertStringContainsString('<option value="' . $this->setting1->id . '"', $html);
+        $this->assertStringContainsString('selected', $html);
+        $this->assertStringContainsString('>' . $this->setting1->company_name . '</option>', $html);
+        
+        $this->assertStringContainsString('<option value="' . $this->setting2->id . '"', $html);
+        $this->assertStringContainsString('>' . $this->setting2->company_name . '</option>', $html);
+    }
+
     public function test_apply_business_filter_restricts_to_selected_setting()
     {
         $supplier2 = Supplier::create([

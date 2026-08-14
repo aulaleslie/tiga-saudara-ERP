@@ -1,7 +1,7 @@
 ## 1. Shared Business Selector
 
 - [x] 1.1 Generalize the Laporan Laba Rugi business-source selector into a configurable Select2/CoreUI multi-select that accepts a unique element ID, Livewire property name, current selected values, ordered setting options, and all-businesses placeholder while preserving the report's existing defaults.
-- [x] 1.2 Make selector initialization and teardown idempotent across Livewire renders, prevent duplicate change handlers and feedback loops, and synchronize programmatic Livewire state changes into the `wire:ignore` Select2 display.
+- [x] 1.2 Ensure the generalized component supports idempotent Select2 initialization, proper teardown on Livewire morphs, and programmatic synchronization via a Livewire event to reflect server-driven resets or restored filter state without duplicating events.
 - [x] 1.3 Update or add focused report component coverage confirming Laporan Laba Rugi still renders and binds the shared selector through `selectedSettingIds` without changing its empty-selection semantics.
 
 ## 2. Global Payment Integration
