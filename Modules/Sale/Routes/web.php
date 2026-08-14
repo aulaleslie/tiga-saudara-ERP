@@ -66,6 +66,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'store'])->name('sales.reporting-date.store');
     Route::delete('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'destroy'])->name('sales.reporting-date.destroy');
 
+    // Sale Attachments
+    Route::post('sales/{sale}/attachments', [SaleController::class, 'storeAttachment'])->name('sales.attachments.store');
+    Route::delete('sales/{sale}/attachments/{media}', [SaleController::class, 'destroyAttachment'])->name('sales.attachments.destroy');
+
     Route::resource('sales', 'SaleController')->middleware('idempotency');
 
     //Payments

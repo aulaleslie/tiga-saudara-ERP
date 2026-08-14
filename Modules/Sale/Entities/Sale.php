@@ -19,10 +19,12 @@ use Modules\Setting\Entities\Setting;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
 use App\Traits\Archivable;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class Sale extends BaseModel
+class Sale extends BaseModel implements HasMedia
 {
-    use HasTags, Archivable;
+    use HasTags, Archivable, InteractsWithMedia;
 
     protected $guarded = [];
 
@@ -38,6 +40,11 @@ class Sale extends BaseModel
         'reporting_date' => 'date',
         'due_date' => 'date',
     ];
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('attachments');
+    }
 
     const STATUS_DRAFTED = 'DRAFTED';
     const STATUS_WAITING_APPROVAL = 'WAITING_APPROVAL';

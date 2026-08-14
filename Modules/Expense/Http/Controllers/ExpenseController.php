@@ -5,11 +5,13 @@ namespace Modules\Expense\Http\Controllers;
 use App\Services\IdempotencyService;
 use Modules\Expense\DataTables\ExpensesDataTable;
 use Illuminate\Contracts\Support\Renderable;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Expense\Entities\Expense;
 use PhpOffice\PhpSpreadsheet\Calculation\MathTrig\Exp;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class ExpenseController extends Controller
 {
@@ -150,6 +152,54 @@ class ExpenseController extends Controller
         abort_if(Gate::denies('expenses.archive'), 403);
         $this->expenseService->archive($expense, $request->archive_reason);
         toast('Pengeluaran telah diarsipkan!', 'info');
+        return redirect()->back();
+    }
+
+    public function storeAttachment(Request $request, Expense $expense): RedirectResponse
+    {
+        abort_if(Gate::denies('expenses.edit'), 403);
+        $this->expenseService->verifySettingOwnership($expense);
+
+        if ($expense->archived_at) {
+            abort(403, 'Tidak dapat menambah lampiran pada pengeluaran yang diarsipkan.');
+        }
+
+        $request->validate([
+            'file' => 'required|file|max:10240', // 10MB
+        ]);
+
+        try {
+            $expense->addMedia($request->file('file'))->toMediaCollection('attachments');
+            toast('Lampiran berhasil diunggah', 'success');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Expense Attachment Upload Failed:', ['error' => $e->getMessage()]);
+            toast('Gagal mengunggah lampiran', 'error');
+        }
+
+        return redirect()->back();
+    }
+
+    public function destroyAttachment(Expense $expense, Media $media): RedirectResponse
+    {
+        abort_if(Gate::denies('expenses.edit'), 403);
+        $this->expenseService->verifySettingOwnership($expense);
+
+        if ($expense->archived_at) {
+            abort(403, 'Tidak dapat menghapus lampiran pada pengeluaran yang diarsipkan.');
+        }
+
+        if ($media->model_type !== get_class($expense) || $media->model_id !== $expense->id || $media->collection_name !== 'attachments') {
+            abort(404);
+        }
+
+        try {
+            $media->delete();
+            toast('Lampiran berhasil dihapus', 'success');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Expense Attachment Deletion Failed:', ['error' => $e->getMessage()]);
+            toast('Gagal menghapus lampiran', 'error');
+        }
+
         return redirect()->back();
     }
 }

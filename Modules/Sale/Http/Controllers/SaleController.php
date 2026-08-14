@@ -44,6 +44,7 @@ use Modules\Setting\Entities\Tax;
 use Modules\Sale\Services\SaleCartAggregator;
 use Modules\Sale\Services\SaleService;
 use Modules\Sale\Services\SaleSerialDisplayResolver;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class SaleController extends Controller
 {
@@ -1351,5 +1352,53 @@ class SaleController extends Controller
             ]);
             abort(404);
         }
+    }
+
+    public function storeAttachment(Request $request, Sale $sale): RedirectResponse
+    {
+        abort_if(Gate::denies('sales.edit'), 403);
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
+        if ($sale->archived_at) {
+            abort(403, 'Tidak dapat menambah lampiran pada penjualan yang diarsipkan.');
+        }
+
+        $request->validate([
+            'file' => 'required|file|max:10240', // 10MB
+        ]);
+
+        try {
+            $sale->addMedia($request->file('file'))->toMediaCollection('attachments');
+            toast('Lampiran berhasil diunggah', 'success');
+        } catch (\Exception $e) {
+            Log::error('Sales Attachment Upload Failed:', ['error' => $e->getMessage()]);
+            toast('Gagal mengunggah lampiran', 'error');
+        }
+
+        return redirect()->back();
+    }
+
+    public function destroyAttachment(Sale $sale, Media $media): RedirectResponse
+    {
+        abort_if(Gate::denies('sales.edit'), 403);
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
+        if ($sale->archived_at) {
+            abort(403, 'Tidak dapat menghapus lampiran pada penjualan yang diarsipkan.');
+        }
+
+        if ($media->model_type !== get_class($sale) || $media->model_id !== $sale->id || $media->collection_name !== 'attachments') {
+            abort(404);
+        }
+
+        try {
+            $media->delete();
+            toast('Lampiran berhasil dihapus', 'success');
+        } catch (\Exception $e) {
+            Log::error('Sales Attachment Deletion Failed:', ['error' => $e->getMessage()]);
+            toast('Gagal menghapus lampiran', 'error');
+        }
+
+        return redirect()->back();
     }
 }

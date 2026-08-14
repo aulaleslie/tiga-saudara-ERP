@@ -22,6 +22,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('expenses/import', 'ExpenseUploadController@upload')->name('expenses.imports.upload');
     Route::get('expenses/imports/{batch}', 'ExpenseUploadController@show')->name('expenses.imports.show');
     
+    // Expense Attachments
+    Route::post('expenses/{expense}/attachments', 'ExpenseController@storeAttachment')->name('expenses.attachments.store');
+    Route::delete('expenses/{expense}/attachments/{media}', 'ExpenseController@destroyAttachment')->name('expenses.attachments.destroy');
+
     //Expense
     Route::resource('expenses', 'ExpenseController');
     Route::post('expenses/{expense}/submit', 'ExpenseController@submit')->name('expenses.submit')->middleware('idempotency');

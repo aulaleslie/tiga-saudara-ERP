@@ -231,14 +231,100 @@
                     </div>
                 </div>
 
-                <!-- Catatan -->
-                <div class="row mt-4">
-                    <div class="col-sm-12">
-                        <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
-                        <p>{{ $sale->note ?? 'Tidak ada catatan.' }}</p>
-                    </div>
+            <!-- Catatan -->
+            <div class="row mt-4">
+                <div class="col-sm-12">
+                    <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
+                    <p>{{ $sale->note ?? 'Tidak ada catatan.' }}</p>
                 </div>
             </div>
+
+            @php $attachments = $sale->getMedia('attachments'); @endphp
+            <div class="row mt-4">
+                <div class="col-sm-12">
+                    <h5 class="mb-2 border-bottom pb-2">Lampiran:</h5>
+                    @can('sales.edit')
+                        @if(!$sale->isArchived())
+                            <form action="{{ route('sales.attachments.store', $sale->id) }}"
+                              method="POST"
+                              enctype="multipart/form-data"
+                              class="mb-3">
+                            @csrf
+                            <div class="form-group mb-2">
+                                <label for="sale-attachment" class="font-weight-bold">Tambah Lampiran</label>
+                                <div class="attachment-uploader">
+                                    <div class="attachment-uploader__icon">
+                                        <i class="bi bi-paperclip"></i>
+                                    </div>
+                                    <div class="attachment-uploader__body">
+                                        <div class="custom-file">
+                                            <input type="file"
+                                                   name="file"
+                                                   id="sale-attachment"
+                                                   class="custom-file-input @error('file') is-invalid @enderror">
+                                            <label class="custom-file-label" for="sale-attachment">Pilih file...</label>
+                                            @error('file')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                        <small class="form-text text-muted">
+                                            Maksimal 1 lampiran per unggah (10MB).
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-primary">Upload Lampiran</button>
+                        </form>
+                        @endif
+                    @endcan
+
+                    @if($attachments->isEmpty())
+                        <p class="text-muted">Tidak ada lampiran.</p>
+                    @else
+                        <ul class="list-group">
+                            @foreach($attachments as $media)
+                                @php
+                                    $displayName = $media->getCustomProperty('original_name') ?: $media->file_name;
+                                    $mimeType = $media->mime_type ?? '';
+                                    $isImage = \Illuminate\Support\Str::startsWith($mimeType, 'image/');
+                                @endphp
+                                <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center">
+                                    <div>
+                                        <div>{{ $displayName }}</div>
+                                        <small class="text-muted">{{ $media->humanReadableSize }}</small>
+                                    </div>
+                                    <div class="btn-group mt-2 mt-sm-0">
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ $media->getUrl() }}"
+                                           @if($isImage)
+                                               target="_blank" rel="noopener"
+                                           @else
+                                               download
+                                           @endif>
+                                            Preview
+                                        </a>
+                                        <a class="btn btn-sm btn-outline-secondary" href="{{ $media->getUrl() }}" download>
+                                            Download
+                                        </a>
+                                        @can('sales.edit')
+                                            @if(!$sale->isArchived())
+                                                <form method="POST"
+                                                      action="{{ route('sales.attachments.destroy', [$sale->id, $media->id]) }}"
+                                                      onsubmit="return confirm('Hapus lampiran ini?');"
+                                                      class="d-inline">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                                                </form>
+                                            @endif
+                                        @endcan
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+            </div>
+        </div>
 
             <!-- Dispatch Details -->
             @if($dispatches->isNotEmpty())
@@ -565,7 +651,63 @@
         @endcan
 @endsection
 
+@push('page_css')
+    <style>
+        .attachment-uploader {
+            border: 1px dashed #b9c0c7;
+            background: #f8f9fb;
+            border-radius: 10px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .attachment-uploader__icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: #e7edf5;
+            color: #2f3b4a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex: 0 0 40px;
+        }
+
+        .attachment-uploader__body {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .attachment-uploader .custom-file-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
+@endpush
+
 @push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var input = document.getElementById('sale-attachment');
+            if (!input) {
+                return;
+            }
+
+            var label = input.nextElementSibling;
+            var defaultLabel = label ? label.textContent : 'Pilih file...';
+
+            input.addEventListener('change', function (event) {
+                var name = event.target.files && event.target.files.length ? event.target.files[0].name : defaultLabel;
+                if (label) {
+                    label.textContent = name || defaultLabel;
+                }
+            });
+        });
+    </script>
     {{-- Toggle buttons for dispatch detail rows without Bootstrap collapse --}}
     <script>
         (function () {
