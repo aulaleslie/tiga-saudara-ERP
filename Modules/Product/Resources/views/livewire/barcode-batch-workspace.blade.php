@@ -14,7 +14,10 @@
                 @endif
 
                 <div class="col-lg-6 mb-3">
-                    <livewire:modules.product.barcode-product-search wire:key="barcode-product-search" />
+                    <livewire:modules.product.barcode-product-search
+                        :selectedSettingId="$selectedSettingId"
+                        wire:key="barcode-product-search"
+                    />
                 </div>
             </div>
 
@@ -29,45 +32,71 @@
             @endif
 
             <div class="table-responsive">
-                <table class="table table-bordered mb-0">
+                <table class="table table-bordered mb-0 align-middle">
                     <thead>
                     <tr>
-                        <th>Produk</th>
-                        <th style="width: 160px;">SKU</th>
-                        <th style="width: 140px;">Jumlah Label</th>
-                        <th style="width: 60px;"></th>
+                        <th data-testid="barcode-product-header">Produk</th>
+                        <th data-testid="barcode-sku-header" style="width: 160px;">SKU</th>
+                        <th data-testid="barcode-quantity-header" style="width: 130px;">Jumlah Label</th>
+                        <th data-testid="barcode-remove-header" style="width: 60px;"></th>
+                        <th data-testid="barcode-preview-header" style="width: 220px;">Pratinjau Label</th>
                     </tr>
                     </thead>
                     <tbody>
                     @forelse($rows as $index => $row)
-                        <tr wire:key="barcode-row-{{ $row['product_id'] }}">
-                            <td>{{ $row['product_name'] }}</td>
-                            <td>{{ $row['product_code'] }}</td>
-                            <td>
+                        @php
+                            $preview = $productPreviews[$row['product_id']] ?? null;
+                        @endphp
+                        <tr wire:key="barcode-row-{{ $row['product_id'] }}" data-testid="barcode-row-{{ $row['product_id'] }}">
+                            <td class="align-middle" data-testid="barcode-product-cell-{{ $row['product_id'] }}">
+                                <strong>{{ $row['product_name'] }}</strong>
+                            </td>
+                            <td class="align-middle" data-testid="barcode-sku-cell-{{ $row['product_id'] }}">{{ $row['product_code'] }}</td>
+                            <td class="align-middle" data-testid="barcode-quantity-cell-{{ $row['product_id'] }}">
                                 <input type="number"
                                        min="1"
                                        max="{{ \Modules\Product\Services\BarcodeBatchService::MAX_PER_PRODUCT }}"
                                        class="form-control"
                                        wire:model.live.debounce.500ms="rows.{{ $index }}.quantity">
                             </td>
-                            <td class="text-center">
+                            <td class="text-center align-middle" data-testid="barcode-remove-cell-{{ $row['product_id'] }}">
                                 <button type="button"
                                         class="btn btn-sm btn-danger"
                                         wire:click="removeRow({{ $index }})">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
+                            <td class="align-middle bg-light p-2" data-testid="barcode-preview-cell-{{ $row['product_id'] }}">
+                                @if($preview && $preview['valid'])
+                                    <div class="border rounded bg-white p-2 text-center shadow-sm" style="max-width: 200px; margin: 0 auto; font-size: 11px; line-height: 1.2;">
+                                        <div class="font-weight-bold text-truncate mb-1" title="{{ $preview['product_name'] }}">{{ $preview['product_name'] }}</div>
+                                        <div class="text-muted small text-break mb-1">{{ $preview['display_sku'] }}</div>
+                                        <div class="barcode-svg-container my-1" style="max-width: 100%; overflow: hidden;">
+                                            {!! $preview['svg'] !!}
+                                        </div>
+                                        <div class="font-monospace small mb-1">{{ $preview['barcode'] }}</div>
+                                        <div class="font-weight-bold text-dark">{{ format_currency($preview['sale_price']) }}</div>
+                                    </div>
+                                @elseif($preview && !$preview['valid'])
+                                    <div class="alert alert-warning py-1 px-2 mb-0 small text-left" role="alert">
+                                        <i class="bi bi-exclamation-triangle-fill mr-1 text-danger"></i>
+                                        <span>{{ $preview['error'] }}</span>
+                                    </div>
+                                @else
+                                    <div class="text-muted small text-center italic">Memuat pratinjau...</div>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="text-center text-muted">Belum ada produk dipilih.</td>
+                            <td colspan="5" class="text-center text-muted">Belum ada produk dipilih.</td>
                         </tr>
                     @endforelse
                     </tbody>
                     <tfoot>
                     <tr>
                         <th colspan="2" class="text-right">Total Label</th>
-                        <th colspan="2" data-testid="total-labels">{{ $totalLabels }}</th>
+                        <th colspan="3" data-testid="total-labels">{{ $totalLabels }}</th>
                     </tr>
                     </tfoot>
                 </table>

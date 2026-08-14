@@ -183,35 +183,73 @@ class BarcodeBatchService
     }
 
     /**
-     * Build the immutable label payload for a product, appending any blocking errors.
+     * Build the preview result for a single product.
      *
-     * @param array<int, string> $errors
-     * @return array<string, mixed>|null
+     * @return array{
+     *     valid: bool,
+     *     product_id: int,
+     *     product_name: string,
+     *     product_code: string,
+     *     display_sku: string,
+     *     barcode: string,
+     *     symbology: string,
+     *     sale_price: float|null,
+     *     svg: string|null,
+     *     error: string|null
+     * }
      */
-    public function buildLabel(Product $product, int $settingId, array &$errors): ?array
+    public function buildProductPreview(Product $product, int $settingId): array
     {
         $identity = $product->product_name . ' (' . $product->product_code . ')';
         $barcode = trim((string) $product->barcode);
         $storedSymbology = $product->product_barcode_symbology;
-
-        $valid = true;
+        $displaySku = self::displaySku($product->product_code);
 
         if ($barcode === '') {
-            $errors[] = "Produk {$identity} tidak memiliki barcode.";
-            $valid = false;
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => '',
+                'sale_price' => null,
+                'svg' => null,
+                'error' => "Produk {$identity} tidak memiliki barcode.",
+            ];
         }
 
         $rendererType = $this->resolveRendererType($barcode, $storedSymbology);
 
-        // Explicit invalid EAN-13 is a blocking error.
         if ($rendererType === 'INVALID_EAN13') {
-            $errors[] = "Produk {$identity} memiliki barcode yang tidak valid untuk simbologi EAN-13.";
-            $valid = false;
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => $rendererType,
+                'sale_price' => null,
+                'svg' => null,
+                'error' => "Produk {$identity} memiliki barcode yang tidak valid untuk simbologi EAN-13.",
+            ];
         }
 
-        if ($barcode !== '' && $valid && $rendererType === '') {
-            $errors[] = "Produk {$identity} tidak memiliki barcode.";
-            $valid = false;
+        if ($rendererType === '') {
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => '',
+                'sale_price' => null,
+                'svg' => null,
+                'error' => "Produk {$identity} tidak memiliki barcode.",
+            ];
         }
 
         $priceRow = $product->relationLoaded('prices')
@@ -219,33 +257,143 @@ class BarcodeBatchService
             : $product->prices()->where('setting_id', $settingId)->first();
 
         if (! $priceRow) {
-            $errors[] = "Produk {$identity} tidak memiliki harga jual untuk perusahaan yang dipilih.";
-            $valid = false;
-        } elseif ($priceRow->sale_price === null) {
-            $errors[] = "Produk {$identity} memiliki harga jual kosong untuk perusahaan yang dipilih.";
-            $valid = false;
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => $rendererType,
+                'sale_price' => null,
+                'svg' => null,
+                'error' => "Produk {$identity} tidak memiliki harga jual untuk perusahaan yang dipilih.",
+            ];
         }
 
-        if (! $valid) {
-            return null;
+        if ($priceRow->sale_price === null) {
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => $rendererType,
+                'sale_price' => null,
+                'svg' => null,
+                'error' => "Produk {$identity} memiliki harga jual kosong untuk perusahaan yang dipilih.",
+            ];
         }
 
         $svg = $this->renderSvg($barcode, $rendererType);
 
         if ($svg === null) {
-            $errors[] = "Barcode produk {$identity} tidak dapat dirender sebagai {$rendererType}.";
+            return [
+                'valid' => false,
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->product_name,
+                'product_code' => (string) $product->product_code,
+                'display_sku' => $displaySku,
+                'barcode' => $barcode,
+                'symbology' => $rendererType,
+                'sale_price' => (float) $priceRow->sale_price,
+                'svg' => null,
+                'error' => "Barcode produk {$identity} tidak dapat dirender sebagai {$rendererType}.",
+            ];
+        }
+
+        return [
+            'valid' => true,
+            'product_id' => (int) $product->id,
+            'product_name' => (string) $product->product_name,
+            'product_code' => (string) $product->product_code,
+            'display_sku' => $displaySku,
+            'barcode' => $barcode,
+            'symbology' => $rendererType,
+            'sale_price' => (float) $priceRow->sale_price,
+            'svg' => $svg,
+            'error' => null,
+        ];
+    }
+
+    /**
+     * Resolve a bounded map of product previews keyed by product id.
+     *
+     * @param array<int|string> $productIds
+     * @return array<int, array{
+     *     valid: bool,
+     *     product_id: int,
+     *     product_name: string,
+     *     product_code: string,
+     *     display_sku: string,
+     *     barcode: string,
+     *     symbology: string,
+     *     sale_price: float|null,
+     *     svg: string|null,
+     *     error: string|null
+     * }>
+     */
+    public function resolvePreviewMap(array $productIds, int $settingId): array
+    {
+        $products = $this->loadProducts($productIds, $settingId);
+        $map = [];
+
+        foreach ($productIds as $rawId) {
+            $productId = (int) $rawId;
+            if ($productId <= 0 || isset($map[$productId])) {
+                continue;
+            }
+
+            /** @var Product|null $product */
+            $product = $products->get($productId);
+
+            if (! $product) {
+                $map[$productId] = [
+                    'valid' => false,
+                    'product_id' => $productId,
+                    'product_name' => '',
+                    'product_code' => '',
+                    'display_sku' => '',
+                    'barcode' => '',
+                    'symbology' => '',
+                    'sale_price' => null,
+                    'svg' => null,
+                    'error' => "Produk dengan ID {$productId} tidak ditemukan.",
+                ];
+                continue;
+            }
+
+            $map[$productId] = $this->buildProductPreview($product, $settingId);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Build the immutable label payload for a product, appending any blocking errors.
+     *
+     * @param array<int, string> $errors
+     * @return array<string, mixed>|null
+     */
+    public function buildLabel(Product $product, int $settingId, array &$errors): ?array
+    {
+        $preview = $this->buildProductPreview($product, $settingId);
+
+        if (! $preview['valid']) {
+            $errors[] = (string) $preview['error'];
 
             return null;
         }
 
         return [
-            'svg' => $svg,
-            'product_id' => (int) $product->id,
-            'product_name' => (string) $product->product_name,
-            'product_code' => (string) $product->product_code,
-            'barcode' => $barcode,
-            'symbology' => $rendererType,
-            'sale_price' => (float) $priceRow->sale_price,
+            'svg' => $preview['svg'],
+            'product_id' => $preview['product_id'],
+            'product_name' => $preview['product_name'],
+            'product_code' => $preview['product_code'],
+            'barcode' => $preview['barcode'],
+            'symbology' => $preview['symbology'],
+            'sale_price' => $preview['sale_price'],
         ];
     }
 

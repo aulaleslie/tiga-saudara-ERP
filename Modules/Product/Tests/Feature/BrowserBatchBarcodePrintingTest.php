@@ -149,6 +149,271 @@ class BrowserBatchBarcodePrintingTest extends TestCase
             ->assertSet('selectedSettingId', $this->settingA->id);
     }
 
+    // --- 4.2.1 Preview Map Resolution (Service) -----------------------------
+
+    public function test_service_resolves_valid_preview_map_for_unique_products(): void
+    {
+        $product = $this->makeProduct([
+            'product_name' => 'Produk Map',
+            'product_code' => 'SKU-MAP-01',
+            'barcode' => '0123456789012',
+            'product_barcode_symbology' => 'EAN13',
+        ]);
+        $this->setPrice($product, $this->settingA, 15000);
+
+        /** @var \Modules\Product\Services\BarcodeBatchService $service */
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $previewMap = $service->resolvePreviewMap([$product->id, $product->id], $this->settingA->id);
+
+        $this->assertCount(1, $previewMap);
+        $this->assertArrayHasKey($product->id, $previewMap);
+
+        $preview = $previewMap[$product->id];
+        $this->assertTrue($preview['valid']);
+        $this->assertSame((int) $product->id, $preview['product_id']);
+        $this->assertSame('Produk Map', $preview['product_name']);
+        $this->assertSame('SKU-MAP-01', $preview['product_code']);
+        $this->assertSame('SKU-MAP-01', $preview['display_sku']);
+        $this->assertSame('0123456789012', $preview['barcode']);
+        $this->assertSame('EAN13', $preview['symbology']);
+        $this->assertEquals(15000.0, $preview['sale_price']);
+        $this->assertStringContainsString('<svg', $preview['svg']);
+        $this->assertNull($preview['error']);
+    }
+
+    public function test_service_applies_deterministic_sku_truncation_in_preview_map(): void
+    {
+        $longSku = str_repeat('X', 45);
+        $product = $this->makeProduct([
+            'product_name' => 'Produk Long SKU',
+            'product_code' => $longSku,
+            'barcode' => '0123456789012',
+            'product_barcode_symbology' => 'EAN13',
+        ]);
+        $this->setPrice($product, $this->settingA, 20000);
+
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+        $previewMap = $service->resolvePreviewMap([$product->id], $this->settingA->id);
+
+        $preview = $previewMap[$product->id];
+        $this->assertTrue($preview['valid']);
+        $this->assertSame(str_repeat('X', 39) . '…', $preview['display_sku']);
+    }
+
+    public function test_service_returns_actionable_errors_in_preview_map(): void
+    {
+        $service = app(\Modules\Product\Services\BarcodeBatchService::class);
+
+        // 1. Blank barcode
+        $blankBarcodeProd = $this->makeProduct(['barcode' => '']);
+        $this->setPrice($blankBarcodeProd, $this->settingA, 10000);
+
+        // 2. Invalid explicit EAN-13
+        $invalidEanProd = $this->makeProduct([
+            'barcode' => '123456',
+            'product_barcode_symbology' => 'EAN13',
+        ]);
+        $this->setPrice($invalidEanProd, $this->settingA, 10000);
+
+        // 3. Missing price row for setting
+        $noPriceProd = $this->makeProduct(['barcode' => $this->ean13('111111111111')]);
+
+        // 4. Null sale price
+        $nullPriceProd = $this->makeProduct(['barcode' => $this->ean13('222222222222')]);
+        $this->setPrice($nullPriceProd, $this->settingA, null);
+
+        $previewMap = $service->resolvePreviewMap([
+            $blankBarcodeProd->id,
+            $invalidEanProd->id,
+            $noPriceProd->id,
+            $nullPriceProd->id,
+        ], $this->settingA->id);
+
+        $this->assertFalse($previewMap[$blankBarcodeProd->id]['valid']);
+        $this->assertStringContainsString('tidak memiliki barcode', $previewMap[$blankBarcodeProd->id]['error']);
+
+        $this->assertFalse($previewMap[$invalidEanProd->id]['valid']);
+        $this->assertStringContainsString('tidak valid untuk simbologi EAN-13', $previewMap[$invalidEanProd->id]['error']);
+
+        $this->assertFalse($previewMap[$noPriceProd->id]['valid']);
+        $this->assertStringContainsString('tidak memiliki harga jual untuk perusahaan yang dipilih', $previewMap[$noPriceProd->id]['error']);
+
+        $this->assertFalse($previewMap[$nullPriceProd->id]['valid']);
+        $this->assertStringContainsString('memiliki harga jual kosong untuk perusahaan yang dipilih', $previewMap[$nullPriceProd->id]['error']);
+    }
+
+    // --- 4.2.2 Immediate Row Previews & Business Switching -----------------
+
+    public function test_product_previews_property_is_locked_against_client_mutation(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct([
+            'product_name' => 'Produk Locked Preview',
+            'product_code' => 'SKU-LOCKED-01',
+            'barcode' => '0123456789012',
+        ]);
+        $this->setPrice($product, $this->settingA, 17500);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->call('addProduct', ['id' => $product->id]);
+
+        // Attempting to mutate locked productPreviews from the client must be rejected
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [productPreviews]');
+
+        $component->set('productPreviews', [
+            $product->id => [
+                'valid' => true,
+                'product_id' => $product->id,
+                'product_name' => 'Hacked Name',
+                'product_code' => 'HACKED-SKU',
+                'display_sku' => 'HACKED-SKU',
+                'barcode' => '0000000000000',
+                'symbology' => 'EAN13',
+                'sale_price' => 1.0,
+                'svg' => '<svg><text>malicious</text></svg>',
+                'error' => null,
+            ],
+        ]);
+    }
+
+    public function test_selecting_valid_product_renders_immediate_compact_preview(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct([
+            'product_name' => 'Produk Instant Preview',
+            'product_code' => 'SKU-INSTANT-01',
+            'barcode' => '0123456789012',
+            'product_barcode_symbology' => 'EAN13',
+        ]);
+        $this->setPrice($product, $this->settingA, 17500);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->assertSet('previewed', false)
+            ->call('addProduct', ['id' => $product->id]);
+
+        $component->assertSee('Produk Instant Preview')
+            ->assertSee('SKU-INSTANT-01')
+            ->assertSee('0123456789012')
+            ->assertSee(format_currency(17500), false)
+            ->assertSeeHtml('<svg')
+            ->assertSet('previewed', false);
+
+        // Verify table header order: Produk -> SKU -> Jumlah Label -> remove -> Pratinjau Label
+        $html = $component->html();
+        $this->assertMatchesRegularExpression(
+            '/<thead>.*?data-testid="barcode-product-header".*?data-testid="barcode-sku-header".*?data-testid="barcode-quantity-header".*?data-testid="barcode-remove-header".*?data-testid="barcode-preview-header".*?<\/thead>/s',
+            $html
+        );
+
+        // Verify table row cell order: product -> sku -> quantity -> remove -> preview
+        $this->assertMatchesRegularExpression(
+            '/data-testid="barcode-row-' . $product->id . '".*?data-testid="barcode-product-cell-' . $product->id . '".*?data-testid="barcode-sku-cell-' . $product->id . '".*?data-testid="barcode-quantity-cell-' . $product->id . '".*?data-testid="barcode-remove-cell-' . $product->id . '".*?data-testid="barcode-preview-cell-' . $product->id . '"/s',
+            $html
+        );
+
+        $previewMap = $component->get('productPreviews');
+        $this->assertArrayHasKey($product->id, $previewMap);
+        $this->assertTrue($previewMap[$product->id]['valid']);
+    }
+
+    public function test_quantity_changes_keep_one_compact_preview_per_unique_product(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct([
+            'product_name' => 'Produk Multi Qty',
+            'product_code' => 'SKU-MULTI-QTY',
+            'barcode' => '0123456789012',
+        ]);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->call('addProduct', ['id' => $product->id])
+            ->set('rows.0.quantity', 5);
+
+        $this->assertSame(5, $component->get('totalLabels'));
+        $previewMap = $component->get('productPreviews');
+        $this->assertCount(1, $previewMap);
+        $this->assertArrayHasKey($product->id, $previewMap);
+
+        // Add same product again to test merge
+        $component->call('addProduct', ['id' => $product->id]);
+        $this->assertSame(6, $component->get('totalLabels'));
+        $this->assertCount(1, $component->get('rows'));
+        $this->assertCount(1, $component->get('productPreviews'));
+    }
+
+    public function test_business_change_refreshes_selected_row_preview_prices(): void
+    {
+        $this->operator->givePermissionTo('documents.business.override');
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Dynamic Price Item', 'barcode' => '0123456789012']);
+        $this->setPrice($product, $this->settingA, 12000);
+        $this->setPrice($product, $this->settingB, 22000);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->call('addProduct', ['id' => $product->id])
+            ->assertSee(format_currency(12000), false)
+            ->assertDontSee(format_currency(22000), false);
+
+        $component->call('businessChanged', ['settingId' => $this->settingB->id])
+            ->assertSee(format_currency(22000), false)
+            ->assertDontSee(format_currency(12000), false);
+
+        $previewMap = $component->get('productPreviews');
+        $this->assertEquals(22000.0, $previewMap[$product->id]['sale_price']);
+    }
+
+    public function test_row_shows_actionable_inline_errors_for_invalid_product_state(): void
+    {
+        $this->actingAsOperator();
+
+        $blankBarcodeProd = $this->makeProduct(['product_name' => 'Blank Barcode', 'barcode' => '']);
+        $this->setPrice($blankBarcodeProd, $this->settingA, 10000);
+
+        $invalidEanProd = $this->makeProduct([
+            'product_name' => 'Invalid EAN',
+            'barcode' => '9999',
+            'product_barcode_symbology' => 'EAN13',
+        ]);
+        $this->setPrice($invalidEanProd, $this->settingA, 10000);
+
+        $noPriceProd = $this->makeProduct(['product_name' => 'No Price Prod', 'barcode' => $this->ean13('333333333333')]);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class)
+            ->call('addProduct', ['id' => $blankBarcodeProd->id])
+            ->call('addProduct', ['id' => $invalidEanProd->id])
+            ->call('addProduct', ['id' => $noPriceProd->id]);
+
+        $component->assertSee('tidak memiliki barcode')
+            ->assertSee('tidak valid untuk simbologi EAN-13')
+            ->assertSee('tidak memiliki harga jual untuk perusahaan yang dipilih');
+
+        // Verify batch preview / print still rejects
+        $component->call('preview');
+        $this->assertNotEmpty($component->get('batchErrors'));
+        $this->assertFalse($component->get('previewed'));
+    }
+
     public function test_workspace_adds_rows_and_totals_labels(): void
     {
         $this->actingAsOperator();
@@ -1041,6 +1306,192 @@ class BrowserBatchBarcodePrintingTest extends TestCase
     }
 
     // --- BarcodeProductSearch: primary barcode lookup ---------------------
+
+    public function test_search_suggestions_show_primary_barcode_and_authorized_selected_business_price(): void
+    {
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Widget Suggestion', 'barcode' => '1234567890123']);
+        $this->setPrice($product, $this->settingA, 12500);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $test = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingA->id,
+            ])
+            ->set('query', 'Widget')
+            ->assertSee('Widget Suggestion')
+            ->assertSee($product->product_code)
+            ->assertSee('1234567890123')
+            ->assertSee(format_currency(12500), false);
+
+        $results = $test->get('search_results');
+        $this->assertNotEmpty($results);
+        $this->assertSame('1234567890123', $results[0]['barcode']);
+        $this->assertEquals(12500.0, $results[0]['sale_price']);
+    }
+
+    public function test_workspace_renders_search_with_selected_setting_and_stable_key(): void
+    {
+        $this->actingAsOperator();
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $workspace = Livewire::actingAs($this->operator)
+            ->test(BarcodeBatchWorkspace::class);
+
+        $html = $workspace->html();
+
+        // Workspace memo snapshot records the child component keyed by 'barcode-product-search'
+        $this->assertStringContainsString('&quot;barcode-product-search&quot;', $html);
+    }
+
+    public function test_search_suggestions_update_when_selected_business_changes(): void
+    {
+        $this->operator->givePermissionTo('documents.business.override');
+        $this->actingAsOperator();
+
+        $product = $this->makeProduct(['product_name' => 'Multi-Price Widget', 'barcode' => '1234567890123']);
+        $this->setPrice($product, $this->settingA, 12500);
+        $this->setPrice($product, $this->settingB, 18500);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        // 1. Initial mount with Setting A
+        $componentA = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingA->id,
+            ])
+            ->set('query', 'Multi-Price')
+            ->assertSee(format_currency(12500), false)
+            ->assertDontSee(format_currency(18500), false);
+
+        $resultsA = $componentA->get('search_results');
+        $this->assertSame('Multi-Price', $componentA->get('query'));
+        $this->assertCount(1, $resultsA);
+        $this->assertEquals(12500.0, $resultsA[0]['sale_price']);
+
+        // 2. Mounted with Setting B (simulating reactive parent update where query is retained)
+        $componentB = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingB->id,
+            ])
+            ->set('query', 'Multi-Price')
+            ->assertSee(format_currency(18500), false)
+            ->assertDontSee(format_currency(12500), false);
+
+        $resultsB = $componentB->get('search_results');
+        $this->assertSame('Multi-Price', $componentB->get('query'));
+        $this->assertCount(1, $resultsB);
+        $this->assertEquals(18500.0, $resultsB[0]['sale_price']);
+    }
+
+    public function test_search_suggestions_clear_when_business_switches_to_unauthorized_setting(): void
+    {
+        $otherSetting = Setting::factory()->create(['company_name' => 'Unauthorized Business']);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('barcodes.print');
+        $user->givePermissionTo('products.access');
+        $role = Role::firstOrCreate(['name' => 'barcode-test-role', 'guard_name' => 'web']);
+        $user->settings()->attach($this->settingA->id, ['role_id' => $role->id]);
+
+        $product = $this->makeProduct(['product_name' => 'Guarded Product', 'barcode' => '1234567890123']);
+        $this->setPrice($product, $this->settingA, 10000);
+        $this->setPrice($product, $otherSetting, 99000);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        // 1. Initial mount under authorized setting
+        $componentAuthorized = Livewire::actingAs($user)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingA->id,
+            ])
+            ->set('query', 'Guarded')
+            ->assertSee('Guarded Product')
+            ->assertSee(format_currency(10000), false);
+
+        $this->assertCount(1, $componentAuthorized->get('search_results'));
+
+        // 2. Mount under unauthorized setting (query retained)
+        $componentUnauthorized = Livewire::actingAs($user)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $otherSetting->id,
+            ])
+            ->set('query', 'Guarded')
+            ->assertDontSee(format_currency(99000), false)
+            ->assertDontSee(format_currency(10000), false)
+            ->assertSee('Perusahaan yang dipilih tidak dapat diakses.')
+            ->assertSet('search_results', collect());
+
+        $this->assertSame('Guarded', $componentUnauthorized->get('query'));
+    }
+
+    public function test_search_suggestions_show_unavailable_price_when_price_is_missing_or_null(): void
+    {
+        $this->actingAsOperator();
+
+        $noPriceProd = $this->makeProduct(['product_name' => 'No Price Widget', 'barcode' => '1111111111111', 'product_price' => 99000]);
+        $nullPriceProd = $this->makeProduct(['product_name' => 'Null Price Widget', 'barcode' => '2222222222222', 'product_price' => 88000]);
+        $this->setPrice($nullPriceProd, $this->settingA, null);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        $component = Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingA->id,
+            ])
+            ->set('query', 'Price Widget');
+
+        $component->assertSee('No Price Widget')
+            ->assertSee('Null Price Widget')
+            ->assertSee('Harga tidak tersedia')
+            ->assertDontSee(format_currency(99000), false)
+            ->assertDontSee(format_currency(88000), false);
+
+        $results = $component->get('search_results');
+        $this->assertCount(2, $results);
+        $this->assertNull($results[0]['sale_price']);
+        $this->assertNull($results[1]['sale_price']);
+    }
+
+    public function test_search_does_not_expose_price_for_unauthorized_business(): void
+    {
+        $otherSetting = Setting::factory()->create(['company_name' => 'Secret Business']);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('barcodes.print');
+        $user->givePermissionTo('products.access');
+        $role = Role::firstOrCreate(['name' => 'barcode-test-role', 'guard_name' => 'web']);
+        $user->settings()->attach($this->settingA->id, ['role_id' => $role->id]);
+
+        $product = $this->makeProduct(['product_name' => 'Secret Product', 'barcode' => '9999999999999']);
+        $this->setPrice($product, $otherSetting, 500000);
+
+        session(['setting_id' => $this->settingA->id]);
+
+        Livewire::actingAs($user)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $otherSetting->id,
+            ])
+            ->set('query', 'Secret')
+            ->assertDontSee(format_currency(500000), false)
+            ->assertSet('search_results', collect());
+    }
+
+    public function test_search_input_has_guidance_for_name_sku_and_barcode(): void
+    {
+        $this->actingAsOperator();
+
+        session(['setting_id' => $this->settingA->id]);
+
+        Livewire::actingAs($this->operator)
+            ->test(\Modules\Product\Livewire\BarcodeProductSearch::class, [
+                'selectedSettingId' => $this->settingA->id,
+            ])
+            ->assertSeeHtml('placeholder="Ketik nama, SKU, atau scan barcode produk..."');
+    }
 
     public function test_barcode_search_finds_product_by_partial_barcode_match(): void
     {

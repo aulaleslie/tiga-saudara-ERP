@@ -4,6 +4,7 @@ namespace Modules\Product\Livewire;
 
 use App\Services\EffectiveDocumentBusinessResolver;
 use Illuminate\Auth\Access\AuthorizationException;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Services\BarcodeBatchService;
@@ -21,6 +22,10 @@ class BarcodeBatchWorkspace extends Component
     /** @var array<int, array<string, mixed>> */
     public array $previewLabels = [];
 
+    /** @var array<int, array<string, mixed>> */
+    #[Locked]
+    public array $productPreviews = [];
+
     public bool $previewed = false;
 
     protected $listeners = [
@@ -31,6 +36,7 @@ class BarcodeBatchWorkspace extends Component
     public function mount(): void
     {
         $this->selectedSettingId = session('setting_id');
+        $this->refreshProductPreviews();
     }
 
     public function getCanOverrideBusinessProperty(): bool
@@ -69,6 +75,7 @@ class BarcodeBatchWorkspace extends Component
                     BarcodeBatchService::MAX_PER_PRODUCT,
                     $row['quantity'] + 1
                 );
+                $this->refreshProductPreviews();
 
                 return;
             }
@@ -86,6 +93,8 @@ class BarcodeBatchWorkspace extends Component
             'product_code' => (string) $model->product_code,
             'quantity' => 1,
         ];
+
+        $this->refreshProductPreviews();
     }
 
     public function removeRow(int $index): void
@@ -97,6 +106,7 @@ class BarcodeBatchWorkspace extends Component
         unset($this->rows[$index]);
         $this->rows = array_values($this->rows);
         $this->resetPreview();
+        $this->refreshProductPreviews();
     }
 
     public function updatedRows(): void
@@ -114,11 +124,55 @@ class BarcodeBatchWorkspace extends Component
         $settingId = is_array($payload) ? ($payload['settingId'] ?? null) : $payload;
         $this->selectedSettingId = $settingId !== null ? (int) $settingId : null;
         $this->resetPreview();
+        $this->refreshProductPreviews();
     }
 
     public function updatedSelectedSettingId(): void
     {
         $this->resetPreview();
+        $this->refreshProductPreviews();
+    }
+
+    /**
+     * Refresh the product previews map for current rows and selected setting.
+     */
+    public function refreshProductPreviews(): void
+    {
+        if ($this->rows === []) {
+            $this->productPreviews = [];
+
+            return;
+        }
+
+        $productIds = array_column($this->rows, 'product_id');
+
+        try {
+            $resolver = app(EffectiveDocumentBusinessResolver::class);
+            $resolved = $resolver->resolve($this->selectedSettingId);
+            $resolvedSettingId = $resolved['setting_id'];
+        } catch (AuthorizationException $e) {
+            $this->productPreviews = [];
+            foreach ($productIds as $pId) {
+                $this->productPreviews[(int) $pId] = [
+                    'valid' => false,
+                    'product_id' => (int) $pId,
+                    'product_name' => '',
+                    'product_code' => '',
+                    'display_sku' => '',
+                    'barcode' => '',
+                    'symbology' => '',
+                    'sale_price' => null,
+                    'svg' => null,
+                    'error' => 'Perusahaan yang dipilih tidak dapat diakses.',
+                ];
+            }
+
+            return;
+        }
+
+        /** @var BarcodeBatchService $service */
+        $service = app(BarcodeBatchService::class);
+        $this->productPreviews = $service->resolvePreviewMap($productIds, $resolvedSettingId);
     }
 
     /**
