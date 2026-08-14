@@ -72,20 +72,25 @@
                                                     <input type="hidden" name="prices[{{ $index }}][setting_id]" value="{{ $price['setting_id'] }}">
                                                     <input type="hidden" name="prices[{{ $index }}][version]" value="{{ $price['version'] }}">
                                                 </td>
+                                                @php
+                                                    $normalizePrice = function($val) {
+                                                        return is_numeric($val) ? round((float) $val) : $val;
+                                                    };
+                                                @endphp
                                                 <td>
-                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][sale_price]" value="{{ old('prices.'.$index.'.sale_price', $price['sale_price']) }}" data-original="{{ $price['sale_price'] }}" readonly>
+                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][sale_price]" value="{{ $normalizePrice(old('prices.'.$index.'.sale_price', $price['sale_price'])) }}" data-original="{{ $normalizePrice($price['sale_price']) }}" readonly>
                                                 </td>
                                                 <td>
-                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_1_price]" value="{{ old('prices.'.$index.'.tier_1_price', $price['tier_1_price']) }}" data-original="{{ $price['tier_1_price'] }}" readonly>
+                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_1_price]" value="{{ $normalizePrice(old('prices.'.$index.'.tier_1_price', $price['tier_1_price'])) }}" data-original="{{ $normalizePrice($price['tier_1_price']) }}" readonly>
                                                 </td>
                                                 <td>
-                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_2_price]" value="{{ old('prices.'.$index.'.tier_2_price', $price['tier_2_price']) }}" data-original="{{ $price['tier_2_price'] }}" readonly>
+                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_2_price]" value="{{ $normalizePrice(old('prices.'.$index.'.tier_2_price', $price['tier_2_price'])) }}" data-original="{{ $normalizePrice($price['tier_2_price']) }}" readonly>
                                                 </td>
                                                 <td>
-                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][last_purchase_price]" value="{{ old('prices.'.$index.'.last_purchase_price', $price['last_purchase_price']) }}" data-original="{{ $price['last_purchase_price'] }}" readonly>
+                                                    <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][last_purchase_price]" value="{{ $normalizePrice(old('prices.'.$index.'.last_purchase_price', $price['last_purchase_price'])) }}" data-original="{{ $normalizePrice($price['last_purchase_price']) }}" readonly>
                                                 </td>
                                                 <td>
-                                                    <input type="text" class="form-control price-mask" value="{{ $price['average_purchase_price'] }}" readonly disabled>
+                                                    <input type="text" class="form-control price-mask" value="{{ $normalizePrice($price['average_purchase_price']) }}" readonly disabled>
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -157,7 +162,8 @@
 
                 // Unmask before submit
                 $('.price-mask').each(function() {
-                    let unmasked = $(this).maskMoney('unmasked')[0];
+                    let val = $(this).val();
+                    let unmasked = val.replace(/\./g, '');
                     $(this).val(unmasked);
                 });
 
