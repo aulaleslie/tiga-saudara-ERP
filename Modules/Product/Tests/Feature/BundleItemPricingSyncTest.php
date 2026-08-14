@@ -95,6 +95,8 @@ class BundleItemPricingSyncTest extends TestCase
             'productId' => $this->parentProduct->id,
         ]);
 
+        $component->set('rowKeys.0', 'bundle_0');
+
         // Simulate product selection
         $component->call('updateProductRow', [
             'index' => 'bundle_0',
@@ -118,6 +120,8 @@ class BundleItemPricingSyncTest extends TestCase
         $component = Livewire::test('product.bundle-table', [
             'productId' => $this->parentProduct->id,
         ]);
+
+        $component->set('rowKeys.0', 'bundle_0');
 
         $component->call('updateProductRow', [
             'index' => 'bundle_0',
@@ -156,6 +160,8 @@ class BundleItemPricingSyncTest extends TestCase
         $component = Livewire::test('product.bundle-table', [
             'productId' => $this->parentProduct->id,
         ]);
+
+        $component->set('rowKeys.0', 'bundle_0');
 
         // Select first product
         $component->call('updateProductRow', [
@@ -197,6 +203,8 @@ class BundleItemPricingSyncTest extends TestCase
         $component = Livewire::test('product.bundle-table', [
             'productId' => $this->parentProduct->id,
         ]);
+
+        $component->set('rowKeys.0', 'bundle_0');
 
         $component->call('updateProductRow', [
             'index' => 'bundle_0',
@@ -243,6 +251,8 @@ class BundleItemPricingSyncTest extends TestCase
             'productId' => $this->parentProduct->id,
         ]);
 
+        $component->set('rowKeys.0', 'bundle_0');
+
         $component->call('updateProductRow', [
             'index' => 'bundle_0',
             'product' => [
@@ -259,6 +269,8 @@ class BundleItemPricingSyncTest extends TestCase
         $component2 = Livewire::test('product.bundle-table', [
             'productId' => $this->parentProduct->id,
         ]);
+
+        $component2->set('rowKeys.0', 'bundle_0');
 
         $component2->call('updateProductRow', [
             'index' => 'bundle_0',
@@ -300,6 +312,9 @@ class BundleItemPricingSyncTest extends TestCase
 
         // Add second item
         $component->call('addItem');
+
+        $component->set('rowKeys.0', 'bundle_0');
+        $component->set('rowKeys.1', 'bundle_1');
 
         // Select products for both items
         $component->call('updateProductRow', [

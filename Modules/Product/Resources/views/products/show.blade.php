@@ -258,8 +258,15 @@
                 @if($bundles->count())
                     @foreach($bundles as $bundle)
                         <div class="mb-4">
-                            <h6>{{ $bundle->name }} <span
-                                    class="text-muted">({{ format_currency($bundle->bundle_sale_price ?? 0) }})</span></h6>
+                            <h6>
+                                {{ $bundle->name }}
+                                <span class="text-muted">({{ format_currency($bundle->bundle_sale_price ?? 0) }})</span>
+                                @if($bundle->is_active)
+                                    <span class="badge badge-success">Aktif</span>
+                                @else
+                                    <span class="badge badge-secondary">Nonaktif</span>
+                                @endif
+                            </h6>
                             @if($bundle->description)
                                 <p>{{ $bundle->description }}</p>
                             @endif
@@ -286,6 +293,8 @@
                             @can('products.bundle.edit')
                                 <a href="{{ route('products.bundle.edit', [$product->id, $bundle->id]) }}"
                                    class="btn btn-info btn-sm">Ubah Paket</a>
+                            @endcan
+                            @can('products.bundle.delete')
                                 <form action="{{ route('products.bundle.destroy', [$product->id, $bundle->id]) }}"
                                       method="POST" style="display:inline;">
                                     @csrf

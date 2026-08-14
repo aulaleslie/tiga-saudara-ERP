@@ -70,24 +70,32 @@ class ProductSearchDropdown extends Component
             return;
         }
 
-        $query = Product::query()->active()
-            ->where(function ($q) {
-                $q->where('product_name', 'like', '%' . $this->search . '%')
-                  ->orWhere('product_code', 'like', '%' . $this->search . '%');
-            });
+        $query = Product::query()->globalSearch($this->search);
 
         if ($this->excludeProductId) {
             $query->where('id', '!=', $this->excludeProductId);
         }
 
         $this->query_count = (clone $query)->count();
-        $this->search_results = $query->take($this->how_many)->get();
+        $this->search_results = $query
+            ->orderBy('product_name')
+            ->orderBy('id')
+            ->take($this->how_many)
+            ->get();
     }
 
     public function select($id): void
     {
-        $product = Product::find($id);
-        if (!$product) return;
+        $query = Product::query()->active()->where('id', $id);
+
+        if ($this->excludeProductId) {
+            $query->where('id', '!=', $this->excludeProductId);
+        }
+
+        $product = $query->first();
+        if (!$product) {
+            return;
+        }
 
         $this->selected = $product->id;
         $this->selectedLabel = $product->product_name;

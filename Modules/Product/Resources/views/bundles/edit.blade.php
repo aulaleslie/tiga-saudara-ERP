@@ -64,6 +64,20 @@
                 </div>
             </div>
 
+            <!-- Row for Status Aktif -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="hidden" name="is_active" value="0">
+                            <input type="checkbox" name="is_active" value="1" class="custom-control-input" id="is_active"
+                                {{ old('is_active', $bundle->is_active ?? true) ? 'checked' : '' }}>
+                            <label class="custom-control-label" for="is_active">Aktif</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <hr>
             <h5>Item</h5>
             <!-- Embed the Livewire component for bundle items -->

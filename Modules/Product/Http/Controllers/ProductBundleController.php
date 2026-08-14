@@ -38,13 +38,10 @@ class ProductBundleController extends Controller
     {
         abort_if(Gate::denies('products.bundle.create'), 403);
         $product = Product::findOrFail($productId);
-        // Retrieve a list of products that can be bundled.
-        // You might want to exclude the parent product itself.
-        $products = Product::where('id', '!=', $productId)->get();
         // 5.2 Pass settingId to view for display context
         $settingId = session('setting_id');
 
-        return view('product::bundles.create', compact('product', 'products', 'settingId'));
+        return view('product::bundles.create', compact('product', 'settingId'));
     }
 
     /**
@@ -63,8 +60,8 @@ class ProductBundleController extends Controller
             'bundle_sale_price' => 'required|numeric|min:0',
             'active_from' => 'nullable|date',
             'active_to' => 'nullable|date|after_or_equal:active_from',
-            'items' => 'required|array',
-            'items.*.product_id' => 'required|exists:products,id',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|distinct|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.informational_item_price' => 'required|numeric|min:0',
         ], [
@@ -74,6 +71,7 @@ class ProductBundleController extends Controller
             'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
             'items.required' => 'Item harus diisi.',
             'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
+            'items.*.product_id.distinct' => 'Produk komponen tidak boleh duplikat.',
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
@@ -81,26 +79,34 @@ class ProductBundleController extends Controller
             'items.*.informational_item_price.numeric' => 'Harga Informasi Item harus berupa angka.',
         ]);
 
+        $settings = \Modules\Setting\Entities\Setting::all();
+        if ($settings->isEmpty()) {
+            $settings = collect([
+                (object) ['id' => session('setting_id', 1)]
+            ]);
+        }
+
         DB::beginTransaction();
         try {
-            // 5.3 Include setting_id from session('setting_id')
-            $bundle = ProductBundle::create([
-                'setting_id' => session('setting_id'),
-                'parent_product_id' => $productId,
-                'name' => $request->input('name'),
-                'description' => $request->input('description'),
-                'bundle_sale_price' => $request->input('bundle_sale_price'),
-                'active_from' => $request->input('active_from'),
-                'active_to' => $request->input('active_to'),
-            ]);
-
-            // Create each bundle item (without price)
-            foreach ($request->input('items') as $item) {
-                $bundle->items()->create([
-                    'product_id' => $item['product_id'],
-                    'quantity' => $item['quantity'],
-                    'informational_item_price' => $item['informational_item_price'],
+            foreach ($settings as $setting) {
+                $bundle = ProductBundle::create([
+                    'setting_id' => $setting->id,
+                    'parent_product_id' => $productId,
+                    'name' => $request->input('name'),
+                    'description' => $request->input('description'),
+                    'bundle_sale_price' => $request->input('bundle_sale_price'),
+                    'active_from' => $request->input('active_from'),
+                    'active_to' => $request->input('active_to'),
+                    'is_active' => true,
                 ]);
+
+                foreach ($request->input('items') as $item) {
+                    $bundle->items()->create([
+                        'product_id' => $item['product_id'],
+                        'quantity' => $item['quantity'],
+                        'informational_item_price' => $item['informational_item_price'],
+                    ]);
+                }
             }
 
             DB::commit();
@@ -116,26 +122,20 @@ class ProductBundleController extends Controller
     public function edit(Product $product, ProductBundle $bundle): View
     {
         abort_if(Gate::denies('products.bundle.edit'), 403);
-        // 5.4 Ensure that the bundle actually belongs to the product and the active setting.
-        if ($bundle->parent_product_id !== $product->id || $bundle->setting_id != session('setting_id')) {
+        if ($bundle->parent_product_id !== $product->id || (int) $bundle->setting_id !== (int) session('setting_id')) {
             abort(404);
         }
-
-        // Retrieve potential products for editing if needed.
-        $products = Product::where('id', '!=', $product->id)->get();
 
         return view('product::bundles.edit', [
             'bundle' => $bundle,
             'parentProduct' => $product,
-            'products' => $products,
         ]);
     }
 
     public function update(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.edit'), 403);
-        // 5.5 Verify bundle's setting_id matches active session
-        if ($bundle->setting_id != session('setting_id')) {
+        if ($bundle->parent_product_id !== $product->id || (int) $bundle->setting_id !== (int) session('setting_id')) {
             abort(404);
         }
 
@@ -145,8 +145,9 @@ class ProductBundleController extends Controller
             'bundle_sale_price' => 'required|numeric|min:0',
             'active_from' => 'nullable|date',
             'active_to' => 'nullable|date|after_or_equal:active_from',
-            'items' => 'required|array',
-            'items.*.product_id' => 'required|exists:products,id',
+            'is_active' => 'nullable|boolean',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|distinct|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.informational_item_price' => 'required|numeric|min:0',
         ], [
@@ -156,6 +157,7 @@ class ProductBundleController extends Controller
             'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
             'items.required' => 'Item harus diisi.',
             'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
+            'items.*.product_id.distinct' => 'Produk komponen tidak boleh duplikat.',
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
@@ -165,13 +167,14 @@ class ProductBundleController extends Controller
 
         DB::beginTransaction();
         try {
-            // Update bundle header
+            // Update bundle header (scoped strictly to this copy)
             $bundle->update([
                 'name'        => $request->input('name'),
                 'description' => $request->input('description'),
                 'bundle_sale_price' => $request->input('bundle_sale_price'),
                 'active_from' => $request->input('active_from'),
                 'active_to'   => $request->input('active_to'),
+                'is_active'   => $request->boolean('is_active', true),
             ]);
 
             // Reset and re-create bundle items
@@ -197,8 +200,7 @@ class ProductBundleController extends Controller
     public function destroy(Product $product, ProductBundle $bundle): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.delete'), 403);
-        // 5.6 Verify bundle's setting_id matches active session
-        if ($bundle->parent_product_id !== $product->id || $bundle->setting_id != session('setting_id')) {
+        if ($bundle->parent_product_id !== $product->id || (int) $bundle->setting_id !== (int) session('setting_id')) {
             abort(404);
         }
 

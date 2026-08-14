@@ -10,6 +10,12 @@ class ProductBundle extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'is_active' => 'boolean',
+        'active_from' => 'date',
+        'active_to' => 'date',
+    ];
+
     /**
      * The parent product for this bundle.
      */

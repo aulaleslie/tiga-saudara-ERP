@@ -545,6 +545,16 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.delete'), 403);
 
+        if ($product->bundles()->exists()) {
+            toast('Produk tidak dapat dihapus karena masih digunakan sebagai produk utama dalam paket penjualan. Hapus paket penjualan terlebih dahulu.', 'error');
+            return redirect()->back();
+        }
+
+        if ($product->bundledIn()->exists()) {
+            toast('Produk tidak dapat dihapus karena masih digunakan sebagai komponen dalam paket penjualan. Hapus referensi komponen terlebih dahulu.', 'error');
+            return redirect()->back();
+        }
+
         $product->delete();
 
         toast('Produk Dihapus!', 'warning');
