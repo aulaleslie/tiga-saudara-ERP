@@ -1,9 +1,4 @@
-# pos-bundle-sale-price-allocation Specification
-
-## Purpose
-This specification defines the authoritative pricing behavior for selected bundles in the POS cart and checkout flow, ensuring `bundle_sale_price` is used for parent rows and informational prices are used for internal revenue allocation without becoming billable.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: POS SHALL use bundle sale price as selected bundle row price
 When a cashier selects a bundle, POS SHALL initialize the parent row from `product_bundles.bundle_sale_price`, allow the cashier to override that parent row price, and preserve the captured transaction price without adding legacy bundle prices.
@@ -27,20 +22,6 @@ When a cashier selects a bundle, POS SHALL initialize the parent row from `produ
 - **WHEN** the captured bundled row amount is less than the sum of its fixed component allocations
 - **THEN** preflight or finalize SHALL reject the checkout with an actionable negative-residual validation error
 
-### Requirement: POS bundled rows SHALL bypass customer tier repricing
-Selected bundled POS cart rows SHALL preserve their bundle sale price through customer selection changes while non-bundled rows continue to use existing customer tier repricing behavior.
-
-#### Scenario: Customer tier change preserves bundled row price
-- **WHEN** a POS cart contains a selected bundled row priced from `bundle_sale_price`
-- **AND** the cashier selects or changes the cart customer to a customer with tier pricing
-- **THEN** the selected bundled row unit price SHALL remain the bundle sale price
-- **AND** the row SHALL NOT be repriced from parent product tier prices
-
-#### Scenario: Non-bundled row still reprices by tier
-- **WHEN** a POS cart contains a normal non-bundled product row
-- **AND** the cashier selects or changes the cart customer to a customer with tier pricing
-- **THEN** the normal product row SHALL continue to follow existing POS customer tier repricing behavior
-
 ### Requirement: POS SHALL treat component informational prices as internal allocation data
 POS SHALL allocate bundle component revenue from the POS transaction owner's captured bundle-item snapshots and SHALL NOT reload current product prices or use a stock owner's sale price.
 
@@ -63,6 +44,8 @@ POS SHALL allocate bundle component revenue from the POS transaction owner's cap
 - **WHEN** a bundled parent row has outgoing base-unit quantity greater than one
 - **THEN** each component's allocation quantity SHALL equal parent base-unit quantity multiplied by configured quantity per bundle
 - **AND** an already-expanded component quantity SHALL NOT be expanded again
+
+## ADDED Requirements
 
 ### Requirement: POS SHALL keep bundle components zero-priced for customers
 Internal component allocations MUST NOT become separate customer charges in POS cart, checkout, receipt, or transaction-detail presentation.
@@ -89,3 +72,10 @@ This change SHALL preserve the current POS contract in which line and global dis
 - **WHEN** a request supplies unsupported POS line or global discount data
 - **THEN** checkout SHALL ignore or reject that unsupported data according to existing POS validation behavior
 - **AND** bundle split planning SHALL not allocate a discount
+
+## REMOVED Requirements
+
+### Requirement: POS SHALL fallback missing component allocation price to product sale price
+**Reason**: Bundle copies now persist server-derived setting-scoped informational-price snapshots, and transaction-time live fallback would make allocations drift after selection or administrative save.
+
+**Migration**: Existing saved component snapshots remain usable. Saving a bundle copy refreshes its component snapshots, and POS thereafter uses the captured saved value including zero.

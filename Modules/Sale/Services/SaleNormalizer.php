@@ -31,16 +31,52 @@ class SaleNormalizer
             $details
         ));
 
-        $discountPercentage = $this->toFloat($header['discount_percentage'] ?? 0);
-        $discountAmount = $this->toFloat($header['discount_amount'] ?? 0);
-        $shippingAmount = $this->toFloat($header['shipping_amount'] ?? $header['shipping'] ?? 0);
-        $paidAmount = $this->toFloat($header['paid_amount'] ?? 0);
+        $rawDiscountPercentage = $this->toFloat($header['discount_percentage'] ?? 0);
+        $rawDiscountAmount = $this->toFloat($header['discount_amount'] ?? 0);
+        $shippingAmount = max(0.0, $this->toFloat($header['shipping_amount'] ?? $header['shipping'] ?? 0));
+        $paidAmount = max(0.0, $this->toFloat($header['paid_amount'] ?? 0));
 
-        $computedDiscountAmount = $discountPercentage > 0
-            ? $this->roundMoney($totalSubTotal * ($discountPercentage / 100))
-            : $this->roundMoney($discountAmount);
+        $isPercentageMode = $rawDiscountPercentage > 0;
 
-        $totalAmount = $this->roundMoney($totalSubTotal - $computedDiscountAmount + $shippingAmount);
+        if ($isPercentageMode) {
+            $discountPercentage = min(100.0, max(0.0, $rawDiscountPercentage));
+            $computedDiscountAmount = $this->roundMoney($totalSubTotal * ($discountPercentage / 100));
+            // In percentage mode, avoid allowing an unrelated fixed-discount input to create a second discount representation
+            $discountAmount = 0.0;
+        } else {
+            $discountPercentage = 0.0;
+            $rawFixedDiscount = max(0.0, $rawDiscountAmount);
+            $computedDiscountAmount = min($rawFixedDiscount, $totalSubTotal);
+            $discountAmount = $computedDiscountAmount;
+        }
+
+        // Prorate global discount across commercial rows in minor units
+        $rowProratedDiscounts = $this->prorateGlobalDiscount($details, $computedDiscountAmount);
+        $effectiveCommercialTotalMinor = 0;
+        $totalAllocatedDiscountMinor = 0;
+
+        foreach ($details as $idx => &$detail) {
+            $share = $rowProratedDiscounts[$idx] ?? 0.0;
+            $shareMinor = (int) round($share * 100);
+            $subTotalMinor = (int) round((float) ($detail['sub_total'] ?? 0) * 100);
+            $effectiveSubTotalMinor = max(0, $subTotalMinor - $shareMinor);
+
+            $detail['global_discount_share'] = round($shareMinor / 100, 2);
+            $detail['effective_sub_total'] = round($effectiveSubTotalMinor / 100, 2);
+
+            $totalAllocatedDiscountMinor += $shareMinor;
+            $effectiveCommercialTotalMinor += $effectiveSubTotalMinor;
+        }
+        unset($detail);
+
+        $allocatedDiscountTotal = round($totalAllocatedDiscountMinor / 100, 2);
+        $effectiveCommercialTotal = round($effectiveCommercialTotalMinor / 100, 2);
+
+        // Authoritative total amount derived directly from allocated effective commercial total plus shipping
+        $shippingMinor = (int) round($shippingAmount * 100);
+        $totalAmountMinor = $effectiveCommercialTotalMinor + $shippingMinor;
+        $totalAmount = round($totalAmountMinor / 100, 2);
+
         $dueAmount = $this->roundMoney(max($totalAmount - $paidAmount, 0));
 
         $normalizedHeader = [
@@ -59,7 +95,86 @@ class SaleNormalizer
             'header' => $normalizedHeader,
             'details' => $details,
             'computed_discount_amount' => $computedDiscountAmount,
+            'allocated_discount_total' => $allocatedDiscountTotal,
+            'effective_commercial_total' => $effectiveCommercialTotal,
         ];
+    }
+
+    /**
+     * Prorates the global discount amount across commercial rows using integer minor units.
+     * Assigns rounding remainders deterministically based on largest remainder.
+     * Bundle components are ignored and receive 0.
+     *
+     * @param  array<int, array<string, mixed>>  $details
+     * @return array<int, float>  Index -> discount share
+     */
+    public function prorateGlobalDiscount(array $details, float $totalDiscountAmount): array
+    {
+        $discountMinor = (int) round($totalDiscountAmount * 100);
+        if ($discountMinor <= 0 || empty($details)) {
+            return array_fill(0, count($details), 0.0);
+        }
+
+        $weights = [];
+        $totalWeightMinor = 0;
+
+        foreach ($details as $idx => $detail) {
+            $subTotalMinor = (int) round((float) ($detail['sub_total'] ?? 0) * 100);
+            $weights[$idx] = max(0, $subTotalMinor);
+            $totalWeightMinor += $weights[$idx];
+        }
+
+        if ($totalWeightMinor <= 0) {
+            return array_fill(0, count($details), 0.0);
+        }
+
+        // Cap discount at total weight
+        $discountMinor = min($discountMinor, $totalWeightMinor);
+
+        $sharesMinor = [];
+        $remainders = [];
+        $allocatedMinor = 0;
+
+        foreach ($details as $idx => $detail) {
+            $w = $weights[$idx];
+            $product = $discountMinor * $w;
+            $share = intdiv($product, $totalWeightMinor);
+            $rem = $product % $totalWeightMinor;
+
+            $sharesMinor[$idx] = $share;
+            $allocatedMinor += $share;
+            $remainders[] = [
+                'index' => $idx,
+                'remainder' => $rem,
+                'weight' => $w,
+            ];
+        }
+
+        $unallocatedMinor = $discountMinor - $allocatedMinor;
+        if ($unallocatedMinor > 0) {
+            // Sort by largest remainder desc, then largest weight desc, then index asc
+            usort($remainders, function ($a, $b) {
+                if ($b['remainder'] !== $a['remainder']) {
+                    return $b['remainder'] <=> $a['remainder'];
+                }
+                if ($b['weight'] !== $a['weight']) {
+                    return $b['weight'] <=> $a['weight'];
+                }
+                return $a['index'] <=> $b['index'];
+            });
+
+            for ($i = 0; $i < $unallocatedMinor; $i++) {
+                $idx = $remainders[$i % count($remainders)]['index'];
+                $sharesMinor[$idx]++;
+            }
+        }
+
+        $result = [];
+        foreach ($details as $idx => $detail) {
+            $result[$idx] = round(($sharesMinor[$idx] ?? 0) / 100, 2);
+        }
+
+        return $result;
     }
 
     /**

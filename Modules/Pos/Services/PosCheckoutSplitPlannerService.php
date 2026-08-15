@@ -3,7 +3,6 @@
 namespace Modules\Pos\Services;
 
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
-use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
@@ -105,16 +104,31 @@ class PosCheckoutSplitPlannerService
             // Phase 2: Bundle revenue decomposition
             $bundleId = (int) ($line['bundle_id'] ?? 0);
             $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            $isBundledLine = ($bundleId > 0 && $bundleItems !== []);
+            $posOwnerIsPkp = $this->sourceIsPkp($settingId);
             $childParts = [];
             $totalChildAllocationsMinor = 0;
 
-            if ($bundleId > 0 && $bundleItems !== []) {
+            if ($isBundledLine) {
+                foreach ($bundleItems as $j => $bi) {
+                    $allocPrice = $this->resolveComponentAllocationAmount($settingId, $bi);
+                    $itemAllocMinor = $this->toMinor($allocPrice * (int) ($bi['quantity'] ?? 1) * $qty);
+                    $totalChildAllocationsMinor += $itemAllocMinor;
+                }
+
+                $parentResidualMinor = $lineSubtotalMinor - $totalChildAllocationsMinor;
+                if ($parentResidualMinor < 0) {
+                    $productName = $line['product_name'] ?? ('Produk #' . $line['product_id']);
+                    throw new PosCheckoutValidationException(
+                        'BUNDLE_RESIDUAL_NEGATIVE',
+                        "Harga paket '{$productName}' tidak mencukupi untuk menutupi alokasi komponen. (Residual: " . ($parentResidualMinor / 100) . ")"
+                    );
+                }
+
                 foreach ($bundleItems as $j => $bi) {
                     $itemQty = $qty * (int) ($bi['quantity'] ?? 1);
                     $allocPrice = $this->resolveComponentAllocationAmount($settingId, $bi);
                     $itemAllocMinor = $this->toMinor($allocPrice * (int) ($bi['quantity'] ?? 1) * $qty);
-
-                    $totalChildAllocationsMinor += $itemAllocMinor;
 
                     $childKey = "{$lineIndex}_C_{$j}";
                     $childAllocations = $allocations[$childKey] ?? null;
@@ -134,9 +148,9 @@ class PosCheckoutSplitPlannerService
                         $sourceLocationId = $nonStockSource['location_id'];
                         $sourceIsPkp = $this->sourceIsPkp($sourceSettingId);
 
-                        // Resolve tax candidate: parent line tax first, then active/default sale tax
+                        // Bundle tax policy: only POS transaction owner allocation is taxable if POS owner is PKP
+                        $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
                         $candidateTaxId = $line['tax_id'] ?? null;
-                        $taxRequired = $sourceIsPkp;
 
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
                             $taxRequired,
@@ -160,15 +174,8 @@ class PosCheckoutSplitPlannerService
                         ];
                     }
                 }
-            }
-
-            $parentResidualMinor = $lineSubtotalMinor - $totalChildAllocationsMinor;
-            if ($parentResidualMinor < 0) {
-                $productName = $line['product_name'] ?? ('Produk #' . $line['product_id']);
-                throw new PosCheckoutValidationException(
-                    'BUNDLE_RESIDUAL_NEGATIVE',
-                    "Harga paket '{$productName}' tidak mencukupi untuk menutupi alokasi komponen. (Residual: " . ($parentResidualMinor / 100) . ")"
-                );
+            } else {
+                $parentResidualMinor = $lineSubtotalMinor;
             }
 
             // Distribute parent residual and child allocations across their chunks/groups
@@ -181,7 +188,26 @@ class PosCheckoutSplitPlannerService
 
             // 1. Assign parent shares
             foreach ($lineChunks as $chunkIndex => $chunk) {
-                $splitKey = (string) $chunk['split_key'];
+                $sourceSettingId = (int) $chunk['source_setting_id'];
+                $sourceLocationId = (int) $chunk['source_location_id'];
+
+                if ($isBundledLine) {
+                    $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                    $candidateTaxId = (int) ($line['tax_id'] ?? 0);
+                    [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
+                    $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
+                    $splitKey = $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket);
+
+                    $chunk['split_key'] = $splitKey;
+                    $chunk['tax_bucket'] = $taxBucket;
+                    $chunk['effective_tax_id'] = $effectiveTaxId;
+                    $chunk['tax_name'] = $taxName;
+                    $chunk['tax_rate'] = $taxRate;
+                    $chunk['tax_bucket_used'] = $effectiveTaxId > 0;
+                } else {
+                    $splitKey = (string) $chunk['split_key'];
+                }
+
                 if (! isset($lineRevenueByGroup[$splitKey])) {
                     $lineRevenueByGroup[$splitKey] = $this->initLineGroup($chunk);
                 }
@@ -197,25 +223,38 @@ class PosCheckoutSplitPlannerService
             // 2. Assign child shares
             foreach ($childParts as $childKey => $part) {
                 if (isset($part['is_stockless'])) {
-                    $splitKey = $part['split_key'];
+                    $sourceSettingId = (int) $part['source_setting_id'];
+                    $sourceLocationId = (int) $part['source_location_id'];
+                    $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                    $candidateTaxId = (int) ($line['tax_id'] ?? 0);
+                    [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
+                    $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
+                    $splitKey = $this->buildSplitKey($sourceSettingId, $sourceLocationId, $taxBucket);
+
+                    $part['split_key'] = $splitKey;
+                    $part['tax_bucket'] = $taxBucket;
+                    $part['effective_tax_id'] = $effectiveTaxId;
+                    $part['tax_name'] = $taxName;
+                    $part['tax_rate'] = $taxRate;
+
                     if (! isset($lineRevenueByGroup[$splitKey])) {
                         $lineRevenueByGroup[$splitKey] = $this->initLineGroup($part);
                     }
 
                     $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $part['total_minor'];
                     $lineRevenueByGroup[$splitKey]['child_allocations'][$childKey][] = [
-                        'source_setting_id' => $part['source_setting_id'],
-                        'source_location_id' => $part['source_location_id'],
+                        'source_setting_id' => $sourceSettingId,
+                        'source_location_id' => $sourceLocationId,
                         'allocated_qty' => $qty * (int) ($bundleItems[explode('_C_', $childKey)[1]]['quantity'] ?? 1),
                         'allocated_minor' => $part['total_minor'],
-                        'tax_bucket_used' => (bool) ($part['effective_tax_id'] > 0),
+                        'tax_bucket_used' => (bool) ($effectiveTaxId > 0),
                         // Audit-only: this component never enters stock allocation or movement.
                         'is_non_stock_audit' => true,
                         'tax_policy_snapshot' => [
                             'source_is_pkp' => (bool) ($part['source_is_pkp'] ?? false),
-                            'tax_id' => $part['effective_tax_id'],
-                            'tax_name' => $part['tax_name'],
-                            'tax_rate' => $part['tax_rate'],
+                            'tax_id' => $effectiveTaxId,
+                            'tax_name' => $taxName,
+                            'tax_rate' => $taxRate,
                         ]
                     ];
                 } else {
@@ -225,13 +264,9 @@ class PosCheckoutSplitPlannerService
                         $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $this->resolveSourceSettingId($settingId, $sourceLocationId));
                         $sourceIsPkp = (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
 
-                        // Bundle allocation tax uses parent/default context, falling back to chunk tax if line is untaxed.
+                        // Bundle tax policy: only POS transaction owner allocation is taxable if POS owner is PKP
+                        $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
                         $candidateTaxId = (int) ($line['tax_id'] ?? 0);
-                        if ($candidateTaxId <= 0 && isset($chunk['tax_policy_snapshot']['tax_id'])) {
-                            $candidateTaxId = (int) $chunk['tax_policy_snapshot']['tax_id'];
-                        }
-
-                        $taxRequired = $sourceIsPkp || (bool) ($chunk['tax_bucket_used'] ?? false);
 
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
@@ -890,20 +925,7 @@ class PosCheckoutSplitPlannerService
 
     private function resolveComponentAllocationAmount(int $settingId, array $item): float
     {
-        // 2.1 Resolve from informational_item_price
-        $infoPrice = (float) ($item['informational_item_price'] ?? 0);
-        if ($infoPrice > 0) {
-            return $infoPrice;
-        }
-
-        // 2.2 Fallback to active-setting product sale price
-        $productId = (int) $item['product_id'];
-        $activePrice = ProductPrice::query()
-            ->forProduct($productId)
-            ->forSetting($settingId)
-            ->value('sale_price');
-
-        return (float) ($activePrice ?? 0);
+        return (float) ($item['informational_item_price'] ?? 0);
     }
 
     /**

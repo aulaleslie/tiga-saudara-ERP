@@ -1,36 +1,4 @@
-## ADDED Requirements
-
-### Requirement: Bundle CRUD SHALL configure final bundle sale price
-The Product Bundle create and edit surfaces SHALL provide a modifiable `Harga Jual Paket` field backed by a new bundle-level value that represents the final sale price for the parent product and selected bundle combined.
-
-#### Scenario: Create form defaults bundle sale price from parent product
-- **WHEN** a user opens `/products/{id}/bundles/create`
-- **AND** the parent product has an active-setting `product_prices.sale_price`
-- **THEN** the `Harga Jual Paket` field SHALL default to that sale price
-- **AND** the user SHALL be able to change the value before saving
-
-#### Scenario: Create form persists bundle sale price
-- **WHEN** a user submits the bundle create form with `Harga Jual Paket`
-- **THEN** the system SHALL persist that value in the new bundle-level sale price column
-- **AND** the system SHALL NOT write that submitted value into the legacy `product_bundles.price` column
-
-#### Scenario: Edit form displays saved bundle sale price
-- **WHEN** a user opens the edit form for an existing bundle
-- **THEN** the `Harga Jual Paket` field SHALL display the saved new bundle sale price value
-- **AND** the user SHALL be able to change and save the value
-
-### Requirement: Product bundle UI SHALL hide legacy bundle price
-The Product Bundle create, edit, and product detail list surfaces SHALL hide the legacy `Harga Paket` value backed by `product_bundles.price`.
-
-#### Scenario: Create and edit forms do not show legacy bundle price
-- **WHEN** a user opens a Product Bundle create or edit form
-- **THEN** the form SHALL NOT show the legacy `Harga Paket` field
-- **AND** the form SHALL NOT ask the user to maintain the legacy add-on price
-
-#### Scenario: Product detail list does not show legacy bundle price
-- **WHEN** a user views the bundle list under a product detail page
-- **THEN** the list SHALL NOT display the legacy `product_bundles.price` value
-- **AND** the list SHALL display the new `Harga Jual Paket` value for each bundle instead
+## MODIFIED Requirements
 
 ### Requirement: Bundle items SHALL configure informational item price
 The Product Bundle item table SHALL display a read-only `Harga Informasi Item` for each bundled item, and the server SHALL derive and persist that value from setting-scoped component sale prices rather than trusting a client-submitted price.
@@ -76,16 +44,3 @@ The Product Bundle item table SHALL display a read-only `Harga Informasi Item` f
 - **WHEN** a user views a bundle under a product detail page
 - **THEN** each component SHALL display the saved informational-price snapshot for that bundle copy
 - **AND** the displayed value SHALL remain informational rather than customer-billable
-
-### Requirement: Product Bundle price configuration SHALL preserve runtime pricing compatibility
-This change SHALL preserve existing Sales and POS runtime pricing behavior until those flows are changed by a later proposal.
-
-#### Scenario: Legacy bundle price data remains stored
-- **WHEN** the migration and Product Bundle CRUD changes are applied
-- **THEN** existing `product_bundles.price` values SHALL remain in the database
-- **AND** existing `product_bundle_items.price` values SHALL remain in the database
-
-#### Scenario: Sales and POS behavior remains unchanged
-- **WHEN** a bundle is used in Sales or POS before a later Sales/POS pricing change is implemented
-- **THEN** those flows SHALL continue using their existing pricing behavior
-- **AND** this Product Bundle configuration change SHALL NOT make Sales or POS use `Harga Jual Paket` as the runtime sale price

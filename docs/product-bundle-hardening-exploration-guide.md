@@ -194,6 +194,65 @@ parent residual + all component allocations = posted bundle commercial amount
 sum(owner-group totals) = checkout total
 ```
 
+### Sequence 3 handoff
+
+Carry these pricing, allocation, display, ownership, and tax decisions forward without reopening them in later sequences:
+
+- `bundle_sale_price` is the administrator-entered customer-facing package price. Bundle creation copies that same header price to every setting copy.
+- `ProductBundleItem.informational_item_price` is not user-authored. Create and edit surfaces must present it as read-only, and the server must ignore or reject a client-supplied override.
+- On replicated creation, each bundle copy snapshots each component's `ProductPrice.sale_price` for that copy's setting. If the component has no price for the target setting, use the current active setting's component sale price as the fallback. Do not copy the active setting's component price into every setting when target-setting prices exist.
+- Editing and saving one setting's bundle copy refreshes every component informational-price snapshot from that copy's setting, with the active-setting price fallback. Other setting copies remain unchanged.
+- Saved informational prices remain immutable snapshots until an administrator saves that setting's bundle copy again. Sales and POS transaction paths must not replace a saved zero or stale snapshot with a current live product price.
+- Component informational prices are internal revenue-allocation inputs only. Normal Sales continues to persist components as non-billable composition, and customer-facing POS receipts display bundled components as zero/free while displaying the full captured bundle price on the parent line.
+- In both Normal Sales and POS, the user may override the bundled parent row's sale price. That transaction-level row price becomes the captured customer-facing bundle amount. A parent price override must not change or proportionally reprice the saved component informational allocations; the parent commercial amount/residual absorbs the entire difference. POS must reject an override below the sum of fixed component allocations because it would produce a negative parent residual.
+- Component outgoing quantity equals the parent outgoing quantity in base units multiplied by the configured component quantity per bundle. Already-expanded quantities must not be expanded twice.
+- Normal Sales is not owner-split: the Sale and its eventual dispatch use one business owner. POS alone may create multiple owner-specific Sales documents.
+- POS component revenue prices always come from the POS transaction owner's saved bundle snapshot, never from a component stock owner's current sale price. Actual stock ownership determines the destination Sales document and inventory source, not the revenue price.
+- Normal Sales row discounts on a bundled row reduce only that parent row's commercial amount. Bundle component rows remain non-billable and do not receive a separate row discount.
+- Normal Sales global discounts are prorated across the commercial Sale item rows. The share assigned to a bundled row reduces only that bundle parent row; its non-billable component rows are not additional proration targets.
+- POS currently does not support discounts and must remain discount-free in this sequence. Do not introduce POS line/global discount allocation as part of bundle pricing hardening; defer it to a future POS discount feature.
+- For POS tax, only the allocation posted to the POS transaction owner's Sales document is tax-included when the POS owner is PKP. Other source-owner split Sales documents are non-tax, regardless of their own owner tax status. Tax is extracted only from the POS-owner residual/allocation, not from the full customer-facing bundle price.
+- Monetary and tax rounding follows the conventions already used by other transactions; bundle logic must not introduce a separate precision policy.
+
+Use this canonical fixture in later explorations:
+
+```text
+POS owner: Setting 1 (PKP)
+
+Bundle A customer price:              5,550,000
+Laptop A internal parent residual:    5,475,000
+Mouse internal allocation:               50,000
+Mousepad internal allocation:             25,000
+
+Stock/source ownership:
+Laptop A -> Setting 1
+Mouse    -> Setting 2
+Mousepad -> Setting 3
+
+Customer receipt:
+Laptop A Bundle A                     5,550,000
+  Mouse                                       0
+  Mousepad                                    0
+
+Internal Sales documents:
+S1-SL-0001 (Setting 1): Laptop A      5,475,000, tax included
+S2-SL-0001 (Setting 2): Mouse            50,000, non-tax
+S3-SL-0001 (Setting 3): Mousepad         25,000, non-tax
+
+Tax base:                              5,475,000 only
+Revenue reconciliation:               5,475,000 + 50,000 + 25,000 = 5,550,000
+
+Manual row-price override example (not a POS discount):
+Configured bundle price:               5,550,000
+Captured overridden row price:         5,500,000
+Mouse allocation:                         50,000
+Mousepad allocation:                       25,000
+Parent residual:                        5,425,000
+Override reconciliation:               5,425,000 + 50,000 + 25,000 = 5,500,000
+```
+
+Sequence 3 also confirmed an HPP dependency but intentionally did not implement or finalize HPP persistence. Current `SaleDetails` cost snapshots cover the parent product only, `SaleBundleItem` has no immutable component cost snapshot, and HPP reports based only on `sale_details` can omit fulfilled component cost. Sequence 9 owns that hardening decision.
+
 ---
 
 ## Sequence 4: Bundle cart and draft snapshot drift
@@ -225,6 +284,10 @@ Distinguish intentional historical snapshot behavior from unsafe stale-cart beha
 ### Dependency
 
 Uses lifecycle decisions from Sequence 2 and monetary identity from Sequence 3.
+
+### Sequence 3 handoff
+
+Treat the per-setting informational prices as saved definition snapshots. A later product sale-price change must not silently reprice an existing bundle copy, open cart, saved draft, preflight, retry, receipt, or posted transaction. Only an administrator saving the relevant bundle copy refreshes its definition-level informational-price snapshots. Determine where the transaction takes its own immutable copy of those values and how drift is detected without reloading live component prices.
 
 ---
 
@@ -262,6 +325,10 @@ persisted component quantity = parent quantity x quantity per bundle
 component sale_id = parent sale_detail sale_id
 ```
 
+### Sequence 3 handoff
+
+Normal Sales remains a single-owner flow. The parent `sale_details` row carries the full customer-facing commercial amount, including any user-overridden row price, while selected `sale_bundle_items` remain non-billable composition rows with zero commercial price/subtotal. Component informational-price snapshots must not be added to Normal Sales totals or repriced when the parent row price changes. A bundle row's own discount reduces only its parent commercial amount. A global discount is prorated across commercial Sale item rows, and the bundled row's share again reduces only the parent rather than treating components as additional discount targets. Component outgoing quantities still expand from the parent base-unit quantity, and the eventual HPP exploration must use the common Sale/dispatch owner's cost rather than informational revenue prices.
+
 ---
 
 ## Sequence 6: POS owner-split bundle posting
@@ -294,6 +361,10 @@ Map the exact transaction boundary and reconciliation checks. Cross-reference th
 ### Dependency
 
 Uses pricing invariants from Sequence 3 and snapshot rules from Sequence 4.
+
+### Sequence 3 handoff
+
+Do not derive component revenue from the stock/source owner's product price. Every split group must carry allocations originating from the POS transaction owner's captured bundle snapshot. A cashier may override the bundled parent row price; use that captured override as the customer-facing bundle amount while leaving component allocations unchanged and assigning the complete difference to the parent residual. Stock ownership chooses the Sales document, dispatch source, and later HPP lookup owner. Only the POS-owner group's allocation is taxable when that owner is PKP; all other source-owner groups remain non-tax. Reconcile the internal owner documents to the captured customer bundle price while preserving zero/free component prices on the customer receipt. POS discounts remain unsupported and are not part of this sequence; verify that no hidden or direct-input path silently introduces line or global discount allocation. Do not misclassify a permitted manual row-price override as a POS discount.
 
 ---
 
@@ -329,6 +400,10 @@ Determine whether the current composite identity is sufficient or only theoretic
 required quantity = approved dispatch + valid outstanding quantity
 one approved dispatch quantity creates one inventory effect
 ```
+
+### Sequence 3 handoff
+
+For Normal Sales, parent and component dispatch belong to the same Sale owner. For POS, actual source ownership determines the destination owner-specific Sale, dispatch, and inventory movement, but it must not reprice the component or make a non-POS-owner allocation taxable. Preserve the transaction's captured component quantity and revenue allocation while proving that each physical parent/component movement occurs once.
 
 ---
 
@@ -374,6 +449,15 @@ Resolve the most important accounting ambiguity without unnecessarily replacing 
 ```text
 /opsx:explore Investigate current HPP treatment for bundles from product average purchase prices through SaleDetails cost snapshots, SaleBundleItem persistence, parent/component inventory movement, returns, operational profit/loss, movement events, and product reports. Do not implement.
 
+Carry forward these settled rules from Sequence 3 instead of deriving HPP from revenue allocation:
+- Informational component sale prices allocate revenue and must never be used as HPP.
+- Normal Sales has one Sale/dispatch owner and does not split by component owner.
+- POS may split Sales documents by actual stock/source owner, but its component revenue prices still come from the POS owner's saved bundle snapshot.
+- For POS HPP, first use the actual stock owner's setting-specific `average_purchase_price`; if absent, use the POS transaction owner's `average_purchase_price`; if absent, fall back to a `last_purchase_price` available for that product from another setting.
+- For Normal Sales HPP, first use the Sale/dispatch owner's setting-specific `average_purchase_price`, then the cross-setting `last_purchase_price` fallback.
+- If no HPP source exists, complete the transaction and notify the user that the Sale has no HPP snapshot. Missing HPP must be explicit and must not be disguised as a verified zero cost.
+- Correct immutable component HPP snapshots are intentionally deferred to this sequence.
+
 Prove with file and line evidence:
 - Which product supplies cost_unit_snapshot for a bundled sale.
 - Whether sale_bundle_items persist any immutable component cost.
@@ -390,6 +474,8 @@ Use worked examples for at least:
 4. Missing or zero average purchase price.
 5. Component owner differs from parent owner.
 
+Also use the Sequence 3 canonical Laptop A + Mouse + Mousepad fixture. Its intended HPP values are `4,500,000` for the Setting 1 Laptop, `25,000` for the Setting 2 Mouse, and `5,000` for the Setting 3 Mousepad, producing total HPP `4,530,000` and gross profit `1,020,000` against revenue `5,550,000`.
+
 Separate confirmed accounting defects from undefined business semantics. Compare minimal compatible options: aggregate component cost onto the parent snapshot, persist component cost snapshots, or both. Explicitly guard against double-counting. Recommend a narrow decision and test matrix, but do not write code or create a proposal unless asked.
 ```
 
@@ -399,6 +485,14 @@ Separate confirmed accounting defects from undefined business semantics. Compare
 recognized HPP = cost of inventory actually fulfilled for the bundle
 the same physical cost must never be recognized twice
 ```
+
+### Decisions still owned by Sequence 9
+
+- Define the deterministic selection rule when several settings have different nonzero `last_purchase_price` values for the same product.
+- Decide whether a missing HPP snapshot is stored as `null` or as a zero-compatible value plus an explicit missing source, considering existing reports that coalesce missing cost to zero.
+- Define the user-notification channel and timing for a completed Sale with missing HPP.
+- Confirm the immutable snapshot moment: POS finalization is the expected POS point; Normal Sales must determine whether creation, approval, or actual dispatch is authoritative.
+- Define report aggregation so parent `SaleDetails` cost and component `SaleBundleItem` cost are each recognized exactly once.
 
 ---
 
@@ -436,6 +530,10 @@ Determine the current authoritative source for composition, quantities, owner, l
 
 Uses snapshot, dispatch, serial, and HPP decisions from Sequences 4, 7, 8, and 9.
 
+### Sequence 3 handoff
+
+The customer refund basis is the persisted customer-facing parent bundle price; receipt components were zero/free and must not become separately refundable customer charges. Owner-specific reversal accounting must use the original persisted internal parent residual, component allocations, tax treatment, quantities, and eventual HPP snapshots. Do not reload the current bundle definition or current product prices. Only the original POS-owner allocation carried tax when that owner was PKP; source-owner component allocations were non-tax.
+
 ---
 
 ## Sequence 11: Bundle report reconciliation
@@ -460,6 +558,8 @@ For each report, identify:
 
 Use one worked fixture with a bundle price, parent residual, two component allocations, two component HPP values, mixed owner/tax context, dispatch, and a partial return. Calculate expected results report by report.
 
+Use the Sequence 3 canonical Laptop A + Mouse + Mousepad fixture unless a report requires an additional variation. Customer-facing reports must show the `5,550,000` bundle and zero/free components. Internal accounting must recognize Setting 1 revenue `5,475,000`, Setting 2 revenue `50,000`, and Setting 3 revenue `25,000`; tax applies only to Setting 1's `5,475,000`. Once Sequence 9 defines component HPP persistence, expected HPP is `4,500,000 + 25,000 + 5,000 = 4,530,000` and gross profit is `1,020,000`.
+
 Specifically check:
 - Parent full value plus component values being summed twice.
 - Zero-value component delivery.
@@ -479,6 +579,10 @@ Commercial: what the customer bought
 Operational: what physically moved
 Accounting: what revenue and cost were recognized
 ```
+
+### Sequence 3 handoff
+
+POS split posting may persist an owner-group `SaleDetail` commercial total and an attached `SaleBundleItem` allocation for the same component revenue. Reports must not sum both representations and double-count revenue. Treat the authoritative owner Sale/header or owner-group detail as revenue and the component row as allocation identity and, after Sequence 9, component HPP identity. Verify the actual schema and query behavior rather than assuming this intended viewpoint is already implemented.
 
 ---
 
@@ -503,6 +607,8 @@ Design a minimal production-readiness checklist covering:
 - Stock, non-stock, serial, tax, receipt, return, HPP, and report verification.
 - Reconciliation queries or a possible read-only diagnostic command.
 - Pilot rollout, monitoring, rollback, and operator guidance.
+
+Include the Sequence 3 canonical split-owner fixture in UAT. Verify separately that the receipt shows zero/free components, the three internal Sales documents reconcile to the full bundle price, only the POS-owner residual is taxable, stock moves under the actual source owners, and HPP follows the Sequence 9 owner/fallback policy without blocking checkout when unavailable.
 
 Define the reconciliations that should hold across sale headers, sale_details, sale_bundle_items, dispatch_details, inventory transactions, returns, and reports. Identify which checks already exist and which would merit a later proposal. Do not write code or create a proposal unless I explicitly ask.
 ```

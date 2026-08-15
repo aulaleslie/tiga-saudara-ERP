@@ -24,7 +24,7 @@ class BundleTable extends Component
     ];
 
     /**
-     * When the component mounts, initialize one empty item.
+     * When the component mounts, initialize items.
      */
     public function mount($productId, $initialItems = [], $bundleId = null): void
     {
@@ -32,34 +32,118 @@ class BundleTable extends Component
         $this->bundleId = $bundleId;
 
         // Priority: old input (validation fail) → initialItems (edit) → empty one row (create)
-        $old = session()->getOldInput('items', []);
-        if (count($old)) {
-            $this->items = $old;
-            $this->rowKeys = [];
-            foreach ($this->items as $_) {
-                $this->rowKeys[] = uniqid('item_', true);
-            }
-        } elseif (!empty($initialItems)) {
-            $this->items = [];
-            $this->rowKeys = [];
-            foreach ($initialItems as $it) {
-                $productName = null;
-                if (!empty($it['product_id'])) {
-                    $p = Product::find($it['product_id']);
-                    $productName = $p ? $p->product_name : null;
-                }
-                $this->items[] = [
-                    'product_id' => $it['product_id'] ?? null,
-                    'product_name' => $productName ?? '',
-                    'quantity' => $it['quantity'] ?? 1,
-                    'informational_item_price' => $it['informational_item_price'] ?? null,
-                    'search' => '',
-                ];
-                $this->rowKeys[] = $it['id'] ?? uniqid('item_', true);
-            }
+        $old = session()->getOldInput('items');
+        if (is_array($old) && count($old) > 0) {
+            $this->normalizeAndSetItems($old, isOldInput: true);
+        } elseif (!empty($initialItems) && is_array($initialItems)) {
+            $this->normalizeAndSetItems($initialItems, isOldInput: false);
         } else {
-            $this->items = [['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => null, 'search' => '']];
-            $this->rowKeys = [uniqid('item_', true)];
+            $this->items = [$this->blankItemRow()];
+            $this->rowKeys = [$this->newRowKey()];
+        }
+    }
+
+    /**
+     * Produce a blank item row in canonical shape.
+     */
+    private function blankItemRow(): array
+    {
+        return [
+            'product_id' => null,
+            'product_name' => '',
+            'quantity' => 1,
+            'informational_item_price' => null,
+            'search' => '',
+        ];
+    }
+
+    /**
+     * Generate a new string row key.
+     */
+    private function newRowKey(): string
+    {
+        return (string) uniqid('item_', true);
+    }
+
+    /**
+     * Bulk-normalize rows and set items & rowKeys.
+     */
+    private function normalizeAndSetItems(array $rawRows, bool $isOldInput): void
+    {
+        $this->items = [];
+        $this->rowKeys = [];
+
+        // 1. Collect valid integer product IDs to query in bulk
+        $productIds = [];
+        foreach ($rawRows as $row) {
+            if (is_array($row) && !empty($row['product_id']) && is_numeric($row['product_id'])) {
+                $productIds[] = (int) $row['product_id'];
+            }
+        }
+        $productIds = array_values(array_unique($productIds));
+
+        // 2. Bulk load product names and active setting prices
+        $productNames = [];
+        $salePrices = [];
+        if (!empty($productIds)) {
+            $productNames = Product::query()
+                ->whereIn('id', $productIds)
+                ->pluck('product_name', 'id')
+                ->all();
+
+            $settingId = $this->resolveActiveSettingId();
+            $salePrices = ProductPrice::query()
+                ->whereIn('product_id', $productIds)
+                ->where('setting_id', $settingId)
+                ->pluck('sale_price', 'product_id')
+                ->all();
+        }
+
+        // 3. Map rows into canonical shape
+        foreach ($rawRows as $row) {
+            if (!is_array($row)) {
+                $this->items[] = $this->blankItemRow();
+                $this->rowKeys[] = $this->newRowKey();
+                continue;
+            }
+
+            $rawProductId = $row['product_id'] ?? null;
+            $productId = (is_numeric($rawProductId) && (int) $rawProductId > 0) ? (int) $rawProductId : null;
+
+            $productName = '';
+            $informationalPrice = null;
+
+            if ($productId !== null && isset($productNames[$productId])) {
+                $productName = (string) $productNames[$productId];
+                if (isset($salePrices[$productId]) && $salePrices[$productId] !== null) {
+                    $informationalPrice = (float) $salePrices[$productId];
+                } elseif (!$isOldInput && isset($row['informational_item_price']) && is_numeric($row['informational_item_price'])) {
+                    // For initial persisted edit items, retain existing snapshot if active setting row missing
+                    $informationalPrice = (float) $row['informational_item_price'];
+                }
+            }
+
+            // Quantity: preserve submitted value (even if string / invalid) or default to 1
+            $quantity = array_key_exists('quantity', $row) ? $row['quantity'] : 1;
+
+            $this->items[] = [
+                'product_id' => $productId !== null && isset($productNames[$productId]) ? $productId : ($productId ?? null),
+                'product_name' => $productName,
+                'quantity' => $quantity,
+                'informational_item_price' => $informationalPrice,
+                'search' => '',
+            ];
+
+            if (!$isOldInput && isset($row['id']) && $row['id'] !== null && $row['id'] !== '') {
+                $this->rowKeys[] = (string) $row['id'];
+            } else {
+                $this->rowKeys[] = $this->newRowKey();
+            }
+        }
+
+        if (empty($this->items)) {
+            $this->items = [$this->blankItemRow()];
+            $this->rowKeys = [$this->newRowKey()];
         }
     }
 
@@ -68,8 +152,8 @@ class BundleTable extends Component
      */
     public function addItem(): void
     {
-        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'informational_item_price' => null, 'search' => ''];
-        $this->rowKeys[] = uniqid('item_', true);
+        $this->items[] = $this->blankItemRow();
+        $this->rowKeys[] = $this->newRowKey();
     }
 
     /**
@@ -77,7 +161,12 @@ class BundleTable extends Component
      */
     public function removeItem($key): void
     {
-        $index = array_search($key, $this->rowKeys, true);
+        if (count($this->items) <= 1) {
+            return;
+        }
+
+        $keyStr = (string) $key;
+        $index = array_search($keyStr, $this->rowKeys, true);
         if ($index === false) {
             return;
         }
@@ -93,10 +182,6 @@ class BundleTable extends Component
         // 1) dispatch('productSelected', ['index' => $key, 'product' => $product])
         // 2) dispatch('productSelected', $key, $product)
 
-        if (!$payload && !$maybeProduct) {
-            return;
-        }
-
         if (is_array($payload) && array_key_exists('index', $payload)) {
             $key = $payload['index'] ?? null;
             $product = $payload['product'] ?? null;
@@ -105,14 +190,22 @@ class BundleTable extends Component
             $product = $maybeProduct;
         }
 
-        if (is_null($key) || !$product) {
-            Log::error('updateProductRow missing index or product', compact('payload', 'maybeProduct'));
+        if ($key === null || $key === '') {
+            Log::error('updateProductRow missing index', compact('payload', 'maybeProduct'));
             return;
         }
 
-        $index = array_search($key, $this->rowKeys, true);
+        $keyStr = (string) $key;
+        $index = array_search($keyStr, $this->rowKeys, true);
         if ($index === false) {
-            Log::error('updateProductRow could not find matching rowKey', compact('key'));
+            Log::error('updateProductRow could not find matching rowKey', compact('key', 'keyStr'));
+            return;
+        }
+
+        if ($product === null) {
+            $this->items[$index]['product_id'] = null;
+            $this->items[$index]['product_name'] = '';
+            $this->items[$index]['informational_item_price'] = null;
             return;
         }
 

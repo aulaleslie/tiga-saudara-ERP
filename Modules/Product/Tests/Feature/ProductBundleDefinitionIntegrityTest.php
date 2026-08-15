@@ -90,6 +90,11 @@ class ProductBundleDefinitionIntegrityTest extends TestCase
             'product_price' => 20000,
             'product_quantity' => 10,
         ]);
+        \Modules\Product\Entities\ProductPrice::create([
+            'product_id' => $this->componentProductA->id,
+            'setting_id' => $this->settingA->id,
+            'sale_price' => 20000,
+        ]);
 
         $this->componentProductB = Product::create([
             'setting_id' => $this->settingA->id,
@@ -99,6 +104,11 @@ class ProductBundleDefinitionIntegrityTest extends TestCase
             'product_cost' => 6000,
             'product_price' => 30000,
             'product_quantity' => 10,
+        ]);
+        \Modules\Product\Entities\ProductPrice::create([
+            'product_id' => $this->componentProductB->id,
+            'setting_id' => $this->settingA->id,
+            'sale_price' => 30000,
         ]);
     }
 

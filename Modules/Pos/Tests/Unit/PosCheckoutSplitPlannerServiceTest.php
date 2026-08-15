@@ -430,4 +430,211 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
         $this->assertSame('TAX:' . $tax->id, $groups[0]['tax_bucket']);
         $this->assertSame($tax->id, $groups[0]['lines'][0]['tax_id']);
     }
+
+    public function test_bundle_decomposition_throws_exception_on_negative_residual(): void
+    {
+        $this->expectException(PosCheckoutValidationException::class);
+        $this->expectExceptionMessage("Harga paket 'Super Bundle' tidak mencukupi untuk menutupi alokasi komponen.");
+
+        $planner = new PosCheckoutSplitPlannerService();
+        $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Super Bundle',
+                        'product_code' => 'BND-01',
+                        'qty' => 1,
+                        'unit_price' => 100, // bundle price 100
+                        'line_subtotal' => 100,
+                        'bundle_id' => 5,
+                        'bundle_items' => [
+                            [
+                                'product_id' => 20,
+                                'quantity' => 1,
+                                'informational_item_price' => 120, // 120 > 100 -> negative residual
+                                'stock_managed' => true,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                '0_P' => [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 10,
+                        'allocated_qty' => 1,
+                    ],
+                ],
+                '0_C_0' => [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 10,
+                        'allocated_qty' => 1,
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    public function test_bundle_uses_informational_item_price_without_falling_back_to_live_price(): void
+    {
+        $planner = new PosCheckoutSplitPlannerService();
+        $plan = $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Super Bundle',
+                        'product_code' => 'BND-01',
+                        'qty' => 2,
+                        'unit_price' => 500, // total subtotal = 1000
+                        'line_subtotal' => 1000,
+                        'bundle_id' => 5,
+                        'bundle_items' => [
+                            [
+                                'product_id' => 20,
+                                'quantity' => 1,
+                                'informational_item_price' => 100, // total comp alloc = 2 * 100 = 200
+                                'stock_managed' => true,
+                            ],
+                            [
+                                'product_id' => 30,
+                                'quantity' => 2,
+                                'informational_item_price' => 0, // 0 informational price -> 0 allocation, no fallback!
+                                'stock_managed' => true,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                '0_P' => [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 10,
+                        'allocated_qty' => 2,
+                    ],
+                ],
+                '0_C_0' => [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 2,
+                    ],
+                ],
+                '0_C_1' => [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 4,
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+        // Group for setting 1 (Parent residual): 1000 - 200 - 0 = 800
+        // Group for setting 2 (Child allocs): 200 + 0 = 200
+        $this->assertCount(2, $groups);
+
+        $parentGroup = collect($groups)->firstWhere('source_setting_id', 1);
+        $childGroup = collect($groups)->firstWhere('source_setting_id', 2);
+
+        $this->assertNotNull($parentGroup);
+        $this->assertNotNull($childGroup);
+
+        $this->assertEquals(800.0, (float) $parentGroup['grand_total']);
+        $this->assertEquals(200.0, (float) $childGroup['grand_total']);
+    }
+
+    public function test_bundle_minor_unit_rounding_allocates_remainders_deterministically(): void
+    {
+        $service = new PosCheckoutSplitPlannerService();
+
+        // 3 units of parent split across 2 sources with uneven quantities (2 and 1)
+        // Parent subtotal = 1000.01 (100,001 minor units)
+        // Component allocation = 3 * 1 * 100.00 = 300.00 (30,000 minor units)
+        // Parent residual = 700.01 (70,001 minor units)
+        // Chunk 1 (qty 2 of 3): intdiv(70,001 * 2, 3) = 46,667 minor (rem 1)
+        // Chunk 2 (qty 1 of 3): intdiv(70,001 * 1, 3) = 23,333 minor (rem 2)
+        // Largest remainder is Chunk 2 (rem 2 > rem 1) => gets +1 minor unit: 23,334 minor (233.34)
+        // Chunk 1 gets 46,667 minor (466.67)
+        // Sum = 466.67 + 233.34 = 700.01 exactly!
+        $plan = $service->plan([
+            'setting_id' => 1,
+            'source_location_ids' => [10, 11, 20],
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Bundle Parent',
+                        'qty' => 3,
+                        'unit_price' => 333.3366,
+                        'line_subtotal' => 1000.01,
+                        'line_discount_amount' => 0,
+                        'tax_id' => null,
+                        'stock_managed' => true,
+                        'bundle_id' => 1,
+                        'bundle_items' => [
+                            [
+                                'product_id' => 20,
+                                'quantity' => 1,
+                                'informational_item_price' => 100.00,
+                                'stock_managed' => true,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                '0_P' => [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 10,
+                        'allocated_qty' => 2,
+                    ],
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 11,
+                        'allocated_qty' => 1,
+                    ],
+                ],
+                '0_C_0' => [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 3,
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+        $this->assertCount(3, $groups); // Loc 10, Loc 11, Loc 20
+
+        $group10 = collect($groups)->firstWhere('source_location_id', 10);
+        $group11 = collect($groups)->firstWhere('source_location_id', 11);
+        $group20 = collect($groups)->firstWhere('source_location_id', 20);
+
+        $this->assertNotNull($group10);
+        $this->assertNotNull($group11);
+        $this->assertNotNull($group20);
+
+        // Parent residual shares
+        $this->assertEquals(466.67, (float) $group10['grand_total']);
+        $this->assertEquals(233.34, (float) $group11['grand_total']);
+        // Component allocation
+        $this->assertEquals(300.00, (float) $group20['grand_total']);
+
+        // Aggregate reconciles exactly to 1000.01 with 0 minor unit loss
+        $aggregateTotal = (float) $group10['grand_total'] + (float) $group11['grand_total'] + (float) $group20['grand_total'];
+        $this->assertEquals(1000.01, round($aggregateTotal, 2));
+    }
 }

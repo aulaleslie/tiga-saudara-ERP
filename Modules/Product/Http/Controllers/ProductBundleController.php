@@ -13,8 +13,15 @@ use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 
+use Modules\Product\Support\ProductBundlePriceResolver;
+
 class ProductBundleController extends Controller
 {
+    public function __construct(
+        private readonly ProductBundlePriceResolver $priceResolver = new ProductBundlePriceResolver()
+    ) {
+    }
+
     /**
      * Display a listing of bundles for a given parent product.
      *
@@ -63,7 +70,7 @@ class ProductBundleController extends Controller
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|distinct|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'items.*.informational_item_price' => 'required|numeric|min:0',
+            'items.*.informational_item_price' => 'nullable|numeric|min:0',
         ], [
             'name.required' => 'Nama harus diisi.',
             'bundle_sale_price.required' => 'Harga Jual Paket harus diisi.',
@@ -75,7 +82,6 @@ class ProductBundleController extends Controller
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
-            'items.*.informational_item_price.required' => 'Setiap item harus punya Harga Informasi Item.',
             'items.*.informational_item_price.numeric' => 'Harga Informasi Item harus berupa angka.',
         ]);
 
@@ -86,11 +92,41 @@ class ProductBundleController extends Controller
             ]);
         }
 
+        $activeSettingId = session('setting_id') ? (int) session('setting_id') : null;
+        $itemsInput = $request->input('items', []);
+
+        // Pre-resolve and validate component price matrix for all settings
+        $resolvedPricesBySetting = [];
+        foreach ($settings as $setting) {
+            $settingId = (int) $setting->id;
+            $resolvedPricesBySetting[$settingId] = [];
+
+            foreach ($itemsInput as $item) {
+                $productIdKey = (int) $item['product_id'];
+                $compPrice = $this->priceResolver->resolveComponentSalePrice(
+                    $productIdKey,
+                    $settingId,
+                    $activeSettingId
+                );
+
+                if ($compPrice === null) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->withErrors([
+                            'items' => "Harga jual produk komponen #{$productIdKey} tidak ditemukan untuk setting #{$settingId} maupun setting aktif.",
+                        ]);
+                }
+
+                $resolvedPricesBySetting[$settingId][$productIdKey] = $compPrice;
+            }
+        }
+
         DB::beginTransaction();
         try {
             foreach ($settings as $setting) {
+                $settingId = (int) $setting->id;
                 $bundle = ProductBundle::create([
-                    'setting_id' => $setting->id,
+                    'setting_id' => $settingId,
                     'parent_product_id' => $productId,
                     'name' => $request->input('name'),
                     'description' => $request->input('description'),
@@ -100,11 +136,14 @@ class ProductBundleController extends Controller
                     'is_active' => true,
                 ]);
 
-                foreach ($request->input('items') as $item) {
+                foreach ($itemsInput as $item) {
+                    $productIdKey = (int) $item['product_id'];
+                    $resolvedInfoPrice = $resolvedPricesBySetting[$settingId][$productIdKey];
+
                     $bundle->items()->create([
-                        'product_id' => $item['product_id'],
+                        'product_id' => $productIdKey,
                         'quantity' => $item['quantity'],
-                        'informational_item_price' => $item['informational_item_price'],
+                        'informational_item_price' => $resolvedInfoPrice,
                     ]);
                 }
             }
@@ -149,7 +188,7 @@ class ProductBundleController extends Controller
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|distinct|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'items.*.informational_item_price' => 'required|numeric|min:0',
+            'items.*.informational_item_price' => 'nullable|numeric|min:0',
         ], [
             'name.required' => 'Nama harus diisi.',
             'bundle_sale_price.required' => 'Harga Jual Paket harus diisi.',
@@ -161,9 +200,33 @@ class ProductBundleController extends Controller
             'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
             'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
             'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
-            'items.*.informational_item_price.required' => 'Setiap item harus punya Harga Informasi Item.',
             'items.*.informational_item_price.numeric' => 'Harga Informasi Item harus berupa angka.',
         ]);
+
+        $activeSettingId = session('setting_id') ? (int) session('setting_id') : null;
+        $itemsInput = $request->input('items', []);
+        $bundleSettingId = (int) $bundle->setting_id;
+
+        // Pre-resolve and validate prices for this copy
+        $resolvedPrices = [];
+        foreach ($itemsInput as $item) {
+            $productIdKey = (int) $item['product_id'];
+            $compPrice = $this->priceResolver->resolveComponentSalePrice(
+                $productIdKey,
+                $bundleSettingId,
+                $activeSettingId
+            );
+
+            if ($compPrice === null) {
+                return redirect()->back()
+                    ->withInput()
+                    ->withErrors([
+                        'items' => "Harga jual produk komponen #{$productIdKey} tidak ditemukan untuk setting ini.",
+                    ]);
+            }
+
+            $resolvedPrices[$productIdKey] = $compPrice;
+        }
 
         DB::beginTransaction();
         try {
@@ -177,13 +240,16 @@ class ProductBundleController extends Controller
                 'is_active'   => $request->boolean('is_active', true),
             ]);
 
-            // Reset and re-create bundle items
+            // Reset and re-create bundle items with pre-resolved prices
             $bundle->items()->delete();
-            foreach ($request->input('items') as $item) {
+            foreach ($itemsInput as $item) {
+                $productIdKey = (int) $item['product_id'];
+                $resolvedInfoPrice = $resolvedPrices[$productIdKey];
+
                 $bundle->items()->create([
-                    'product_id' => $item['product_id'],
+                    'product_id' => $productIdKey,
                     'quantity'   => $item['quantity'],
-                    'informational_item_price' => $item['informational_item_price'],
+                    'informational_item_price' => $resolvedInfoPrice,
                 ]);
             }
 

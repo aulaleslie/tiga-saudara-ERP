@@ -4,20 +4,26 @@
 TBD - created by archiving change implement-pos-phase-3-split-posting. Update Purpose after archive.
 ## Requirements
 ### Requirement: Checkout split groups SHALL be derived by source and tax bucket
-The system SHALL derive split groups for finalized POS checkout lines using key `source_setting_id + source_location_id + tax_bucket` before posting any sale documents. For selected bundled POS lines, split group totals SHALL be derived from internal bundle revenue allocation parts: parent residual revenue follows the parent stock source and component allocation revenue follows each component's stock source or stockless owner rule.
+The system SHALL derive owner-specific groups from actual source setting and location while deriving bundled revenue from the POS owner's captured allocation snapshot. For bundled content, tax grouping SHALL make only the POS-owner allocation taxable when the POS owner is PKP; every other source-owner bundle allocation SHALL be non-tax.
 
-#### Scenario: Grouping mixed-source checkout lines
-- **WHEN** a checkout contains lines resolved to multiple source setting/location combinations and mixed tax outcomes
-- **THEN** the split planner produces one group per unique `source_setting_id + source_location_id + tax_bucket`
+#### Scenario: Parent and component revenue follow actual source owners
+- **WHEN** a bundled parent and its components are fulfilled by different settings or locations
+- **THEN** the parent residual SHALL be assigned to the parent source owner
+- **AND** each fixed component allocation SHALL be assigned to its actual component source owner
 
-#### Scenario: Grouping selected bundle revenue by parent and component owners
-- **WHEN** a selected bundled POS line has a parent product sourced from one owner and a bundled component sourced from another owner
-- **THEN** split planning SHALL assign the parent residual amount to the parent source group
-- **AND** split planning SHALL assign the component allocation amount to the component source group
+#### Scenario: Component allocation retains POS-owner price
+- **WHEN** a component allocation is assigned to a different source owner
+- **THEN** its amount SHALL remain the value captured from the POS owner's bundle snapshot
+- **AND** grouping SHALL NOT reprice it from the source owner's product price
 
-#### Scenario: Same-owner bundle allocations combine into one owner group
-- **WHEN** a selected bundled POS line has a parent product and bundled component sourced from the same source setting, location, and tax bucket
-- **THEN** split planning SHALL include both parent residual and component allocation revenue in that same split group total
+#### Scenario: Only POS-owner group is taxable for PKP POS bundle
+- **WHEN** the POS transaction owner is PKP and a bundle is split across multiple owners
+- **THEN** only the bundle allocation posted to the POS-owner Sales document SHALL use a taxable bucket
+- **AND** every other source-owner bundle allocation SHALL use a non-tax bucket regardless of that source owner's PKP or stock-tax state
+
+#### Scenario: Non-PKP POS owner produces non-tax bundle groups
+- **WHEN** the POS transaction owner is non-PKP
+- **THEN** all owner groups for that bundled row SHALL be non-tax
 
 ### Requirement: Finalize SHALL post one sales bundle per split group
 For each planned split group, the system SHALL create exactly one `sale`, one payment allocation record, and associated dispatch records in the same finalize operation, and SHALL post that bundle using the group `source_setting_id` as owner context.
@@ -41,21 +47,23 @@ For each planned split group, the system SHALL create exactly one `sale`, one pa
 - **AND** no sale in the checkout MAY use another setting's numbering sequence.
 
 ### Requirement: Split posting MUST reconcile totals exactly
-The system MUST ensure the sum of split-group `subtotal`, `tax_total`, `grand_total`, and `paid_total` equals the corresponding checkout totals using minor-unit-safe arithmetic. **When multi-stage payments are used, `paid_total` must equal the sum of all committed payment stages, NOT inline payment inputs.** Selected bundled POS line decomposition MUST also reconcile exactly: parent residual plus component allocation amounts MUST equal the bundled parent row gross amount.
+The system MUST use minor-unit-safe arithmetic so parent residual plus fixed component allocations equals the captured customer bundle amount and aggregate owner Sales totals equal the POS checkout total.
 
-#### Scenario: Totals reconciliation after split posting with staged payments (new scenario)
-- **WHEN** finalize completes with split posting enabled and checkout has pre-committed staged payments (remainder = 0)
-- **THEN** the aggregate totals from all split groups exactly equal the checkout totals
-- **AND** `paid_total` of the sale equals the sum of all committed payment stages from session state
+#### Scenario: Configured bundle price reconciles
+- **WHEN** a bundle uses its configured parent row price
+- **THEN** parent residual plus all component allocations SHALL equal that captured row amount
+- **AND** all generated owner-group grand totals SHALL equal the checkout grand total
 
-#### Scenario: Totals reconciliation after split posting (unchanged core behavior)
-- **WHEN** finalize completes with split posting enabled
-- **THEN** the aggregate totals from all split groups exactly equal the checkout totals
+#### Scenario: Overridden bundle price reconciles through parent residual
+- **WHEN** the cashier overrides the bundled parent row price
+- **THEN** component allocations SHALL remain fixed
+- **AND** only the parent residual SHALL change
+- **AND** owner-group totals SHALL reconcile to the overridden captured amount
 
-#### Scenario: Bundle allocation reconciliation
-- **WHEN** split posting finalizes a selected bundled POS line
-- **THEN** the sum of parent residual and all component allocation gross amounts SHALL equal the customer-facing bundled row gross amount
-- **AND** the sum of all generated split group grand totals SHALL equal the POS checkout grand total
+#### Scenario: Quantity and rounding reconcile across owners
+- **WHEN** a multi-quantity bundle requires allocation across multiple owner/location groups
+- **THEN** component quantities and amounts SHALL be distributed without losing or duplicating minor units
+- **AND** aggregate quantities and money SHALL equal the captured checkout values exactly
 
 ### Requirement: Tax fallback SHALL be applied for split tax bucket resolution
 For POS checkout split planning, the system SHALL resolve the effective split tax bucket from source owner policy and tax evidence in precedence order: explicit POS line tax, product or product-price sale tax, serial-derived tax for serial-assigned lines, allocation or stock tax, and finally fallback policy (default tax first, otherwise latest active tax). Tax applicability SHALL be gated by source owner policy and allocation bucket: when the source owner setting is PKP (`is_pkp=true`) or the allocation consumes `quantity_tax`, the effective tax bucket MUST be `TAX:<tax_id>` using fallback tax resolution when needed; when the source owner setting is non-PKP (`is_pkp=false`) and the allocation does not consume `quantity_tax`, the effective tax bucket MUST be `NON_TAX` regardless of candidate tax evidence.
@@ -110,24 +118,18 @@ The system SHALL preserve split posting ownership behavior such that customer-ow
 - **THEN** posted sale and transaction ownership remain assigned to that split group's `source_setting_id`
 
 ### Requirement: Posted tax persistence SHALL remain consistent with planned source-owner tax policy
-Finalize posting SHALL persist tax-bearing fields using the same source-owner and allocation-bucket tax policy resolved by pre-check and split planning, and MUST NOT re-derive tax behavior using a different heuristic. PKP-owned POS allocations and allocations from `quantity_tax` SHALL persist `sale_details.tax_id`, `sale_details.product_tax_amount`, `dispatch_details.tax_id`, and stock bucket movement as taxable using the planned effective tax. Non-PKP owned allocations that do not consume `quantity_tax` SHALL remain non-tax. Selected bundled POS allocation parts SHALL use the parent line tax candidate, product or product-price sale tax, allocation or stock tax, or fallback tax when needed, and SHALL extract included tax only for taxable allocations.
+Finalize SHALL persist included tax only on the bundled allocation belonging to the PKP POS transaction owner. Source-owner component Sales documents SHALL remain non-tax, and the customer tax summary SHALL equal tax extracted from the POS-owner taxable allocation rather than the full bundle price.
 
-#### Scenario: Mixed-owner checkout persists tax per owner policy
-- **WHEN** a checkout contains chunks from both PKP and non-PKP source owners for the same product line
-- **THEN** persisted `sale_details.product_tax_amount` and `dispatch_details.tax_id` MUST reflect PKP-owned taxable chunks and chunks allocated from `quantity_tax`
-- **AND** non-PKP owned chunks not allocated from `quantity_tax` MUST be persisted as non-tax chunks.
+#### Scenario: Canonical three-owner bundle taxes parent owner only
+- **WHEN** a PKP Setting 1 POS sells a `5,550,000` bundle with Setting 1 parent residual `5,475,000`, Setting 2 component allocation `50,000`, and Setting 3 component allocation `25,000`
+- **THEN** tax SHALL be extracted only from `5,475,000`
+- **AND** the Setting 2 and Setting 3 Sales documents SHALL persist zero tax
+- **AND** all three Sales totals SHALL still reconcile to `5,550,000`
 
-#### Scenario: Bundle allocation uses fallback tax for PKP source owner
-- **WHEN** POS split posting allocates selected bundle revenue to a PKP source owner
-- **AND** the selected bundled parent row and bundled component have no explicit product or line tax candidate
-- **THEN** the generated owner-specific sale detail tax amount SHALL be extracted as included tax from that allocated gross amount using fallback tax resolution
-- **AND** the generated sale bundle item and dispatch context SHALL persist the planned effective tax id.
-
-#### Scenario: Bundle allocation remains non-tax for non-PKP source owner
-- **WHEN** POS split posting allocates selected bundle revenue to a non-PKP source owner
-- **AND** the allocation does not consume `quantity_tax`
-- **THEN** the generated owner-specific sale detail tax amount for that allocation SHALL be zero
-- **AND** persisted dispatch tax for that allocation SHALL remain non-tax
+#### Scenario: Receipt tax reconciles to taxable internal allocation
+- **WHEN** a split bundle receipt displays the full parent price and zero/free components
+- **THEN** its tax summary SHALL equal the tax persisted for the POS-owner allocation
+- **AND** it SHALL NOT extract tax from non-tax source-owner allocations
 
 ### Requirement: Split planning SHALL allocate stockless bundled component revenue to configured non-PKP source
 When a selected bundle contains a non-stock-managed component, split planning SHALL allocate that component's revenue to the first configured sales-location source whose source setting is non-PKP, using existing sales-location configuration ordering. If no configured non-PKP source exists, checkout validation SHALL fail rather than silently assigning the component revenue to the terminal setting.

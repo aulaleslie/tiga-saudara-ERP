@@ -21,7 +21,9 @@
                     </thead>
                     <tbody>
                     @foreach($items as $index => $item)
-                        @php($rowKey = $rowKeys[$index] ?? ('bundle_'.$index))
+                        @php
+                            $rowKey = $rowKeys[$index] ?? ('bundle_'.$index);
+                        @endphp
                         <tr wire:key="bundle-row-{{ $rowKey }}">
                             <td style="min-width: 220px;">
                                 <livewire:modules.product.product-search-dropdown
@@ -37,6 +39,7 @@
                                 <input
                                     type="number"
                                     name="items[{{ $index }}][quantity]"
+                                    value="{{ $item['quantity'] }}"
                                     wire:model.blur="items.{{ $index }}.quantity"
                                     class="form-control"
                                     min="1">
@@ -51,14 +54,12 @@
                                     wire:key="bundle-price-{{ $rowKey }}-{{ $item['product_id'] }}-{{ $item['informational_item_price'] }}"
                                     x-data="currencyField('items.{{ $index }}.informational_item_price', @js($item['informational_item_price']), productCurrency)"
                                     x-model="display"
-                                    x-on:focus="onFocus($event)"
-                                    x-on:input="onInput($event)"
-                                    x-on:blur="onBlur($event)"
                                     inputmode="decimal"
-                                    autocomplete="off">
+                                    autocomplete="off"
+                                    readonly>
                                 @if($item['informational_item_price'] === null && $item['product_id'])
                                     <div class="invalid-feedback d-block">
-                                        Harga jual tidak ditemukan untuk setting ini. Mohon isi manual.
+                                        Harga jual tidak ditemukan untuk produk ini.
                                     </div>
                                 @endif
                                 @error("items.$index.informational_item_price")
@@ -66,7 +67,19 @@
                                 @enderror
                             </td>
                             <td class="text-end">
-                                <button type="button" class="btn btn-danger" wire:click="removeItem('{{ $rowKey }}')">Hapus</button>
+                                @php
+                                    $isOnlyItem = count($items) <= 1;
+                                    $btnTitle = $isOnlyItem ? 'Paket harus memiliki minimal satu item' : 'Hapus item';
+                                    $btnDisabled = $isOnlyItem ? 'disabled' : '';
+                                @endphp
+                                <button
+                                    type="button"
+                                    class="btn btn-danger"
+                                    wire:click="removeItem('{{ $rowKey }}')"
+                                    {{ $btnDisabled }}
+                                    title="{{ $btnTitle }}">
+                                    Hapus
+                                </button>
                             </td>
                         </tr>
                     @endforeach
@@ -79,8 +92,6 @@
     <!-- Hidden inputs to pass bundle items data when the parent form is submitted -->
     @foreach($items as $index => $item)
         <input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $item['product_id'] }}">
-        <input type="hidden" name="items[{{ $index }}][quantity]" value="{{ $item['quantity'] }}">
-        <input type="hidden" name="items[{{ $index }}][informational_item_price]" value="{{ $item['informational_item_price'] }}">
     @endforeach
 
     <style>
