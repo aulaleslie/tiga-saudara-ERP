@@ -21,9 +21,14 @@ class DispatchDetail extends BaseModel
         'serial_numbers',
         'tax_id',
         'bundle_id',
+        'is_inventory_managed',
         'pos_return_line_id',
         'replacement_of_dispatch_detail_id',
         'replacement_returned_serial_id',
+    ];
+
+    protected $casts = [
+        'is_inventory_managed' => 'boolean',
     ];
 
     protected array $uppercaseExcept = [

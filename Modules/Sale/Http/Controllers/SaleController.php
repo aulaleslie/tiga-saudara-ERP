@@ -616,79 +616,22 @@ class SaleController extends Controller
                 ->withInput();
         }
 
-        $validator->after(function ($validator) use ($request, $sale, $allowedLocationIds) {
+        $validator->after(function ($validator) use ($request, $allowedLocationIds) {
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
             $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
             $serialNumberLocations = $request->input('serialNumberLocations', []);
 
-            // Bulk-load all products needed for validation
-            $productIds = $sale->saleDetails->pluck('product_id')
-                ->merge(SaleBundleItem::where('sale_id', $sale->id)->pluck('product_id'))
-                ->unique()
-                ->values()
-                ->all();
+            $productIds = [];
+            foreach ($dispatchedQuantities as $compositeKey => $qty) {
+                if ((int)$qty <= 0) continue;
+                $parts = explode('-', $compositeKey);
+                if (count($parts) >= 2) {
+                    $productIds[] = (int) $parts[0];
+                }
+            }
+            $productIds = array_values(array_unique($productIds));
             $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
-
-            $aggregated = [];
-            foreach ($sale->saleDetails as $detail) {
-                $product = $products->get($detail->product_id);
-                if (!$product) {
-                    continue;
-                }
-
-                $pid = $detail->product_id;
-                $taxId = $detail->tax_id;
-                $bundleId = 0;
-                $key = $pid . '-' . $taxId . '-' . $bundleId;
-                if (!isset($aggregated[$key])) {
-                    $aggregated[$key] = [
-                        'total_quantity' => 0,
-                        'dispatched_quantity' => 0,
-                        'is_inventory_managed' => $product->stock_managed !== false,
-                    ];
-                }
-                $aggregated[$key]['total_quantity'] += (int) $detail->quantity;
-            }
-
-            // Aggregate from bundle items (both stock-managed and non-stock components)
-            $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
-            foreach ($bundleItems as $bundleItem) {
-                $product = $products->get($bundleItem->product_id);
-                if (!$product) {
-                    continue;
-                }
-
-                if (!$bundleItem->saleDetail) {
-                    $validator->errors()->add('bundle_items', "Item bundle {$bundleItem->name} tidak memiliki referensi baris induk yang valid.");
-                    continue;
-                }
-
-                $pid = $bundleItem->product_id;
-                $taxId = $bundleItem->inherited_tax_id;
-                $bundleId = $bundleItem->bundle_id ?? 0;
-                $key = $pid . '-' . $taxId . '-' . $bundleId;
-                if (!isset($aggregated[$key])) {
-                    $aggregated[$key] = [
-                        'total_quantity' => 0,
-                        'dispatched_quantity' => 0,
-                        'is_inventory_managed' => $product->stock_managed !== false,
-                    ];
-                }
-                $aggregated[$key]['total_quantity'] += (int) $bundleItem->quantity;
-            }
-
-            // Also check for PENDING and APPROVED dispatches
-            $currentDispatches = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
-                $query->where('sale_id', $sale->id)->whereIn('status', [Dispatch::STATUS_PENDING, Dispatch::STATUS_APPROVED]);
-            })->get();
-
-            foreach ($currentDispatches as $d) {
-                $key = $d->product_id . '-' . $d->tax_id . '-' . ($d->bundle_id ?? 0);
-                if (isset($aggregated[$key])) {
-                    $aggregated[$key]['dispatched_quantity'] += (int) $d->dispatched_quantity;
-                }
-            }
 
             $hasAnyPositiveQuantity = false;
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
@@ -708,19 +651,7 @@ class SaleController extends Controller
                     continue;
                 }
 
-                // Validate that the submitted composite key exists in authoritative demand
-                if (!isset($aggregated[$compositeKey])) {
-                    $validator->errors()->add("dispatchedQuantities.$compositeKey", "Kunci pengiriman tidak valid untuk penjualan ini.");
-                    continue;
-                }
-
-                // Check remaining quantity (applies to both stock-managed and non-stock)
-                $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
-                if ((int)$qty > $remaining) {
-                    $validator->errors()->add("dispatchedQuantities.$compositeKey", "Jumlah kirim ({$qty}) melebihi sisa pesanan ({$remaining}).");
-                }
-
-                $isInventoryManaged = $aggregated[$compositeKey]['is_inventory_managed'];
+                $isInventoryManaged = $product->stock_managed !== false;
 
                 if ($isInventoryManaged) {
                     if ($product->serial_number_required) {
@@ -812,9 +743,6 @@ class SaleController extends Controller
                             $validator->errors()->add("dispatchedQuantities.$compositeKey", "Stok tidak mencukupi di lokasi terpilih (Tersedia: {$stock}).");
                         }
                     }
-                } else {
-                    // NON-STOCK PRODUCT VALIDATION: only quantity, no location/stock checks
-                    // Non-stock items simply need a positive quantity, which was already validated above
                 }
             }
 
@@ -832,57 +760,121 @@ class SaleController extends Controller
             ]);
             return redirect()->back()->withErrors($validator)->withInput();
         }
+
+        $dispatchedQuantities = $request->input('dispatchedQuantities', []);
+        $selectedLocations = $request->input('selectedLocations', []);
+        $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
+
         DB::beginTransaction();
         try {
+            // Lock the Sale row inside transaction to serialize concurrent submissions
+            $lockedSale = Sale::query()->where('id', $sale->id)->lockForUpdate()->firstOrFail();
+
+            // Authoritatively recompute outstanding demand under lock
+            $saleDetails = SaleDetails::query()->where('sale_id', $lockedSale->id)->get();
+            $bundleItems = SaleBundleItem::query()->where('sale_id', $lockedSale->id)->with('saleDetail')->get();
+
+            $productIds = $saleDetails->pluck('product_id')
+                ->merge($bundleItems->pluck('product_id'))
+                ->unique()
+                ->values()
+                ->all();
+            $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
+            $aggregated = [];
+            foreach ($saleDetails as $detail) {
+                $product = $products->get($detail->product_id);
+                if (!$product) {
+                    continue;
+                }
+
+                $pid = $detail->product_id;
+                $taxId = $detail->tax_id;
+                $bundleId = 0;
+                $key = $pid . '-' . $taxId . '-' . $bundleId;
+                if (!isset($aggregated[$key])) {
+                    $aggregated[$key] = [
+                        'total_quantity' => 0,
+                        'dispatched_quantity' => 0,
+                        'is_inventory_managed' => $product->stock_managed !== false,
+                    ];
+                }
+                $aggregated[$key]['total_quantity'] += (int) $detail->quantity;
+            }
+
+            foreach ($bundleItems as $bundleItem) {
+                $product = $products->get($bundleItem->product_id);
+                if (!$product) {
+                    continue;
+                }
+
+                $pid = $bundleItem->product_id;
+                $taxId = $bundleItem->inherited_tax_id;
+                $bundleId = $bundleItem->bundle_id ?? 0;
+                $key = $pid . '-' . $taxId . '-' . $bundleId;
+                if (!isset($aggregated[$key])) {
+                    $aggregated[$key] = [
+                        'total_quantity' => 0,
+                        'dispatched_quantity' => 0,
+                        'is_inventory_managed' => $product->stock_managed !== false,
+                    ];
+                }
+                $aggregated[$key]['total_quantity'] += (int) $bundleItem->quantity;
+            }
+
+            $currentDispatches = DispatchDetail::whereHas('dispatch', function ($query) use ($lockedSale) {
+                $query->where('sale_id', $lockedSale->id)->whereIn('status', [Dispatch::STATUS_PENDING, Dispatch::STATUS_APPROVED]);
+            })->get();
+
+            foreach ($currentDispatches as $d) {
+                $key = $d->product_id . '-' . $d->tax_id . '-' . ($d->bundle_id ?? 0);
+                if (isset($aggregated[$key])) {
+                    $aggregated[$key]['dispatched_quantity'] += (int) $d->dispatched_quantity;
+                }
+            }
+
+            // Authoritative check under lock
+            $demandErrors = [];
+            foreach ($dispatchedQuantities as $compositeKey => $qty) {
+                if ((int)$qty <= 0) continue;
+
+                if (!isset($aggregated[$compositeKey])) {
+                    $demandErrors["dispatchedQuantities.$compositeKey"] = "Kunci pengiriman tidak valid untuk penjualan ini.";
+                    continue;
+                }
+
+                $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
+                if ((int)$qty > $remaining) {
+                    $demandErrors["dispatchedQuantities.$compositeKey"] = "Jumlah kirim ({$qty}) melebihi sisa pesanan ({$remaining}).";
+                }
+            }
+
+            if (!empty($demandErrors)) {
+                DB::rollBack();
+                return redirect()->back()->withErrors($demandErrors)->withInput();
+            }
+
             $dispatch = Dispatch::create([
-                'sale_id' => $sale->id,
+                'sale_id' => $lockedSale->id,
                 'dispatch_date' => $request->input('dispatch_date'),
                 'status' => Dispatch::STATUS_PENDING,
             ]);
 
             app(\App\Services\Notification\DocumentNotificationService::class)
-                ->notifyApprovalNeeded($dispatch, 'Pengiriman ' . $sale->reference, $sale->setting_id);
-
-            $dispatchedQuantities = $request->input('dispatchedQuantities', []);
-            $selectedLocations = $request->input('selectedLocations', []);
-            $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
-
-            // Bulk-load all products for dispatch detail creation
-            $dispatchProductIds = array_unique(array_map(fn($key) => (int) explode('-', $key)[0], array_keys($dispatchedQuantities)));
-            $dispatchProducts = Product::whereIn('id', $dispatchProductIds)->get()->keyBy('id');
-
-            // Reconstruct aggregated products for reference
-            $aggregatedForDetail = [];
-            foreach ($sale->saleDetails as $detail) {
-                $product = $dispatchProducts->get($detail->product_id);
-                if (!$product) continue;
-                $key = $detail->product_id . '-' . $detail->tax_id . '-0';
-                if (!isset($aggregatedForDetail[$key])) {
-                    $aggregatedForDetail[$key] = ['is_inventory_managed' => $product->stock_managed !== false];
-                }
-            }
-            $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->with('saleDetail')->get();
-            foreach ($bundleItems as $bundleItem) {
-                $product = $dispatchProducts->get($bundleItem->product_id);
-                if (!$product) continue;
-                $key = $bundleItem->product_id . '-' . $bundleItem->inherited_tax_id . '-' . ($bundleItem->bundle_id ?? 0);
-                if (!isset($aggregatedForDetail[$key])) {
-                    $aggregatedForDetail[$key] = ['is_inventory_managed' => $product->stock_managed !== false];
-                }
-            }
+                ->notifyApprovalNeeded($dispatch, 'Pengiriman ' . $lockedSale->reference, $lockedSale->setting_id);
 
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
                 $parts = explode('-', $compositeKey);
-                $productId = $parts[0];
+                $productId = (int) $parts[0];
                 $taxId = $parts[1];
                 $bundleId = $parts[2] ?? 0;
 
-                $product = $dispatchProducts->get($productId);
+                $product = $products->get($productId);
                 if (!$product) continue;
 
-                $isInventoryManaged = $aggregatedForDetail[$compositeKey]['is_inventory_managed'] ?? ($product->stock_managed !== false);
+                $isInventoryManaged = $aggregated[$compositeKey]['is_inventory_managed'] ?? ($product->stock_managed !== false);
 
                 if ($isInventoryManaged) {
                     // Stock-managed product: requires location and/or serials
@@ -914,11 +906,12 @@ class SaleController extends Controller
                         foreach ($serialsByLocation as $locId => $snsAtLocation) {
                             DispatchDetail::create([
                                 'dispatch_id' => $dispatch->id,
-                                'sale_id' => $sale->id,
+                                'sale_id' => $lockedSale->id,
                                 'tax_id' => !empty($taxId) ? $taxId : null,
                                 'product_id' => $productId,
                                 'bundle_id' => !empty($bundleId) ? $bundleId : null,
                                 'dispatched_quantity' => count($snsAtLocation),
+                                'is_inventory_managed' => true,
                                 'location_id' => $locId,
                                 'serial_numbers' => json_encode($snsAtLocation),
                             ]);
@@ -927,11 +920,12 @@ class SaleController extends Controller
                         $locId = (int) $selectedLocations[$compositeKey];
                         DispatchDetail::create([
                             'dispatch_id' => $dispatch->id,
-                            'sale_id' => $sale->id,
+                            'sale_id' => $lockedSale->id,
                             'tax_id' => !empty($taxId) ? $taxId : null,
                             'product_id' => $productId,
                             'bundle_id' => !empty($bundleId) ? $bundleId : null,
                             'dispatched_quantity' => (int)$qty,
+                            'is_inventory_managed' => true,
                             'location_id' => $locId,
                             'serial_numbers' => null,
                         ]);
@@ -940,11 +934,12 @@ class SaleController extends Controller
                     // Non-stock product: no location or serial requirements
                     DispatchDetail::create([
                         'dispatch_id' => $dispatch->id,
-                        'sale_id' => $sale->id,
+                        'sale_id' => $lockedSale->id,
                         'tax_id' => !empty($taxId) ? $taxId : null,
                         'product_id' => $productId,
                         'bundle_id' => !empty($bundleId) ? $bundleId : null,
                         'dispatched_quantity' => (int)$qty,
+                        'is_inventory_managed' => false,
                         'location_id' => null,
                         'serial_numbers' => null,
                     ]);
@@ -967,11 +962,6 @@ class SaleController extends Controller
         abort_if(Gate::denies('salesDispatches.approval'), 403);
         $this->ensureSaleBelongsToCurrentSetting($dispatch->sale);
 
-        if (!$dispatch->isPending()) {
-            toast('Pengiriman ini sudah diproses sebelumnya.', 'error');
-            return redirect()->back();
-        }
-
         $sale = $dispatch->sale;
         $saleDetails = $sale->saleDetails->loadMissing('bundleItems');
         $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
@@ -992,25 +982,57 @@ class SaleController extends Controller
 
         DB::beginTransaction();
         try {
-            $dispatch->load('details.product');
+            /** @var Dispatch $lockedDispatch */
+            $lockedDispatch = Dispatch::query()->where('id', $dispatch->id)->lockForUpdate()->firstOrFail();
 
-            foreach ($dispatch->details as $detail) {
+            if (!$lockedDispatch->isPending()) {
+                DB::rollBack();
+                toast('Pengiriman ini sudah diproses sebelumnya.', 'error');
+                return redirect()->back();
+            }
+
+            $lockedDispatch->load('details.product');
+
+            foreach ($lockedDispatch->details as $detail) {
+                $liveIsStockManaged = $detail->product->stock_managed !== false;
+
+                // Resolve snapshot
+                if ($detail->is_inventory_managed !== null) {
+                    $snapshotManaged = (bool) $detail->is_inventory_managed;
+                } else {
+                    // Legacy inference: check if inventory-specific fields unambiguously indicate stock movement
+                    $hasLocation = !empty($detail->location_id);
+                    $hasSerials = !empty($detail->serial_numbers) && $detail->serial_numbers !== '[]';
+
+                    if ($hasLocation || $hasSerials) {
+                        $snapshotManaged = true;
+                    } elseif (!$hasLocation && !$hasSerials && !$detail->product->serial_number_required) {
+                        $snapshotManaged = false;
+                    } else {
+                        throw new Exception("Klasifikasi pengiriman legacy untuk produk {$detail->product->product_name} tidak dapat ditentukan secara aman.");
+                    }
+                }
+
+                if ($snapshotManaged !== $liveIsStockManaged) {
+                    throw new Exception("Konflik klasifikasi produk: Status manajemen stok produk {$detail->product->product_name} telah berubah sejak pengiriman dibuat.");
+                }
+
                 // Only apply stock mutations to inventory-managed products
-                if ($detail->product->stock_managed !== false) {
+                if ($snapshotManaged) {
                     $this->adjustStockForDispatchDetail($detail, $sale);
                 }
             }
 
-            $dispatch->update([
+            $lockedDispatch->update([
                 'status' => Dispatch::STATUS_APPROVED,
                 'approved_by' => auth()->id(),
                 'approved_at' => now(),
             ]);
 
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($dispatch);
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($dispatch);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($lockedDispatch);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($lockedDispatch);
 
-            $this->recordSerialTrackingForApprovedDispatch($dispatch);
+            $this->recordSerialTrackingForApprovedDispatch($lockedDispatch);
             $this->updateSaleStatus($sale);
 
             DB::commit();

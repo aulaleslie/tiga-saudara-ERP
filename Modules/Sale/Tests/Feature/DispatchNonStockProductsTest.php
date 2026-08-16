@@ -734,6 +734,7 @@ class DispatchNonStockProductsTest extends TestCase
                 'selectedLocations' => [
                     $ramKey => $location->id,
                 ],
+                'acknowledge_lifecycle_warning' => true,
             ]);
 
         $response->assertRedirect(route('sales.dispatches.index'));
@@ -762,7 +763,9 @@ class DispatchNonStockProductsTest extends TestCase
         // Approve RAM dispatch
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
-            ->post(route('dispatches.approve', $ramDispatch));
+            ->post(route('dispatches.approve', $ramDispatch), [
+                'acknowledge_lifecycle_warning' => true,
+            ]);
 
         $ramDispatch->refresh();
         $this->assertEquals(Dispatch::STATUS_APPROVED, $ramDispatch->status);
@@ -789,6 +792,7 @@ class DispatchNonStockProductsTest extends TestCase
                 'dispatchedQuantities' => [
                     $serviceKey => 2,
                 ],
+                'acknowledge_lifecycle_warning' => true,
             ]);
 
         $response->assertRedirect(route('sales.dispatches.index'));
@@ -813,7 +817,9 @@ class DispatchNonStockProductsTest extends TestCase
         // Approve service dispatch
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
-            ->post(route('dispatches.approve', $serviceDispatch));
+            ->post(route('dispatches.approve', $serviceDispatch), [
+                'acknowledge_lifecycle_warning' => true,
+            ]);
 
         $serviceDispatch->refresh();
         $this->assertEquals(Dispatch::STATUS_APPROVED, $serviceDispatch->status);

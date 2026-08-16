@@ -179,6 +179,7 @@ class SalesDispatchBundleTaxInheritanceTest extends TestCase
             'dispatch_date' => now()->toDateString(),
             'dispatchedQuantities' => [$compositeKey => 1],
             'selectedLocations' => [$compositeKey => $location->id],
+            'acknowledge_lifecycle_warning' => true,
         ];
 
         $this->actingAs($user)

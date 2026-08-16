@@ -312,11 +312,339 @@ class DispatchApprovalTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->post(route('dispatches.approve', $dispatch));
 
-        $response->assertRedirect();
-        // Check that session has error (toast error implementation usually uses flash session)
-        // Since I'm using toast() helper, I'll check the session.
-        
         $dispatch->refresh();
         $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch->status, "Dispatch should stay pending if stock is insufficient");
     }
+
+    public function test_submitting_dispatch_persists_correct_inventory_managed_snapshot(): void
+    {
+        [$setting, $user, $sale, $product, $location] = $this->createSetup();
+
+        // Create a non-stock service product and add to sale
+        $serviceCategory = \Modules\Product\Entities\Category::create([
+            'category_name' => 'Services',
+            'category_code' => 'SRV',
+            'setting_id' => $setting->id,
+            'created_by' => $user->id,
+        ]);
+        $unit = \Modules\Setting\Entities\Unit::where('setting_id', $setting->id)->first();
+        $service = Product::create([
+            'product_name' => 'Consulting Service',
+            'product_code' => 'SRV-001',
+            'setting_id' => $setting->id,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'stock_managed' => false,
+            'product_price' => 500,
+            'category_id' => $serviceCategory->id,
+            'product_unit' => $unit->id,
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'product_name' => $service->product_name,
+            'product_code' => $service->product_code,
+            'quantity' => 2,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $stockKey = $product->id . '--0';
+        $serviceKey = $service->id . '--0';
+
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [
+                $stockKey => 3,
+                $serviceKey => 2,
+            ],
+            'selectedLocations' => [
+                $stockKey => $location->id,
+            ],
+        ];
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('sales.storeDispatch', $sale), $payload);
+
+        $response->assertRedirect(route('sales.dispatches.index'));
+
+        $dispatch = Dispatch::where('sale_id', $sale->id)->first();
+        $this->assertNotNull($dispatch);
+
+        $stockDetail = DispatchDetail::where('dispatch_id', $dispatch->id)
+            ->where('product_id', $product->id)
+            ->first();
+        $this->assertNotNull($stockDetail);
+        $this->assertTrue((bool) $stockDetail->is_inventory_managed);
+
+        $serviceDetail = DispatchDetail::where('dispatch_id', $dispatch->id)
+            ->where('product_id', $service->id)
+            ->first();
+        $this->assertNotNull($serviceDetail);
+        $this->assertFalse((bool) $serviceDetail->is_inventory_managed);
+    }
+
+    public function test_concurrent_submissions_requesting_same_last_outstanding_quantity_only_one_succeeds(): void
+    {
+        [$setting, $user, $sale, $product, $location] = $this->createSetup();
+
+        $compositeKey = $product->id . '--0';
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [$compositeKey => 10], // Total order quantity is 10
+            'selectedLocations' => [$compositeKey => $location->id],
+        ];
+
+        // First submission creates pending dispatch for 10
+        $response1 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('sales.storeDispatch', $sale), $payload);
+
+        $response1->assertRedirect(route('sales.dispatches.index'));
+        $this->assertEquals(1, Dispatch::where('sale_id', $sale->id)->count());
+
+        // Second submission attempts to request the same 10 under the lock
+        $response2 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('sales.storeDispatch', $sale), $payload);
+
+        $response2->assertSessionHasErrors(["dispatchedQuantities.$compositeKey"]);
+        $this->assertEquals(1, Dispatch::where('sale_id', $sale->id)->count());
+        $this->assertEquals(1, DispatchDetail::where('sale_id', $sale->id)->count());
+    }
+
+    public function test_concurrent_approval_requests_targeting_same_pending_dispatch_effects_applied_once(): void
+    {
+        [$setting, $user, $sale, $product, $location] = $this->createSetup();
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 4,
+            'is_inventory_managed' => true,
+            'location_id' => $location->id,
+        ]);
+
+        // First approval succeeds
+        $response1 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch));
+        $response1->assertRedirect();
+
+        $dispatch->refresh();
+        $this->assertEquals(Dispatch::STATUS_APPROVED, $dispatch->status);
+
+        $product->refresh();
+        $this->assertEquals(96, $product->product_quantity);
+        $stock = ProductStock::where('product_id', $product->id)->where('location_id', $location->id)->first();
+        $this->assertEquals(96, $stock->quantity);
+        $this->assertEquals(1, Transaction::where('product_id', $product->id)->count());
+
+        // Second approval finds non-pending under lock and makes no further deductions
+        $response2 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch));
+        $response2->assertRedirect();
+
+        $product->refresh();
+        $this->assertEquals(96, $product->product_quantity);
+        $stock->refresh();
+        $this->assertEquals(96, $stock->quantity);
+        $this->assertEquals(1, Transaction::where('product_id', $product->id)->count());
+    }
+
+    public function test_reclassification_between_submission_and_approval_fails_with_conflict_and_leaves_pending(): void
+    {
+        [$setting, $user, $sale, $product, $location] = $this->createSetup();
+
+        // 1. Stock-managed submitted, but reclassified to non-stock before approval
+        $dispatch1 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch1->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 2,
+            'is_inventory_managed' => true,
+            'location_id' => $location->id,
+        ]);
+
+        // Reclassify product to non-stock
+        $product->update(['stock_managed' => false]);
+
+        $response1 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch1));
+
+        $response1->assertRedirect();
+        $dispatch1->refresh();
+        $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch1->status);
+        $this->assertEquals(100, $product->fresh()->product_quantity);
+
+        // 2. Non-stock submitted, but reclassified to stock-managed before approval
+        $unit = \Modules\Setting\Entities\Unit::where('setting_id', $setting->id)->first();
+        $service = Product::create([
+            'product_name' => 'Cleaning Service',
+            'product_code' => 'CLN-001',
+            'setting_id' => $setting->id,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'stock_managed' => false,
+            'product_price' => 200,
+            'category_id' => $product->category_id,
+            'product_unit' => $unit->id,
+        ]);
+
+        $dispatch2 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch2->id,
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => false,
+            'location_id' => null,
+        ]);
+
+        // Reclassify service to stock-managed
+        $service->update(['stock_managed' => true]);
+
+        $response2 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch2));
+
+        $response2->assertRedirect();
+        $dispatch2->refresh();
+        $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch2->status);
+    }
+
+    public function test_legacy_null_snapshot_inference_and_ambiguity_handling(): void
+    {
+        [$setting, $user, $sale, $product, $location] = $this->createSetup();
+
+        // 1. Unambiguous inventory evidence (has location_id)
+        $dispatch1 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch1->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 3,
+            'is_inventory_managed' => null, // Legacy null snapshot
+            'location_id' => $location->id,
+        ]);
+
+        $response1 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch1));
+
+        $response1->assertRedirect();
+        $dispatch1->refresh();
+        $this->assertEquals(Dispatch::STATUS_APPROVED, $dispatch1->status);
+        $this->assertEquals(97, $product->fresh()->product_quantity);
+
+        // 2. Unambiguous non-stock evidence (no location, no serials, product stock_managed=false)
+        $unit = \Modules\Setting\Entities\Unit::where('setting_id', $setting->id)->first();
+        $service = Product::create([
+            'product_name' => 'Legacy Non Stock',
+            'product_code' => 'LEG-001',
+            'setting_id' => $setting->id,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'stock_managed' => false,
+            'serial_number_required' => false,
+            'product_price' => 100,
+            'category_id' => $product->category_id,
+            'product_unit' => $unit->id,
+        ]);
+
+        $dispatch2 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch2->id,
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => null, // Legacy null snapshot
+            'location_id' => null,
+            'serial_numbers' => null,
+        ]);
+
+        $response2 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch2));
+
+        $response2->assertRedirect();
+        $dispatch2->refresh();
+        $this->assertEquals(Dispatch::STATUS_APPROVED, $dispatch2->status);
+
+        // 3. Ambiguous legacy detail: product is serial-required stock-managed, but detail has no location and no serials
+        $serialProduct = Product::create([
+            'product_name' => 'Serial Product',
+            'product_code' => 'SER-001',
+            'setting_id' => $setting->id,
+            'product_quantity' => 10,
+            'product_cost' => 500,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'product_price' => 1000,
+            'category_id' => $product->category_id,
+            'product_unit' => $unit->id,
+        ]);
+
+        $dispatch3 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch3->id,
+            'sale_id' => $sale->id,
+            'product_id' => $serialProduct->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => null, // Legacy null snapshot
+            'location_id' => null,
+            'serial_numbers' => null,
+        ]);
+
+        $response3 = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch3));
+
+        $response3->assertRedirect();
+        $dispatch3->refresh();
+        $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch3->status, "Ambiguous legacy detail must remain pending and reject approval");
+    }
 }
+
