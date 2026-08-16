@@ -19,49 +19,15 @@ class PosCartTotalOverrideController extends Controller
 
     /**
      * Apply or request a total-price override for the current cart.
+     * Retired: Cart-wide total override is no longer supported.
      */
     public function store(PosCartTotalOverrideRequest $request): JsonResponse
     {
-        $settingId = $this->currentSettingId();
-        $sessionId = $this->activeSessionId($request);
-        $user = $request->user();
-
-        try {
-            $approvalToken = $request->string('approval_token')->trim()->value() ?: null;
-
-            // For token execution, do not depend on client-provided target_total.
-            // Pass a placeholder value; the service will use the approved request payload.
-            $targetTotalMinorUnits = 0;
-            if ($approvalToken === null) {
-                // Direct override: target_total is required and was validated
-                $targetTotalMinorUnits = (int) round($request->float('target_total') * 100);
-            }
-
-            $reason = $request->string('reason')->trim()->value() ?: null;
-
-            $result = $this->cartService->overrideTotalPrice(
-                $settingId,
-                $sessionId,
-                (int) $user->id,
-                $targetTotalMinorUnits,
-                $reason,
-                $approvalToken,
-                $user
-            );
-
-            // Distinguish between direct application and request creation
-            if (isset($result['status']) && $result['status'] === 'request_created') {
-                // Return as-is for request creation (without cart_snapshot)
-                return response()->json($result, 201);
-            }
-
-            // For direct application, include the cart snapshot
-            return response()->json(['cart_snapshot' => $result], 200);
-        } catch (DomainException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+        return response()->json([
+            'status' => 'retired',
+            'message' => 'Ubah total keranjang telah dipensiunkan. Gunakan ubah total baris (LINE_TOTAL_OVERRIDE).',
+            'code' => 'FEATURE_RETIRED',
+        ], 422);
     }
 
     private function currentSettingId(): int

@@ -167,6 +167,7 @@ class PosCartTotalsCalculatorTest extends TestCase
                     'line_id' => 1,
                     'qty' => 3,
                     'unit_price' => 33333.33,
+                    'price_source' => 'LINE_TOTAL_OVERRIDE',
                     'line_total' => 10000000, // 100,000.00 minor units
                     'line_discount_type' => 'fixed',
                     'line_discount_value' => 0,
@@ -185,5 +186,38 @@ class PosCartTotalsCalculatorTest extends TestCase
         $this->assertSame(100000.0, $snapshot['lines'][0]['line_subtotal']);
         $this->assertSame(100000.0, $snapshot['totals']['subtotal']);
         $this->assertSame(100000.0, $snapshot['totals']['grand_total']);
+    }
+
+    public function test_line_total_override_percentage_discount_reversal_arithmetic(): void
+    {
+        $calculator = new PosCartTotalsCalculator();
+
+        // 10,000 minor units requested with 10% discount:
+        // gross = 10000 / (1 - 0.1) = 11111 minor units (111.11)
+        // discount = 11111 - 10000 = 1111 minor units (11.11)
+        // line_total = 10000 minor units (100.00)
+        $snapshot = $calculator->calculate(
+            lines: [
+                [
+                    'line_id' => 1,
+                    'qty' => 1,
+                    'unit_price' => 100.0,
+                    'price_source' => 'LINE_TOTAL_OVERRIDE',
+                    'line_total' => 1000000, // 10,000.00 in minor units
+                    'line_discount_type' => 'percentage',
+                    'line_discount_value' => 10.0,
+                    'tax_rate' => 0,
+                    'tax_id' => null,
+                ],
+            ],
+            billDiscount: ['type' => 'fixed', 'value' => 0],
+            isPkp: false
+        );
+
+        $this->assertSame(10000.0, $snapshot['lines'][0]['line_total']);
+        $this->assertSame(10000.0, $snapshot['lines'][0]['line_subtotal']);
+        $this->assertSame(11111.11, $snapshot['lines'][0]['line_gross']);
+        $this->assertSame(1111.11, $snapshot['lines'][0]['line_discount_amount']);
+        $this->assertSame(10000.0, $snapshot['totals']['grand_total']);
     }
 }

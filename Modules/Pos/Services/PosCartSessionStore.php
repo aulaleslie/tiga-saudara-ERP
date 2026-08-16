@@ -34,6 +34,9 @@ class PosCartSessionStore
         return [
             'setting_id' => $settingId,
             'session_id' => $sessionId,
+            // Monotonic revision for compare-and-set. Legacy carts stored before
+            // this field existed read as 0 and advance from there.
+            'revision' => (int) ($stored['revision'] ?? 0),
             'next_line_id' => (int) ($stored['next_line_id'] ?? ($this->computeNextLineId($lines))),
             'lines' => $lines,
             'bill_discount_type' => strtolower((string) ($stored['bill_discount_type'] ?? 'fixed')) === 'percentage'
@@ -75,9 +78,14 @@ class PosCartSessionStore
      */
     public function putCart(int $settingId, int $sessionId, array $cart): void
     {
+        // Advance the revision on every write so a long-running reader can
+        // detect that the cart it captured has since changed. The counter is
+        // stored separately from the cart and survives clearing, so a revision
+        // is never reused for a given setting/session.
         session()->put($this->key($settingId, $sessionId), [
             'setting_id' => $settingId,
             'session_id' => $sessionId,
+            'revision' => $this->bumpGeneration($settingId, $sessionId),
             'next_line_id' => (int) ($cart['next_line_id'] ?? 1),
             'lines' => is_array($cart['lines'] ?? null) ? $cart['lines'] : [],
             'bill_discount_type' => strtolower((string) ($cart['bill_discount_type'] ?? 'fixed')) === 'percentage'
@@ -104,7 +112,60 @@ class PosCartSessionStore
 
     public function clearCart(int $settingId, int $sessionId): void
     {
+        // Preserve the generation across the clear. If the counter were dropped
+        // with the cart, a freshly created cart would restart at 1 and an
+        // operation holding a stale revision 1 would match a different cart
+        // entirely (ABA). The generation therefore lives in its own key and
+        // only ever advances for a given setting/session.
+        $this->bumpGeneration($settingId, $sessionId);
+
         session()->forget($this->key($settingId, $sessionId));
+    }
+
+    /**
+     * Clear the cart only if it is still at the expected revision.
+     *
+     * Checkout captures an authoritative snapshot early and posts it much
+     * later. Clearing unconditionally at the end would delete any cart the
+     * cashier built in the meantime, so the clear is compare-and-set: if the
+     * cart has advanced past the revision that was posted, the newer cart is
+     * preserved and this reports false.
+     *
+     * @return bool True when the expected revision was current and the cart was cleared.
+     */
+    public function clearCartIfRevisionMatches(int $settingId, int $sessionId, int $expectedRevision): bool
+    {
+        $stored = session()->get($this->key($settingId, $sessionId));
+
+        // Already absent: nothing to clear, and no risk of deleting a cart the
+        // caller never saw.
+        if (! is_array($stored)) {
+            return true;
+        }
+
+        // Compare against the cart's own stamped revision. Because generations
+        // never restart, a cart created after a clear carries a strictly higher
+        // revision and can never match a stale expectation.
+        if ((int) ($stored['revision'] ?? 0) !== $expectedRevision) {
+            return false;
+        }
+
+        $this->bumpGeneration($settingId, $sessionId);
+        session()->forget($this->key($settingId, $sessionId));
+
+        return true;
+    }
+
+    /**
+     * Current revision for this cart.
+     *
+     * Derived from the persistent generation counter rather than the stored
+     * cart, so a cleared or recreated cart never reports a revision that was
+     * already handed out.
+     */
+    public function currentRevision(int $settingId, int $sessionId): int
+    {
+        return $this->generation($settingId, $sessionId);
     }
 
     /**
@@ -127,6 +188,7 @@ class PosCartSessionStore
         return [
             'setting_id' => $settingId,
             'session_id' => $sessionId,
+            'revision' => 0,
             'next_line_id' => 1,
             'lines' => [],
             'bill_discount_type' => 'fixed',
@@ -142,6 +204,34 @@ class PosCartSessionStore
     private function key(int $settingId, int $sessionId): string
     {
         return 'pos.cart.setting.' . $settingId . '.session.' . $sessionId;
+    }
+
+    /**
+     * Key of the monotonic generation counter.
+     *
+     * Deliberately separate from the cart key so clearing the cart does not
+     * reset it. A cart recreated after a clear must never reuse an earlier
+     * revision, or a stale compare-and-set could match an unrelated cart.
+     */
+    private function generationKey(int $settingId, int $sessionId): string
+    {
+        return 'pos.cart.generation.setting.' . $settingId . '.session.' . $sessionId;
+    }
+
+    /**
+     * Advance and return the generation counter for this cart.
+     */
+    private function bumpGeneration(int $settingId, int $sessionId): int
+    {
+        $next = $this->generation($settingId, $sessionId) + 1;
+        session()->put($this->generationKey($settingId, $sessionId), $next);
+
+        return $next;
+    }
+
+    private function generation(int $settingId, int $sessionId): int
+    {
+        return (int) session()->get($this->generationKey($settingId, $sessionId), 0);
     }
 
     /**

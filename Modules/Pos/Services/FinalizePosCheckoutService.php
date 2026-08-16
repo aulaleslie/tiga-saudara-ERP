@@ -33,6 +33,7 @@ class FinalizePosCheckoutService
         private readonly ResolvePosStockAllocationsService $stockResolver,
         private readonly PosReceiptNumberGenerator $receiptNumberGenerator,
         private readonly PosCashDrawerService $cashDrawerService,
+        private readonly PosCartMutationLock $cartMutationLock,
         private readonly ?PosTransactionService $transactionService = null,
         private readonly ?PosCheckoutPaymentNormalizationService $paymentNormalizationService = null,
         private readonly ?PosCartActionAuthorizationService $authorizationService = null
@@ -69,6 +70,40 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks checkout tidak valid.');
         }
 
+        // Hold the cart mutation lock across the whole authoritative span:
+        // snapshot capture, posting, and clear. Guarding only the final clear
+        // would leave the read-to-clear window open, and a compare-and-set on
+        // the clear is not sufficient either — preserving a mutated cart can
+        // retain lines that were already posted, risking a duplicate sale.
+        // Concurrent cart mutation therefore receives CART_BUSY rather than
+        // modifying the cart being posted.
+        return $this->cartMutationLock->withLock(
+            $settingId,
+            (int) $activeSession->id,
+            fn (): array => $this->finalizeWithinLock(
+                $settingId,
+                $activeSession,
+                $cashierUserId,
+                $idempotencyKey,
+                $paymentPayload,
+                $clientContext
+            )
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $paymentPayload
+     * @param  array<string, mixed>|null  $clientContext
+     * @return array<string, mixed>
+     */
+    private function finalizeWithinLock(
+        int $settingId,
+        PosSession $activeSession,
+        int $cashierUserId,
+        string $idempotencyKey,
+        array $paymentPayload,
+        ?array $clientContext = null
+    ): array {
         $sessionId = (int) $activeSession->id;
         $checkoutTerminal = $this->resolveCheckoutTerminal($settingId, $activeSession);
         $terminalId = (int) $checkoutTerminal->id;
@@ -338,6 +373,10 @@ class FinalizePosCheckoutService
             clientContext: $clientContext
         );
 
+        // The cart mutation lock is held for this whole method (see finalize()),
+        // so no writer can have changed the cart since the authoritative
+        // snapshot was captured. Clearing unconditionally is therefore safe and
+        // removes exactly what was posted.
         $this->cartSessionStore->clearCart($settingId, $sessionId);
 
         return [

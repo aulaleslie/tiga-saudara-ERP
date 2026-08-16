@@ -149,7 +149,8 @@ class POSCartTotalsDisplayTest extends TestCase
     public function test_price_override_requires_approval_and_rejected_request_keeps_price_unchanged(): void
     {
         $setting = $this->createSetting('BIZ POS CART PRICE REJECT', true);
-        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN FAIL', true);
+        // No direct override permission: this test exercises the approval path.
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN FAIL', false);
         $tax = $this->createTax('PPN 11% PIN FAIL', 11);
         $product = $this->createStockedProduct($setting, $location, 'SKU-PIN-F', 'Produk PIN Gagal', 10000, $tax->id, $cashier->id);
 
@@ -170,7 +171,7 @@ class POSCartTotalsDisplayTest extends TestCase
         // Direct override by cashier requires supervisory approval.
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+            ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                 'unit_price' => 9000,
             ])
             ->assertStatus(422)
@@ -179,11 +180,11 @@ class POSCartTotalsDisplayTest extends TestCase
         $requestId = (int) $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.approval-requests.store'), [
-                'action_type' => 'PRICE_OVERRIDE',
+                'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
                 'target_type' => 'pos_cart_line',
                 'target_id' => $lineId,
                 'payload' => [
-                    'unit_price' => 9000,
+                    'requested_unit_price' => 9000,
                 ],
             ])
             ->assertStatus(201)
@@ -207,9 +208,10 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $this->assertDatabaseHas('pos_supervisor_approvals', [
             'setting_id' => $setting->id,
-            'action_type' => 'PRICE_OVERRIDE',
+            'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
+            // Supervisor decisions are session-scoped; the line-scoped
+            // execution audit is written only on success.
             'target_type' => 'pos_session',
-            'target_id' => $session->id,
             'requested_by' => $cashier->id,
             'approved_by' => $supervisor->id,
             'approval_result' => 'REJECTED',
@@ -220,7 +222,8 @@ class POSCartTotalsDisplayTest extends TestCase
     public function test_price_override_approved_token_updates_line_price_and_prevents_replay(): void
     {
         $setting = $this->createSetting('BIZ POS CART PRICE APPROVED', true);
-        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN OK', true);
+        // No direct override permission: this test exercises the approval path.
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN OK', false);
         $tax = $this->createTax('PPN 11% PIN OK', 11);
         $product = $this->createStockedProduct($setting, $location, 'SKU-PIN-S', 'Produk PIN Sukses', 10000, $tax->id, $cashier->id);
 
@@ -241,11 +244,11 @@ class POSCartTotalsDisplayTest extends TestCase
         $requestId = (int) $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.approval-requests.store'), [
-                'action_type' => 'PRICE_OVERRIDE',
+                'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
                 'target_type' => 'pos_cart_line',
                 'target_id' => $lineId,
                 'payload' => [
-                    'unit_price' => 9000,
+                    'requested_unit_price' => 9000,
                 ],
             ])
             ->assertStatus(201)
@@ -270,8 +273,10 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
-                'unit_price' => 7000, // token payload remains authoritative
+            ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
+                // Must match the approved value exactly: a mismatch is now
+                // rejected instead of being silently replaced.
+                'unit_price' => 9000,
                 'approval_token' => $token,
             ])
             ->assertOk()
@@ -282,7 +287,7 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+            ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                 'unit_price' => 8000,
                 'approval_token' => $token,
             ])
@@ -291,7 +296,7 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $this->assertDatabaseHas('pos_supervisor_approvals', [
             'setting_id' => $setting->id,
-            'action_type' => 'PRICE_OVERRIDE',
+            'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
             'target_type' => 'pos_session',
             'target_id' => $session->id,
             'requested_by' => $cashier->id,

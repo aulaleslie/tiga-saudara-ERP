@@ -9,11 +9,6 @@
                                     <div class="small text-muted">Total Akhir</div>
                                     <div id="pos-payment-summary-total" class="pos-total-value">Rp0</div>
                                 </div>
-                                <div style="margin-bottom: 1rem;">
-                                    <button id="pos-total-override-trigger" class="btn btn-outline-secondary btn-sm" type="button" title="Ubah total keranjang">
-                                        Ubah Total
-                                    </button>
-                                </div>
                                 <div class="d-flex" style="gap: 0.5rem;">
                                     @if($posTransactionsEnabled && auth()->user()->can('pos.transactions.save'))
                                         <button id="pos-save-draft" class="btn btn-outline-primary btn-lg" type="button">

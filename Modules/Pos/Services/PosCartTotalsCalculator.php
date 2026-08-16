@@ -25,16 +25,38 @@ class PosCartTotalsCalculator
             $lineId = (int) ($line['line_id'] ?? 0);
             $qty = max(0, (int) ($line['qty'] ?? 0));
             $unitPriceCents = $this->toMinor((float) ($line['unit_price'] ?? 0));
-            if (isset($line['line_total'])) {
-                $lineGrossCents = (int) $line['line_total'];
-            } else {
-                $lineGrossCents = $qty * $unitPriceCents;
-            }
-
+            $priceSource = (string) ($line['price_source'] ?? 'BASE');
             $discountType = $this->normalizeDiscountType((string) ($line['line_discount_type'] ?? 'fixed'));
             $discountValue = (float) ($line['line_discount_value'] ?? 0);
-            $lineDiscountCents = $this->lineDiscountCents($discountType, $discountValue, $lineGrossCents);
-            $lineNetBeforeBillCents = max(0, $lineGrossCents - $lineDiscountCents);
+
+            if ($this->hasCanonicalOverrideMetadata($line)) {
+                // A row override already computed these through the canonical
+                // arithmetic authority. Re-deriving them here is what previously
+                // produced two disagreeing sets of numbers, so they are consumed
+                // as persisted rather than reconstructed.
+                $lineGrossCents = (int) $line['line_gross_minor'];
+                $lineDiscountCents = (int) $line['line_discount_minor'];
+                $lineNetBeforeBillCents = (int) $line['line_net_minor'];
+            } elseif ($priceSource === 'LINE_TOTAL_OVERRIDE' && isset($line['line_total_minor'])) {
+                // Explicit minor-unit contract takes precedence.
+                $lineNetBeforeBillCents = (int) $line['line_total_minor'];
+                $lineDiscountCents = $this->reverseLineDiscountCents($discountType, $discountValue, $lineNetBeforeBillCents);
+                $lineGrossCents = $lineNetBeforeBillCents + $lineDiscountCents;
+            } elseif ($priceSource === 'LINE_TOTAL_OVERRIDE' && isset($line['line_total'])) {
+                // Legacy fallback: rows persisted before the explicit field
+                // existed carry the net in the ambiguous `line_total`.
+                $lineNetBeforeBillCents = (int) $line['line_total'];
+                $lineDiscountCents = $this->reverseLineDiscountCents($discountType, $discountValue, $lineNetBeforeBillCents);
+                $lineGrossCents = $lineNetBeforeBillCents + $lineDiscountCents;
+            } elseif ($priceSource === 'PACKED' && isset($line['line_total'])) {
+                $lineGrossCents = (int) $line['line_total'];
+                $lineDiscountCents = $this->lineDiscountCents($discountType, $discountValue, $lineGrossCents);
+                $lineNetBeforeBillCents = max(0, $lineGrossCents - $lineDiscountCents);
+            } else {
+                $lineGrossCents = $qty * $unitPriceCents;
+                $lineDiscountCents = $this->lineDiscountCents($discountType, $discountValue, $lineGrossCents);
+                $lineNetBeforeBillCents = max(0, $lineGrossCents - $lineDiscountCents);
+            }
 
             return array_merge($line, [
                 'line_id' => $lineId,
@@ -191,9 +213,47 @@ class PosCartTotalsCalculator
         return $allocations;
     }
 
+    /**
+     * Whether a line carries the canonical derived metadata written by
+     * PosRowOverrideArithmetic.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    private function hasCanonicalOverrideMetadata(array $line): bool
+    {
+        $source = (string) ($line['price_source'] ?? 'BASE');
+
+        if ($source !== 'LINE_TOTAL_OVERRIDE' && $source !== 'LINE_UNIT_PRICE_OVERRIDE') {
+            return false;
+        }
+
+        return isset($line['line_gross_minor'], $line['line_discount_minor'], $line['line_net_minor']);
+    }
+
     private function normalizeDiscountType(string $type): string
     {
         return strtolower($type) === 'percentage' ? 'percentage' : 'fixed';
+    }
+
+    private function reverseLineDiscountCents(string $type, float $value, int $lineNetCents): int
+    {
+        if ($lineNetCents <= 0) {
+            return 0;
+        }
+
+        if ($type === 'percentage') {
+            $percentage = max(0.0, min(100.0, $value));
+            if ($percentage >= 100.0) {
+                return 0;
+            }
+            $grossMinor = (int) round(($lineNetCents * 100.0) / (100.0 - $percentage), 0, PHP_ROUND_HALF_UP);
+
+            return max(0, $grossMinor - $lineNetCents);
+        }
+
+        $fixedCents = max(0, $this->toMinor($value));
+
+        return $fixedCents;
     }
 
     private function lineDiscountCents(string $type, float $value, int $lineGrossCents): int

@@ -20,7 +20,8 @@ class PosTransactionService
         private readonly PosTransactionSnapshotMapper $mapper,
         private readonly PosTransactionCodeGenerator $codeGenerator,
         private readonly PosTransactionPolicyService $policyService,
-        private readonly PosCartActionAuthorizationService $actionAuthorizationService
+        private readonly PosCartActionAuthorizationService $actionAuthorizationService,
+        private readonly PosCartMutationLock $cartMutationLock
     ) {}
 
     /**
@@ -32,6 +33,21 @@ class PosTransactionService
      * @throws PosTransactionConflictException('EDIT_FORBIDDEN', ...)
      */
     public function saveAndNew(
+        int $settingId,
+        PosSession $activeSession,
+        User $user
+    ): PosTransaction {
+        // Cart lock is taken outside the database transaction so lock ordering
+        // is uniform across POS (cart lock -> DB transaction) and the
+        // read-validate-write sequence below is atomic against other writers.
+        return $this->cartMutationLock->withLock(
+            $settingId,
+            (int) $activeSession->id,
+            fn (): PosTransaction => $this->saveAndNewWithinLock($settingId, $activeSession, $user)
+        );
+    }
+
+    private function saveAndNewWithinLock(
         int $settingId,
         PosSession $activeSession,
         User $user
@@ -171,6 +187,29 @@ class PosTransactionService
      * @throws PosTransactionValidationException('TRANSACTION_NOT_LOADABLE', ...)
      */
     public function loadToCart(
+        int $settingId,
+        int $sessionId,
+        PosTransaction $transaction,
+        User $user,
+        bool $acknowledgeLifecycleWarning = false
+    ): array {
+        return $this->cartMutationLock->withLock(
+            $settingId,
+            $sessionId,
+            fn (): array => $this->loadToCartWithinLock(
+                $settingId,
+                $sessionId,
+                $transaction,
+                $user,
+                $acknowledgeLifecycleWarning
+            )
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadToCartWithinLock(
         int $settingId,
         int $sessionId,
         PosTransaction $transaction,

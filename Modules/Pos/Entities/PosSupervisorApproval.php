@@ -8,9 +8,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PosSupervisorApproval extends BaseModel
 {
+    /**
+     * Retired audit action types. Historical rows remain readable and render
+     * read-only; neither may be written for a new execution.
+     */
     public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
 
     public const ACTION_TOTAL_PRICE_OVERRIDE_APPROVAL = 'TOTAL_PRICE_OVERRIDE_APPROVAL';
+
+    /** Active row-scoped monetary override audits. */
+    public const ACTION_LINE_UNIT_PRICE_OVERRIDE = 'LINE_UNIT_PRICE_OVERRIDE';
+
+    public const ACTION_LINE_TOTAL_OVERRIDE = 'LINE_TOTAL_OVERRIDE';
 
     public const ACTION_SAFE_DROP_APPROVAL = 'SAFE_DROP_APPROVAL';
 

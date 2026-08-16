@@ -14,6 +14,7 @@ final class PosPermissionMatrix
             'pos.monitor.access' => 'Live monitor access is not exposed by supported runtime routes. Keep only for transitional migrations until a supported monitor surface exists.',
             'pos.approval.requests.view' => 'Approval queue visibility is represented by pos.supervisor.approval in supported runtime behavior.',
             'pos.settings.edit' => 'POS setting administration is not exposed as a supported runtime permission in the current POS surface.',
+            'pos.overrides.total-price' => 'Cart-level total price override is replaced by authoritative row-total override (pos.overrides.price).',
         ];
     }
 
@@ -60,7 +61,6 @@ final class PosPermissionMatrix
                     'pos.returns.receive',
                     'pos.returns.settle',
                     'pos.returns.dispatch',
-                    'pos.overrides.total-price',
                     'pos.checkout.debt',
                 ],
             ],
@@ -140,7 +140,6 @@ final class PosPermissionMatrix
                     'pos.cart.line.remove',
                     'pos.cart.line.reduce',
                     'pos.overrides.price',
-                    'pos.overrides.total-price',
                     'pos.overrides.discount',
                     'pos.void',
                     'pos.checkout.debt',

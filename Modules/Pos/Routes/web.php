@@ -135,6 +135,12 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/cart/lines/{lineId}/price-override', [PosSellController::class, 'cartOverridePrice'])
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.price-override');
+    Route::post('/pos/sell/cart/lines/{lineId}/unit-price-override', [PosSellController::class, 'cartOverrideLineUnitPrice'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.unit-price-override');
+    Route::post('/pos/sell/cart/lines/{lineId}/line-total-override', [PosSellController::class, 'cartOverrideLineTotal'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.line-total-override');
     Route::post('/pos/sell/cart/total-override', [PosCartTotalOverrideController::class, 'store'])->name('pos.sell.cart.total-override.store');
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');

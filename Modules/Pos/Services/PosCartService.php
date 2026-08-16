@@ -33,8 +33,32 @@ class PosCartService
         private readonly PosCheckoutCustomerResolverService $customerResolver,
         private readonly PosCartActionAuthorizationService $actionAuthorizationService,
         private readonly PosCartTotalAllocationService $allocationService,
-        private readonly PosCartTotalOverrideRequestService $overrideRequestService
+        private readonly PosCartTotalOverrideRequestService $overrideRequestService,
+        private readonly PosApprovalTokenService $approvalTokenService,
+        private readonly PosCartMutationLock $cartMutationLock,
+        private readonly PosRowOverrideExecutionCoordinator $overrideExecutionCoordinator,
+        private readonly PosRowOverrideArithmetic $rowOverrideArithmetic,
+        private readonly PosRowOverrideApprovalPayloadBuilder $rowOverridePayloadBuilder,
+        private readonly PosCartLineFingerprintService $lineFingerprintService
     ) {
+    }
+
+    /**
+     * Run a cart mutation while holding this cart's mutation lock.
+     *
+     * Every operation that persists, clears, replaces, or hydrates the cart
+     * must route through here — the guard set is defined by whether the
+     * operation writes the cart, not by whether the write affects approval
+     * validity. Override compensation restores an exact snapshot, so an
+     * unguarded concurrent writer would have its write silently erased.
+     *
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withCartLock(int $settingId, int $sessionId, callable $callback): mixed
+    {
+        return $this->cartMutationLock->withLock($settingId, $sessionId, $callback);
     }
 
     /**
@@ -42,21 +66,36 @@ class PosCartService
      */
     public function getSnapshot(int $settingId, int $sessionId): array
     {
-        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        // Despite the name this is a cart writer: it persists a generated
+        // staged_payment_token. It therefore takes the mutation lock like any
+        // other writer.
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId): array {
+            $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
-        // Generate staged_payment_token if it doesn't exist
-        if (!isset($cart['staged_payment_token']) || empty($cart['staged_payment_token'])) {
-            $cart['staged_payment_token'] = (string) \Illuminate\Support\Str::uuid();
-            $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
-        }
+            // Generate staged_payment_token if it doesn't exist
+            if (!isset($cart['staged_payment_token']) || empty($cart['staged_payment_token'])) {
+                $cart['staged_payment_token'] = (string) \Illuminate\Support\Str::uuid();
+                $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+            }
 
-        return $this->buildSnapshot($settingId, $sessionId, $cart);
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
+        });
     }
 
     /**
      * @return array<string, mixed>
      */
     public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null, ?int $bundleId = null): array
+    {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $productId, $qty, $conversionId, $bundleId): array {
+            return $this->addLineWithinLock($settingId, $sessionId, $productId, $qty, $conversionId, $bundleId);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function addLineWithinLock(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null, ?int $bundleId = null): array
     {
         if ($qty < 1) {
             throw new DomainException('Kuantitas harus minimal 1.');
@@ -287,9 +326,20 @@ class PosCartService
      */
     public function updateLine(int $settingId, int $sessionId, int $lineId, array $payload, ?string $approvalToken = null, ?User $user = null): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $payload, $approvalToken, $user): array {
+            return $this->updateLineWithinLock($settingId, $sessionId, $lineId, $payload, $approvalToken, $user);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function updateLineWithinLock(int $settingId, int $sessionId, int $lineId, array $payload, ?string $approvalToken = null, ?User $user = null): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateLineTotalOverride($sessionId, $lineId);
         $this->clearAppliedTotalOverride($cart);
 
         // Try to find line by line_id first
@@ -342,17 +392,35 @@ class PosCartService
         $discountType = $payload['line_discount_type'] ?? $line['line_discount_type'] ?? 'fixed';
         $discountValue = (float) ($payload['line_discount_value'] ?? $line['line_discount_value'] ?? 0);
 
+        $priceSource = $line['price_source'] ?? 'BASE';
+        $unitPrice = (float) ($line['unit_price'] ?? 0);
+
         // Preserve assigned serials across qty changes. Serial/qty mismatch is validated at checkout time.
         $updatedLine = array_merge($line, [
             'qty' => $qty,
+            'unit_price' => $unitPrice,
+            'price_source' => $priceSource,
             'assigned_serials' => $assignedSerials,
             'line_discount_type' => $this->normalizeDiscountType((string) $discountType),
             'line_discount_value' => round(max(0.0, $discountValue), 2),
         ]);
 
+        if ($priceSource !== 'PACKED') {
+            // Drop every canonical field, not just line_total: the calculator
+            // trusts them over recalculation, so a surviving set computed for
+            // the previous quantity or discount would report a stale total.
+            $updatedLine = $this->clearCanonicalOverrideMetadata($updatedLine);
+        }
+
+        // Quantity, discount, or tax context just changed. A unit-price
+        // override keeps its authoritative price and gets fresh metadata; a
+        // row-total override reverts to resolved standard pricing.
+        $updatedLine = $this->refreshOrInvalidateRowOverride($settingId, $updatedLine, $cart);
+        $priceSource = (string) ($updatedLine['price_source'] ?? $priceSource);
+
         // For packed lines, re-pack the total quantity from cached pricing_basis
         // Skip if total-override is active (frozen pricing)
-        if (($line['price_source'] ?? null) === 'PACKED' && isset($line['pricing_basis'])) {
+        if (($priceSource === 'PACKED') && isset($line['pricing_basis'])) {
             $pricingBasis = $line['pricing_basis'];
             // Use cached tier to avoid DB query
             $tier = $cart['selected_customer_tier'] ?? null;
@@ -376,9 +444,20 @@ class PosCartService
      */
     public function removeLine(int $settingId, int $sessionId, int $lineId, ?string $approvalToken = null, ?User $user = null): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $approvalToken, $user): array {
+            return $this->removeLineWithinLock($settingId, $sessionId, $lineId, $approvalToken, $user);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function removeLineWithinLock(int $settingId, int $sessionId, int $lineId, ?string $approvalToken = null, ?User $user = null): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateLineTotalOverride($sessionId, $lineId);
         $this->clearAppliedTotalOverride($cart);
 
         if ($user) {
@@ -425,6 +504,21 @@ class PosCartService
         int $sessionId,
         string $billDiscountType,
         float $billDiscountValue
+    ): array
+    {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $billDiscountType, $billDiscountValue): array {
+            return $this->updateBillDiscountWithinLock($settingId, $sessionId, $billDiscountType, $billDiscountValue);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function updateBillDiscountWithinLock(
+        int $settingId,
+        int $sessionId,
+        string $billDiscountType,
+        float $billDiscountValue
     ): array {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
@@ -444,9 +538,20 @@ class PosCartService
      */
     public function updateCustomerSelection(int $settingId, int $sessionId, ?int $customerId): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $customerId): array {
+            return $this->updateCustomerSelectionWithinLock($settingId, $sessionId, $customerId);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function updateCustomerSelectionWithinLock(int $settingId, int $sessionId, ?int $customerId): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateAllLineTotalOverrides($sessionId);
         $this->clearAppliedTotalOverride($cart);
 
         $customerTier = null;
@@ -516,6 +621,12 @@ class PosCartService
             $bundleIdForKey = (int) ($line['bundle_id'] ?? 0) > 0 ? (int) $line['bundle_id'] : null;
             $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId, $conversionIdForKey, $bundleIdForKey);
 
+            // Repricing replaces an applied override with a standard source, so
+            // every canonical override field must go with it. Leaving them
+            // behind would let the calculator keep reporting the overridden
+            // total under a TIER price.
+            $line = $this->clearCanonicalOverrideMetadata($line);
+
             $line['unit_price'] = round($newUnitPrice, 2);
             $line['tax_id'] = $newTaxId;
             $line['tax_name'] = (string) ($priceResolution['tax_name'] ?? null);
@@ -544,6 +655,12 @@ class PosCartService
                     (array) ($targetLine['assigned_serials'] ?? []),
                     (array) ($line['assigned_serials'] ?? [])
                 );
+
+                // The merged quantity invalidates any canonical metadata the
+                // target carried, which was computed for its pre-merge qty.
+                $targetLine = $this->clearCanonicalOverrideMetadata($targetLine);
+                $targetLine = $this->refreshOrInvalidateRowOverride($settingId, $targetLine, $cart);
+
                 $mergedLines[$targetLineId] = $targetLine;
             } else {
                 // No collision - add as new line
@@ -559,98 +676,909 @@ class PosCartService
     }
 
     /**
+     * Apply or request a unit-price override for one cart row.
+     *
      * @return array<string, mixed>
      */
-    public function overrideLinePrice(
+    public function overrideLineUnitPrice(
         int $settingId,
         int $sessionId,
         int $requestedBy,
         int $lineId,
-        float $unitPrice,
+        float|int|string $unitPrice,
+        ?string $reason = null,
         ?string $approvalToken = null,
         ?User $user = null
     ): array {
-        if ($unitPrice < 0) {
-            throw new DomainException('Harga satuan tidak boleh negatif.');
-        }
+        return $this->executeRowOverride(
+            PosActionApprovalRequest::ACTION_LINE_UNIT_PRICE_OVERRIDE,
+            $settingId,
+            $sessionId,
+            $requestedBy,
+            $lineId,
+            $unitPrice,
+            $reason,
+            $approvalToken,
+            $user
+        );
+    }
 
+    /**
+     * Apply or request a row-total override for one cart row.
+     *
+     * @return array<string, mixed>
+     */
+    public function overrideLineTotal(
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $lineId,
+        float|int|string $lineTotal,
+        ?string $reason = null,
+        ?string $approvalToken = null,
+        ?User $user = null
+    ): array {
+        return $this->executeRowOverride(
+            PosActionApprovalRequest::ACTION_LINE_TOTAL_OVERRIDE,
+            $settingId,
+            $sessionId,
+            $requestedBy,
+            $lineId,
+            $lineTotal,
+            $reason,
+            $approvalToken,
+            $user
+        );
+    }
+
+    /**
+     * Shared execution for both active row overrides.
+     *
+     * The two actions differ only in which value is authoritative; everything
+     * else — authorization, locking, calculation, persistence ordering,
+     * consumption, audit, and compensation — is identical and lives here so the
+     * paths cannot drift apart.
+     *
+     * @return array<string, mixed>
+     */
+    private function executeRowOverride(
+        string $actionType,
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $lineId,
+        float|int|string $requestedValue,
+        ?string $reason,
+        ?string $approvalToken,
+        ?User $user
+    ): array {
         if (! $user) {
             throw new DomainException('Otentikasi diperlukan.');
         }
 
-        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
-        $this->assertActiveTransactionIsMutable($settingId, $cart);
-        $this->invalidateTotalPriceOverride($sessionId);
-        $this->clearAppliedTotalOverride($cart);
-
-        // Try to find line by line_id first
-        $line = $cart['lines'][$lineId] ?? null;
-
-        // Fallback: for backward compat, if not found by line_id, try to find by product_id when unambiguous
-        if ($line === null) {
-            $matchingLines = array_filter(
-                $cart['lines'],
-                fn (array $l): bool => ($l['product_id'] ?? 0) === $lineId
-            );
-            if (count($matchingLines) === 1) {
-                $lineId = key($matchingLines);
-                $line = reset($matchingLines);
-            }
+        if (! is_numeric($requestedValue) || (float) $requestedValue < 0) {
+            throw new DomainException($actionType === PosActionApprovalRequest::ACTION_LINE_UNIT_PRICE_OVERRIDE
+                ? 'Harga satuan tidak boleh negatif.'
+                : 'Total baris tidak boleh negatif.');
         }
 
-        if ($line === null) {
-            throw new DomainException('Baris keranjang tidak ditemukan.');
-        }
+        $requestedValueMinor = (int) round(((float) $requestedValue) * 100);
 
-        $authorization = $this->actionAuthorizationService->authorize(
+        $authorization = $this->actionAuthorizationService->authorizeWithoutConsuming(
             $user,
-            PosActionApprovalRequest::ACTION_PRICE_OVERRIDE,
-            $approvalToken
+            $actionType,
+            $approvalToken,
+            [
+                'pos_session_id' => $sessionId,
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'requested_by' => $requestedBy,
+            ]
         );
 
         $approvedRequest = $authorization['request'];
-        $targetUnitPrice = round($unitPrice, 2);
 
         if ($approvedRequest instanceof PosActionApprovalRequest) {
-            if ((int) $approvedRequest->target_id !== $lineId) {
-                throw new DomainException('TOKEN_TIDAK_VALID_ATAU_KEDALUWARSA');
-            }
-
-            $requestedUnitPrice = round((float) ($approvedRequest->request_payload['unit_price'] ?? 0), 2);
-            if ($requestedUnitPrice < 0) {
-                throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
-            }
-
-            $targetUnitPrice = $requestedUnitPrice;
-        } else {
-            $this->recordDirectPriceOverrideApproval(
+            return $this->executeApprovedRowOverride(
+                $actionType,
                 $settingId,
                 $sessionId,
                 $requestedBy,
                 $lineId,
-                (float) ($line['unit_price'] ?? 0),
-                $targetUnitPrice
+                $requestedValueMinor,
+                $reason,
+                (string) $approvalToken,
+                $user
             );
         }
 
-        if ($targetUnitPrice < 0) {
-            throw new DomainException('Harga satuan tidak boleh negatif.');
-        }
-
-        $cart['lines'][$lineId] = array_merge($line, [
-            'unit_price' => $targetUnitPrice,
-            'price_source' => 'OVERRIDE',
-        ]);
-
-        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
-
-        return $this->buildSnapshot($settingId, $sessionId, $cart);
+        return $this->executeDirectRowOverride(
+            $actionType,
+            $settingId,
+            $sessionId,
+            $requestedBy,
+            $lineId,
+            $requestedValueMinor,
+            $reason,
+            $user
+        );
     }
 
     /**
-     * Override the entire cart total with exact line-total allocation.
-     *
      * @return array<string, mixed>
+     */
+    private function executeDirectRowOverride(
+        string $actionType,
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $lineId,
+        int $requestedValueMinor,
+        ?string $reason,
+        User $user
+    ): array {
+        $auditPayload = null;
+
+        $this->overrideExecutionCoordinator->executeDirect(
+            $settingId,
+            $sessionId,
+            function (array $cart) use (
+                $actionType,
+                $settingId,
+                $sessionId,
+                $lineId,
+                $requestedValueMinor,
+                $requestedBy,
+                $reason,
+                &$auditPayload
+            ): array {
+                $this->assertActiveTransactionIsMutable($settingId, $cart);
+
+                $line = $this->requireLine($cart, $lineId);
+                $context = $this->lineFingerprintService->buildContext($settingId, $cart);
+
+                // Built before mutation so the audit records the pre-change
+                // source values and the fingerprint of what was actually edited.
+                $auditPayload = $this->rowOverridePayloadBuilder->build(
+                    $actionType,
+                    $settingId,
+                    $sessionId,
+                    $lineId,
+                    $cart,
+                    $line,
+                    $requestedValueMinor,
+                    $requestedBy,
+                    $reason
+                );
+
+                return $this->applyRowOverrideToCart(
+                    $cart,
+                    $lineId,
+                    $actionType,
+                    $requestedValueMinor,
+                    $context
+                );
+            },
+            function () use ($actionType, $settingId, $sessionId, $requestedBy, &$auditPayload): void {
+                $this->recordRowOverrideAudit(
+                    $actionType,
+                    $settingId,
+                    $sessionId,
+                    $requestedBy,
+                    $requestedBy,
+                    $auditPayload
+                );
+            }
+        );
+
+        return $this->getSnapshot($settingId, $sessionId);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function executeApprovedRowOverride(
+        string $actionType,
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $lineId,
+        int $requestedValueMinor,
+        ?string $reason,
+        string $approvalToken,
+        User $user
+    ): array {
+        $this->overrideExecutionCoordinator->executeApproved(
+            $settingId,
+            $sessionId,
+            $approvalToken,
+            (int) $user->id,
+            [
+                'action_type' => $actionType,
+                'target_id' => $lineId,
+                'pos_session_id' => $sessionId,
+            ],
+            function (PosActionApprovalRequest $request, array $cart) use (
+                $actionType,
+                $settingId,
+                $sessionId,
+                $lineId,
+                $requestedBy,
+                $requestedValueMinor
+            ): void {
+                $this->assertActiveTransactionIsMutable($settingId, $cart);
+                $this->assertApprovalMatchesExecution(
+                    $request,
+                    $actionType,
+                    $settingId,
+                    $sessionId,
+                    $lineId,
+                    $requestedBy,
+                    $requestedValueMinor,
+                    $cart
+                );
+            },
+            function (PosActionApprovalRequest $request, array $cart) use (
+                $actionType,
+                $settingId,
+                $lineId,
+                $requestedValueMinor
+            ): array {
+                return $this->applyRowOverrideToCart(
+                    $cart,
+                    $lineId,
+                    $actionType,
+                    $requestedValueMinor,
+                    $this->lineFingerprintService->buildContext($settingId, $cart)
+                );
+            },
+            function (PosActionApprovalRequest $request) use (
+                $actionType,
+                $settingId,
+                $sessionId,
+                $requestedBy
+            ): void {
+                $this->recordRowOverrideAudit(
+                    $actionType,
+                    $settingId,
+                    $sessionId,
+                    $requestedBy,
+                    (int) ($request->decided_by ?? $requestedBy),
+                    $request->request_payload ?? []
+                );
+            }
+        );
+
+        return $this->getSnapshot($settingId, $sessionId);
+    }
+
+    /**
+     * Validate an approved execution against its approval.
+     *
+     * Every dimension is checked explicitly, and the submitted value must equal
+     * the approved value exactly — never silently substituted.
+     *
+     * @param  array<string, mixed>  $cart
+     */
+    private function assertApprovalMatchesExecution(
+        PosActionApprovalRequest $request,
+        string $actionType,
+        int $settingId,
+        int $sessionId,
+        int $lineId,
+        int $requestedBy,
+        int $submittedValueMinor,
+        array $cart
+    ): void {
+        if (strcasecmp((string) $request->action_type, $actionType) !== 0) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        if (strcasecmp((string) $request->target_type, 'pos_cart_line') !== 0) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        if ((int) $request->pos_session_id !== $sessionId) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        // Exact line only: no product-ID fallback, which could resolve to an
+        // unintended row when the same product appears more than once.
+        if ((int) $request->target_id !== $lineId) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        if ((int) $request->requested_by !== $requestedBy) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        $payload = $request->request_payload ?? [];
+
+        $this->rowOverridePayloadBuilder->assertSubmittedValueMatchesApproved(
+            $payload,
+            $actionType,
+            $submittedValueMinor
+        );
+
+        $fingerprint = (string) ($payload['fingerprint'] ?? '');
+
+        if ($fingerprint === '') {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
+        $line = $this->requireLine($cart, $lineId);
+        $context = $this->lineFingerprintService->buildContext($settingId, $cart);
+
+        $matches = $this->lineFingerprintService->approvalFingerprintMatches(
+            $line,
+            $context,
+            $actionType,
+            $submittedValueMinor,
+            $sessionId,
+            $lineId,
+            $requestedBy,
+            $fingerprint
+        );
+
+        if (! $matches) {
+            throw new DomainException('Baris keranjang telah berubah. Permintaan dibatalkan.');
+        }
+    }
+
+    /**
+     * Apply canonical override arithmetic to one row.
+     *
+     * @param  array<string, mixed>  $cart
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function applyRowOverrideToCart(
+        array $cart,
+        int $lineId,
+        string $actionType,
+        int $requestedValueMinor,
+        array $context
+    ): array {
+        $line = $this->requireLine($cart, $lineId);
+
+        $qty = max(0, (int) ($line['qty'] ?? 0));
+        $discountType = (string) ($line['line_discount_type'] ?? 'fixed');
+        $discountValue = (float) ($line['line_discount_value'] ?? 0.0);
+        $taxRate = (float) ($line['tax_rate'] ?? 0.0);
+        $isPkp = ! empty($context['is_pkp']) && (int) ($line['tax_id'] ?? 0) > 0;
+
+        $result = $actionType === PosActionApprovalRequest::ACTION_LINE_UNIT_PRICE_OVERRIDE
+            ? $this->rowOverrideArithmetic->applyUnitPrice(
+                $requestedValueMinor,
+                $qty,
+                $discountType,
+                $discountValue,
+                $taxRate,
+                $isPkp
+            )
+            : $this->rowOverrideArithmetic->applyRowTotal(
+                $requestedValueMinor,
+                $qty,
+                $discountType,
+                $discountValue,
+                $taxRate,
+                $isPkp
+            );
+
+        $cart['lines'][$lineId] = array_merge($line, [
+            'unit_price' => round(((int) $result['unit_price_minor']) / 100, 2),
+            'price_source' => (string) $result['price_source'],
+            // Canonical derived metadata, persisted so display, approval,
+            // draft, checkout, posting, receipt, and audit all agree rather
+            // than reconstructing contradictory values later.
+            // Explicit unit contract. Raw cart lines historically carried
+            // `line_total` in minor units while calculated snapshots expose it
+            // in major units, which is easy for a new consumer to misread.
+            // `line_total_minor` is unambiguous; `line_total` is kept in step
+            // for existing readers.
+            'line_total_minor' => (int) $result['line_net_minor'],
+            'line_total' => (int) $result['line_net_minor'],
+            'line_gross_minor' => (int) $result['line_gross_minor'],
+            'line_discount_minor' => (int) $result['line_discount_minor'],
+            'line_net_minor' => (int) $result['line_net_minor'],
+            'line_tax_minor' => (int) $result['line_tax_minor'],
+            'line_taxable_base_minor' => (int) $result['line_taxable_base_minor'],
+        ]);
+
+        // Any row mutation invalidates pending approvals for both active
+        // override actions on this line.
+        $this->invalidateRowOverrideApprovals($cart['session_id'] ?? 0, $lineId);
+
+        return $cart;
+    }
+
+    /**
+     * Assert that removing a line would not leave a loaded transaction empty.
+     * If $lineIdToRemove is null, check if clearing would violate the constraint.
+     *
+     * @throws PosCartMutationException('TRANSACTION_EMPTY_BLOCKED')
+     */
+    private function assertNotLastLineOfLoadedTransaction(array $cart, ?int $lineIdToRemove = null): void
+    {
+        $activeTransactionId = $cart['active_transaction_id'] ?? null;
+
+        // Only applies if there's an active loaded transaction
+        if (! $activeTransactionId) {
+            return;
+        }
+
+        $lineCount = count($cart['lines'] ?? []);
+
+        if ($lineIdToRemove === null) {
+            // We're clearing the entire cart
+            if ($lineCount > 0) {
+                throw new PosCartMutationException(
+                    'TRANSACTION_EMPTY_BLOCKED',
+                    'Transaksi yang dimuat tidak dapat dikosongkan.'
+                );
+            }
+        } else {
+            // We're removing a specific line
+            // Check if it's the only line (removing it would result in 0 lines)
+            if ($lineCount === 1 && isset($cart['lines'][$lineIdToRemove])) {
+                throw new PosCartMutationException(
+                    'TRANSACTION_EMPTY_BLOCKED',
+                    'Transaksi yang dimuat tidak dapat dikosongkan.'
+                );
+            }
+        }
+    }
+
+    private function assertActiveTransactionIsMutable(int $settingId, array $cart): void
+    {
+        $activeTransactionId = (int) ($cart['active_transaction_id'] ?? 0);
+        if ($activeTransactionId <= 0) {
+            return;
+        }
+
+        $status = PosTransaction::query()
+            ->where('setting_id', $settingId)
+            ->whereKey($activeTransactionId)
+            ->value('status');
+
+        if ($status === null) {
+            throw new PosCartMutationException(
+                'TRANSACTION_NOT_FOUND',
+                'Transaksi aktif tidak ditemukan.'
+            );
+        }
+
+        if ($status !== PosTransaction::STATUS_DRAFT && $status !== PosTransaction::STATUS_LOADED) {
+            throw new PosCartMutationException(
+                'TRANSACTION_FINALIZED',
+                'Transaksi yang sudah selesai tidak dapat diubah.'
+            );
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $cart
+     * @return array<string, mixed>
+     */
+    private function buildSnapshot(int $settingId, int $sessionId, array $cart): array
+    {
+        $isPkp = (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+        $lines = array_values($cart['lines'] ?? []);
+        $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
+        $selectedCustomerId = $selectedCustomerId > 0 ? $selectedCustomerId : null;
+
+        $calculated = $this->totalsCalculator->calculate(
+            lines: $lines,
+            billDiscount: [
+                'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
+                'value' => (float) ($cart['bill_discount_value'] ?? 0),
+            ],
+            isPkp: $isPkp
+        );
+
+        // Enrich lines with current parent operational classifications while retaining captured flags
+        $parentProductIds = array_filter(array_map(
+            fn (array $line): ?int => ! empty($line['product_id']) ? (int) $line['product_id'] : null,
+            $calculated['lines']
+        ));
+        $liveParentProducts = ! empty($parentProductIds)
+            ? \Modules\Product\Entities\Product::whereIn('id', array_unique($parentProductIds))->get(['id', 'stock_managed', 'serial_number_required'])->keyBy('id')
+            : collect();
+
+        $calculated['lines'] = array_map(function (array $line) use ($liveParentProducts): array {
+            $pid = (int) ($line['product_id'] ?? 0);
+            $liveProduct = $pid > 0 ? $liveParentProducts->get($pid) : null;
+            if ($liveProduct) {
+                $line['captured_stock_managed'] = $line['captured_stock_managed'] ?? ($line['stock_managed'] ?? true);
+                $line['captured_serial_number_required'] = $line['captured_serial_number_required'] ?? ($line['serial_number_required'] ?? false);
+                $line['stock_managed'] = (bool) $liveProduct->stock_managed;
+                $line['serial_number_required'] = (bool) $liveProduct->serial_number_required;
+
+                // Re-evaluate serial_status based on current operational requirement
+                $assignedCount = count((array) ($line['assigned_serials'] ?? []));
+                $qty = (int) ($line['qty'] ?? 0);
+                $line['serial_status'] = ! $line['serial_number_required'] ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
+            }
+            return $line;
+        }, $calculated['lines']);
+
+        $totalQty = array_sum(array_map(
+            fn (array $line): int => max(0, (int) ($line['qty'] ?? 0)),
+            $calculated['lines']
+        ));
+        $customerResolution = $this->customerResolver->resolve($settingId, $selectedCustomerId);
+
+        // Fetch pending approval requests for this session to persist UI state on reload
+        $pendingRequests = PosActionApprovalRequest::query()
+            ->where('pos_session_id', $sessionId)
+            ->whereIn('status', [PosActionApprovalRequest::STATUS_PENDING, PosActionApprovalRequest::STATUS_APPROVED])
+            ->with('token')
+            ->get();
+
+        $cartPendingApprovals = [];
+        $linePendingApprovals = [];
+        $totalPriceOverrideApproval = null;
+
+        foreach ($pendingRequests as $req) {
+            $approvalData = [
+                'request_id' => (int) $req->id,
+                'action_type' => $req->action_type,
+                'status' => $req->status,
+            ];
+
+            // Add approval token if approved
+            if ($req->status === PosActionApprovalRequest::STATUS_APPROVED && $req->token) {
+                $approvalData['approval_token'] = $req->token->token_hash;
+                $approvalData['token'] = $req->token->token_hash;
+            }
+
+            // Add request-specific data from payload
+            if ($req->request_payload) {
+                if (isset($req->request_payload['qty'])) {
+                    $approvalData['requested_qty'] = (int) $req->request_payload['qty'];
+                }
+                // Canonical minor-unit payload written by the shared builder.
+                if (isset($req->request_payload['requested_value_minor'])) {
+                    $requestedMinor = (int) $req->request_payload['requested_value_minor'];
+                    $sourceMinor = (int) ($req->request_payload['source_value_minor'] ?? 0);
+
+                    $approvalData['value_kind'] = $req->request_payload['value_kind'] ?? null;
+                    $approvalData['source_value_minor'] = $sourceMinor;
+                    $approvalData['requested_value_minor'] = $requestedMinor;
+                    $approvalData['delta_minor'] = $requestedMinor - $sourceMinor;
+
+                    // Surface each action's value under its own key so a control
+                    // can never read the other action's amount.
+                    if ($req->action_type === PosActionApprovalRequest::ACTION_LINE_UNIT_PRICE_OVERRIDE) {
+                        $approvalData['requested_unit_price'] = round($requestedMinor / 100, 2);
+                    } elseif ($req->action_type === PosActionApprovalRequest::ACTION_LINE_TOTAL_OVERRIDE) {
+                        $approvalData['requested_line_total'] = round($requestedMinor / 100, 2);
+                    }
+                }
+
+                // Legacy payload shapes, retained so historical records render.
+                if (isset($req->request_payload['unit_price'])) {
+                    $approvalData['requested_unit_price'] = (float) $req->request_payload['unit_price'];
+                }
+                if (isset($req->request_payload['line_total'])) {
+                    $approvalData['requested_line_total'] = (float) $req->request_payload['line_total'];
+                    $approvalData['line_total'] = (float) $req->request_payload['line_total'];
+                }
+                if (isset($req->request_payload['source_total'])) {
+                    $approvalData['source_total'] = (int) $req->request_payload['source_total'];
+                }
+                if (isset($req->request_payload['target_total'])) {
+                    $approvalData['target_total'] = (int) $req->request_payload['target_total'];
+                    $approvalData['delta'] = (int) $req->request_payload['target_total'] - ((int) $req->request_payload['source_total'] ?? 0);
+                    if (! isset($approvalData['requested_line_total'])) {
+                        $approvalData['requested_line_total'] = round((int) $req->request_payload['target_total'] / 100, 2);
+                    }
+                }
+                if (isset($req->request_payload['reason'])) {
+                    $approvalData['reason'] = $req->request_payload['reason'];
+                }
+            }
+
+            // Add decision reason if rejected or cancelled
+            if ($req->decision_reason) {
+                $approvalData['decision_reason'] = $req->decision_reason;
+            }
+
+            if ($req->action_type === PosActionApprovalRequest::ACTION_CART_CLEAR) {
+                // Cart-wide pending approvals
+                $cartPendingApprovals[] = $approvalData;
+            } elseif (
+                PosActionApprovalRequest::isRowOverrideAction((string) $req->action_type)
+                || $req->action_type === PosActionApprovalRequest::ACTION_QTY_REDUCE
+                || $req->action_type === PosActionApprovalRequest::ACTION_LINE_REMOVE
+            ) {
+                // Line-specific pending approvals
+                $lineId = (int) $req->target_id;
+                if ($lineId > 0) {
+                    $linePendingApprovals[$lineId][] = $approvalData;
+                }
+            }
+        }
+
+        // Map line approvals back to calculated lines
+        $finalLines = array_map(function ($line) use ($linePendingApprovals) {
+            $lineId = (int) ($line['line_id'] ?? 0);
+            $line['pending_approvals'] = $linePendingApprovals[$lineId] ?? [];
+            return $line;
+        }, $calculated['lines']);
+
+        return [
+            'setting_id' => $settingId,
+            'session_id' => $sessionId,
+            'lines' => $finalLines,
+            'bill_discount' => [
+                'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
+                'value' => round((float) ($cart['bill_discount_value'] ?? 0), 2),
+            ],
+            'totals' => $calculated['totals'],
+            'customer' => $customerResolution,
+            'meta' => [
+                'line_count' => count($finalLines),
+                'total_qty' => $totalQty,
+                'tax_display_mode' => 'ESTIMATED',
+                'tax_mode' => $isPkp ? 'INCLUDED' : 'EXCLUDED',
+            ],
+            'active_transaction_id' => $cart['active_transaction_id'] ?? null,
+            'pending_approvals' => $cartPendingApprovals,
+            'staged_payment_token' => $cart['staged_payment_token'] ?? null,
+            // Revision of the cart this snapshot describes. Read from the store
+            // rather than the in-memory array: callers build snapshots after
+            // persisting, so the in-memory copy predates the write that
+            // advanced the revision. A compare-and-set consumer (checkout)
+            // carries this value, so a stale one would never match.
+            'cart_revision' => $this->cartSessionStore->currentRevision($settingId, $sessionId),
+            'note' => $cart['note'] ?? null,
+        ];
+    }
+
+    /**
+     * Every canonical field written by PosRowOverrideArithmetic.
+     *
+     * These are persisted so display, approval, draft, checkout, posting,
+     * receipt, and audit agree without re-deriving. That makes them dangerous
+     * to leave behind: PosCartTotalsCalculator trusts them over recalculation,
+     * so a surviving set computed for an older quantity or discount would
+     * silently report a stale row total.
+     *
+     * @var array<int, string>
+     */
+    private const CANONICAL_OVERRIDE_FIELDS = [
+        'line_total',
+        'line_total_minor',
+        'line_gross_minor',
+        'line_discount_minor',
+        'line_net_minor',
+        'line_tax_minor',
+        'line_taxable_base_minor',
+    ];
+
+    /**
+     * Strip all canonical override metadata from a line.
+     *
+     * @param  array<string, mixed>  $line
+     * @return array<string, mixed>
+     */
+    private function clearCanonicalOverrideMetadata(array $line): array
+    {
+        foreach (self::CANONICAL_OVERRIDE_FIELDS as $field) {
+            unset($line[$field]);
+        }
+
+        return $line;
+    }
+
+    /**
+     * Keep an applied row override consistent after the row changed underneath it.
+     *
+     * A unit-price override stays authoritative — the cashier set a price, not a
+     * total — so its metadata is recomputed against the new quantity, discount,
+     * and tax context. A row-total override cannot survive: the total the
+     * cashier approved was for the old row, so the line reverts to resolved
+     * standard pricing and every canonical field is removed.
+     *
+     * @param  array<string, mixed>  $line
+     * @param  array<string, mixed>  $cart
+     * @return array<string, mixed>
+     */
+    private function refreshOrInvalidateRowOverride(int $settingId, array $line, array $cart): array
+    {
+        $priceSource = (string) ($line['price_source'] ?? 'BASE');
+
+        if ($priceSource === 'LINE_UNIT_PRICE_OVERRIDE') {
+            $context = $this->lineFingerprintService->buildContext($settingId, $cart);
+
+            $recalculated = $this->rowOverrideArithmetic->applyUnitPrice(
+                (int) round(((float) ($line['unit_price'] ?? 0)) * 100),
+                max(0, (int) ($line['qty'] ?? 0)),
+                (string) ($line['line_discount_type'] ?? 'fixed'),
+                (float) ($line['line_discount_value'] ?? 0.0),
+                (float) ($line['tax_rate'] ?? 0.0),
+                ! empty($context['is_pkp']) && (int) ($line['tax_id'] ?? 0) > 0
+            );
+
+            return array_merge($line, [
+                'price_source' => 'LINE_UNIT_PRICE_OVERRIDE',
+                'line_total_minor' => (int) $recalculated['line_net_minor'],
+                'line_total' => (int) $recalculated['line_net_minor'],
+                'line_gross_minor' => (int) $recalculated['line_gross_minor'],
+                'line_discount_minor' => (int) $recalculated['line_discount_minor'],
+                'line_net_minor' => (int) $recalculated['line_net_minor'],
+                'line_tax_minor' => (int) $recalculated['line_tax_minor'],
+                'line_taxable_base_minor' => (int) $recalculated['line_taxable_base_minor'],
+            ]);
+        }
+
+        if ($priceSource === 'LINE_TOTAL_OVERRIDE') {
+            return $this->restoreStandardPricing($settingId, $line, $cart);
+        }
+
+        return $line;
+    }
+
+    /**
+     * Restore a line to its authoritative standard pricing, preserving line kind.
+     *
+     * A blanket fall back to the parent product's ordinary price would be wrong
+     * for anything other than an ordinary row: a bundle parent's standard price
+     * is the selected bundle's sale price, and a packed row's is its packed
+     * calculation. Restoring those to the standalone product price would
+     * silently reprice the row.
+     *
+     * Bundle identity, component snapshots, and informational allocations are
+     * left untouched throughout.
+     *
+     * @param  array<string, mixed>  $line
+     * @param  array<string, mixed>  $cart
+     * @return array<string, mixed>
+     */
+    private function restoreStandardPricing(int $settingId, array $line, array $cart): array
+    {
+        $line = $this->clearCanonicalOverrideMetadata($line);
+
+        $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
+        $bundleId = (int) ($line['bundle_id'] ?? 0);
+
+        // Bundle parent: authoritative price is the bundle's sale price.
+        if ($bundleId > 0) {
+            $bundle = ProductBundle::query()->whereKey($bundleId)->first();
+
+            if ($bundle) {
+                $line['unit_price'] = round((float) ($bundle->bundle_sale_price ?? 0), 2);
+                $line['bundle_price'] = round((float) ($bundle->price ?? 0), 2);
+            }
+
+            $line['price_source'] = 'BUNDLE';
+
+            return $line;
+        }
+
+        // Packed row: re-run packed pricing for the current quantity and tier.
+        $pricingBasis = $line['pricing_basis']
+            ?? $this->buildPricingBasis($settingId, (int) ($line['product_id'] ?? 0), $selectedCustomerId);
+
+        if ($pricingBasis !== null) {
+            $priceResult = (new PackedLinePricingService())->price(
+                max(0, (int) ($line['qty'] ?? 0)),
+                $cart['selected_customer_tier'] ?? null,
+                $pricingBasis
+            );
+
+            $line['pricing_basis'] = $pricingBasis;
+            $line['unit_price'] = round($priceResult['blended_unit_price'] / 100.0, 2);
+            $line['line_total'] = $priceResult['line_total_minor'];
+            $line['breakdown'] = $priceResult['breakdown'];
+            $line['price_source'] = 'PACKED';
+
+            return $line;
+        }
+
+        // Ordinary row: resolved price, tagged TIER when a customer tier drove it.
+        $resolved = $this->resolveLinePrice(
+            $settingId,
+            (int) ($line['product_id'] ?? 0),
+            $selectedCustomerId,
+            $line['tax_id'] ?? null
+        );
+
+        $line['unit_price'] = round((float) ($resolved['unit_price'] ?? 0), 2);
+        $line['price_source'] = $selectedCustomerId !== null && ! empty($cart['selected_customer_tier'])
+            ? 'TIER'
+            : 'BASE';
+
+        return $line;
+    }
+
+    /**
+     * @param  array<string, mixed>  $cart
+     * @return array<string, mixed>
+     */
+    private function requireLine(array $cart, int $lineId): array
+    {
+        $line = $cart['lines'][$lineId] ?? null;
+
+        if (! is_array($line)) {
+            throw new DomainException('Baris keranjang tidak ditemukan.');
+        }
+
+        return $line;
+    }
+
+    /**
+     * Record a successful row-override execution.
+     *
+     * Only ever called after the cart mutation (and, when supervised, token
+     * consumption) has succeeded.
+     *
+     * @param  array<string, mixed>|null  $payload
+     */
+    private function recordRowOverrideAudit(
+        string $actionType,
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $authorizedBy,
+        ?array $payload
+    ): void {
+        $payload ??= [];
+
+        PosSupervisorApproval::create([
+            'setting_id' => $settingId,
+            'action_type' => $actionType === PosActionApprovalRequest::ACTION_LINE_UNIT_PRICE_OVERRIDE
+                ? PosSupervisorApproval::ACTION_LINE_UNIT_PRICE_OVERRIDE
+                : PosSupervisorApproval::ACTION_LINE_TOTAL_OVERRIDE,
+            'target_type' => 'pos_cart_line',
+            'target_id' => (int) ($payload['line_id'] ?? 0),
+            'requested_by' => $requestedBy,
+            'approved_by' => $authorizedBy,
+            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
+            'reason' => $payload['reason'] ?? null,
+            'context_snapshot' => [
+                'action_type' => $actionType,
+                'value_kind' => $payload['value_kind'] ?? null,
+                'pos_session_id' => $sessionId,
+                'line_id' => $payload['line_id'] ?? null,
+                'product_id' => $payload['product_id'] ?? null,
+                'source_value_minor' => $payload['source_value_minor'] ?? null,
+                'requested_value_minor' => $payload['requested_value_minor'] ?? null,
+                'source_unit_price_minor' => $payload['source_unit_price_minor'] ?? null,
+                'source_total_minor' => $payload['source_total_minor'] ?? null,
+                'fingerprint' => $payload['fingerprint'] ?? null,
+                'requester_id' => $requestedBy,
+                'authorizer_id' => $authorizedBy,
+                'executed_at' => now()->toIso8601String(),
+                'result' => 'SUCCESS',
+            ],
+            'occurred_at' => now(),
+        ]);
+    }
+
+    /**
+     * Invalidate unconsumed approvals for BOTH active override actions on a row.
+     */
+    private function invalidateRowOverrideApprovals(int $sessionId, int $lineId): void
+    {
+        if ($sessionId <= 0) {
+            return;
+        }
+
+        PosActionApprovalRequest::query()
+            ->where('pos_session_id', $sessionId)
+            ->whereIn('action_type', PosActionApprovalRequest::ROW_OVERRIDE_ACTIONS)
+            ->where('target_id', $lineId)
+            ->whereIn('status', [
+                PosActionApprovalRequest::STATUS_PENDING,
+                PosActionApprovalRequest::STATUS_APPROVED,
+            ])
+            ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+    }
+
+    /**
+     * Retired: cart-wide total override is no longer supported.
      */
     public function overrideTotalPrice(
         int $settingId,
@@ -661,183 +1589,7 @@ class PosCartService
         ?string $approvalToken = null,
         ?User $user = null
     ): array {
-        if (! $user) {
-            throw new DomainException('Otentikasi diperlukan.');
-        }
-
-        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
-        $this->assertActiveTransactionIsMutable($settingId, $cart);
-
-        if (empty($cart['lines'])) {
-            throw new DomainException('Cannot override total on an empty cart.');
-        }
-
-        if ($targetTotalMinorUnits < 0) {
-            throw new DomainException('Total target harus non-negatif.');
-        }
-
-        // Prepare cart lines for allocation
-        $cartLines = array_values(array_map(fn ($line) => [
-            'line_id' => $line['line_id'],
-            'qty' => $line['qty'],
-            'unit_price' => $line['unit_price'],
-            'conversion_id' => $line['conversion_id'] ?? null,
-            'bundle_id' => $line['bundle_id'] ?? null,
-            'line_total' => isset($line['line_total']) ? (int) $line['line_total'] : null,
-        ], $cart['lines']));
-
-        // Handle token-based approval first
-        if ($approvalToken !== null && $approvalToken !== '') {
-            $authorization = $this->actionAuthorizationService->authorize(
-                $user,
-                PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE,
-                $approvalToken
-            );
-
-            if (! $authorization['authorized']) {
-                throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
-            }
-
-            $approvedRequest = $authorization['request'];
-            if ($approvedRequest instanceof PosActionApprovalRequest) {
-                // Verify fingerprint matches current cart state
-                $requestedData = $approvedRequest->request_payload;
-                $currentFingerprint = $this->allocationService->generateFingerprint($cartLines);
-
-                if ($currentFingerprint !== $requestedData['fingerprint']) {
-                    throw new DomainException('Keranjang telah berubah. Permintaan pembatalan.');
-                }
-
-                // Apply the approved allocation (never trust the newly submitted targetTotalMinorUnits)
-                $allocation = $requestedData['allocation'];
-                $this->applyTotalOverride($cart, $allocation);
-                $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
-
-                // Record executor context in existing supervisor approval
-                $supervisorApproval = PosSupervisorApproval::query()
-                    ->where('action_type', PosSupervisorApproval::ACTION_TOTAL_PRICE_OVERRIDE_APPROVAL)
-                    ->where('target_id', $sessionId)
-                    ->where('approval_result', PosSupervisorApproval::RESULT_APPROVED)
-                    ->where('requested_by', $approvedRequest->requested_by)
-                    ->where('approved_by', $approvedRequest->decided_by)
-                    ->latest()
-                    ->first();
-
-                if ($supervisorApproval) {
-                    $contextSnapshot = $supervisorApproval->context_snapshot ?? [];
-                    $contextSnapshot['executor_id'] = $requestedBy;
-                    $contextSnapshot['executed_at'] = now()->toIso8601String();
-                    $supervisorApproval->update(['context_snapshot' => $contextSnapshot]);
-                }
-
-                return $this->buildSnapshot($settingId, $sessionId, $cart);
-            }
-        }
-
-        // Create or apply override request (no token provided)
-        $overrideResult = $this->overrideRequestService->createOrApplyOverride(
-            $settingId,
-            $sessionId,
-            $cartLines,
-            $targetTotalMinorUnits,
-            $reason,
-            $user
-        );
-
-        // If request was created (not approved), return status without applying
-        if ($overrideResult['type'] === 'request_created') {
-            return [
-                'status' => 'request_created',
-                'request_id' => $overrideResult['request_id'],
-                'state' => 'pending',
-            ];
-        }
-
-        // Direct permission - apply immediately
-        $allocation = $overrideResult['allocation'];
-        $this->applyTotalOverride($cart, $allocation);
-
-        $this->recordDirectTotalOverrideApproval(
-            $settingId,
-            $sessionId,
-            $requestedBy,
-            $overrideResult['source_total'],
-            $targetTotalMinorUnits,
-            $reason,
-            $overrideResult['fingerprint'] ?? null,
-            $allocation
-        );
-
-        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
-
-        return $this->buildSnapshot($settingId, $sessionId, $cart);
-    }
-
-    /**
-     * Apply total override to cart lines.
-     *
-     * @param  array<string, mixed>  $cart  Cart reference (will be mutated)
-     * @param  array<int, array{line_id:int, allocated_line_total:int, effective_unit_price:float}>  $allocation
-     * @return void
-     */
-    private function applyTotalOverride(array &$cart, array $allocation): void
-    {
-        $allocationMap = [];
-        foreach ($allocation as $item) {
-            $allocationMap[$item['line_id']] = $item;
-        }
-
-        foreach ($cart['lines'] as $lineId => &$line) {
-            if (isset($allocationMap[$line['line_id']])) {
-                $allocated = $allocationMap[$line['line_id']];
-
-                // Only capture original state if this row is not already overridden
-                // This preserves the true original state across multiple override attempts
-                if (($line['price_source'] ?? 'BASE') !== 'TOTAL_OVERRIDE') {
-                    $line['_original_unit_price'] = $line['unit_price'];
-                    $line['_original_line_total'] = $line['line_total'] ?? null;
-                    $line['_original_price_source'] = $line['price_source'] ?? 'BASE';
-                }
-
-                // Apply override
-                $line['line_total'] = $allocated['allocated_line_total'];
-                $line['unit_price'] = $allocated['effective_unit_price'];
-                $line['price_source'] = 'TOTAL_OVERRIDE';
-            }
-        }
-    }
-
-    private function recordDirectTotalOverrideApproval(
-        int $settingId,
-        int $sessionId,
-        int $requestedBy,
-        int $sourceTotal,
-        int $targetTotal,
-        ?string $reason,
-        ?string $fingerprint = null,
-        ?array $allocation = null
-    ): void {
-        PosSupervisorApproval::create([
-            'setting_id' => $settingId,
-            'action_type' => PosSupervisorApproval::ACTION_TOTAL_PRICE_OVERRIDE_APPROVAL,
-            'target_type' => 'pos_session',
-            'target_id' => $sessionId,
-            'requested_by' => $requestedBy,
-            'approved_by' => $requestedBy,
-            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
-            'reason' => $reason,
-            'context_snapshot' => [
-                'source_total' => $sourceTotal,
-                'target_total' => $targetTotal,
-                'fingerprint' => $fingerprint,
-                'allocation' => $allocation,
-                'requester_id' => $requestedBy,
-                'approver_id' => $requestedBy,
-                'executor_id' => $requestedBy,
-                'executed_at' => now()->toIso8601String(),
-            ],
-            'occurred_at' => now(),
-        ]);
+        throw new DomainException('Fitur penyesuaian total keranjang telah digantikan oleh penyesuaian total per baris.');
     }
 
     /**
@@ -846,9 +1598,20 @@ class PosCartService
      */
     public function assignSerials(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumbers): array {
+            return $this->assignSerialsWithinLock($settingId, $sessionId, $lineId, $serialNumbers);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function assignSerialsWithinLock(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateLineTotalOverride($sessionId, $lineId);
         $this->clearAppliedTotalOverride($cart);
 
         // Try to find line by line_id first
@@ -956,14 +1719,18 @@ class PosCartService
      */
     public function updateNote(int $settingId, int $sessionId, ?string $note): array
     {
-        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
-        $this->assertActiveTransactionIsMutable($settingId, $cart);
+        // A note is irrelevant to approval validity but losing it is still data
+        // loss, so it is guarded like every other cart writer.
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $note): array {
+            $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+            $this->assertActiveTransactionIsMutable($settingId, $cart);
 
-        $cart['note'] = $note;
+            $cart['note'] = $note;
 
-        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+            $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
-        return $this->buildSnapshot($settingId, $sessionId, $cart);
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
+        });
     }
 
     /**
@@ -979,10 +1746,21 @@ class PosCartService
             );
         }
 
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId): array {
+            return $this->clearWithinLock($settingId, $sessionId);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function clearWithinLock(int $settingId, int $sessionId): array
+    {
         // Check if we have a loaded transaction that would become empty
         $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $currentCart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateAllLineTotalOverrides($sessionId);
 
         // For loaded transactions, clearing means "unloading" (status reverts to DRAFT).
         // This is now allowed for any user authorized to clear the cart.
@@ -997,242 +1775,6 @@ class PosCartService
         return $this->buildSnapshot($settingId, $sessionId, $cart);
     }
 
-    /**
-     * @param  array<string, mixed>  $cart
-     * @return array<string, mixed>
-     */
-    private function buildSnapshot(int $settingId, int $sessionId, array $cart): array
-    {
-        $isPkp = (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
-        $lines = array_values($cart['lines'] ?? []);
-        $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
-        $selectedCustomerId = $selectedCustomerId > 0 ? $selectedCustomerId : null;
-
-        $calculated = $this->totalsCalculator->calculate(
-            lines: $lines,
-            billDiscount: [
-                'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
-                'value' => (float) ($cart['bill_discount_value'] ?? 0),
-            ],
-            isPkp: $isPkp
-        );
-
-        // Enrich lines with current parent operational classifications while retaining captured flags
-        $parentProductIds = array_filter(array_map(
-            fn (array $line): ?int => ! empty($line['product_id']) ? (int) $line['product_id'] : null,
-            $calculated['lines']
-        ));
-        $liveParentProducts = ! empty($parentProductIds)
-            ? \Modules\Product\Entities\Product::whereIn('id', array_unique($parentProductIds))->get(['id', 'stock_managed', 'serial_number_required'])->keyBy('id')
-            : collect();
-
-        $calculated['lines'] = array_map(function (array $line) use ($liveParentProducts): array {
-            $pid = (int) ($line['product_id'] ?? 0);
-            $liveProduct = $pid > 0 ? $liveParentProducts->get($pid) : null;
-            if ($liveProduct) {
-                $line['captured_stock_managed'] = $line['captured_stock_managed'] ?? ($line['stock_managed'] ?? true);
-                $line['captured_serial_number_required'] = $line['captured_serial_number_required'] ?? ($line['serial_number_required'] ?? false);
-                $line['stock_managed'] = (bool) $liveProduct->stock_managed;
-                $line['serial_number_required'] = (bool) $liveProduct->serial_number_required;
-
-                // Re-evaluate serial_status based on current operational requirement
-                $assignedCount = count((array) ($line['assigned_serials'] ?? []));
-                $qty = (int) ($line['qty'] ?? 0);
-                $line['serial_status'] = ! $line['serial_number_required'] ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
-            }
-            return $line;
-        }, $calculated['lines']);
-
-        $totalQty = array_sum(array_map(
-            fn (array $line): int => max(0, (int) ($line['qty'] ?? 0)),
-            $calculated['lines']
-        ));
-        $customerResolution = $this->customerResolver->resolve($settingId, $selectedCustomerId);
-
-        // Fetch pending approval requests for this session to persist UI state on reload
-        $pendingRequests = PosActionApprovalRequest::query()
-            ->where('pos_session_id', $sessionId)
-            ->whereIn('status', [PosActionApprovalRequest::STATUS_PENDING, PosActionApprovalRequest::STATUS_APPROVED])
-            ->with('token')
-            ->get();
-
-        $cartPendingApprovals = [];
-        $linePendingApprovals = [];
-        $totalPriceOverrideApproval = null;
-
-        foreach ($pendingRequests as $req) {
-            $approvalData = [
-                'request_id' => (int) $req->id,
-                'action_type' => $req->action_type,
-                'status' => $req->status,
-            ];
-
-            // Add approval token if approved
-            if ($req->status === PosActionApprovalRequest::STATUS_APPROVED && $req->token) {
-                $approvalData['approval_token'] = $req->token->token_hash;
-                $approvalData['token'] = $req->token->token_hash;
-            }
-
-            // Add request-specific data from payload
-            if ($req->request_payload) {
-                if (isset($req->request_payload['qty'])) {
-                    $approvalData['requested_qty'] = (int) $req->request_payload['qty'];
-                }
-                if (isset($req->request_payload['unit_price'])) {
-                    $approvalData['requested_unit_price'] = (float) $req->request_payload['unit_price'];
-                }
-                if (isset($req->request_payload['source_total'])) {
-                    $approvalData['source_total'] = (int) $req->request_payload['source_total'];
-                }
-                if (isset($req->request_payload['target_total'])) {
-                    $approvalData['target_total'] = (int) $req->request_payload['target_total'];
-                    $approvalData['delta'] = (int) $req->request_payload['target_total'] - ((int) $req->request_payload['source_total'] ?? 0);
-                }
-                if (isset($req->request_payload['reason'])) {
-                    $approvalData['reason'] = $req->request_payload['reason'];
-                }
-            }
-
-            // Add decision reason if rejected or cancelled
-            if ($req->decision_reason) {
-                $approvalData['decision_reason'] = $req->decision_reason;
-            }
-
-            if ($req->action_type === PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE) {
-                // Cart-level total-price override approval
-                $totalPriceOverrideApproval = $approvalData;
-            } elseif ($req->action_type === PosActionApprovalRequest::ACTION_CART_CLEAR) {
-                // Cart-wide pending approvals
-                $cartPendingApprovals[] = $approvalData;
-            } else {
-                // Line-specific pending approvals
-                $lineId = (int) $req->target_id;
-                if ($lineId > 0) {
-                    $linePendingApprovals[$lineId][] = $approvalData;
-                }
-            }
-        }
-
-        // Map line approvals back to calculated lines
-        $finalLines = array_map(function ($line) use ($linePendingApprovals) {
-            $lineId = (int) ($line['line_id'] ?? 0);
-            $line['pending_approvals'] = $linePendingApprovals[$lineId] ?? [];
-            return $line;
-        }, $calculated['lines']);
-
-        return [
-            'setting_id' => $settingId,
-            'session_id' => $sessionId,
-            'lines' => $finalLines,
-            'bill_discount' => [
-                'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
-                'value' => round((float) ($cart['bill_discount_value'] ?? 0), 2),
-            ],
-            'totals' => $calculated['totals'],
-            'customer' => $customerResolution,
-            'meta' => [
-                'line_count' => count($finalLines),
-                'total_qty' => $totalQty,
-                'tax_display_mode' => 'ESTIMATED',
-                'tax_mode' => $isPkp ? 'INCLUDED' : 'EXCLUDED',
-            ],
-            'active_transaction_id' => $cart['active_transaction_id'] ?? null,
-            'pending_approvals' => $cartPendingApprovals,
-            'total_price_override_approval' => $totalPriceOverrideApproval,
-            'staged_payment_token' => $cart['staged_payment_token'] ?? null,
-            'note' => $cart['note'] ?? null,
-        ];
-    }
-
-    /**
-     * Assert that removing a line would not leave a loaded transaction empty.
-     * If $lineIdToRemove is null, check if clearing would violate the constraint.
-     *
-     * @throws PosCartMutationException('TRANSACTION_EMPTY_BLOCKED')
-     */
-    private function assertNotLastLineOfLoadedTransaction(array $cart, ?int $lineIdToRemove = null): void
-    {
-        $activeTransactionId = $cart['active_transaction_id'] ?? null;
-
-        // Only applies if there's an active loaded transaction
-        if (! $activeTransactionId) {
-            return;
-        }
-
-        $lineCount = count($cart['lines'] ?? []);
-
-        if ($lineIdToRemove === null) {
-            // We're clearing the entire cart
-            if ($lineCount > 0) {
-                throw new PosCartMutationException(
-                    'TRANSACTION_EMPTY_BLOCKED',
-                    'Transaksi yang dimuat tidak dapat dikosongkan.'
-                );
-            }
-        } else {
-            // We're removing a specific line
-            // Check if it's the only line (removing it would result in 0 lines)
-            if ($lineCount === 1 && isset($cart['lines'][$lineIdToRemove])) {
-                throw new PosCartMutationException(
-                    'TRANSACTION_EMPTY_BLOCKED',
-                    'Transaksi yang dimuat tidak dapat dikosongkan.'
-                );
-            }
-        }
-    }
-
-    private function assertActiveTransactionIsMutable(int $settingId, array $cart): void
-    {
-        $activeTransactionId = (int) ($cart['active_transaction_id'] ?? 0);
-        if ($activeTransactionId <= 0) {
-            return;
-        }
-
-        $status = PosTransaction::query()
-            ->where('setting_id', $settingId)
-            ->whereKey($activeTransactionId)
-            ->value('status');
-
-        if ($status === null) {
-            throw new PosCartMutationException(
-                'TRANSACTION_NOT_FOUND',
-                'Transaksi aktif tidak ditemukan.'
-            );
-        }
-
-        if ($status !== PosTransaction::STATUS_DRAFT && $status !== PosTransaction::STATUS_LOADED) {
-            throw new PosCartMutationException(
-                'TRANSACTION_FINALIZED',
-                'Transaksi yang sudah selesai tidak dapat diubah.'
-            );
-        }
-    }
-
-    private function recordDirectPriceOverrideApproval(
-        int $settingId,
-        int $sessionId,
-        int $requestedBy,
-        int $lineId,
-        float $fromUnitPrice,
-        float $toUnitPrice
-    ): void {
-        PosSupervisorApproval::query()->create([
-            'setting_id' => $settingId,
-            'action_type' => PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
-            'target_type' => 'pos_session',
-            'target_id' => $sessionId,
-            'requested_by' => $requestedBy,
-            'approved_by' => $requestedBy,
-            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
-            'reason' => 'DIRECT_PERMISSION',
-            'context_snapshot' => [
-                'line_id' => $lineId,
-                'from_unit_price' => round($fromUnitPrice, 2),
-                'to_unit_price' => round($toUnitPrice, 2),
-            ],
-            'occurred_at' => now(),
-        ]);
-    }
 
     /**
      * @return array{0: Product, 1: int|null}
@@ -1301,9 +1843,20 @@ class PosCartService
      */
     public function appendSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber): array {
+            return $this->appendSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function appendSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateLineTotalOverride($sessionId, $lineId);
         $this->clearAppliedTotalOverride($cart);
 
         // Try to find line by line_id first
@@ -1383,6 +1936,15 @@ class PosCartService
             }
             $qty++;
             $cart['lines'][$lineId]['qty'] = $qty;
+
+            // The quantity just changed, so any canonical override metadata is
+            // stale: recompute it for a unit-price override, or revert a
+            // row-total override to standard pricing.
+            $cart['lines'][$lineId] = $this->refreshOrInvalidateRowOverride(
+                $settingId,
+                $cart['lines'][$lineId],
+                $cart
+            );
         }
 
         // Append the serial
@@ -1402,9 +1964,20 @@ class PosCartService
      */
     public function removeSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
     {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber): array {
+            return $this->removeSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function removeSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
         $this->invalidateTotalPriceOverride($sessionId);
+        $this->invalidateLineTotalOverride($sessionId, $lineId);
         $this->clearAppliedTotalOverride($cart);
 
         // Try to find line by line_id first
@@ -1597,6 +2170,37 @@ class PosCartService
         PosActionApprovalRequest::query()
             ->where('pos_session_id', $sessionId)
             ->where('action_type', PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE)
+            ->whereIn('status', [
+                PosActionApprovalRequest::STATUS_PENDING,
+                PosActionApprovalRequest::STATUS_APPROVED,
+            ])
+            ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+    }
+
+    /**
+     * Invalidate pending/approved requests for BOTH active row overrides on a line.
+     */
+    private function invalidateLineTotalOverride(int $sessionId, int $lineId): void
+    {
+        PosActionApprovalRequest::query()
+            ->where('pos_session_id', $sessionId)
+            ->where('target_id', $lineId)
+            ->whereIn('action_type', PosActionApprovalRequest::ROW_OVERRIDE_ACTIONS)
+            ->whereIn('status', [
+                PosActionApprovalRequest::STATUS_PENDING,
+                PosActionApprovalRequest::STATUS_APPROVED,
+            ])
+            ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+    }
+
+    /**
+     * Invalidate pending/approved requests for BOTH active row overrides across a session.
+     */
+    private function invalidateAllLineTotalOverrides(int $sessionId): void
+    {
+        PosActionApprovalRequest::query()
+            ->where('pos_session_id', $sessionId)
+            ->whereIn('action_type', PosActionApprovalRequest::ROW_OVERRIDE_ACTIONS)
             ->whereIn('status', [
                 PosActionApprovalRequest::STATUS_PENDING,
                 PosActionApprovalRequest::STATUS_APPROVED,

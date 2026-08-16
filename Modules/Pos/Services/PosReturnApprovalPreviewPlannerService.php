@@ -1167,11 +1167,13 @@ class PosReturnApprovalPreviewPlannerService
     {
         $storedQuantity = (float) $componentItem->quantity;
 
-        if ($storedQuantity <= 0) {
-            return (float) $componentItem->sub_total;
-        }
+        // When components are non-billable, informational_item_price holds the captured snapshot value.
+        // Fallback to sub_total for legacy records where informational_item_price was not populated.
+        $unitAmount = $componentItem->informational_item_price !== null
+            ? (float) $componentItem->informational_item_price
+            : ($storedQuantity > 0 ? ((float) $componentItem->sub_total / $storedQuantity) : (float) $componentItem->sub_total);
 
-        return round(((float) $componentItem->sub_total) * ($componentQuantity / $storedQuantity), 2);
+        return round($unitAmount * $componentQuantity, 2);
     }
 
     private function quantitiesMatch(float $left, float $right): bool

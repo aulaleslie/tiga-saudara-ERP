@@ -50,6 +50,28 @@ class PosTransactionSnapshotMapper
                     'pricing_basis' => $line['pricing_basis'] ?? null,
                 ];
 
+                // Carry the canonical override metadata into the snapshot so a
+                // draft round-trip, checkout, posting, and receipt all read the
+                // amounts as charged instead of re-deriving them from a rounded
+                // unit price. Only present on overridden rows.
+                foreach ([
+                    'line_total_minor',
+                    'line_gross_minor',
+                    'line_discount_minor',
+                    'line_net_minor',
+                    'line_tax_minor',
+                    'line_taxable_base_minor',
+                ] as $canonicalField) {
+                    if (isset($line[$canonicalField])) {
+                        $lineMeta[$canonicalField] = (int) $line[$canonicalField];
+                    }
+                }
+
+                // Allocated bill discount, kept distinct from the row discount.
+                if (isset($line['bill_discount_amount'])) {
+                    $lineMeta['bill_discount_amount'] = (float) $line['bill_discount_amount'];
+                }
+
                 // Store line_total with explicit unit designation
                 if (($line['price_source'] ?? 'BASE') === 'PACKED') {
                     // PackedLinePricingService returns breakdown.line_total_minor (minor units)
@@ -167,15 +189,22 @@ class PosTransactionSnapshotMapper
             // For PACKED lines, restore line_total from minor units
             // Prioritize line_total_minor, fall back to legacy line_total as minor units for backward compat
             $lineTotal = null;
-            if ($priceSource === 'PACKED') {
+            $isRowOverride = $priceSource === 'LINE_TOTAL_OVERRIDE'
+                || $priceSource === 'LINE_UNIT_PRICE_OVERRIDE';
+
+            if ($priceSource === 'PACKED' || $isRowOverride) {
+                // Explicit minor-unit contract first. Override rows persist the
+                // net in minor units, so reading the ambiguous `line_total` as
+                // Rupiah here would deflate the row by a factor of 100.
                 if (isset($lineMeta['line_total_minor'])) {
                     $lineTotal = (int) $lineMeta['line_total_minor'];
                 } elseif (isset($lineMeta['line_total'])) {
-                    // Legacy packed snapshots may have line_total as minor units only
+                    // Legacy records: line_total held minor units for both
+                    // packed and overridden rows before the explicit field.
                     $lineTotal = (int) $lineMeta['line_total'];
                 }
             } else {
-                // Non-packed lines store line_total in Rupiah
+                // Non-packed, non-overridden lines store line_total in Rupiah
                 $lineTotal = $lineMeta['line_total'] ?? null;
             }
 
@@ -210,6 +239,21 @@ class PosTransactionSnapshotMapper
                 'pricing_basis' => $lineMeta['pricing_basis'] ?? null,
                 'line_total' => $lineTotal,
             ];
+
+            // Restore canonical override metadata so a reloaded draft reports
+            // the amounts as originally charged rather than recomputing them.
+            foreach ([
+                'line_total_minor',
+                'line_gross_minor',
+                'line_discount_minor',
+                'line_net_minor',
+                'line_tax_minor',
+                'line_taxable_base_minor',
+            ] as $canonicalField) {
+                if (isset($lineMeta[$canonicalField])) {
+                    $lines[$nextLineId][$canonicalField] = (int) $lineMeta[$canonicalField];
+                }
+            }
 
             $nextLineId++;
         }

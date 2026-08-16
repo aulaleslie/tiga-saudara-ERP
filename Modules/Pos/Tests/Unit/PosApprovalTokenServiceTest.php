@@ -175,27 +175,51 @@ class PosApprovalTokenServiceTest extends TestCase
         $this->tokenService->validateAndConsume($plaintext, $this->user->id, []);
     }
 
-    public function test_validate_and_consume_fails_if_already_consumed(): void
+    public function test_validate_token_does_not_consume_and_validates_expected_parameters(): void
     {
         $request = PosActionApprovalRequest::create([
             'setting_id' => $this->setting->id,
             'pos_session_id' => $this->session->id,
-            'action_type' => PosActionApprovalRequest::ACTION_CART_CLEAR,
-            'target_type' => 'pos_session',
-            'target_id' => $this->session->id,
+            'action_type' => PosActionApprovalRequest::ACTION_LINE_TOTAL_OVERRIDE,
+            'target_type' => 'pos_cart_line',
+            'target_id' => 5,
             'requested_by' => $this->user->id,
             'status' => PosActionApprovalRequest::STATUS_APPROVED,
         ]);
 
         $plaintext = $this->tokenService->issueToken($request, 10);
 
-        // First consume succeeds
-        $this->tokenService->validateAndConsume($plaintext, $this->user->id, []);
+        // Validating with expected fields returns the token record without consuming
+        $tokenRecord = $this->tokenService->validateToken($plaintext, $this->user->id, [
+            'action_type' => PosActionApprovalRequest::ACTION_LINE_TOTAL_OVERRIDE,
+            'pos_session_id' => $this->session->id,
+            'target_type' => 'pos_cart_line',
+            'target_id' => 5,
+            'requested_by' => $this->user->id,
+        ]);
 
-        // Second consume fails
-        $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('TOKEN_ALREADY_USED');
+        $this->assertNotNull($tokenRecord);
+        $this->assertNull($tokenRecord->consumed_at);
+        $this->assertEquals(PosActionApprovalRequest::STATUS_APPROVED, $request->fresh()->status);
 
-        $this->tokenService->validateAndConsume($plaintext, $this->user->id, []);
+        // Wrong session validation throws exception without mutating token
+        try {
+            $this->tokenService->validateToken($plaintext, $this->user->id, [
+                'pos_session_id' => 99999,
+            ]);
+            $this->fail('Expected exception for wrong session');
+        } catch (DomainException $e) {
+            $this->assertEquals('TOKEN_INVALID_OR_EXPIRED', $e->getMessage());
+        }
+
+        // Token remains unconsumed and usable
+        $tokenRecordFresh = PosActionApprovalToken::where('approval_request_id', $request->id)->first();
+        $this->assertNull($tokenRecordFresh->consumed_at);
+        $this->assertEquals(PosActionApprovalRequest::STATUS_APPROVED, $request->fresh()->status);
+
+        // Now explicitly consume
+        $consumed = $this->tokenService->consumeToken($tokenRecord, $this->user->id, ['ip' => '127.0.0.1']);
+        $this->assertEquals(PosActionApprovalRequest::STATUS_CONSUMED, $consumed->status);
+        $this->assertNotNull($tokenRecordFresh->fresh()->consumed_at);
     }
 }

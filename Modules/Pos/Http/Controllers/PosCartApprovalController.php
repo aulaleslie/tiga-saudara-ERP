@@ -28,12 +28,72 @@ class PosCartApprovalController extends Controller
             'reason'      => 'nullable|string|max:255',
         ]);
 
+        $actionType = (string) $request->input('action_type');
+        if (
+            $actionType === \Modules\Pos\Entities\PosActionApprovalRequest::ACTION_TOTAL_PRICE_OVERRIDE
+            || $actionType === \Modules\Pos\Entities\PosActionApprovalRequest::ACTION_PRICE_OVERRIDE
+        ) {
+            return response()->json([
+                'message' => 'Tindakan penyesuaian harga ini telah digantikan oleh total baris.',
+            ], 422);
+        }
+
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
 
         $payload = (array) $request->input('payload', []);
-        if ($request->filled('reason')) {
-            $payload['reason'] = $request->string('reason')->value();
+        $reason = $request->filled('reason') ? $request->string('reason')->value() : ($payload['reason'] ?? null);
+
+        if (\Modules\Pos\Entities\PosActionApprovalRequest::isRowOverrideAction($actionType)) {
+            $lineId = (int) $request->input('target_id');
+            $cart = app(\Modules\Pos\Services\PosCartSessionStore::class)->getCart($settingId, $sessionId);
+            $line = $cart['lines'][$lineId] ?? null;
+
+            if ($line === null) {
+                return response()->json([
+                    'message' => 'Baris keranjang tidak ditemukan.',
+                ], 422);
+            }
+
+            // Only the requested value and reason are accepted from the client.
+            // Source values, customer context, and the fingerprint are all
+            // derived server-side from the authoritative cart.
+            $requestedValue = $payload['requested_value']
+                ?? $payload['requested_unit_price']
+                ?? $payload['requested_total']
+                ?? null;
+
+            if ($requestedValue === null || ! is_numeric($requestedValue)) {
+                return response()->json([
+                    'message' => 'Nilai yang diminta wajib diisi dan berupa angka.',
+                ], 422);
+            }
+
+            if ((float) $requestedValue < 0) {
+                return response()->json([
+                    'message' => 'Nilai yang diminta tidak boleh negatif.',
+                ], 422);
+            }
+
+            try {
+                $payload = app(\Modules\Pos\Services\PosRowOverrideApprovalPayloadBuilder::class)->build(
+                    $actionType,
+                    $settingId,
+                    $sessionId,
+                    $lineId,
+                    $cart,
+                    $line,
+                    (int) round(((float) $requestedValue) * 100),
+                    (int) $request->user()->id,
+                    $reason
+                );
+            } catch (DomainException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        } else {
+            if ($reason !== null) {
+                $payload['reason'] = $reason;
+            }
         }
 
         try {
@@ -41,7 +101,7 @@ class PosCartApprovalController extends Controller
                 $settingId,
                 $sessionId,
                 $request->user(),
-                $request->input('action_type'),
+                $actionType,
                 $request->input('target_type'),
                 $request->input('target_id'),
                 $payload

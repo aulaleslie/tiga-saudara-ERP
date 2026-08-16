@@ -36,6 +36,18 @@ class PosServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->register(RouteServiceProvider::class);
+
+        // Re-entrance tracking lives on the lock instance, so every collaborator
+        // guarding the same cart must share one instance: a coordinator holding
+        // the lock calls into PosCartService, which must recognise the
+        // ownership rather than block on it.
+        //
+        // `scoped`, not `singleton`: the instance is shared for one
+        // request/job and rebuilt for the next. Under a long-lived worker
+        // (Octane) a process-wide singleton would let one execution context
+        // inherit another's re-entrant ownership and bypass the real lock.
+        $this->app->scoped(\Modules\Pos\Services\PosCartMutationLock::class);
+
         $this->app->bind(PosCheckoutPostingAdapter::class, function ($app) {
             $splitPostingEnabled = (bool) config('pos.checkout.split_posting.enabled', false);
 

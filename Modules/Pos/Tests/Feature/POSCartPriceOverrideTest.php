@@ -253,7 +253,7 @@ class POSCartPriceOverrideTest extends TestCase
         $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
-             ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+             ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                  'unit_price' => 15000
              ])
              ->assertStatus(200)
@@ -273,7 +273,7 @@ class POSCartPriceOverrideTest extends TestCase
         $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
-             ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+             ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                  'unit_price' => 0
              ])
              ->assertStatus(200)
@@ -293,7 +293,7 @@ class POSCartPriceOverrideTest extends TestCase
         $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
-             ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+             ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                  'unit_price' => 8000
              ])
              ->assertStatus(422)
@@ -321,10 +321,10 @@ class POSCartPriceOverrideTest extends TestCase
         // 1. Request approval
         $resReq = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
              ->postJson(route('pos.sell.approval-requests.store'), [
-                 'action_type' => 'PRICE_OVERRIDE',
+                 'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
                  'target_type' => 'pos_cart_line',
                  'target_id' => $lineId,
-                 'payload' => ['unit_price' => 5000]
+                 'payload' => ['requested_unit_price' => 5000]
              ]);
         $requestId = $resReq->json('request_id');
 
@@ -340,7 +340,7 @@ class POSCartPriceOverrideTest extends TestCase
 
         // 4. Apply with token
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
-             ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+             ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                  'unit_price' => 5000,
                  'approval_token' => $token
              ])
@@ -361,7 +361,7 @@ class POSCartPriceOverrideTest extends TestCase
         $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
-             ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+             ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
                  'unit_price' => -100
              ])
              ->assertStatus(422)
@@ -382,10 +382,10 @@ class POSCartPriceOverrideTest extends TestCase
 
         $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
              ->postJson(route('pos.sell.approval-requests.store'), [
-                 'action_type' => 'PRICE_OVERRIDE',
+                 'action_type' => 'LINE_UNIT_PRICE_OVERRIDE',
                  'target_type' => 'pos_cart_line',
                  'target_id' => $lineId,
-                 'payload' => ['unit_price' => 7500]
+                 'payload' => ['requested_unit_price' => 7500]
              ]);
 
         $resSnap = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
@@ -393,7 +393,7 @@ class POSCartPriceOverrideTest extends TestCase
 
         $resSnap->assertStatus(200);
         $pending = $resSnap->json('cart_snapshot.lines.0.pending_approvals.0');
-        $this->assertEquals('PRICE_OVERRIDE', $pending['action_type']);
+        $this->assertEquals('LINE_UNIT_PRICE_OVERRIDE', $pending['action_type']);
         $this->assertEquals(7500, $pending['requested_unit_price']);
     }
 }

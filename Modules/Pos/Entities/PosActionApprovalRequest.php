@@ -19,10 +19,79 @@ class PosActionApprovalRequest extends BaseModel
     public const ACTION_CART_CLEAR = 'CART_CLEAR';
     public const ACTION_LINE_REMOVE = 'LINE_REMOVE';
     public const ACTION_QTY_REDUCE = 'QTY_REDUCE';
-    public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
-    public const ACTION_TOTAL_PRICE_OVERRIDE = 'TOTAL_PRICE_OVERRIDE';
     public const ACTION_TRANSACTION_CANCEL = 'TRANSACTION_CANCEL';
     public const ACTION_CHECKOUT_AS_DEBT = 'CHECKOUT_AS_DEBT';
+
+    /**
+     * Active row-scoped monetary overrides.
+     *
+     * Two distinct types rather than one type with a mode flag: tokens are
+     * action-specific, and a shared type would let a unit-price approval
+     * authorize a row-total change through a mutable discriminator.
+     */
+    public const ACTION_LINE_UNIT_PRICE_OVERRIDE = 'LINE_UNIT_PRICE_OVERRIDE';
+    public const ACTION_LINE_TOTAL_OVERRIDE = 'LINE_TOTAL_OVERRIDE';
+
+    /**
+     * Retired action types.
+     *
+     * Retained so historical rows still deserialize and render read-only.
+     * They MUST NOT be created for new requests and MUST NOT authorize any new
+     * operation — `PRICE_OVERRIDE` was ambiguous about whether it carried a
+     * unit price or a row total, and `TOTAL_PRICE_OVERRIDE` was cart-wide.
+     */
+    public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
+    public const ACTION_TOTAL_PRICE_OVERRIDE = 'TOTAL_PRICE_OVERRIDE';
+
+    /**
+     * Action types that may be created and may authorize a new operation.
+     *
+     * @var array<int, string>
+     */
+    public const ACTIVE_ACTIONS = [
+        self::ACTION_CART_CLEAR,
+        self::ACTION_LINE_REMOVE,
+        self::ACTION_QTY_REDUCE,
+        self::ACTION_TRANSACTION_CANCEL,
+        self::ACTION_CHECKOUT_AS_DEBT,
+        self::ACTION_LINE_UNIT_PRICE_OVERRIDE,
+        self::ACTION_LINE_TOTAL_OVERRIDE,
+    ];
+
+    /**
+     * Readable-but-never-authorizing action types.
+     *
+     * @var array<int, string>
+     */
+    public const RETIRED_ACTIONS = [
+        self::ACTION_PRICE_OVERRIDE,
+        self::ACTION_TOTAL_PRICE_OVERRIDE,
+    ];
+
+    /**
+     * The two active row-scoped monetary override actions.
+     *
+     * @var array<int, string>
+     */
+    public const ROW_OVERRIDE_ACTIONS = [
+        self::ACTION_LINE_UNIT_PRICE_OVERRIDE,
+        self::ACTION_LINE_TOTAL_OVERRIDE,
+    ];
+
+    public static function isRetiredAction(string $actionType): bool
+    {
+        return in_array(strtoupper($actionType), self::RETIRED_ACTIONS, true);
+    }
+
+    public static function isActiveAction(string $actionType): bool
+    {
+        return in_array(strtoupper($actionType), self::ACTIVE_ACTIONS, true);
+    }
+
+    public static function isRowOverrideAction(string $actionType): bool
+    {
+        return in_array(strtoupper($actionType), self::ROW_OVERRIDE_ACTIONS, true);
+    }
 
     protected $table = 'pos_action_approval_requests';
 

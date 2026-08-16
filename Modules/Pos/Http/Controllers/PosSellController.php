@@ -301,9 +301,30 @@ class PosSellController extends Controller
         ], 422);
     }
 
+    /**
+     * Retired: the ambiguous unit-price endpoint whose payload could mean
+     * either a unit price or a row total. Superseded by the explicit
+     * `cartOverrideLineUnitPrice` contract; kept non-mutating so an old client
+     * cannot bypass the new validation.
+     */
     public function cartOverridePrice(
         int $lineId,
         StorePosCartPriceOverrideRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        return response()->json([
+            'status' => 'retired',
+            'message' => 'Endpoint ini telah digantikan. Gunakan ubah harga satuan atau ubah total baris.',
+            'code' => 'FEATURE_RETIRED',
+        ], 422);
+    }
+
+    /**
+     * Apply or request a unit-price override for one cart row.
+     */
+    public function cartOverrideLineUnitPrice(
+        int $lineId,
+        \Modules\Pos\Http\Requests\StorePosCartLineUnitPriceOverrideRequest $request,
         PosCartService $cartService
     ): JsonResponse {
         $settingId = $this->currentSettingId();
@@ -315,16 +336,67 @@ class PosSellController extends Controller
         }
 
         try {
-            $snapshot = $cartService->overrideLinePrice(
+            $snapshot = $cartService->overrideLineUnitPrice(
                 $settingId,
                 $sessionId,
                 $requestedBy,
                 $lineId,
-                (float) $request->input('unit_price'),
+                $request->input('unit_price', 0),
+                $request->input('reason'),
                 $request->input('approval_token'),
                 $request->user()
             );
         } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
+        } catch (\Modules\Pos\Services\Exceptions\PosCartCompensationFailedException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'cart_snapshot' => $snapshot,
+        ]);
+    }
+
+    public function cartOverrideLineTotal(
+        int $lineId,
+        \Modules\Pos\Http\Requests\StorePosCartLineTotalOverrideRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+        $requestedBy = (int) ($request->user()?->id ?? 0);
+
+        if ($requestedBy <= 0) {
+            abort(403, 'Authentication is required.');
+        }
+
+        try {
+            $snapshot = $cartService->overrideLineTotal(
+                $settingId,
+                $sessionId,
+                $requestedBy,
+                $lineId,
+                $request->input('line_total', 0),
+                $request->input('reason'),
+                $request->input('approval_token'),
+                $request->user()
+            );
+        } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
+        } catch (\Modules\Pos\Services\Exceptions\PosCartCompensationFailedException $exception) {
             return response()->json([
                 'code' => $exception->errorCode(),
                 'message' => $exception->getMessage(),

@@ -69,8 +69,8 @@
     @include('pos::sell.modals.bundle_selection')
 
     @include('pos::sell.modals.bundle_detail')
-    @include('pos::sell.modals.price_override')
-    @include('pos::sell.modals.total_override')
+    @include('pos::sell.modals.line_unit_price_override')
+    @include('pos::sell.modals.line_total_override')
     @include('pos::sell.modals.checkout_mismatch')
 
 @push('page_scripts')
@@ -175,25 +175,103 @@
             let pendingBundleSerial = null;
 
             // Price Override Modal elements
-            const priceOverrideModal = document.getElementById('pos-price-override-modal');
-            const priceOverrideCurrent = document.getElementById('pos-price-override-current');
-            const priceOverrideNewInput = document.getElementById('pos-price-override-new');
-            const priceOverrideError = document.getElementById('pos-price-override-error');
-            const priceOverrideReason = document.getElementById('pos-price-override-reason');
-            const priceOverrideSubmit = document.getElementById('pos-price-override-submit');
-            let pendingPriceLineId = null;
-            let pendingPriceCurrentPrice = null;
-            let pendingPriceButton = null;
+            // Two row monetary overrides, each with its own DOM nodes, form
+            // state, endpoint, validation, and approval state. Nothing is
+            // shared between them: the retired `price_override` markup drove
+            // both operations from one set of nodes, which is precisely how the
+            // unit-price action ended up mislabelled as a row-total action.
+            const unitPriceOverrideEls = {
+                modal: document.getElementById('pos-line-unit-price-override-modal'),
+                product: document.getElementById('pos-line-unit-price-override-product'),
+                current: document.getElementById('pos-line-unit-price-override-current'),
+                input: document.getElementById('pos-line-unit-price-override-new'),
+                error: document.getElementById('pos-line-unit-price-override-error'),
+                reason: document.getElementById('pos-line-unit-price-override-reason'),
+                submit: document.getElementById('pos-line-unit-price-override-submit'),
+            };
 
-            // Total Override Modal elements
-            const totalOverrideModal = document.getElementById('pos-total-override-modal');
-            const totalOverrideTrigger = document.getElementById('pos-total-override-trigger');
-            const totalOverrideCurrent = document.getElementById('pos-total-override-current');
-            const totalOverrideNewInput = document.getElementById('pos-total-override-new');
-            const totalOverrideError = document.getElementById('pos-total-override-error');
-            const totalOverrideReason = document.getElementById('pos-total-override-reason');
-            const totalOverrideSubmit = document.getElementById('pos-total-override-submit');
-            let totalOverrideButton = null;
+            const rowTotalOverrideEls = {
+                modal: document.getElementById('pos-line-total-override-modal'),
+                product: document.getElementById('pos-line-total-override-product'),
+                current: document.getElementById('pos-line-total-override-current'),
+                input: document.getElementById('pos-line-total-override-new'),
+                error: document.getElementById('pos-line-total-override-error'),
+                reason: document.getElementById('pos-line-total-override-reason'),
+                submit: document.getElementById('pos-line-total-override-submit'),
+            };
+
+            // Pending edit state, kept per action.
+            const overrideEditState = {
+                LINE_UNIT_PRICE_OVERRIDE: { lineId: null, currentValue: null, button: null },
+                LINE_TOTAL_OVERRIDE: { lineId: null, currentValue: null, button: null },
+            };
+
+            const ROW_OVERRIDE_CONTROLS = [
+                {
+                    actionType: 'LINE_UNIT_PRICE_OVERRIDE',
+                    jsClass: 'js-unit-price-edit',
+                    els: unitPriceOverrideEls,
+                    endpointSuffix: '/unit-price-override',
+                    valueField: 'unit_price',
+                    requestedField: 'requested_unit_price',
+                    label: 'Harga satuan',
+                    successMessage: 'Harga satuan berhasil diperbarui.',
+                    failureMessage: 'Gagal memperbarui harga satuan.',
+                    negativeMessage: 'Harga satuan tidak boleh negatif.',
+                    unchangedMessage: 'Harga satuan tidak berubah.',
+                    currentValueOf: (line) => Number(line.unit_price || 0),
+                },
+                {
+                    actionType: 'LINE_TOTAL_OVERRIDE',
+                    jsClass: 'js-row-total-edit',
+                    els: rowTotalOverrideEls,
+                    endpointSuffix: '/line-total-override',
+                    valueField: 'line_total',
+                    requestedField: 'requested_total',
+                    label: 'Total baris',
+                    successMessage: 'Total baris berhasil diperbarui.',
+                    failureMessage: 'Gagal memperbarui total baris.',
+                    negativeMessage: 'Total baris tidak boleh negatif.',
+                    unchangedMessage: 'Total baris tidak berubah.',
+                    currentValueOf: (line) => Number(
+                        line.line_net_before_bill !== undefined
+                            ? line.line_net_before_bill
+                            : (line.line_total || 0)
+                    ),
+                },
+            ];
+
+            ROW_OVERRIDE_CONTROLS.forEach((control) => {
+                control.openModal = (line, lineId, button) => {
+                    const currentValue = control.currentValueOf(line);
+
+                    overrideEditState[control.actionType] = { lineId, currentValue, button };
+
+                    if (control.els.product) {
+                        control.els.product.textContent = line.product_name || '';
+                    }
+                    if (control.els.current) {
+                        control.els.current.textContent = formatPrice(currentValue);
+                    }
+                    if (control.els.input) {
+                        control.els.input.value = currentValue;
+                    }
+                    if (control.els.reason) {
+                        control.els.reason.value = '';
+                    }
+                    if (control.els.error) {
+                        control.els.error.textContent = '';
+                        control.els.error.style.display = 'none';
+                    }
+                    if (control.els.submit) {
+                        // Starts disabled: the field equals the current value.
+                        control.els.submit.disabled = true;
+                    }
+                    if (control.els.modal) {
+                        $(control.els.modal).modal('show');
+                    }
+                };
+            });
 
             // Bundle Detail Modal elements
             const bundleDetailModal = document.getElementById('pos-bundle-detail-modal');
@@ -209,7 +287,7 @@
             const bundleDetailEmptyItems = document.getElementById('pos-bundle-detail-empty-items');
 
             // Track pending approval requests on the client side, scoped by action type per line.
-            // Shape: { [lineId]: { QTY_REDUCE: { requestId, requestedQty, status }, PRICE_OVERRIDE: { requestId, requestedPrice, status } } }
+            // Shape: { [lineId]: { QTY_REDUCE: { requestId, requestedQty, status }, LINE_TOTAL_OVERRIDE: { requestId, requestedTotal, status } } }
             // Only the matching action key is written/read so actions cannot bleed into each other.
             const clientPendingApprovals = {};
 
@@ -226,7 +304,6 @@
             const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const checkoutPreflightEndpoint = @json(route('pos.sell.checkout.preflight'));
-            const cartTotalOverrideEndpoint = @json(route('pos.sell.cart.total-override.store'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
@@ -248,11 +325,7 @@
               typeof roleCapabilities?.direct_permissions?.price_override === 'boolean' ? roleCapabilities.direct_permissions.price_override :
               false
             );
-            const canOverrideTotalPrice = Boolean(
-              typeof roleCapabilities?.direct_permissions?.total_price_override === 'boolean' ? roleCapabilities.direct_permissions.total_price_override :
-              false
-            );
-            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ', canOverridePrice: ' + canOverridePrice + ', canOverrideTotalPrice: ' + canOverrideTotalPrice);
+            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ', canOverridePrice: ' + canOverridePrice);
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
@@ -1226,22 +1299,72 @@
                     deleteButtonHtml = `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" title="Hapus" aria-label="Hapus">Hapus</button>`;
                 }
 
-                // Price Override Approval State
-                const priceOverrideReq = (line.pending_approvals || [])
+                // Two independent row monetary controls. Approval state is keyed
+                // by BOTH line and action type so neither control can ever show
+                // the other's "Periksa"/"Lanjutkan" state.
+                const latestApprovalFor = (actionType) => (line.pending_approvals || [])
                     .slice()
                     .sort((a, b) => b.request_id - a.request_id)
-                    .find(a => a.action_type === 'PRICE_OVERRIDE');
-                let priceBtnHtml = '';
-                if (priceOverrideReq) {
-                    if (priceOverrideReq.status === 'APPROVED') {
-                        const approvedPrice = priceOverrideReq.requested_unit_price || 0;
-                        priceBtnHtml = `<button type="button" class="btn btn-sm btn-success ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-approval-token="${priceOverrideReq.token || priceOverrideReq.approval_token || ''}" data-approved-price="${approvedPrice}" title="Lanjutkan: ${formatPrice(approvedPrice)}">✓ ${formatPrice(approvedPrice)}</button>`;
-                    } else {
-                        priceBtnHtml = `<button type="button" class="btn btn-sm btn-warning ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-approval-pending="${priceOverrideReq.request_id}" title="Periksa Persetujuan">Periksa</button>`;
+                    .find(a => a.action_type === actionType);
+
+                // Every rendered cart row is billable: bundle components are not
+                // cart rows at all — they are nested under their parent in
+                // `bundle_items` and surfaced read-only through the bundle
+                // detail modal, which carries no monetary controls. The guard
+                // stays explicit so a future change that promotes components to
+                // real rows cannot silently give them price controls.
+                const isBillableRow = !line.is_bundle_component
+                    && !line.is_component_row
+                    && Number(line.parent_line_id || 0) === 0;
+
+                const buildOverrideButton = (config) => {
+                    if (!isBillableRow) {
+                        return '';
                     }
-                } else {
-                    priceBtnHtml = `<button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" data-original-class="btn btn-sm btn-link text-primary p-0 ml-1 js-price-edit" title="Ubah Harga"><i class="bi bi-pencil-square"></i></button>`;
-                }
+
+                    const req = latestApprovalFor(config.actionType);
+                    const baseClass = `btn btn-sm btn-link ${config.idleTextClass} p-0 ml-1 ${config.jsClass}`;
+
+                    if (req && req.status === 'APPROVED') {
+                        const approvedValue = config.approvedValueOf(req);
+                        return `<button type="button" class="btn btn-sm btn-success ml-1 ${config.jsClass}" data-original-class="${baseClass}" data-approval-token="${req.token || req.approval_token || ''}" data-approved-value="${approvedValue}" title="Lanjutkan ${config.label}: ${formatPrice(approvedValue)}" aria-label="Lanjutkan ${config.label}">✓ ${formatPrice(approvedValue)}</button>`;
+                    }
+
+                    if (req) {
+                        return `<button type="button" class="btn btn-sm btn-warning ml-1 ${config.jsClass}" data-original-class="${baseClass}" data-approval-pending="${req.request_id}" title="Periksa Persetujuan ${config.label}" aria-label="Periksa Persetujuan ${config.label}">Periksa</button>`;
+                    }
+
+                    return `<button type="button" class="${baseClass}" data-original-class="${baseClass}" title="${config.label}" aria-label="${config.label}"><i class="bi ${config.icon}"></i></button>`;
+                };
+
+                // The amount the row-total modal treats as authoritative: the
+                // row's own net, before any allocated bill discount. `line_total`
+                // is post-bill-discount, so showing it beside the control would
+                // let a cashier click next to one figure and see a different
+                // "current total" in the modal.
+                const authoritativeRowTotal = Number(
+                    line.line_net_before_bill !== undefined
+                        ? line.line_net_before_bill
+                        : (line.line_total || 0)
+                );
+
+                const unitPriceBtnHtml = buildOverrideButton({
+                    actionType: 'LINE_UNIT_PRICE_OVERRIDE',
+                    jsClass: 'js-unit-price-edit',
+                    label: 'Ubah Harga Satuan',
+                    icon: 'bi-tag',
+                    idleTextClass: 'text-primary',
+                    approvedValueOf: (req) => req.requested_unit_price ?? 0,
+                });
+
+                const rowTotalBtnHtml = buildOverrideButton({
+                    actionType: 'LINE_TOTAL_OVERRIDE',
+                    jsClass: 'js-row-total-edit',
+                    label: 'Ubah Total Baris',
+                    icon: 'bi-calculator',
+                    idleTextClass: 'text-info',
+                    approvedValueOf: (req) => req.requested_line_total ?? 0,
+                });
 
                 const bundleInfo = line.bundle_id
                     ? `<div class="text-primary mt-1">
@@ -1291,12 +1414,19 @@
                         <td class="text-right align-middle">
                             <div class="d-flex align-items-center justify-content-end">
                                 <span>${formatPrice(line.unit_price || 0)}</span>
-                                ${priceBtnHtml}
+                                ${unitPriceBtnHtml}
                             </div>
                         </td>
                         ${qtyCell}
                         <td class="text-right align-middle" style="vertical-align: top;">
-                            <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
+                            <div class="d-flex align-items-center justify-content-end">
+                                <span class="font-weight-bold">${formatPrice(authoritativeRowTotal)}</span>
+                                ${rowTotalBtnHtml}
+                            </div>
+                            ${(
+                                line.line_net_before_bill !== undefined
+                                && Number(line.bill_discount_amount || 0) > 0
+                            ) ? `<div class="small text-muted">Setelah diskon nota: ${formatPrice(line.line_total || 0)}</div>` : ''}
                         </td>
                         <td class="text-center align-middle">
                             ${deleteButtonHtml}
@@ -1416,9 +1546,6 @@
                          clearCartButton.classList.add('btn-outline-danger');
                      }
                  }
-
-                 // Render total override trigger state
-                 renderTotalOverrideTrigger();
 
              }
  
@@ -2773,72 +2900,65 @@
                     return;
                 }
 
-                // Handle Price Override button click
-                if (button.classList.contains('js-price-edit')) {
+                // Handle both row monetary override buttons. One handler,
+                // parameterised per action, so neither action can read the
+                // other's state, endpoint, or approved value.
+                const overrideControl = ROW_OVERRIDE_CONTROLS.find(
+                    (candidate) => button.classList.contains(candidate.jsClass)
+                );
+
+                if (overrideControl) {
                     const pendingRequestId = button.getAttribute('data-approval-pending');
                     const approvalToken = button.getAttribute('data-approval-token');
-                    const approvedPrice = Number(button.getAttribute('data-approved-price') || 0);
+                    const approvedValue = Number(button.getAttribute('data-approved-value') || 0);
 
                     if (pendingRequestId) {
-                        // Check approval status
-                        await ApprovalManager.checkApproval(button, '⏳ Periksa', pendingRequestId);
+                        await ApprovalManager.checkApproval(button, '\u23F3 Periksa', pendingRequestId);
                         await refreshCart();
                     } else if (approvalToken) {
-                        // Approved - apply via wrapAction (requires final confirmation)
-                        const applyPriceUpdate = async (token) => {
-                            const payload = { unit_price: approvedPrice, approval_token: token };
-                            const response = await jsonRequest(getLineEndpoint(lineId) + '/price-override', 'POST', payload);
+                        const applyApprovedOverride = async (token) => {
+                            const payload = {
+                                [overrideControl.valueField]: approvedValue,
+                                approval_token: token,
+                            };
+                            const response = await jsonRequest(
+                                getLineEndpoint(lineId) + overrideControl.endpointSuffix,
+                                'POST',
+                                payload
+                            );
                             if (!response) {
-                                throw new Error('Gagal memperbarui harga.');
+                                throw new Error(overrideControl.failureMessage);
                             }
 
-                            // Clear only the PRICE_OVERRIDE action key so unrelated actions on the same line are preserved
+                            // Clear only this action's key for this line.
                             if (clientPendingApprovals[lineId]) {
-                                delete clientPendingApprovals[lineId].PRICE_OVERRIDE;
+                                delete clientPendingApprovals[lineId][overrideControl.actionType];
                                 if (Object.keys(clientPendingApprovals[lineId]).length === 0) {
                                     delete clientPendingApprovals[lineId];
                                 }
                             }
                             renderCart(response.cart_snapshot || null);
-                            setCartStatus('Harga berhasil diperbarui.', 'text-success');
+                            setCartStatus(overrideControl.successMessage, 'text-success');
                         };
 
                         try {
                             await ApprovalManager.wrapAction(
                                 button,
-                                '✓ Lanjutkan',
-                                'PRICE_OVERRIDE',
+                                '\u2713 Lanjutkan',
+                                overrideControl.actionType,
                                 'pos_cart_line',
                                 lineId,
-                                { unit_price: approvedPrice },
-                                applyPriceUpdate
+                                { [overrideControl.requestedField]: approvedValue },
+                                applyApprovedOverride
                             );
                         } catch (error) {
-                            setCartStatus(error.message || 'Gagal memproses perubahan harga.', 'text-danger', true);
+                            setCartStatus(error.message || overrideControl.failureMessage, 'text-danger', true);
                         }
                     } else {
-                        // No pending approval - open modal
                         const line = currentSnapshot.lines.find(l => Number(l.line_id) === lineId);
                         if (!line) return;
 
-                        pendingPriceLineId = lineId;
-                        pendingPriceCurrentPrice = Number(line.unit_price || 0);
-                        pendingPriceButton = button;
-
-                        if (priceOverrideCurrent) priceOverrideCurrent.textContent = formatPrice(pendingPriceCurrentPrice);
-                        if (priceOverrideNewInput) {
-                            priceOverrideNewInput.value = pendingPriceCurrentPrice;
-                        }
-                        if (priceOverrideReason) priceOverrideReason.value = '';
-                        if (priceOverrideError) {
-                            priceOverrideError.textContent = '';
-                            priceOverrideError.style.display = 'none';
-                        }
-                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true; // Disabled because identical to current
-
-                        if (priceOverrideModal) {
-                            $(priceOverrideModal).modal('show');
-                        }
+                        overrideControl.openModal(line, lineId, button);
                     }
                     return;
                 }
@@ -2929,30 +3049,38 @@
                 });
             }
 
-            if (priceOverrideNewInput) {
-                priceOverrideNewInput.addEventListener('input', function () {
-                    const newPrice = Number(this.value);
-                    if (isNaN(newPrice) || newPrice < 0) {
-                        if (priceOverrideError) {
-                            priceOverrideError.textContent = 'Harga tidak boleh negatif.';
-                            priceOverrideError.style.display = 'block';
+            // Per-control validation: each modal validates against its own
+            // current value and writes to its own error node, so an error in
+            // one modal can never appear in the other.
+            ROW_OVERRIDE_CONTROLS.forEach((control) => {
+                if (!control.els.input) {
+                    return;
+                }
+
+                control.els.input.addEventListener('input', function () {
+                    const state = overrideEditState[control.actionType];
+                    const nextValue = Number(this.value);
+                    const showError = (message) => {
+                        if (control.els.error) {
+                            control.els.error.textContent = message;
+                            control.els.error.style.display = message ? 'block' : 'none';
                         }
-                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true;
-                    } else if (newPrice === pendingPriceCurrentPrice) {
-                        if (priceOverrideError) {
-                            priceOverrideError.textContent = 'Harga tidak berubah.';
-                            priceOverrideError.style.display = 'block';
+                        if (control.els.submit) {
+                            control.els.submit.disabled = message !== '';
                         }
-                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = true;
+                    };
+
+                    if (this.value === '' || isNaN(nextValue)) {
+                        showError(control.negativeMessage);
+                    } else if (nextValue < 0) {
+                        showError(control.negativeMessage);
+                    } else if (nextValue === state.currentValue) {
+                        showError(control.unchangedMessage);
                     } else {
-                        if (priceOverrideError) {
-                            priceOverrideError.textContent = '';
-                            priceOverrideError.style.display = 'none';
-                        }
-                        if (priceOverrideSubmit) priceOverrideSubmit.disabled = false;
+                        showError('');
                     }
                 });
-            }
+            });
 
 
             if (reduceQtySubmit) {
@@ -3044,75 +3172,83 @@
                 });
             }
 
-            if (priceOverrideSubmit) {
-                priceOverrideSubmit.addEventListener('click', async function () {
-                    if (!Number.isFinite(pendingPriceLineId) || pendingPriceLineId <= 0) {
+            ROW_OVERRIDE_CONTROLS.forEach((control) => {
+                if (!control.els.submit) {
+                    return;
+                }
+
+                control.els.submit.addEventListener('click', async function () {
+                    const state = overrideEditState[control.actionType];
+
+                    if (!Number.isFinite(state.lineId) || state.lineId <= 0) {
                         setCartStatus('Baris keranjang tidak valid.', 'text-danger', true);
-                        if (priceOverrideModal) $(priceOverrideModal).modal('hide');
+                        if (control.els.modal) $(control.els.modal).modal('hide');
                         return;
                     }
 
-                    const newPrice = Number(priceOverrideNewInput ? priceOverrideNewInput.value : 0);
-                    const reason = priceOverrideReason ? priceOverrideReason.value.trim() || null : null;
+                    const nextValue = Number(control.els.input ? control.els.input.value : 0);
+                    const reason = control.els.reason ? (control.els.reason.value.trim() || null) : null;
 
-                    if (isNaN(newPrice) || newPrice < 0 || newPrice === pendingPriceCurrentPrice) {
+                    if (isNaN(nextValue) || nextValue < 0 || nextValue === state.currentValue) {
                         return;
                     }
 
-                    // Close modal
-                    if (priceOverrideModal) $(priceOverrideModal).modal('hide');
+                    if (control.els.modal) $(control.els.modal).modal('hide');
 
-                    const applyPriceUpdate = async (token) => {
-                        const payload = { unit_price: newPrice };
+                    const lineIdForStorage = state.lineId;
+                    const buttonForApproval = state.button || control.els.submit;
+
+                    const applyOverride = async (token) => {
+                        const payload = { [control.valueField]: nextValue, reason: reason };
                         if (token) payload.approval_token = token;
 
-                        const response = await jsonRequest(getLineEndpoint(pendingPriceLineId) + '/price-override', 'POST', payload);
+                        const response = await jsonRequest(
+                            getLineEndpoint(lineIdForStorage) + control.endpointSuffix,
+                            'POST',
+                            payload
+                        );
                         if (!response) {
-                            throw new Error('Gagal memperbarui harga.');
+                            throw new Error(control.failureMessage);
                         }
 
                         renderCart(response.cart_snapshot || null);
-                        setCartStatus('Harga berhasil diperbarui.', 'text-success');
+                        setCartStatus(control.successMessage, 'text-success');
                     };
 
                     try {
-                        const buttonForApproval = pendingPriceButton || priceOverrideSubmit;
-                        const originalButtonText = '<i class="bi bi-pencil-square"></i>';
-                        const lineIdForStorage = pendingPriceLineId;
-                        const requestedPriceForStorage = newPrice;
-
                         await ApprovalManager.wrapAction(
                             buttonForApproval,
-                            originalButtonText,
-                            'PRICE_OVERRIDE',
+                            '\u21A9',
+                            control.actionType,
                             'pos_cart_line',
-                            pendingPriceLineId,
-                            { unit_price: newPrice, reason: reason },
-                            applyPriceUpdate
+                            lineIdForStorage,
+                            // Only the requested value and reason are sent; the
+                            // server derives source values and the fingerprint.
+                            { [control.requestedField]: nextValue, reason: reason },
+                            applyOverride
                         );
 
                         const pendingRequestId = buttonForApproval.getAttribute('data-approval-pending');
                         if (pendingRequestId) {
-                            // Store in client-side pending approvals scoped to PRICE_OVERRIDE action key only
                             if (!clientPendingApprovals[lineIdForStorage]) {
                                 clientPendingApprovals[lineIdForStorage] = {};
                             }
-                            clientPendingApprovals[lineIdForStorage].PRICE_OVERRIDE = {
+                            // Keyed by action type: a pending unit-price request
+                            // must never light up the row-total control.
+                            clientPendingApprovals[lineIdForStorage][control.actionType] = {
                                 requestId: pendingRequestId,
-                                requestedPrice: requestedPriceForStorage,
+                                requestedValue: nextValue,
                                 status: 'PENDING'
                             };
                             await refreshCart();
                         }
                     } catch (error) {
-                        setCartStatus(error.message || 'Gagal memproses permintaan perubahan harga.', 'text-danger', true);
+                        setCartStatus(error.message || control.failureMessage, 'text-danger', true);
                     } finally {
-                        pendingPriceLineId = null;
-                        pendingPriceCurrentPrice = null;
-                        pendingPriceButton = null;
+                        overrideEditState[control.actionType] = { lineId: null, currentValue: null, button: null };
                     }
                 });
-            }
+            });
 
 
             // Handle modal close/reset
@@ -3128,260 +3264,22 @@
                 });
             }
 
-            if (priceOverrideModal) {
-                priceOverrideModal.addEventListener('hidden.bs.modal', function () {
-                    pendingPriceLineId = null;
-                    pendingPriceCurrentPrice = null;
-                    pendingPriceButton = null;
-                    if (priceOverrideError) {
-                        priceOverrideError.textContent = '';
-                        priceOverrideError.style.display = 'none';
-                    }
-                });
-            }
-
-            // Render total override trigger state from snapshot
-            function renderTotalOverrideTrigger() {
-                if (!totalOverrideTrigger) return;
-
-                const approval = currentSnapshot?.total_price_override_approval;
-
-                if (!approval) {
-                    // No active request
-                    totalOverrideTrigger.textContent = 'Ubah Total';
-                    totalOverrideTrigger.classList.remove('btn-warning', 'btn-success');
-                    totalOverrideTrigger.classList.add('btn-outline-secondary');
-                    totalOverrideTrigger.removeAttribute('data-approval-pending');
-                    totalOverrideTrigger.removeAttribute('data-approval-token');
+            // Each modal resets only its own state and error node on close.
+            ROW_OVERRIDE_CONTROLS.forEach((control) => {
+                if (!control.els.modal) {
                     return;
                 }
 
-                if (approval.status === 'PENDING') {
-                    // Pending approval
-                    totalOverrideTrigger.textContent = 'Periksa Persetujuan';
-                    totalOverrideTrigger.classList.remove('btn-outline-secondary', 'btn-success');
-                    totalOverrideTrigger.classList.add('btn-warning');
-                    totalOverrideTrigger.setAttribute('data-approval-pending', approval.request_id);
-                    totalOverrideTrigger.removeAttribute('data-approval-token');
-                    return;
-                }
-
-                if (approval.status === 'APPROVED' && approval.approval_token) {
-                    // Approved, ready to execute
-                    totalOverrideTrigger.textContent = 'Lanjutkan';
-                    totalOverrideTrigger.classList.remove('btn-outline-secondary', 'btn-warning');
-                    totalOverrideTrigger.classList.add('btn-success');
-                    totalOverrideTrigger.removeAttribute('data-approval-pending');
-                    totalOverrideTrigger.setAttribute('data-approval-token', approval.approval_token);
-                    return;
-                }
-
-                if (['REJECTED', 'CANCELLED', 'INVALIDATED'].includes(approval.status)) {
-                    // Reset to idle
-                    totalOverrideTrigger.textContent = 'Ubah Total';
-                    totalOverrideTrigger.classList.remove('btn-warning', 'btn-success');
-                    totalOverrideTrigger.classList.add('btn-outline-secondary');
-                    totalOverrideTrigger.removeAttribute('data-approval-pending');
-                    totalOverrideTrigger.removeAttribute('data-approval-token');
-                    return;
-                }
-            }
-
-            // Total Override Trigger Click Handler
-            if (totalOverrideTrigger) {
-                totalOverrideTrigger.addEventListener('click', async function () {
-                    if (!currentSnapshot || !currentSnapshot.totals) {
-                        setCartStatus('Keranjang kosong atau tidak tersedia.', 'text-danger', true);
-                        return;
-                    }
-
-                    const approval = currentSnapshot.total_price_override_approval;
-
-                    // If pending: check approval status
-                    if (approval?.status === 'PENDING') {
-                        const requestId = approval.request_id;
-                        try {
-                            const res = await jsonRequest('/pos/sell/approval-requests/' + requestId, 'GET');
-                            const state = String(res.state || res.status || '').toLowerCase();
-
-                            if (state === 'pending') {
-                                setCartStatus('Status masih pending. Anda dapat klik lagi untuk cek ulang.', 'text-warning');
-                                return;
-                            }
-
-                            if (state === 'approved' && (res.approval_token || res.token)) {
-                                // Refresh cart snapshot to reflect approved state
-                                const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
-                                if (snapResponse && snapResponse.cart_snapshot) {
-                                    renderCart(snapResponse.cart_snapshot);
-                                }
-                                renderTotalOverrideTrigger();
-                                setCartStatus('Permintaan disetujui. Klik tombol "Lanjutkan" untuk mengeksekusi.', 'text-success');
-                                return;
-                            }
-
-                            // Rejected/cancelled
-                            const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
-                            if (snapResponse && snapResponse.cart_snapshot) {
-                                renderCart(snapResponse.cart_snapshot);
-                            }
-                            renderTotalOverrideTrigger();
-                            if (state === 'rejected') {
-                                setCartStatus('Permintaan ditolak.' + (res.decision_reason ? ' Alasan: ' + res.decision_reason : ''), 'text-danger');
-                            } else {
-                                setCartStatus('Permintaan ' + state + '.', 'text-muted');
-                            }
-                        } catch (error) {
-                            setCartStatus(error.message || 'Gagal memeriksa status persetujuan.', 'text-danger');
-                        }
-                        return;
-                    }
-
-                    // If approved: show confirmation and execute
-                    if (approval?.status === 'APPROVED' && approval.approval_token) {
-                        const result = await Swal.fire({
-                            title: 'Lanjutkan Aksi?',
-                            text: 'Tekan Lanjutkan untuk mengeksekusi perubahan total, atau Batalkan untuk menghapus persetujuan.',
-                            icon: 'question',
-                            showCancelButton: true,
-                            confirmButtonText: 'Lanjutkan',
-                            cancelButtonText: 'Batalkan Persetujuan',
-                            reverseButtons: true
-                        });
-
-                        if (!result.isConfirmed) {
-                            // Cancel approval
-                            const requestId = approval.request_id;
-                            try {
-                                await jsonRequest('/pos/sell/approval-requests/' + requestId + '/cancel', 'POST', {});
-                                const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
-                                if (snapResponse && snapResponse.cart_snapshot) {
-                                    renderCart(snapResponse.cart_snapshot);
-                                }
-                                renderTotalOverrideTrigger();
-                                setCartStatus('Persetujuan dibatalkan.', 'text-muted');
-                            } catch (error) {
-                                setCartStatus(error.message || 'Gagal membatalkan persetujuan.', 'text-danger');
-                            }
-                            return;
-                        }
-
-                        // Execute with token
-                        try {
-                            const payload = { approval_token: approval.approval_token };
-                            const response = await jsonRequest(cartTotalOverrideEndpoint, 'POST', payload);
-                            if (!response || !response.cart_snapshot) {
-                                throw new Error('Gagal mengubah total keranjang.');
-                            }
-
-                            renderCart(response.cart_snapshot);
-                            renderTotalOverrideTrigger();
-                            setCartStatus('Total keranjang berhasil diubah.', 'text-success');
-                        } catch (error) {
-                            setCartStatus(error.message || 'Gagal mengeksekusi perubahan total.', 'text-danger');
-                        }
-                        return;
-                    }
-
-                    // Idle: open modal for new request
-                    const currentTotal = currentSnapshot.totals.grand_total || 0;
-                    if (totalOverrideCurrent) {
-                        totalOverrideCurrent.textContent = formatPrice(currentTotal);
-                    }
-                    if (totalOverrideNewInput) {
-                        totalOverrideNewInput.value = '';
-                        totalOverrideNewInput.focus();
-                    }
-                    if (totalOverrideError) {
-                        totalOverrideError.textContent = '';
-                        totalOverrideError.style.display = 'none';
-                    }
-                    if (totalOverrideReason) {
-                        totalOverrideReason.value = '';
-                    }
-                    if (totalOverrideSubmit) {
-                        totalOverrideSubmit.disabled = true;
-                    }
-                    if (totalOverrideModal) {
-                        $(totalOverrideModal).modal('show');
+                control.els.modal.addEventListener('hidden.bs.modal', function () {
+                    overrideEditState[control.actionType] = { lineId: null, currentValue: null, button: null };
+                    if (control.els.error) {
+                        control.els.error.textContent = '';
+                        control.els.error.style.display = 'none';
                     }
                 });
-            }
+            });
 
-            if (totalOverrideNewInput) {
-                totalOverrideNewInput.addEventListener('input', function () {
-                    if (totalOverrideError) {
-                        totalOverrideError.textContent = '';
-                        totalOverrideError.style.display = 'none';
-                    }
-                    const newValue = Number(totalOverrideNewInput.value);
-                    const isValid = Number.isFinite(newValue) && newValue >= 0;
-                    if (totalOverrideSubmit) {
-                        totalOverrideSubmit.disabled = !isValid;
-                    }
-                });
-            }
 
-            if (totalOverrideSubmit) {
-                totalOverrideSubmit.addEventListener('click', async function () {
-                    // The submit button ONLY handles submitting a new request/direct change
-                    // Do NOT use it for pending/approved state management - that's handled by the trigger
-
-                    if (!currentSnapshot) {
-                        setCartStatus('Keranjang tidak tersedia.', 'text-danger', true);
-                        if (totalOverrideModal) $(totalOverrideModal).modal('hide');
-                        return;
-                    }
-
-                    const newTotal = Number(totalOverrideNewInput ? totalOverrideNewInput.value : 0);
-                    const reason = totalOverrideReason ? totalOverrideReason.value.trim() || null : null;
-
-                    if (isNaN(newTotal) || newTotal < 0) {
-                        if (totalOverrideError) {
-                            totalOverrideError.textContent = 'Total harus angka non-negatif.';
-                            totalOverrideError.style.display = 'block';
-                        }
-                        return;
-                    }
-
-                    if (totalOverrideModal) $(totalOverrideModal).modal('hide');
-
-                    try {
-                        const payload = { target_total: newTotal };
-                        if (reason) payload.reason = reason;
-
-                        const response = await jsonRequest(cartTotalOverrideEndpoint, 'POST', payload);
-                        if (!response) {
-                            throw new Error('Gagal mengubah total keranjang.');
-                        }
-
-                        // Refresh cart snapshot to show new approval state
-                        const snapResponse = await jsonRequest(cartShowEndpoint, 'GET');
-                        if (snapResponse && snapResponse.cart_snapshot) {
-                            renderCart(snapResponse.cart_snapshot);
-                        }
-                        renderTotalOverrideTrigger();
-
-                        if (response.status === 'request_created') {
-                            setCartStatus('Permintaan perubahan total dikirim. Klik "Periksa Persetujuan" untuk cek status.', 'text-warning');
-                        } else if (response.cart_snapshot) {
-                            setCartStatus('Total keranjang berhasil diubah.', 'text-success');
-                        }
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal memproses perubahan total.', 'text-danger', true);
-                    }
-                });
-            }
-
-            if (totalOverrideModal) {
-                totalOverrideModal.addEventListener('hidden.bs.modal', function () {
-                    totalOverrideButton = null;
-                    if (totalOverrideError) {
-                        totalOverrideError.textContent = '';
-                        totalOverrideError.style.display = 'none';
-                    }
-                });
-            }
 
 
             // Cash Pickup Modal

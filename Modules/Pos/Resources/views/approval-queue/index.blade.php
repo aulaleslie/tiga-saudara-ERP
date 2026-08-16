@@ -171,12 +171,30 @@ document.addEventListener('DOMContentLoaded', function () {
         return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     };
 
+    /**
+     * Escape any value before it is interpolated into innerHTML.
+     *
+     * Queue rows are built from request payloads that include free text a
+     * cashier typed (`reason`) and product names, so every payload-derived
+     * string must be escaped or a stored payload could inject markup into a
+     * supervisor's browser.
+     */
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
     const actionLabels = {
         'CART_CLEAR': '<span class="badge bg-danger">Hapus Keranjang</span>',
         'LINE_REMOVE': '<span class="badge bg-warning text-dark">Hapus Baris Produk</span>',
         'QTY_REDUCE': '<span class="badge bg-info text-dark">Kurangi Qty Produk</span>',
-        'PRICE_OVERRIDE': '<span class="badge bg-primary">Ubah Harga Jual</span>',
-        'TOTAL_PRICE_OVERRIDE': '<span class="badge bg-secondary">Ubah Total Keranjang</span>'
+        'LINE_UNIT_PRICE_OVERRIDE': '<span class="badge bg-primary">Ubah Harga Satuan</span>',
+        'LINE_TOTAL_OVERRIDE': '<span class="badge bg-info text-dark">Ubah Total Baris</span>',
+        // Retired actions: still labelled so historical rows render read-only.
+        'PRICE_OVERRIDE': '<span class="badge bg-secondary">Ubah Harga Jual (dipensiunkan)</span>',
+        'TOTAL_PRICE_OVERRIDE': '<span class="badge bg-secondary">Ubah Total Keranjang (dipensiunkan)</span>'
     };
 
     const loadQueue = () => {
@@ -202,35 +220,73 @@ document.addEventListener('DOMContentLoaded', function () {
                 data.forEach(req => {
                     const tr = document.createElement('tr');
                     
-                    let actionHtml = actionLabels[req.action_type] || req.action_type;
+                    // Known labels are trusted constants; an unknown action type
+                    // is payload-derived and must be escaped.
+                    let actionHtml = actionLabels[req.action_type] || escapeHtml(req.action_type);
                     let targetHtml = req.target_type === 'pos_session'
-                        ? `Sesi #${req.target_id}`
-                        : `Cart Line #${req.target_id}`;
+                        ? `Sesi #${escapeHtml(req.pos_session_id || req.target_id)}`
+                        : `Cart Line #${escapeHtml(req.target_id)}`;
 
-                    if (req.action_type === 'PRICE_OVERRIDE') {
+                    // Both active row overrides render from the canonical
+                    // server-built payload, in minor units, comparing like with
+                    // like: unit price against unit price, row total against
+                    // row total. Each is labelled with the kind of value it
+                    // actually changes so a supervisor cannot mistake one for
+                    // the other.
+                    const ACTIVE_OVERRIDE_LABELS = {
+                        'LINE_UNIT_PRICE_OVERRIDE': 'Harga satuan',
+                        'LINE_TOTAL_OVERRIDE': 'Total baris',
+                    };
+
+                    if (ACTIVE_OVERRIDE_LABELS[req.action_type]) {
+                        const payload = req.request_payload || {};
+                        const toMajor = (minor) => Number(minor || 0) / 100;
+                        const rp = (value) => 'Rp' + Number(value).toLocaleString('id-ID');
+
+                        const sourceValue = toMajor(payload.source_value_minor);
+                        const requestedValue = toMajor(payload.requested_value_minor);
+                        const delta = requestedValue - sourceValue;
+                        const deltaSign = delta >= 0 ? '+' : '';
+
+                        const valueLabel = ACTIVE_OVERRIDE_LABELS[req.action_type];
+                        const product = payload.product_name
+                            ? `${escapeHtml(payload.product_name)} (#${escapeHtml(payload.product_id || '-')})`
+                            : `Cart Line #${escapeHtml(req.target_id)}`;
+                        const qty = payload.qty ? ` &times; ${escapeHtml(payload.qty)}` : '';
+                        const reason = payload.reason
+                            ? `<br><small class="text-muted">${escapeHtml(payload.reason)}</small>`
+                            : '';
+
+                        targetHtml = `<strong>${product}</strong>${qty}`
+                            + `<br><small class="text-muted">Baris #${escapeHtml(payload.line_id || req.target_id)}</small>`
+                            + `<br><small class="text-primary">${valueLabel}: ${rp(sourceValue)} &rarr; ${rp(requestedValue)} (${deltaSign}${rp(delta)})</small>`
+                            + reason;
+                    } else if (req.action_type === 'PRICE_OVERRIDE') {
+                        // Historical only; never created for new requests.
                         const requestedPrice = Number(req.request_payload?.unit_price || 0);
-                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${req.request_payload.reason}</small>` : '';
-                        targetHtml = `Cart Line #${req.target_id}<br><small class="text-primary">Harga diminta: ${requestedPrice.toLocaleString('id-ID')}</small>${reason}`;
+                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${escapeHtml(req.request_payload.reason)}</small>` : '';
+                        targetHtml = `Cart Line #${escapeHtml(req.target_id)}<br><small class="text-muted">Harga diminta: ${requestedPrice.toLocaleString('id-ID')}</small>${reason}`;
                     } else if (req.action_type === 'TOTAL_PRICE_OVERRIDE') {
+                        // Historical only; the cart-wide action is retired.
                         const currentTotal = Number(req.request_payload?.source_total || 0);
                         const requestedTotal = Number(req.request_payload?.target_total || 0);
                         const delta = requestedTotal - currentTotal;
                         const deltaSign = delta >= 0 ? '+' : '';
-                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${req.request_payload.reason}</small>` : '';
-                        targetHtml = `Sesi #${req.pos_session_id}<br><small class="text-primary">Total: Rp${currentTotal.toLocaleString('id-ID')} → Rp${requestedTotal.toLocaleString('id-ID')} (${deltaSign}Rp${delta.toLocaleString('id-ID')})</small>${reason}`;
+                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${escapeHtml(req.request_payload.reason)}</small>` : '';
+                        targetHtml = `Sesi #${escapeHtml(req.pos_session_id)}<br><small class="text-muted">Total: Rp${currentTotal.toLocaleString('id-ID')} &rarr; Rp${requestedTotal.toLocaleString('id-ID')} (${deltaSign}Rp${delta.toLocaleString('id-ID')})</small>${reason}`;
                     }
 
                     tr.innerHTML = `
                         <td>${formatDate(req.created_at)}</td>
                         <td>
-                            <strong>${req.requester ? req.requester.name : '-'}</strong>
+                            <strong>${escapeHtml(req.requester ? req.requester.name : '-')}</strong>
                         </td>
-                        <td>Sesi #${req.pos_session_id}</td>
+                        <td>Sesi #${escapeHtml(req.pos_session_id)}</td>
                         <td>${actionHtml}</td>
                         <td><small class="text-muted">${targetHtml}</small></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-success btn-approve" data-id="${req.id}">Setujui</button>
-                            <button class="btn btn-sm btn-danger btn-reject" data-id="${req.id}">Tolak</button>
+                            <button class="btn btn-sm btn-success btn-approve" data-id="${escapeHtml(req.id)}">Setujui</button>
+                            <button class="btn btn-sm btn-danger btn-reject" data-id="${escapeHtml(req.id)}">Tolak</button>
                         </td>
                     `;
                     tableBody.appendChild(tr);
