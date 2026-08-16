@@ -180,6 +180,7 @@ class EditForm extends Component
                     'product_id'     => $b->product_id,
                     'name'           => $b->name,
                     'price'          => 0.0,
+                    'informational_item_price' => $b->informational_item_price !== null ? (float) $b->informational_item_price : null,
                     'quantity_per_bundle' => $detail->quantity > 0 ? (float) ($b->quantity / $detail->quantity) : (float) $b->quantity,
                     'quantity'       => $b->quantity,
                     'sub_total'      => 0.0,

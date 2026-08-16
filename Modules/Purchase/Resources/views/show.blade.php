@@ -642,6 +642,7 @@
     </div>
 
         {{-- Reporting Date Override Modal --}}
+        @if(!(isset($globalMode) && $globalMode))
         <div class="modal fade" id="reportingDateOverrideModal" tabindex="-1" role="dialog" aria-labelledby="reportingDateOverrideModalLabel" aria-hidden="true">
             <div class="modal-dialog" role="document">
                 <div class="modal-content">
@@ -704,6 +705,7 @@
                 </div>
             </div>
         </div>
+        @endif
         @endcan
 
     {{-- Receiving Completion Modal --}}
@@ -713,13 +715,7 @@
 
     {{-- UOM Normalization Audit History --}}
     @php
-        $normBatches = \Modules\Purchase\Entities\UomNormalizationBatch::whereHas('lines', function ($q) use ($purchase) {
-            $q->whereHas('purchaseDetail', fn ($q2) => $q2->where('purchase_id', $purchase->id));
-        })
-        ->where('status', 'EXECUTED')
-        ->with(['lines', 'actor', 'product', 'oldBaseUnit', 'newBaseUnit', 'legacySourceUnit', 'legacyBaseUnit'])
-        ->orderByDesc('executed_at')
-        ->get();
+        $normBatches = $normBatches ?? collect([]);
     @endphp
     @if($normBatches->isNotEmpty())
         <div class="row mt-4">
@@ -1031,6 +1027,7 @@
         });
     </script>
 
+    @if(!(isset($globalMode) && $globalMode))
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const overrideForm = document.getElementById('reportingDateOverrideForm');
@@ -1180,4 +1177,5 @@
             }
         });
     </script>
+    @endif
 @endpush

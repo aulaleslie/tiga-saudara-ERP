@@ -267,7 +267,12 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        $purchase->load(['reportingDateAudits.actor']);
+        $purchase->load([
+            'reportingDateAudits.actor',
+            'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
+        ]);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
@@ -276,7 +281,10 @@ class PurchaseController extends Controller
                 'purchase',
                 'location',
                 'receivedNoteDetails.purchaseDetail',
-                'receivedNoteDetails.productSerialNumbers'
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
             ])
             ->get();
 
@@ -289,8 +297,11 @@ class PurchaseController extends Controller
         $allDetails = $receivedNotes->flatMap->receivedNoteDetails;
         $resolver->mapToDetails($allDetails, $returnedSerials);
 
+        $normBatches = app(\Modules\Purchase\Services\PurchaseNormalizationHistoryQueryService::class)
+            ->getExecutedBatchesForPurchase($purchase);
+
         return $dataTable->with(['purchase_id' => $purchase->id])
-            ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes'));
+            ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes', 'normBatches'));
     }
 
     public function storeAttachments(Request $request, Purchase $purchase): RedirectResponse
@@ -829,7 +840,10 @@ class PurchaseController extends Controller
                 'purchase',
                 'location',
                 'receivedNoteDetails.purchaseDetail',
-                'receivedNoteDetails.productSerialNumbers'
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
             ])
             ->get();
 

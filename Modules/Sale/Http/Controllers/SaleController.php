@@ -121,6 +121,23 @@ class SaleController extends Controller
                 }
             }
 
+            // Evaluate bundle lifecycle warnings before persisting
+            $cartItems = Cart::instance('sale')->content();
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateSalesSnapshot($cartItems, $settingId);
+            $acknowledge = (bool) $request->input('acknowledge_lifecycle_warning', false);
+
+            if ($evalResult->hasWarnings() && ! $acknowledge) {
+                return redirect()->back()
+                    ->with('error', 'Peringatan status paket: ' . $evalResult->warnings[0]['message'])
+                    ->with('lifecycle_warning', [
+                        'target_type' => 'sale_create',
+                        'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                        'items' => $evalResult->warnings,
+                    ])
+                    ->withInput();
+            }
+
             $data = $request->validated();
             $data['setting_id'] = $settingId;
             $data['status'] = Sale::STATUS_DRAFTED;
@@ -254,6 +271,7 @@ class SaleController extends Controller
                         'product_id' => $bundleItem->product_id,
                         'name' => $bundleItem->name,
                         'price' => $bundleItem->price,
+                        'informational_item_price' => $bundleItem->informational_item_price !== null ? (float) $bundleItem->informational_item_price : null,
                         'quantity_per_bundle' => $saleDetail->quantity > 0 ? (float) ($bundleItem->quantity / $saleDetail->quantity) : (float) $bundleItem->quantity,
                         'quantity' => $bundleItem->quantity, // this is the base quantity
                         'sub_total' => $bundleItem->sub_total,
@@ -299,6 +317,24 @@ class SaleController extends Controller
         }
 
         try {
+            $settingId = (int) session('setting_id', $sale->setting_id);
+            $cartItems = Cart::instance('sale')->content();
+            $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+            $evalResult = $evaluator->evaluateSalesSnapshot($cartItems, $settingId);
+            $acknowledge = (bool) $request->input('acknowledge_lifecycle_warning', false);
+
+            if ($evalResult->hasWarnings() && ! $acknowledge) {
+                return redirect()->back()
+                    ->with('error', 'Peringatan status paket: ' . $evalResult->warnings[0]['message'])
+                    ->with('lifecycle_warning', [
+                        'target_type' => 'sale_update',
+                        'sale_id' => $sale->id,
+                        'message' => 'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                        'items' => $evalResult->warnings,
+                    ])
+                    ->withInput();
+            }
+
             $data = $request->validated();
             $data['tax_amount'] = round((float) Cart::instance('sale')->tax(), 2);
             $data['discount_amount'] = round((float) Cart::instance('sale')->discount(), 2);

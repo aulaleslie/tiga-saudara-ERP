@@ -545,14 +545,11 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             ->assertJsonPath('details.unfulfilled_lines.0.product_id', $product->id)
             ->assertJsonPath('details.unfulfilled_lines.0.reason_code', 'INSUFFICIENT_STOCK');
 
-        $checkout = PosCheckout::query()
-            ->where('setting_id', $context['setting']->id)
-            ->where('idempotency_key', 'k-stock-details-001')
-            ->first();
-
-        $this->assertNotNull($checkout);
-        $this->assertSame(PosCheckout::STATUS_FAILED, $checkout->status);
-        $this->assertSame('STOCK_UNAVAILABLE', $checkout->failure_code);
+        // Early fulfillability gate rejects request before creating checkout ledger
+        $this->assertDatabaseMissing('pos_checkouts', [
+            'setting_id' => $context['setting']->id,
+            'idempotency_key' => 'k-stock-details-001',
+        ]);
     }
 
     public function test_taxed_line_decrements_non_tax_bucket_when_allocation_uses_non_tax_stock(): void

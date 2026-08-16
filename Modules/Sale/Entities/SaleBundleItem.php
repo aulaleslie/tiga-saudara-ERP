@@ -27,6 +27,7 @@ class SaleBundleItem extends BaseModel
 
     protected $casts = [
         'price' => 'decimal:2',
+        'informational_item_price' => 'decimal:2',
         'sub_total' => 'decimal:2',
         'tax_amount' => 'decimal:2',
     ];

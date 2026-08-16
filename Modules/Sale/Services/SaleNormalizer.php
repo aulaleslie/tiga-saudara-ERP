@@ -221,7 +221,10 @@ class SaleNormalizer
             'product_tax_amount' => $normalizedTaxAmount,
             'tax_id' => $normalizedTaxId,
             'sub_total_before_tax' => $this->roundMoney($subTotalBeforeTax),
-            'bundle_items' => $this->normalizeBundleItems($options['bundle_items'] ?? data_get($detailInput, 'bundle_items', [])),
+            'bundle_items' => $this->normalizeBundleItems(
+                $options['bundle_items'] ?? data_get($detailInput, 'bundle_items', []),
+                $this->normalizeNullableInt($options['bundle_id'] ?? data_get($detailInput, 'bundle_id'))
+            ),
             'pricing_source' => (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'automatic'),
         ];
     }
@@ -317,7 +320,7 @@ class SaleNormalizer
      * @param  iterable<int, mixed>|mixed  $bundleItems
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeBundleItems(mixed $bundleItems): array
+    private function normalizeBundleItems(mixed $bundleItems, ?int $parentBundleId = null): array
     {
         if ($bundleItems instanceof Collection) {
             $bundleItems = $bundleItems->all();
@@ -332,7 +335,7 @@ class SaleNormalizer
         foreach ($bundleItems as $bundleItem) {
             $bundleItem = is_array($bundleItem) ? $bundleItem : (array) $bundleItem;
 
-            $bundleId = $this->normalizeNullableInt($bundleItem['bundle_id'] ?? null);
+            $bundleId = $this->normalizeNullableInt($bundleItem['bundle_id'] ?? null) ?? $parentBundleId;
 
             $normalized[] = [
                 'bundle_id' => $bundleId,
@@ -341,6 +344,9 @@ class SaleNormalizer
                 'name' => (string) ($bundleItem['name'] ?? ''),
                 // Task 3.3/3.4: Selected bundle components are non-billable.
                 'price' => $bundleId ? 0.0 : $this->roundMoney($this->toFloat($bundleItem['price'] ?? 0)),
+                'informational_item_price' => isset($bundleItem['informational_item_price']) && is_numeric($bundleItem['informational_item_price'])
+                    ? $this->roundMoney($this->toFloat($bundleItem['informational_item_price']))
+                    : null,
                 'quantity' => $this->toFloat($bundleItem['quantity'] ?? 0),
                 'quantity_per_bundle' => $this->toFloat($bundleItem['quantity_per_bundle'] ?? 0),
                 'sub_total' => $bundleId ? 0.0 : $this->roundMoney($this->toFloat($bundleItem['sub_total'] ?? 0)),

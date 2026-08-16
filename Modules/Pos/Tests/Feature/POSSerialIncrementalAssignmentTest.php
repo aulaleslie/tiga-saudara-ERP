@@ -234,6 +234,12 @@ class POSSerialIncrementalAssignmentTest extends TestCase
         $context = $this->createCheckoutContext('POS SERIAL EXCEED');
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-EXCEED', 100000, true);
         
+        // Update product stock to exactly 2 so auto-incrementing qty to 3 fails against stock limit
+        ProductStock::where('product_id', $product->id)->update([
+            'quantity' => 2,
+            'quantity_non_tax' => 2,
+        ]);
+
         $sn1 = $this->createSerialNumber($product, $context['location'], 'SN-EXCEED-1');
         $sn2 = $this->createSerialNumber($product, $context['location'], 'SN-EXCEED-2');
         $sn3 = $this->createSerialNumber($product, $context['location'], 'SN-EXCEED-3');
@@ -250,14 +256,14 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             ])
             ->assertOk();
 
-        // Try to append 3rd serial - should fail (exceeds qty of 2)
+        // Try to append 3rd serial - should fail (exceeds stock of 2)
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
                 'serial_number' => 'SN-EXCEED-3',
             ])
             ->assertStatus(422)
-            ->assertJsonPath('code', 'SERIAL_EXCEEDS_QTY');
+            ->assertJsonPath('code', 'SERIAL_EXCEEDS_STOCK');
     }
 
     public function test_removing_nonexistent_serial_is_safe(): void

@@ -218,11 +218,22 @@ class PosTransactionService
             $storedHash = (string) ($transaction->snapshot_hash ?? '');
             $currentHash = $this->mapper->buildSnapshotHash($transaction);
 
-            if ($storedHash === '' || ! hash_equals($storedHash, $currentHash)) {
-                throw new PosTransactionConflictException(
-                    'SNAPSHOT_DRIFT',
-                    'Data transaksi berubah dan perlu disimpan ulang.'
-                );
+            $isValidCurrent = $storedHash !== '' && hash_equals($storedHash, $currentHash);
+            if (! $isValidCurrent) {
+                $legacyHash = $this->mapper->buildLegacySnapshotHash($transaction);
+                $isValidLegacy = $storedHash !== '' && hash_equals($storedHash, $legacyHash);
+
+                if (! $isValidLegacy) {
+                    throw new PosTransactionConflictException(
+                        'SNAPSHOT_DRIFT',
+                        'Data transaksi berubah dan perlu disimpan ulang.'
+                    );
+                }
+
+                // Atomically upgrade legacy hash to complete versioned hash under transaction lock
+                $transaction->update([
+                    'snapshot_hash' => $currentHash,
+                ]);
             }
 
             // Always evaluate captured bundle lifecycle warnings before mutating transaction state
@@ -235,6 +246,8 @@ class PosTransactionService
                     'product_name' => $line->product_name_snapshot,
                     'bundle_id' => $lineMeta['bundle_id'] ?? null,
                     'bundle_items' => $lineMeta['bundle_items'] ?? [],
+                    'stock_managed' => isset($lineMeta['stock_managed']) ? (bool) $lineMeta['stock_managed'] : true,
+                    'serial_number_required' => isset($lineMeta['serial_number_required']) ? (bool) $lineMeta['serial_number_required'] : false,
                 ];
             }
 

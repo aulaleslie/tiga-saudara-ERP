@@ -162,4 +162,203 @@ class POSBundleDraftRoundtripTest extends PosTransactionFeatureTestCase
             ->assertStatus(409)
             ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
     }
+
+    public function test_snapshot_drift_detects_component_metadata_mutation(): void
+    {
+        $setting = $this->createSetting('BIZ BUNDLE COMP MUTATION');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'CASHIER', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 
+            'pos.transactions.save', 'pos.transactions.load'
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $parent = $this->createStockedProduct($setting, $location);
+        $child = $this->createStockedProduct($setting, $location);
+        $bundle = ProductBundle::create([
+            'setting_id' => $setting->id,
+            'parent_product_id' => $parent->id,
+            'name' => 'Bundle Test Mutation',
+            'bundle_sale_price' => 50000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 25000,
+        ]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $parent->id,
+            'qty' => 1,
+            'bundle_id' => $bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Test mutating informational_item_price
+        $line = \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $transactionId)->first();
+        $meta = $line->line_meta;
+        $meta['bundle_items'][0]['informational_item_price'] = 99999;
+        $line->update(['line_meta' => $meta]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
+
+        // Clear cart session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Restore & test mutating component quantity
+        $meta['bundle_items'][0]['informational_item_price'] = 25000;
+        $meta['bundle_items'][0]['quantity'] = 10;
+        $line->update(['line_meta' => $meta]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
+
+        // Clear cart session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Restore & test mutating component product_id
+        $meta['bundle_items'][0]['quantity'] = 1;
+        $meta['bundle_items'][0]['product_id'] = 88888;
+        $line->update(['line_meta' => $meta]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
+
+        // Clear cart session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Restore & test mutating parent serial_number_required flag in line_meta
+        $meta['bundle_items'][0]['product_id'] = $child->id;
+        $meta['serial_number_required'] = true;
+        $line->update(['line_meta' => $meta]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
+    }
+
+    public function test_legacy_draft_hash_upgrades_atomically_on_load(): void
+    {
+        $setting = $this->createSetting('BIZ LEGACY HASH UPGRADE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'CASHIER', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 
+            'pos.transactions.save', 'pos.transactions.load'
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $parent = $this->createStockedProduct($setting, $location);
+        $child = $this->createStockedProduct($setting, $location);
+        $bundle = ProductBundle::create([
+            'setting_id' => $setting->id,
+            'parent_product_id' => $parent->id,
+            'name' => 'Legacy Bundle',
+            'bundle_sale_price' => 75000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 30000,
+        ]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $parent->id,
+            'qty' => 1,
+            'bundle_id' => $bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        
+        $transactionId = $saveResponse->json('transaction.id');
+        $transaction = PosTransaction::findOrFail($transactionId);
+
+        // Manually overwrite snapshot_hash with legacy v1 hash
+        $mapper = app(\Modules\Pos\Services\PosTransactionSnapshotMapper::class);
+        $legacyHash = $mapper->buildLegacySnapshotHash($transaction);
+        $transaction->update(['snapshot_hash' => $legacyHash]);
+
+        // Clear cart session before loading
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Loading should succeed and upgrade hash to v2
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $transaction->refresh();
+        $v2Hash = $mapper->buildSnapshotHash($transaction);
+        $this->assertEquals($v2Hash, $transaction->snapshot_hash);
+        $this->assertNotEquals($legacyHash, $transaction->snapshot_hash);
+    }
+
+    public function test_component_reordering_does_not_create_false_drift(): void
+    {
+        $setting = $this->createSetting('BIZ COMP REORDER');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'CASHIER', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 
+            'pos.transactions.save', 'pos.transactions.load'
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $parent = $this->createStockedProduct($setting, $location);
+        $child1 = $this->createStockedProduct($setting, $location, ['product_name' => 'Child 1']);
+        $child2 = $this->createStockedProduct($setting, $location, ['product_name' => 'Child 2']);
+        $bundle = ProductBundle::create([
+            'setting_id' => $setting->id,
+            'parent_product_id' => $parent->id,
+            'name' => 'Multi Item Bundle',
+            'bundle_sale_price' => 100000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child1->id,
+            'quantity' => 1,
+            'informational_item_price' => 40000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child2->id,
+            'quantity' => 2,
+            'informational_item_price' => 30000,
+        ]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $parent->id,
+            'qty' => 1,
+            'bundle_id' => $bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Reverse the order of bundle_items in line_meta
+        $line = \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $transactionId)->first();
+        $meta = $line->line_meta;
+        $meta['bundle_items'] = array_reverse($meta['bundle_items']);
+        $line->update(['line_meta' => $meta]);
+
+        // Clear cart session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
+
+        // Load should still succeed because component canonicalization is deterministic
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+    }
 }
+

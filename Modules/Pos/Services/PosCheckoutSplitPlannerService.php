@@ -148,8 +148,7 @@ class PosCheckoutSplitPlannerService
                         $sourceLocationId = $nonStockSource['location_id'];
                         $sourceIsPkp = $this->sourceIsPkp($sourceSettingId);
 
-                        // Bundle tax policy: only POS transaction owner allocation is taxable if POS owner is PKP
-                        $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                        $taxRequired = $sourceIsPkp;
                         $candidateTaxId = $line['tax_id'] ?? null;
 
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
@@ -190,9 +189,10 @@ class PosCheckoutSplitPlannerService
             foreach ($lineChunks as $chunkIndex => $chunk) {
                 $sourceSettingId = (int) $chunk['source_setting_id'];
                 $sourceLocationId = (int) $chunk['source_location_id'];
+                $sourceIsPkp = (bool) ($chunk['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
 
                 if ($isBundledLine) {
-                    $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                    $taxRequired = $sourceIsPkp;
                     $candidateTaxId = (int) ($line['tax_id'] ?? 0);
                     [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
                     $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
@@ -225,7 +225,8 @@ class PosCheckoutSplitPlannerService
                 if (isset($part['is_stockless'])) {
                     $sourceSettingId = (int) $part['source_setting_id'];
                     $sourceLocationId = (int) $part['source_location_id'];
-                    $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                    $sourceIsPkp = (bool) ($part['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
+                    $taxRequired = $sourceIsPkp;
                     $candidateTaxId = (int) ($line['tax_id'] ?? 0);
                     [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
                     $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
@@ -264,8 +265,7 @@ class PosCheckoutSplitPlannerService
                         $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $this->resolveSourceSettingId($settingId, $sourceLocationId));
                         $sourceIsPkp = (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
 
-                        // Bundle tax policy: only POS transaction owner allocation is taxable if POS owner is PKP
-                        $taxRequired = ($posOwnerIsPkp && $sourceSettingId === $settingId);
+                        $taxRequired = $sourceIsPkp;
                         $candidateTaxId = (int) ($line['tax_id'] ?? 0);
 
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
@@ -287,8 +287,9 @@ class PosCheckoutSplitPlannerService
                         $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $childShares[$chunkIndex];
                         $lineRevenueByGroup[$splitKey]['child_allocations'][$childKey][] = array_merge($chunk, [
                             'allocated_minor' => $childShares[$chunkIndex],
+                            'tax_bucket_used' => (bool) ($effectiveTaxId > 0),
                             'tax_policy_snapshot' => [
-                                'source_is_pkp' => $sourceIsPkp,
+                                'source_is_pkp' => (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId)),
                                 'tax_id' => $effectiveTaxId,
                                 'tax_name' => $taxName,
                                 'tax_rate' => $taxRate,
@@ -555,15 +556,18 @@ class PosCheckoutSplitPlannerService
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
             $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : (int) ($snapshot['tax_id'] ?? 0);
 
-            $taxRequired = $sourceIsPkp || (bool) ($allocation['tax_bucket_used'] ?? false);
+            $taxRequired = $sourceIsPkp;
 
             [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
-            if ($taxName === null && isset($snapshot['tax_name'])) {
+            if ($effectiveTaxId === null && ! $taxRequired) {
+                $taxName = null;
+                $taxRate = 0.0;
+            } elseif ($taxName === null && isset($snapshot['tax_name'])) {
                 $taxName = $snapshot['tax_name'] !== null ? (string) $snapshot['tax_name'] : null;
             }
 
-            if ($taxRate <= 0 && isset($snapshot['tax_rate'])) {
+            if ($taxRequired && $taxRate <= 0 && isset($snapshot['tax_rate'])) {
                 $taxRate = (float) $snapshot['tax_rate'];
             }
 

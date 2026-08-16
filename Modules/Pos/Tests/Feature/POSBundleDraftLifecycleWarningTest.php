@@ -371,4 +371,395 @@ class POSBundleDraftLifecycleWarningTest extends TestCase
             'Acknowledged preflight must enforce component stock hard gate'
         );
     }
+
+    public function test_loading_draft_with_informational_allocation_drift_warns_and_retains_captured_values(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        ProductBundleItem::where('bundle_id', $this->bundle->id)->update([
+            'informational_item_price' => 30000,
+        ]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Update live bundle item informational allocation price
+        ProductBundleItem::where('bundle_id', $this->bundle->id)->update([
+            'informational_item_price' => 45000,
+        ]);
+
+        // Attempt load without acknowledgement -> 422
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]));
+        $loadResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_LIFECYCLE_WARNING')
+            ->assertJsonPath('warning.items.0.reason', 'INFORMATIONAL_ALLOCATION_CHANGED');
+
+        // Load with acknowledgement -> succeeds and retains captured values
+        $ackResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]), [
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+        $ackResponse->assertOk();
+
+        $snapshot = $this->getJson(route('pos.sell.cart.show'))->json('cart_snapshot');
+        $this->assertEquals(30000, $snapshot['lines'][0]['bundle_items'][0]['informational_item_price']);
+    }
+
+    public function test_standalone_product_price_change_without_bundle_save_does_not_drift(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        ProductBundleItem::where('bundle_id', $this->bundle->id)->update([
+            'informational_item_price' => 20000,
+        ]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Change standalone ProductPrice for child product without changing ProductBundleItem
+        ProductPrice::where('product_id', $this->child->id)
+            ->where('setting_id', $this->setting->id)
+            ->update(['sale_price' => 99000]);
+
+        // Clear cart session
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($this->setting->id, $this->session->id);
+
+        // Load draft should succeed directly without lifecycle warning because bundle copy was not modified
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]));
+        $loadResponse->assertOk();
+    }
+
+    public function test_component_requiring_serials_blocks_checkout_with_unsupported_error(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        // Update child product in catalog so it currently requires serials
+        $this->child->update([
+            'stock_managed' => true,
+            'serial_number_required' => true,
+        ]);
+
+        // Preflight with acknowledged lifecycle warning must fail with BUNDLE_COMPONENT_SERIAL_UNSUPPORTED
+        $preflightResponse = $this->postJson(route('pos.sell.checkout.preflight'), [
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+
+        $preflightResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED')
+            ->assertJsonStructure(['details' => ['unsupported_line' => ['product_id', 'product_name']]]);
+
+        // Finalize must also block with BUNDLE_COMPONENT_SERIAL_UNSUPPORTED
+        $finalizeResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $finalizeResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED');
+
+        // Verify no checkout or sales records were created
+        $this->assertDatabaseCount('pos_checkouts', 0);
+        $this->assertDatabaseCount('sales', 0);
+    }
+
+    public function test_component_becoming_stock_managed_enforces_stock_fulfillment(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        // Child product was originally stockless
+        $this->child->update(['stock_managed' => false]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        // Now child product becomes stock managed, but has 0 stock
+        $this->child->update(['stock_managed' => true]);
+        ProductStock::where('product_id', $this->child->id)
+            ->where('location_id', $this->location->id)
+            ->update(['quantity' => 0, 'quantity_non_tax' => 0]);
+
+        // Preflight must enforce stock resolution and fail with STOCK_UNAVAILABLE
+        $preflightResponse = $this->postJson(route('pos.sell.checkout.preflight'), [
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+
+        $preflightResponse->assertStatus(422)
+            ->assertJsonPath('code', 'STOCK_UNAVAILABLE');
+    }
+
+    public function test_idempotent_replay_succeeds_even_if_bundle_is_deleted_after_finalize(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $idempotencyKey = (string) \Illuminate\Support\Str::uuid();
+        $finalizeFirst = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => $idempotencyKey,
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ])->assertStatus(201);
+
+        $receiptNumber = $finalizeFirst->json('receipt_number');
+        $saleId = $finalizeFirst->json('sale_id');
+
+        // Delete the bundle definition from catalog
+        $this->bundle->delete();
+
+        // Send replay finalize with identical idempotency key
+        $replayResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => $idempotencyKey,
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ])->assertStatus(200);
+
+        $this->assertTrue($replayResponse->json('idempotent_replay'));
+        $this->assertEquals($receiptNumber, $replayResponse->json('receipt_number'));
+        $this->assertEquals($saleId, $replayResponse->json('sale_id'));
+    }
+
+    public function test_failed_finalization_rolls_back_and_preserves_cart_session(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        // Change child to require serials (causes finalize failure)
+        $this->child->update([
+            'stock_managed' => true,
+            'serial_number_required' => true,
+        ]);
+
+        $failedResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ])->assertStatus(422);
+
+        // Verify cart is preserved in session
+        $cart = $this->getJson(route('pos.sell.cart.show'))->json('cart_snapshot');
+        $this->assertCount(1, $cart['lines']);
+        $this->assertEquals($this->parent->id, $cart['lines'][0]['product_id']);
+    }
+
+    public function test_drift_occurring_between_preflight_and_finalize_blocks_without_reacknowledgement(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        // Preflight is initially OK
+        $preflightResponse = $this->postJson(route('pos.sell.checkout.preflight'))->assertOk();
+
+        // Right after preflight, bundle is modified (informational allocation drift)
+        ProductBundleItem::where('bundle_id', $this->bundle->id)->update([
+            'informational_item_price' => 45000,
+        ]);
+
+        // Finalize without acknowledgement must be blocked by lifecycle gate
+        $finalizeResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'acknowledge_lifecycle_warning' => false,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $finalizeResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_LIFECYCLE_WARNING');
+
+        // With re-acknowledgement, finalize succeeds
+        $ackFinalize = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $ackFinalize->assertStatus(201);
+    }
+
+    public function test_idempotency_key_reuse_with_payload_mismatch_fails(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $this->patchJson(route('pos.sell.cart.customer.update'), [
+            'customer_id' => $customer->id,
+        ])->assertOk();
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $idempotencyKey = (string) \Illuminate\Support\Str::uuid();
+        $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => $idempotencyKey,
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 100000,
+            ],
+        ])->assertStatus(201);
+
+        // Clear cart and add a different item / change amount
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->child->id,
+            'qty' => 1,
+        ])->assertOk();
+
+        // Attempting to finalize with the same idempotency key but different payment/payload fails
+        $mismatchResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
+            'idempotency_key' => $idempotencyKey,
+            'acknowledge_lifecycle_warning' => true,
+            'payment' => [
+                'payment_method_id' => $this->paymentMethod->id,
+                'amount_paid' => 20000,
+            ],
+        ]);
+
+        $mismatchResponse->assertStatus(409)
+            ->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
+    }
+
+    public function test_loading_draft_with_parent_serial_required_drift_warns_without_changing_captured_commercial_data(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Parent becomes serial-required
+        $this->parent->update(['serial_number_required' => true]);
+
+        // Loading without acknowledgement emits SERIAL_REQUIRED_CHANGED for parent
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]));
+        $loadResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_LIFECYCLE_WARNING')
+            ->assertJsonPath('warning.items.0.reason', 'SERIAL_REQUIRED_CHANGED');
+
+        // Loading with acknowledgement succeeds
+        $ackResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]), [
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+        $ackResponse->assertOk();
+
+        $snapshot = $this->getJson(route('pos.sell.cart.show'))->json('cart_snapshot');
+        $this->assertEquals(100000, $snapshot['lines'][0]['unit_price']);
+        $this->assertEquals($this->bundle->id, $snapshot['lines'][0]['bundle_id']);
+    }
+
+    public function test_loading_draft_with_parent_stock_managed_drift_warns(): void
+    {
+        $this->actingAs($this->cashier)->withSession(['setting_id' => $this->setting->id]);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+            'product_id' => $this->parent->id,
+            'qty' => 1,
+            'bundle_id' => $this->bundle->id,
+        ])->assertOk();
+
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+        $transactionId = $saveResponse->json('transaction.id');
+
+        // Parent becomes stockless
+        $this->parent->update(['stock_managed' => false]);
+
+        // Loading without acknowledgement emits STOCK_MANAGED_CHANGED for parent
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]));
+        $loadResponse->assertStatus(422)
+            ->assertJsonPath('code', 'BUNDLE_LIFECYCLE_WARNING')
+            ->assertJsonPath('warning.items.0.reason', 'STOCK_MANAGED_CHANGED');
+
+        // Loading with acknowledgement succeeds
+        $ackResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]), [
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+        $ackResponse->assertOk();
+    }
 }

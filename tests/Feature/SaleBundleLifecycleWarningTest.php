@@ -429,4 +429,405 @@ class SaleBundleLifecycleWarningTest extends TestCase
         $this->assertEquals(1, substr_count($warningHtml, '<script>'));
         $this->assertEquals(1, substr_count($warningHtml, '</script>'));
     }
+
+    public function test_sales_store_warns_on_inactive_bundle_and_persists_on_acknowledgement(): void
+    {
+        // 1. Prepare cart with bundle
+        Cart::instance('sale')->destroy();
+        $bundleItem = $this->bundle->items()->first();
+
+        Cart::instance('sale')->add([
+            'id' => $this->parent->id,
+            'name' => $this->parent->product_name,
+            'qty' => 1,
+            'price' => 50000,
+            'weight' => 1,
+            'options' => [
+                'code' => $this->parent->product_code,
+                'sub_total' => 50000,
+                'unit_price' => 50000,
+                'bundle_id' => $this->bundle->id,
+                'bundle_name' => $this->bundle->name,
+                'bundle_price' => 50000,
+                'bundle_items' => [
+                    [
+                        'bundle_item_id' => $bundleItem->id,
+                        'product_id' => $this->component->id,
+                        'name' => $this->component->product_name,
+                        'quantity' => 2,
+                        'price' => 0,
+                    ]
+                ],
+            ]
+        ]);
+
+        // 2. Deactivate bundle
+        $this->bundle->update(['is_active' => false]);
+
+        // 3. Store without acknowledgement -> warned
+        $postData = [
+            'customer_id' => $this->customer->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'note' => 'Test',
+        ];
+
+        $unackResponse = $this->post(route('sales.store'), array_merge($postData, [
+            'acknowledge_lifecycle_warning' => 0,
+        ]));
+        $unackResponse->assertSessionHas('lifecycle_warning');
+        $this->assertDatabaseMissing('sales', ['customer_id' => $this->customer->id]);
+
+        // 4. Store with acknowledgement -> succeeds
+        $ackResponse = $this->post(route('sales.store'), array_merge($postData, [
+            'acknowledge_lifecycle_warning' => 1,
+        ]));
+        $ackResponse->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('sales', ['customer_id' => $this->customer->id]);
+    }
+
+    public function test_sales_update_warns_and_persists_on_acknowledgement(): void
+    {
+        $bundleItem = $this->bundle->items()->first();
+
+        // 1. Create a draft sale
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'status' => Sale::STATUS_DRAFTED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 50000,
+            'paid_amount' => 0,
+            'due_amount' => 50000,
+            'reference' => 'SO-TEST-UPD',
+            'is_tax_included' => false,
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $this->parent->id,
+            'product_name' => $this->parent->product_name,
+            'product_code' => $this->parent->product_code,
+            'quantity' => 1,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 50000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleBundleItem::create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detail->id,
+            'bundle_id' => $this->bundle->id,
+            'bundle_item_id' => $bundleItem->id,
+            'product_id' => $this->component->id,
+            'name' => $this->component->product_name,
+            'quantity' => 2,
+            'price' => 0,
+            'sub_total' => 0,
+        ]);
+
+        // 2. Set cart for update
+        Cart::instance('sale')->destroy();
+        Cart::instance('sale')->add([
+            'id' => $this->parent->id,
+            'name' => $this->parent->product_name,
+            'qty' => 1,
+            'price' => 50000,
+            'weight' => 1,
+            'options' => [
+                'code' => $this->parent->product_code,
+                'sub_total' => 50000,
+                'unit_price' => 50000,
+                'bundle_id' => $this->bundle->id,
+                'bundle_name' => $this->bundle->name,
+                'bundle_price' => 50000,
+                'bundle_items' => [
+                    [
+                        'bundle_item_id' => $bundleItem->id,
+                        'product_id' => $this->component->id,
+                        'name' => $this->component->product_name,
+                        'quantity' => 2,
+                        'price' => 0,
+                    ]
+                ],
+            ]
+        ]);
+
+        // 3. Deactivate bundle
+        $this->bundle->update(['is_active' => false]);
+
+        $putData = [
+            'reference' => $sale->reference,
+            'status' => Sale::STATUS_DRAFTED,
+            'customer_id' => $this->customer->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'note' => 'Updated Note',
+        ];
+
+        // 4. Update without acknowledgement -> warned
+        $unackResponse = $this->put(route('sales.update', $sale), array_merge($putData, [
+            'acknowledge_lifecycle_warning' => 0,
+        ]));
+        $unackResponse->assertSessionHas('lifecycle_warning');
+
+        // 5. Update with acknowledgement -> succeeds
+        $ackResponse = $this->put(route('sales.update', $sale), array_merge($putData, [
+            'acknowledge_lifecycle_warning' => 1,
+        ]));
+        $ackResponse->assertSessionHasNoErrors();
+        $sale->refresh();
+        $this->assertEquals('UPDATED NOTE', $sale->note);
+    }
+
+    public function test_new_sales_persistence_stores_informational_allocation_while_price_remains_zero(): void
+    {
+        $bundleItem = $this->bundle->items()->first();
+        $bundleItem->update(['informational_item_price' => 35000]);
+
+        Cart::instance('sale')->destroy();
+        Cart::instance('sale')->add([
+            'id' => $this->parent->id,
+            'name' => $this->parent->product_name,
+            'qty' => 1,
+            'price' => 50000,
+            'weight' => 1,
+            'options' => [
+                'code' => $this->parent->product_code,
+                'sub_total' => 50000,
+                'unit_price' => 50000,
+                'bundle_id' => $this->bundle->id,
+                'bundle_name' => $this->bundle->name,
+                'bundle_price' => 50000,
+                'bundle_items' => [
+                    [
+                        'bundle_item_id' => $bundleItem->id,
+                        'product_id' => $this->component->id,
+                        'name' => $this->component->product_name,
+                        'quantity' => 2,
+                        'price' => 0,
+                        'informational_item_price' => 35000,
+                    ]
+                ],
+            ]
+        ]);
+
+        $postData = [
+            'customer_id' => $this->customer->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'note' => 'Test Informational',
+            'acknowledge_lifecycle_warning' => 1,
+        ];
+
+        $response = $this->post(route('sales.store'), $postData);
+        $response->assertSessionHasNoErrors();
+
+        $savedItem = SaleBundleItem::where('bundle_id', $this->bundle->id)->latest('id')->first();
+        $this->assertNotNull($savedItem);
+        $this->assertEquals(0, (float) $savedItem->price);
+        $this->assertEquals(0, (float) $savedItem->sub_total);
+        $this->assertEquals(35000, (float) $savedItem->informational_item_price);
+    }
+
+    public function test_sales_warning_on_administrator_changing_saved_informational_allocation(): void
+    {
+        $bundleItem = $this->bundle->items()->first();
+        $bundleItem->update(['informational_item_price' => 20000]);
+
+        // Create sale with captured informational_item_price = 20000
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'status' => Sale::STATUS_DRAFTED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 50000,
+            'paid_amount' => 0,
+            'due_amount' => 50000,
+            'reference' => 'SO-TEST-INFO-DRIFT',
+            'is_tax_included' => false,
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $this->parent->id,
+            'product_name' => $this->parent->product_name,
+            'product_code' => $this->parent->product_code,
+            'quantity' => 1,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 50000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleBundleItem::create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detail->id,
+            'bundle_id' => $this->bundle->id,
+            'bundle_item_id' => $bundleItem->id,
+            'product_id' => $this->component->id,
+            'name' => $this->component->product_name,
+            'quantity' => 2,
+            'price' => 0,
+            'sub_total' => 0,
+            'informational_item_price' => 20000,
+        ]);
+
+        // Administrator changes bundle's saved informational allocation
+        $bundleItem->update(['informational_item_price' => 40000]);
+
+        // Hydrate cart for editing
+        Cart::instance('sale')->destroy();
+        Cart::instance('sale')->add([
+            'id' => $this->parent->id,
+            'name' => $this->parent->product_name,
+            'qty' => 1,
+            'price' => 50000,
+            'weight' => 1,
+            'options' => [
+                'code' => $this->parent->product_code,
+                'sub_total' => 50000,
+                'unit_price' => 50000,
+                'bundle_id' => $this->bundle->id,
+                'bundle_name' => $this->bundle->name,
+                'bundle_price' => 50000,
+                'bundle_items' => [
+                    [
+                        'bundle_item_id' => $bundleItem->id,
+                        'product_id' => $this->component->id,
+                        'name' => $this->component->product_name,
+                        'quantity' => 2,
+                        'price' => 0,
+                        'informational_item_price' => 20000,
+                    ]
+                ],
+            ]
+        ]);
+
+        $putData = [
+            'reference' => $sale->reference,
+            'status' => Sale::STATUS_DRAFTED,
+            'customer_id' => $this->customer->id,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'note' => 'Drift test',
+        ];
+
+        // Unacknowledged update triggers warning
+        $unackResponse = $this->put(route('sales.update', $sale), array_merge($putData, [
+            'acknowledge_lifecycle_warning' => 0,
+        ]));
+        $unackResponse->assertSessionHas('lifecycle_warning');
+
+        // Acknowledged update retains the old captured allocation (20000) instead of refreshing to 40000
+        $ackResponse = $this->put(route('sales.update', $sale), array_merge($putData, [
+            'acknowledge_lifecycle_warning' => 1,
+        ]));
+        $ackResponse->assertSessionHasNoErrors();
+
+        $savedItem = SaleBundleItem::where('sale_id', $sale->id)->first();
+        $this->assertEquals(20000, (float) $savedItem->informational_item_price);
+    }
+
+    public function test_legacy_sales_row_with_null_informational_allocation_does_not_produce_false_warning(): void
+    {
+        $bundleItem = $this->bundle->items()->first();
+        $bundleItem->update(['informational_item_price' => 25000]);
+
+        // Legacy row with null informational_item_price
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'status' => Sale::STATUS_WAITING_APPROVAL,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 50000,
+            'paid_amount' => 0,
+            'due_amount' => 50000,
+            'reference' => 'SO-TEST-LEGACY-NULL',
+            'is_tax_included' => false,
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $this->parent->id,
+            'product_name' => $this->parent->product_name,
+            'product_code' => $this->parent->product_code,
+            'quantity' => 1,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 50000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleBundleItem::create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detail->id,
+            'bundle_id' => $this->bundle->id,
+            'bundle_item_id' => $bundleItem->id,
+            'product_id' => $this->component->id,
+            'name' => $this->component->product_name,
+            'quantity' => 2,
+            'price' => 0,
+            'sub_total' => 0,
+            'informational_item_price' => null,
+        ]);
+
+        // Approval of legacy sale should not produce false informational allocation warning
+        $response = $this->patch(route('sales.updateStatus', $sale), [
+            'status' => Sale::STATUS_APPROVED,
+            'acknowledge_lifecycle_warning' => 0,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $sale->refresh();
+        $this->assertEquals(Sale::STATUS_APPROVED, $sale->status);
+    }
 }

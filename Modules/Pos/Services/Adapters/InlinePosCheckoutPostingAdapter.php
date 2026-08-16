@@ -359,6 +359,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'name' => (string) ($item['product_name'] ?? ''),
                     'quantity' => $childAllocatedQty,
                     'price' => $childUnitPrice,
+                    'informational_item_price' => isset($item['informational_item_price']) && is_numeric($item['informational_item_price'])
+                        ? round((float) $item['informational_item_price'], 2)
+                        : null,
                     'sub_total' => $this->fromMinor($childAllocatedMinor),
                     'tax_id' => $childTaxId,
                     'tax_amount' => round($childTaxAmount, 2),

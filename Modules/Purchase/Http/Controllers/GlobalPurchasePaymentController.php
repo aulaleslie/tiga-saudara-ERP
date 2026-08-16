@@ -22,6 +22,15 @@ class GlobalPurchasePaymentController extends Controller
         $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
             ->whereNull('archived_at')
             ->findOrFail($purchase_id);
+
+        $purchase->load([
+            'tags',
+            'reportingDateAudits.actor',
+            'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
+        ]);
+
         $supplier = \Modules\People\Entities\Supplier::findOrFail($purchase->supplier_id);
 
         $receivedNotes = \Modules\Purchase\Entities\ReceivedNote::where('po_id', $purchase->id)
@@ -29,7 +38,10 @@ class GlobalPurchasePaymentController extends Controller
                 'purchase',
                 'location',
                 'receivedNoteDetails.purchaseDetail',
-                'receivedNoteDetails.productSerialNumbers'
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
             ])
             ->get();
 
@@ -39,11 +51,15 @@ class GlobalPurchasePaymentController extends Controller
 
         $setting = \Modules\Setting\Entities\Setting::findOrFail($purchase->setting_id);
 
+        $normBatches = app(\Modules\Purchase\Services\PurchaseNormalizationHistoryQueryService::class)
+            ->getExecutedBatchesForPurchase($purchase);
+
         // Use the standard purchase detail view but pass globalMode to adjust links/actions
         return view('purchase::show', [
             'purchase' => $purchase,
             'supplier' => $supplier,
             'receivedNotes' => $receivedNotes,
+            'normBatches' => $normBatches,
             'globalMode' => true,
             'setting' => $setting
         ]);

@@ -92,6 +92,9 @@ class SaleService
                             'product_id' => $bundleItem['product_id'],
                             'name' => $bundleItem['name'],
                             'price' => round((float) ($bundleItem['price'] ?? 0), 2),
+                            'informational_item_price' => isset($bundleItem['informational_item_price']) && is_numeric($bundleItem['informational_item_price'])
+                                ? round((float) $bundleItem['informational_item_price'], 2)
+                                : null,
                             'quantity' => $bundleItem['quantity'],
                             'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
                         ]);
@@ -268,6 +271,9 @@ class SaleService
                             'product_id' => $bundleItem['product_id'],
                             'name' => $bundleItem['name'],
                             'price' => round((float) ($bundleItem['price'] ?? 0), 2),
+                            'informational_item_price' => isset($bundleItem['informational_item_price']) && is_numeric($bundleItem['informational_item_price'])
+                                ? round((float) $bundleItem['informational_item_price'], 2)
+                                : null,
                             'quantity' => $bundleItem['quantity'],
                             'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
                         ]);

@@ -334,8 +334,20 @@ class POSStockAllocationResolverTest extends TestCase
         $setting = $this->createSetting('BIZ-NON-TAX-FIRST');
         $loc1 = $this->createLocation($setting, 'LOC-FIRST');
         $loc2 = $this->createLocation($setting, 'LOC-SECOND');
-        $this->assignSaleLocation($setting, $loc1);
-        $this->assignSaleLocation($setting, $loc2);
+        SettingSaleLocation::withoutEvents(function () use ($setting, $loc1, $loc2) {
+            SettingSaleLocation::create([
+                'setting_id' => $setting->id,
+                'location_id' => $loc1->id,
+                'is_enabled' => true,
+                'position' => 1,
+            ]);
+            SettingSaleLocation::create([
+                'setting_id' => $setting->id,
+                'location_id' => $loc2->id,
+                'is_enabled' => true,
+                'position' => 2,
+            ]);
+        });
 
         $product = $this->createProduct($setting, 'PROD-NON-TAX-FIRST', 18000);
         $this->seedStock($product, $loc1, 1);
@@ -356,8 +368,12 @@ class POSStockAllocationResolverTest extends TestCase
 
         $this->assertSame([], $result['unfulfilled_lines']);
         $this->assertCount(2, $result['allocations'][0]);
+        // Loc1 has 1 non-tax and 4 tax. Line needs 3.
+        // In ordered source priority: Loc1 fulfills 1 (non-tax) + 2 (tax) = 3 total, leaving Loc2 untouched.
         $this->assertSame([1, 2], array_column($result['allocations'][0], 'allocated_qty'));
-        $this->assertSame([false, false], array_column($result['allocations'][0], 'tax_bucket_used'));
+        $this->assertSame([false, true], array_column($result['allocations'][0], 'tax_bucket_used'));
+        $this->assertSame($loc1->id, $result['allocations'][0][0]['source_location_id']);
+        $this->assertSame($loc1->id, $result['allocations'][0][1]['source_location_id']);
     }
 
     public function test_non_taxable_line_falls_back_to_tax_bucket_when_non_tax_is_exhausted(): void
@@ -478,6 +494,197 @@ class POSStockAllocationResolverTest extends TestCase
         $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
         $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_name']);
         $this->assertSame(0.0, $result['allocations'][0][0]['tax_policy_snapshot']['tax_rate']);
+    }
+
+    /**
+     * Test Example A: Priority Order Setting 2 (non-PKP) then Setting 1 (PKP)
+     * Required: 5
+     * Setting 2 stock: 2
+     * Setting 1 stock: 3
+     * Expected: Setting 2 allocates 2 (non-tax), Setting 1 allocates 3 (taxed)
+     */
+    public function test_ordered_source_priority_partial_fulfillment_non_pkp_then_pkp(): void
+    {
+        $setting1Pkp = $this->createSetting('BIZ-ORDER-S1-PKP');
+        $setting1Pkp->update(['is_pkp' => true]);
+
+        $setting2NonPkp = $this->createSetting('BIZ-ORDER-S2-NONPKP');
+        $setting2NonPkp->update(['is_pkp' => false]);
+
+        $locSetting2 = $this->createLocation($setting2NonPkp, 'LOC-S2');
+        $locSetting1 = $this->createLocation($setting1Pkp, 'LOC-S1');
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN 11%',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        // Terminal belongs to setting1Pkp, configured with locSetting2 (pos 1) then locSetting1 (pos 2)
+        SettingSaleLocation::withoutEvents(function () use ($setting1Pkp, $locSetting2, $locSetting1) {
+            SettingSaleLocation::create([
+                'setting_id' => $setting1Pkp->id,
+                'location_id' => $locSetting2->id,
+                'is_enabled' => true,
+                'position' => 1,
+            ]);
+            SettingSaleLocation::create([
+                'setting_id' => $setting1Pkp->id,
+                'location_id' => $locSetting1->id,
+                'is_enabled' => true,
+                'position' => 2,
+            ]);
+        });
+
+        $product = $this->createProduct($setting1Pkp, 'PROD-ORDER-A', 50000);
+        $product->update(['sale_tax_id' => $tax->id]);
+
+        // Seed stock: Setting 2 loc has 2 non-tax units, Setting 1 loc has 5 tax units
+        $this->seedStock($product, $locSetting2, 2);
+        $this->seedTaxedStock($product, $locSetting1, 5, $tax->id);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting1Pkp->id, [
+            ['product_id' => $product->id, 'qty' => 5, 'tax_id' => $tax->id],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(2, $result['allocations'][0]);
+
+        // Source 1: Setting 2, 2 units, non-tax
+        $this->assertSame($locSetting2->id, $result['allocations'][0][0]['source_location_id']);
+        $this->assertSame($setting2NonPkp->id, $result['allocations'][0][0]['source_setting_id']);
+        $this->assertSame(2, $result['allocations'][0][0]['allocated_qty']);
+        $this->assertNull($result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+
+        // Source 2: Setting 1, 3 units, taxed
+        $this->assertSame($locSetting1->id, $result['allocations'][0][1]['source_location_id']);
+        $this->assertSame($setting1Pkp->id, $result['allocations'][0][1]['source_setting_id']);
+        $this->assertSame(3, $result['allocations'][0][1]['allocated_qty']);
+        $this->assertSame($tax->id, $result['allocations'][0][1]['tax_policy_snapshot']['tax_id']);
+    }
+
+    /**
+     * Test Example B: Reverse Priority Order Setting 1 (PKP) then Setting 2 (non-PKP)
+     * Required: 2
+     * Both settings have sufficient stock
+     * Expected: Setting 1 allocates 2 (taxed), Setting 2 allocates 0 (untouched)
+     */
+    public function test_ordered_source_priority_full_fulfillment_pkp_first_leaves_second_untouched(): void
+    {
+        $setting1Pkp = $this->createSetting('BIZ-REV-S1-PKP');
+        $setting1Pkp->update(['is_pkp' => true]);
+
+        $setting2NonPkp = $this->createSetting('BIZ-REV-S2-NONPKP');
+        $setting2NonPkp->update(['is_pkp' => false]);
+
+        $locSetting1 = $this->createLocation($setting1Pkp, 'LOC-REV-S1');
+        $locSetting2 = $this->createLocation($setting2NonPkp, 'LOC-REV-S2');
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN 11%',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        // Terminal belongs to setting1Pkp, configured with locSetting1 (pos 1) then locSetting2 (pos 2)
+        SettingSaleLocation::withoutEvents(function () use ($setting1Pkp, $locSetting1, $locSetting2) {
+            SettingSaleLocation::create([
+                'setting_id' => $setting1Pkp->id,
+                'location_id' => $locSetting1->id,
+                'is_enabled' => true,
+                'position' => 1,
+            ]);
+            SettingSaleLocation::create([
+                'setting_id' => $setting1Pkp->id,
+                'location_id' => $locSetting2->id,
+                'is_enabled' => true,
+                'position' => 2,
+            ]);
+        });
+
+        $product = $this->createProduct($setting1Pkp, 'PROD-ORDER-B', 50000);
+        $product->update(['sale_tax_id' => $tax->id]);
+
+        // Both locations have sufficient stock
+        $this->seedTaxedStock($product, $locSetting1, 5, $tax->id);
+        $this->seedStock($product, $locSetting2, 5);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($setting1Pkp->id, [
+            ['product_id' => $product->id, 'qty' => 2, 'tax_id' => $tax->id],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(1, $result['allocations'][0]);
+
+        // Source 1 fulfilled all 2 units
+        $this->assertSame($locSetting1->id, $result['allocations'][0][0]['source_location_id']);
+        $this->assertSame($setting1Pkp->id, $result['allocations'][0][0]['source_setting_id']);
+        $this->assertSame(2, $result['allocations'][0][0]['allocated_qty']);
+        $this->assertSame($tax->id, $result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+    }
+
+    /**
+     * Test: Shared location owned by different settings does not collapse distinct setting sources
+     */
+    public function test_distinct_setting_sources_at_shared_locations_preserve_configured_order(): void
+    {
+        $settingA = $this->createSetting('BIZ-SHARED-A');
+        $settingA->update(['is_pkp' => true]);
+
+        $settingB = $this->createSetting('BIZ-SHARED-B');
+        $settingB->update(['is_pkp' => false]);
+
+        $locA = $this->createLocation($settingA, 'LOC-SHARED-A');
+        $locB = $this->createLocation($settingB, 'LOC-SHARED-B');
+
+        $tax = Tax::query()->create([
+            'name' => 'PPN 11%',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        SettingSaleLocation::withoutEvents(function () use ($settingA, $locA, $locB) {
+            SettingSaleLocation::create([
+                'setting_id' => $settingA->id,
+                'location_id' => $locA->id,
+                'is_enabled' => true,
+                'position' => 1,
+            ]);
+            SettingSaleLocation::create([
+                'setting_id' => $settingA->id,
+                'location_id' => $locB->id,
+                'is_enabled' => true,
+                'position' => 2,
+            ]);
+        });
+
+        $product = $this->createProduct($settingA, 'PROD-SHARED', 60000);
+        $product->update(['sale_tax_id' => $tax->id]);
+
+        $this->seedTaxedStock($product, $locA, 1, $tax->id);
+        $this->seedStock($product, $locB, 3);
+
+        $resolver = app(ResolvePosStockAllocationsService::class);
+        $result = $resolver->resolve($settingA->id, [
+            ['product_id' => $product->id, 'qty' => 3, 'tax_id' => $tax->id],
+        ]);
+
+        $this->assertSame([], $result['unfulfilled_lines']);
+        $this->assertCount(2, $result['allocations'][0]);
+
+        // First source: Setting A, 1 unit (taxed)
+        $this->assertSame($locA->id, $result['allocations'][0][0]['source_location_id']);
+        $this->assertSame($settingA->id, $result['allocations'][0][0]['source_setting_id']);
+        $this->assertSame(1, $result['allocations'][0][0]['allocated_qty']);
+        $this->assertSame($tax->id, $result['allocations'][0][0]['tax_policy_snapshot']['tax_id']);
+
+        // Second source: Setting B, 2 units (non-tax)
+        $this->assertSame($locB->id, $result['allocations'][0][1]['source_location_id']);
+        $this->assertSame($settingB->id, $result['allocations'][0][1]['source_setting_id']);
+        $this->assertSame(2, $result['allocations'][0][1]['allocated_qty']);
+        $this->assertNull($result['allocations'][0][1]['tax_policy_snapshot']['tax_id']);
     }
 
     // --- Helpers using withoutEvents to stay clean ---

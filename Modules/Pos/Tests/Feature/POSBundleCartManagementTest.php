@@ -447,4 +447,78 @@ class POSBundleCartManagementTest extends TestCase
         $this->assertEquals('ITEM2 NAME', $line['bundle_items'][1]['product_name']);
         $this->assertEquals(1, $line['bundle_items'][1]['quantity']);
     }
+
+    public function test_open_cart_whose_parent_becomes_serial_required_exposes_serials_and_accepts_assignment(): void
+    {
+        $context = $this->createCheckoutContext('PARENT SERIAL DRIFT OPEN CART');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000, false);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD', 10000);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle Parent Serial Drift',
+            'bundle_sale_price' => 120000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        // Add to cart when parent is NOT serial-required
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        $snapshotBefore = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertFalse($snapshotBefore['lines'][0]['serial_number_required']);
+        $lineId = $snapshotBefore['lines'][0]['line_id'];
+
+        // Parent product becomes serial-required
+        $parent->update(['serial_number_required' => true]);
+        $sn = $this->createSerial($parent, $context['location'], 'SN-PARENT-NEW');
+
+        // Cart snapshot now dynamically reflects current operational requirement while preserving captured data
+        $snapshotAfter = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertTrue($snapshotAfter['lines'][0]['serial_number_required']);
+        $this->assertFalse($snapshotAfter['lines'][0]['captured_serial_number_required']);
+
+        // Serial assignment is now accepted
+        $this->appendSerial($context['cashier'], $context['setting'], $lineId, 'SN-PARENT-NEW');
+
+        $finalSnapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-PARENT-NEW'], $finalSnapshot['lines'][0]['assigned_serials']);
+    }
+
+    public function test_assignment_rejected_when_current_parent_does_not_require_serials(): void
+    {
+        $context = $this->createCheckoutContext('PARENT NOT SERIAL REQUIRED');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT', 100000, false);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD', 10000);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle Plain',
+            'bundle_sale_price' => 120000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assignment endpoint rejects because current parent does not require serials
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-ANY'],
+            ])
+            ->assertStatus(422);
+    }
 }

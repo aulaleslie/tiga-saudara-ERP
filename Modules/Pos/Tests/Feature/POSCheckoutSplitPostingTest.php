@@ -292,14 +292,15 @@ class POSCheckoutSplitPostingTest extends TestCase
         $sale = Sale::query()->with('saleDetails')->findOrFail((int) $payload['sale_id']);
         $saleDetail = $sale->saleDetails->sole();
 
-        $this->assertSame($context['tax']->id, (int) $saleDetail->tax_id);
-        $this->assertGreaterThan(0, (float) $saleDetail->product_tax_amount);
-        $this->assertGreaterThan(0, (float) $sale->tax_amount);
+        // Authoritative rule: non-PKP source setting is non-tax
+        $this->assertNull($saleDetail->tax_id);
+        $this->assertEquals(0, (float) $saleDetail->product_tax_amount);
+        $this->assertEquals(0, (float) $sale->tax_amount);
 
         $this->assertDatabaseHas('dispatch_details', [
             'sale_id' => $sale->id,
             'product_id' => $context['product']->id,
-            'tax_id' => $context['tax']->id,
+            'tax_id' => null,
             'location_id' => $context['terminal_location']->id,
         ]);
 
@@ -426,6 +427,128 @@ class POSCheckoutSplitPostingTest extends TestCase
             $this->assertCount(1, $media);
             $this->assertSame('split.jpg', $media->first()->file_name);
         }
+    }
+
+    public function test_component_captured_stockless_currently_stock_managed_allocates_and_posts_as_stock_managed(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        $setting = $context['setting'];
+        $cashier = $context['cashier'];
+        $customer = $context['customer'];
+        $parent = $context['product'];
+
+        $child = Product::create([
+            'setting_id' => $setting->id,
+            'category_id' => $parent->category_id,
+            'unit_id' => $parent->unit_id,
+            'product_name' => 'Child Component',
+            'product_code' => 'CHILD-001',
+            'product_quantity' => 10,
+            'product_cost' => 5000,
+            'product_price' => 20000,
+            'sale_price' => 20000,
+            'product_unit' => 'PCS',
+            'stock_managed' => false,
+            'is_sold' => true,
+        ]);
+
+        $bundle = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $setting->id,
+            'name' => 'Bundle Stockless to Stock',
+            'bundle_sale_price' => 100000,
+        ]);
+        \Modules\Product\Entities\ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        // Add line when child is stockless
+        $this->addCartLine($cashier, $setting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $setting, $customer);
+
+        // Child becomes stock-managed and stock is added to location 1
+        $child->update(['stock_managed' => true]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $child->id,
+            'location_id' => $context['terminal_location']->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        $response = $this->finalize($cashier, $setting, [
+            'idempotency_key' => 'test-stockless-to-stock-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+
+        $response->assertStatus(201);
+        $checkout = \Modules\Pos\Entities\PosCheckout::findOrFail($response->json('pos_checkout_id'));
+        $this->assertNotNull($checkout->original_cart_snapshot);
+    }
+
+    public function test_component_captured_stock_managed_currently_stockless_resolves_and_posts_as_stockless(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        $setting = $context['setting'];
+        $cashier = $context['cashier'];
+        $customer = $context['customer'];
+        $parent = $context['product'];
+
+        $child = Product::create([
+            'setting_id' => $setting->id,
+            'category_id' => $parent->category_id,
+            'unit_id' => $parent->unit_id,
+            'product_name' => 'Child Component 2',
+            'product_code' => 'CHILD-002',
+            'product_quantity' => 10,
+            'product_cost' => 5000,
+            'product_price' => 20000,
+            'sale_price' => 20000,
+            'product_unit' => 'PCS',
+            'stock_managed' => true,
+            'is_sold' => true,
+        ]);
+
+        $bundle = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $setting->id,
+            'name' => 'Bundle Stock to Stockless',
+            'bundle_sale_price' => 100000,
+        ]);
+        \Modules\Product\Entities\ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        // Add line when child is stock-managed
+        $this->addCartLine($cashier, $setting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $setting, $customer);
+
+        // Child becomes stockless
+        $child->update(['stock_managed' => false]);
+
+        $response = $this->finalize($cashier, $setting, [
+            'idempotency_key' => 'test-stock-to-stockless-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+            'acknowledge_lifecycle_warning' => true,
+        ]);
+
+        $response->assertStatus(201);
     }
 
     private function createSplitCheckoutContext(bool $configureSourceWalkIn = true): array

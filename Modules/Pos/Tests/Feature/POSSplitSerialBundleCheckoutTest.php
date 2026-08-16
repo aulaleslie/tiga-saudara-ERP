@@ -91,7 +91,6 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             ],
         ]);
 
-        // EXPECTED TO FAIL CURRENTLY with 422 STOCK_UNAVAILABLE
         $response->assertStatus(201);
         
         // 1.2 Assert the single-source regression decrements parent stock once, child stock once, 
@@ -201,7 +200,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'is_default' => true,
         ]);
 
-        $child = $this->createProduct($setting, 'CHILD PRODUCT', 0);
+        $child = $this->createProduct($setting, 'CHILD PRODUCT', 0, false, $tax->id);
         ProductStock::create([
             'product_id' => $child->id,
             'location_id' => $sourceLocation->id,
@@ -214,7 +213,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'tax_id' => $tax->id,
         ]);
 
-        $parent = $this->createProduct($setting, 'SERIAL PARENT', 100000, true);
+        $parent = $this->createProduct($setting, 'SERIAL PARENT', 100000, true, $tax->id);
         ProductStock::create([
             'product_id' => $parent->id,
             'location_id' => $sourceLocation->id,
@@ -326,7 +325,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'is_default' => true,
         ]);
 
-        $child = $this->createProduct($setting, 'CHILD PRODUCT', 0);
+        $child = $this->createProduct($setting, 'CHILD PRODUCT', 0, false, $tax->id);
         // Child stock is only in Loc A
         ProductStock::create([
             'product_id' => $child->id,
@@ -340,7 +339,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'tax_id' => $tax->id,
         ]);
 
-        $parent = $this->createProduct($setting, 'SERIAL PARENT', 100000, true);
+        $parent = $this->createProduct($setting, 'SERIAL PARENT', 100000, true, $tax->id);
         // Parent stock split across Loc A and Loc B
         ProductStock::create([
             'product_id' => $parent->id,
@@ -412,7 +411,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
         ];
     }
 
-    private function createProduct(Setting $setting, string $name, float $price, bool $serialRequired = false): Product
+    private function createProduct(Setting $setting, string $name, float $price, bool $serialRequired = false, ?int $taxId = null): Product
     {
         $unit = Unit::firstOrCreate(['name' => 'PCS', 'short_name' => 'PCS']);
         $category = Category::firstOrCreate([
@@ -440,6 +439,7 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'product_id' => $product->id,
             'setting_id' => $setting->id,
             'sale_price' => $price,
+            'sale_tax_id' => $taxId,
         ]);
 
         return $product;

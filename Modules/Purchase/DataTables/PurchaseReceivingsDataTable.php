@@ -63,7 +63,10 @@ class PurchaseReceivingsDataTable extends DataTable
                 'purchase',
                 'receivedNoteDetails.purchaseDetail',
                 'receivedNoteDetails.product',
-                'receivedNoteDetails.productSerialNumbers'
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
             ]);
     }
 

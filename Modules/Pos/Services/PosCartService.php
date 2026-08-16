@@ -251,11 +251,13 @@ class PosCartService
                 'bundle_name' => $bundle ? (string) $bundle->name : null,
                 'bundle_price' => $bundlePrice,
                 'bundle_items' => $bundle ? $bundle->items->map(fn ($item) => [
+                    'bundle_item_id' => $item->id,
                     'product_id' => $item->product_id,
-                    'product_name' => $item->product->product_name,
-                    'quantity' => $item->quantity,
-                    'stock_managed' => (bool) $item->product->stock_managed,
-                    'serial_number_required' => (bool) $item->product->serial_number_required,
+                    'product_name' => $item->product?->product_name ?? "Produk #{$item->product_id}",
+                    'quantity_per_bundle' => (float) $item->quantity,
+                    'quantity' => (float) $item->quantity,
+                    'stock_managed' => (bool) ($item->product?->stock_managed ?? true),
+                    'serial_number_required' => (bool) ($item->product?->serial_number_required ?? false),
                     'informational_item_price' => (float) ($item->informational_item_price ?? 0),
                 ])->toArray() : [],
             ];
@@ -868,7 +870,11 @@ class PosCartService
             throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
-        if (! (bool) ($line['serial_number_required'] ?? false)) {
+        $productId = (int) ($line['product_id'] ?? 0);
+        $liveProduct = $productId > 0 ? \Modules\Product\Entities\Product::find($productId) : null;
+        $isSerialRequired = $liveProduct ? (bool) $liveProduct->serial_number_required : (bool) ($line['serial_number_required'] ?? false);
+
+        if (! $isSerialRequired) {
             throw new DomainException('Produk ini tidak memerlukan nomor seri.');
         }
 
@@ -882,7 +888,6 @@ class PosCartService
             throw new DomainException('Duplicate serial numbers provided.');
         }
 
-        $productId = (int) ($line['product_id'] ?? 0);
         $taxId = $line['tax_id'] ?? null;
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
@@ -1011,6 +1016,32 @@ class PosCartService
             ],
             isPkp: $isPkp
         );
+
+        // Enrich lines with current parent operational classifications while retaining captured flags
+        $parentProductIds = array_filter(array_map(
+            fn (array $line): ?int => ! empty($line['product_id']) ? (int) $line['product_id'] : null,
+            $calculated['lines']
+        ));
+        $liveParentProducts = ! empty($parentProductIds)
+            ? \Modules\Product\Entities\Product::whereIn('id', array_unique($parentProductIds))->get(['id', 'stock_managed', 'serial_number_required'])->keyBy('id')
+            : collect();
+
+        $calculated['lines'] = array_map(function (array $line) use ($liveParentProducts): array {
+            $pid = (int) ($line['product_id'] ?? 0);
+            $liveProduct = $pid > 0 ? $liveParentProducts->get($pid) : null;
+            if ($liveProduct) {
+                $line['captured_stock_managed'] = $line['captured_stock_managed'] ?? ($line['stock_managed'] ?? true);
+                $line['captured_serial_number_required'] = $line['captured_serial_number_required'] ?? ($line['serial_number_required'] ?? false);
+                $line['stock_managed'] = (bool) $liveProduct->stock_managed;
+                $line['serial_number_required'] = (bool) $liveProduct->serial_number_required;
+
+                // Re-evaluate serial_status based on current operational requirement
+                $assignedCount = count((array) ($line['assigned_serials'] ?? []));
+                $qty = (int) ($line['qty'] ?? 0);
+                $line['serial_status'] = ! $line['serial_number_required'] ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
+            }
+            return $line;
+        }, $calculated['lines']);
 
         $totalQty = array_sum(array_map(
             fn (array $line): int => max(0, (int) ($line['qty'] ?? 0)),
@@ -1294,12 +1325,15 @@ class PosCartService
             throw new DomainException('Cart line was not found.');
         }
 
-        if (! (bool) ($line['serial_number_required'] ?? false)) {
+        $productId = (int) ($line['product_id'] ?? 0);
+        $liveProduct = $productId > 0 ? \Modules\Product\Entities\Product::find($productId) : null;
+        $isSerialRequired = $liveProduct ? (bool) $liveProduct->serial_number_required : (bool) ($line['serial_number_required'] ?? false);
+
+        if (! $isSerialRequired) {
             throw new DomainException('This product does not require serial numbers.');
         }
 
         // Validate serial exists and is available
-        $productId = (int) ($line['product_id'] ?? 0);
         $taxId = $line['tax_id'] ?? null;
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 

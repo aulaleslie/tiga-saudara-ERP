@@ -10,6 +10,7 @@ use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 
 class ResolvePosStockAllocationsService
@@ -55,10 +56,35 @@ class ResolvePosStockAllocationsService
      */
     public function resolve(int $settingId, array $cartLines): array
     {
-        $locationIds = array_values(array_map(
-            static fn ($locationId): int => (int) $locationId,
-            SalesLocationResolver::resolveLocationIds($settingId)->all()
-        ));
+        $saleLocations = SettingSaleLocation::query()
+            ->join('locations', 'setting_sale_locations.location_id', '=', 'locations.id')
+            ->where('setting_sale_locations.setting_id', $settingId)
+            ->where('setting_sale_locations.is_enabled', true)
+            ->orderBy('setting_sale_locations.position')
+            ->orderByRaw('CASE WHEN locations.setting_id = setting_sale_locations.setting_id THEN 0 ELSE 1 END')
+            ->orderBy('locations.name')
+            ->orderBy('locations.id')
+            ->select([
+                'setting_sale_locations.location_id',
+                'locations.setting_id as source_setting_id',
+            ])
+            ->get();
+
+        $configuredSources = [];
+        $locationIds = [];
+        foreach ($saleLocations as $record) {
+            $locId = (int) $record->location_id;
+            $srcSettingId = (int) $record->source_setting_id;
+            if ($locId > 0) {
+                $configuredSources[] = [
+                    'location_id' => $locId,
+                    'source_setting_id' => $srcSettingId > 0 ? $srcSettingId : $settingId,
+                ];
+                if (! in_array($locId, $locationIds, true)) {
+                    $locationIds[] = $locId;
+                }
+            }
+        }
 
         $allocations = [];
         $unfulfilledLines = [];
@@ -98,7 +124,7 @@ class ResolvePosStockAllocationsService
                     $productId,
                     $neededQty,
                     $taxId,
-                    $locationIds,
+                    $configuredSources,
                     $settingId,
                     $settingsCache,
                     $taxesCache
@@ -310,19 +336,17 @@ class ResolvePosStockAllocationsService
     }
 
     /**
-     * Allocate a non-serial line using owner-priority bucket-first strategy:
-     * Phase 1: Allocate from non-tax bucket prioritized by owner (non-PKP first, then PKP)
-     * Phase 2: Allocate from tax bucket prioritized by owner (non-PKP first, then PKP)
+     * Allocate a non-serial line sequentially across configured (location_id, setting_id) sources.
      *
-     * Within each owner-priority group, configured location order is preserved.
+     * Iterates each configured source in exact sequence. Consumes non-tax stock first, then tax stock
+     * at that specific source before moving to the next source in the configured order.
      *
      * @param  int  $productId
      * @param  int  $neededQty
      * @param  int|null  $taxId
-     * @param  array<int>  $locationIds
+     * @param  array<int, array{location_id: int, source_setting_id: int}>  $configuredSources
      * @param  int  $settingId
      * @param  array<int, Setting|null>  $settingsCache
-     * @param  array<int, Location|null>  $locationsCache
      * @param  array<int, Tax|null>  $taxesCache
      * @return array<int, array<string, mixed>>
      */
@@ -330,50 +354,27 @@ class ResolvePosStockAllocationsService
         int $productId,
         int $neededQty,
         ?int $taxId,
-        $locationIds,
+        array $configuredSources,
         int $settingId,
         array &$settingsCache,
         array &$taxesCache
     ): array {
-        // Build owner-priority partitions from location IDs
-        $nonPkpLocations = [];
-        $pkpLocations = [];
-        $locationsCache = [];
+        $lineAllocations = [];
+        $remainingQty = $neededQty;
 
-        foreach ($locationIds as $locationId) {
-            $location = Location::query()->find($locationId);
-            $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
+        foreach ($configuredSources as $source) {
+            if ($remainingQty <= 0) {
+                break;
+            }
+
+            $locationId = (int) $source['location_id'];
+            $sourceSettingId = (int) $source['source_setting_id'];
 
             if (! isset($settingsCache[$sourceSettingId])) {
                 $settingsCache[$sourceSettingId] = Setting::query()->find($sourceSettingId);
             }
             $sourceSetting = $settingsCache[$sourceSettingId];
             $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
-
-            $locationsCache[$locationId] = [
-                'location' => $location,
-                'source_setting_id' => $sourceSettingId,
-                'source_is_pkp' => $sourceIsPkp,
-            ];
-
-            if ($sourceIsPkp) {
-                $pkpLocations[] = $locationId;
-            } else {
-                $nonPkpLocations[] = $locationId;
-            }
-        }
-
-        // Merge: non-PKP first, then PKP, within each preserve original location order
-        $prioritizedLocations = array_merge($nonPkpLocations, $pkpLocations);
-
-        $lineAllocations = [];
-        $remainingQty = $neededQty;
-
-        // Phase 1: Allocate from non-tax bucket (owner-priority order)
-        foreach ($prioritizedLocations as $locationId) {
-            if ($remainingQty <= 0) {
-                break;
-            }
 
             $stock = ProductStock::query()
                 ->where('product_id', $productId)
@@ -384,13 +385,10 @@ class ResolvePosStockAllocationsService
                 continue;
             }
 
-            $available = (int) $stock->quantity_non_tax;
-            if ($available > 0) {
-                $take = min($remainingQty, $available);
-
-                $locInfo = $locationsCache[$locationId];
-                $sourceSettingId = $locInfo['source_setting_id'];
-                $sourceIsPkp = $locInfo['source_is_pkp'];
+            // Sub-phase A: Allocate non-tax stock from this source
+            $availableNonTax = (int) $stock->quantity_non_tax;
+            if ($availableNonTax > 0) {
+                $take = min($remainingQty, $availableNonTax);
 
                 [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
                     productId: $productId,
@@ -417,31 +415,12 @@ class ResolvePosStockAllocationsService
 
                 $remainingQty -= $take;
             }
-        }
 
-        // Phase 2: If still unfulfilled, allocate from tax bucket (owner-priority order)
-        if ($remainingQty > 0) {
-            foreach ($prioritizedLocations as $locationId) {
-                if ($remainingQty <= 0) {
-                    break;
-                }
-
-                $stock = ProductStock::query()
-                    ->where('product_id', $productId)
-                    ->where('location_id', $locationId)
-                    ->first();
-
-                if (! $stock) {
-                    continue;
-                }
-
-                $available = (int) $stock->quantity_tax;
-                if ($available > 0) {
-                    $take = min($remainingQty, $available);
-
-                    $locInfo = $locationsCache[$locationId];
-                    $sourceSettingId = $locInfo['source_setting_id'];
-                    $sourceIsPkp = $locInfo['source_is_pkp'];
+            // Sub-phase B: Allocate tax stock from this source if remaining
+            if ($remainingQty > 0) {
+                $availableTax = (int) $stock->quantity_tax;
+                if ($availableTax > 0) {
+                    $take = min($remainingQty, $availableTax);
 
                     [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
                         productId: $productId,

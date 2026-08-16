@@ -257,14 +257,24 @@ class FinalizePosCheckoutService
             $isIdempotentReplay
         );
 
-        // Compute full payload hash after validation for storage
+        // Normalize presentation snapshot back to captured state
+        $capturedCartSnapshot = $this->normalizeSnapshotToCaptured($cartSnapshot);
+
+        // Build operational snapshot from captured snapshot with current product classifications
+        $operationalSnapshot = $this->buildOperationalSnapshot($capturedCartSnapshot);
+
+        // Early policy and fulfillability gates: validate before checkout ledger creation
+        $this->validateBundleComponentSerialPolicy($operationalSnapshot);
+        $this->validateCartFulfillability($settingId, $operationalSnapshot);
+
+        // Compute full payload hash from captured snapshot for storage
         $payloadHash = $this->payloadHash(
             $settingId,
             $sessionId,
             $terminalId,
             $cashierUserId,
             (int) $resolvedCustomerId,
-            $cartSnapshot,
+            $capturedCartSnapshot,
             $payment,
             $isDebt,
             $paymentTermId
@@ -295,7 +305,7 @@ class FinalizePosCheckoutService
             $paidTotal,
             $changeTotal,
             $clientContext,
-            $cartSnapshot,
+            $capturedCartSnapshot,
             $isDebt,
             $paymentTermId
         );
@@ -320,7 +330,7 @@ class FinalizePosCheckoutService
             terminalId: $terminalId,
             cashierUserId: $cashierUserId,
             customerId: (int) $resolvedCustomerId,
-            cartSnapshot: $cartSnapshot,
+            cartSnapshot: $capturedCartSnapshot,
             payment: $payment,
             paidTotal: $paidTotal,
             changeTotal: $changeTotal,
@@ -368,9 +378,188 @@ class FinalizePosCheckoutService
             );
         }
 
-        $this->validateCartFulfillability($settingId, $cartSnapshot);
+        $operationalSnapshot = $this->buildOperationalSnapshot($cartSnapshot);
+        $this->validateCartFulfillability($settingId, $operationalSnapshot);
 
         return ['status' => 'OK'];
+    }
+
+    /**
+     * Derive an operational snapshot from the captured snapshot by overlaying only
+     * live stock_managed and serial_number_required classifications from current products.
+     * All captured commercial values, product IDs, quantities, prices, taxes, discounts,
+     * and bundle compositions remain unchanged.
+     *
+     * @param  array<string, mixed>  $capturedSnapshot
+     * @return array<string, mixed>
+     */
+    public function buildOperationalSnapshot(array $capturedSnapshot): array
+    {
+        $cartLines = is_array($capturedSnapshot['lines'] ?? null) ? $capturedSnapshot['lines'] : [];
+        if ($cartLines === []) {
+            return $capturedSnapshot;
+        }
+
+        // Batch-load all involved products (parents and components)
+        $productIds = [];
+        foreach ($cartLines as $line) {
+            if (! empty($line['product_id'])) {
+                $productIds[] = (int) $line['product_id'];
+            }
+            if (! empty($line['bundle_items']) && is_array($line['bundle_items'])) {
+                foreach ($line['bundle_items'] as $item) {
+                    if (! empty($item['product_id'])) {
+                        $productIds[] = (int) $item['product_id'];
+                    }
+                }
+            }
+        }
+
+        $productsById = ! empty($productIds)
+            ? \Modules\Product\Entities\Product::whereIn('id', array_unique($productIds))->get(['id', 'stock_managed', 'serial_number_required'])->keyBy('id')
+            : collect();
+
+        $operationalLines = [];
+        foreach ($cartLines as $key => $line) {
+            if (! is_array($line)) {
+                $operationalLines[$key] = $line;
+                continue;
+            }
+
+            $opLine = $line;
+            $parentProduct = $productsById->get((int) ($line['product_id'] ?? 0));
+            if ($parentProduct) {
+                $opLine['stock_managed'] = (bool) $parentProduct->stock_managed;
+                $opLine['serial_number_required'] = (bool) $parentProduct->serial_number_required;
+            }
+
+            if (! empty($line['bundle_items']) && is_array($line['bundle_items'])) {
+                $opBundleItems = [];
+                foreach ($line['bundle_items'] as $bKey => $item) {
+                    if (! is_array($item)) {
+                        $opBundleItems[$bKey] = $item;
+                        continue;
+                    }
+                    $opItem = $item;
+                    $compProduct = $productsById->get((int) ($item['product_id'] ?? 0));
+                    if ($compProduct) {
+                        $opItem['stock_managed'] = (bool) $compProduct->stock_managed;
+                        $opItem['serial_number_required'] = (bool) $compProduct->serial_number_required;
+                    }
+                    $opBundleItems[$bKey] = $opItem;
+                }
+                $opLine['bundle_items'] = $opBundleItems;
+            }
+
+            $operationalLines[$key] = $opLine;
+        }
+
+        $operationalSnapshot = $capturedSnapshot;
+        $operationalSnapshot['lines'] = $operationalLines;
+
+        return $operationalSnapshot;
+    }
+
+    /**
+     * Normalize a presentation/cart snapshot back to its captured classifications.
+     * Restores captured_stock_managed and captured_serial_number_required to the primary fields
+     * and strips presentation-only captured_* aliases before persisting original_cart_snapshot or computing payloadHash.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    public function normalizeSnapshotToCaptured(array $snapshot): array
+    {
+        $cartLines = is_array($snapshot['lines'] ?? null) ? $snapshot['lines'] : [];
+        if ($cartLines === []) {
+            return $snapshot;
+        }
+
+        $capturedLines = [];
+        foreach ($cartLines as $key => $line) {
+            if (! is_array($line)) {
+                $capturedLines[$key] = $line;
+                continue;
+            }
+
+            $capLine = $line;
+            if (array_key_exists('captured_stock_managed', $capLine)) {
+                $capLine['stock_managed'] = (bool) $capLine['captured_stock_managed'];
+                unset($capLine['captured_stock_managed']);
+            }
+            if (array_key_exists('captured_serial_number_required', $capLine)) {
+                $capLine['serial_number_required'] = (bool) $capLine['captured_serial_number_required'];
+                unset($capLine['captured_serial_number_required']);
+            }
+
+            if (! empty($line['bundle_items']) && is_array($line['bundle_items'])) {
+                $capBundleItems = [];
+                foreach ($line['bundle_items'] as $bKey => $item) {
+                    if (! is_array($item)) {
+                        $capBundleItems[$bKey] = $item;
+                        continue;
+                    }
+                    $capItem = $item;
+                    if (array_key_exists('captured_stock_managed', $capItem)) {
+                        $capItem['stock_managed'] = (bool) $capItem['captured_stock_managed'];
+                        unset($capItem['captured_stock_managed']);
+                    }
+                    if (array_key_exists('captured_serial_number_required', $capItem)) {
+                        $capItem['serial_number_required'] = (bool) $capItem['captured_serial_number_required'];
+                        unset($capItem['captured_serial_number_required']);
+                    }
+                    $capBundleItems[$bKey] = $capItem;
+                }
+                $capLine['bundle_items'] = $capBundleItems;
+            }
+
+            $capturedLines[$key] = $capLine;
+        }
+
+        $capturedSnapshot = $snapshot;
+        $capturedSnapshot['lines'] = $capturedLines;
+
+        return $capturedSnapshot;
+    }
+
+    /**
+     * Early policy gate: block checkout when any bundle component requires serial assignment.
+     *
+     * This runs BEFORE the checkout ledger record is created, so a policy block
+     * does not leave behind a STATUS_FAILED checkout row.  Stock-level checks
+     * remain inside postCheckout where failures are properly recorded.
+     *
+     * @param  array<string, mixed>  $cartSnapshot  The operational (live-overlaid) snapshot.
+     * @throws PosCheckoutValidationException
+     */
+    private function validateBundleComponentSerialPolicy(array $cartSnapshot): void
+    {
+        $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+
+        foreach ($cartLines as $lineIndex => $line) {
+            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            foreach ($bundleItems as $item) {
+                $compStockManaged = (bool) ($item['stock_managed'] ?? true);
+                $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
+
+                if ($compStockManaged && $compSerialRequired) {
+                    $compName = $item['product_name'] ?? ('Produk #' . ($item['product_id'] ?? ''));
+                    $parentName = $line['product_name'] ?? ('Baris #' . ($lineIndex + 1));
+                    throw new PosCheckoutValidationException(
+                        'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED',
+                        "Komponen '{$compName}' pada paket '{$parentName}' membutuhkan nomor seri. Penetapan nomor seri komponen belum didukung pada POS.",
+                        [
+                            'unsupported_line' => [
+                                'line_index' => $lineIndex,
+                                'bundle_id' => $line['bundle_id'] ?? null,
+                                'product_id' => (int) ($item['product_id'] ?? 0),
+                                'product_name' => $compName,
+                            ],
+                        ]
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -388,9 +577,35 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('CART_EMPTY', 'Keranjang harus berisi setidaknya satu item baris.');
         }
 
-        foreach ($cartLines as $line) {
-            if ((bool) ($line['serial_number_required'] ?? false)) {
+        foreach ($cartLines as $lineIndex => $line) {
+            $isParentSerialRequired = (bool) ($line['serial_number_required'] ?? false);
+
+            if ($isParentSerialRequired) {
                 $this->validateSerialAssignments($line, $settingId);
+            }
+
+            // Check bundle components for unsupported serial demand
+            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            foreach ($bundleItems as $itemIndex => $item) {
+                $compStockManaged = (bool) ($item['stock_managed'] ?? true);
+                $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
+
+                if ($compStockManaged && $compSerialRequired) {
+                    $compName = $item['product_name'] ?? ('Produk #' . ($item['product_id'] ?? ''));
+                    $parentName = $line['product_name'] ?? ('Baris #' . ($lineIndex + 1));
+                    throw new PosCheckoutValidationException(
+                        'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED',
+                        "Komponen '{$compName}' pada paket '{$parentName}' membutuhkan nomor seri. Penetapan nomor seri komponen belum didukung pada POS.",
+                        [
+                            'unsupported_line' => [
+                                'line_index' => $lineIndex,
+                                'bundle_id' => $line['bundle_id'] ?? null,
+                                'product_id' => (int) ($item['product_id'] ?? 0),
+                                'product_name' => $compName,
+                            ],
+                        ]
+                    );
+                }
             }
         }
 
@@ -972,7 +1187,8 @@ class FinalizePosCheckoutService
                     throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Terminal checkout POS tidak ditemukan.');
                 }
 
-                $resolution = $this->validateCartFulfillability($settingId, $cartSnapshot);
+                $operationalSnapshot = $this->buildOperationalSnapshot($cartSnapshot);
+                $resolution = $this->validateCartFulfillability($settingId, $operationalSnapshot);
 
                 /** @var PosCheckout|null $lockedCheckout */
                 $lockedCheckout = PosCheckout::query()
@@ -1020,7 +1236,7 @@ class FinalizePosCheckoutService
                     'cashier_user_id' => $cashierUserId,
                     'customer_id' => $customerId,
                     'payment' => $payment,
-                    'cart_snapshot' => $cartSnapshot,
+                    'cart_snapshot' => $operationalSnapshot,
                     'allocations' => $resolution['allocations'],
                     'is_debt' => $isDebt,
                     'payment_term_id' => $paymentTermId,
@@ -1664,6 +1880,9 @@ class FinalizePosCheckoutService
                 continue;
             }
 
+            $isParentStockManaged = (bool) ($line['stock_managed'] ?? true);
+            $isParentSerialRequired = (bool) ($line['serial_number_required'] ?? false);
+
             $taxId = isset($line['tax_id']) ? (int) $line['tax_id'] : null;
             $taxId = $taxId !== null && $taxId > 0 ? $taxId : null;
 
@@ -1675,7 +1894,7 @@ class FinalizePosCheckoutService
             $qty = max(0, (int) ($line['qty'] ?? 0));
 
             // Only add parent to resolver if stock is managed
-            if ((bool) ($line['stock_managed'] ?? true)) {
+            if ($isParentStockManaged) {
                 $resolverLines["{$lineIndex}_P"] = [
                     'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null,
                     'product_id' => (int) ($line['product_id'] ?? 0),
@@ -1683,7 +1902,7 @@ class FinalizePosCheckoutService
                     'product_name' => isset($line['product_name']) ? (string) $line['product_name'] : null,
                     'qty' => $qty,
                     'tax_id' => $taxId,
-                    'serial_number_required' => (bool) ($line['serial_number_required'] ?? false),
+                    'serial_number_required' => $isParentSerialRequired,
                     'assigned_serials' => $assignedSerials,
                 ];
             }
@@ -1691,7 +1910,10 @@ class FinalizePosCheckoutService
             // Add bundle items if present and stock managed
             $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
             foreach ($bundleItems as $itemIndex => $item) {
-                if ((bool) ($item['stock_managed'] ?? false)) {
+                $isCompStockManaged = (bool) ($item['stock_managed'] ?? false);
+                $isCompSerialRequired = (bool) ($item['serial_number_required'] ?? false);
+
+                if ($isCompStockManaged) {
                     $resolverLines["{$lineIndex}_C_{$itemIndex}"] = [
                         'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null, // Grouped by parent line_id
                         'product_id' => (int) ($item['product_id'] ?? 0),
@@ -1699,7 +1921,7 @@ class FinalizePosCheckoutService
                         'product_name' => isset($item['product_name']) ? (string) $item['product_name'] : null,
                         'qty' => $qty * (int) ($item['quantity'] ?? 1),
                         'tax_id' => $taxId, // Child items inherit parent tax for stock bucket resolution
-                        'serial_number_required' => (bool) ($item['serial_number_required'] ?? false),
+                        'serial_number_required' => $isCompSerialRequired,
                         'assigned_serials' => [], // Bundled serials not yet supported in POS frontend
                     ];
                 }

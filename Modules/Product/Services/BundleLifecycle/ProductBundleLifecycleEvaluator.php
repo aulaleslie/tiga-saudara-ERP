@@ -213,7 +213,21 @@ class ProductBundleLifecycleEvaluator
                 settingId: $settingId,
                 lineLabel: (string) ($line['product_name'] ?? ($line['name'] ?? 'Baris Paket')),
                 capturedComponents: (array) ($line['bundle_items'] ?? ($line['options']['bundle_items'] ?? [])),
-                businessDate: $businessDate
+                businessDate: $businessDate,
+                capturedParentStockManaged: isset($line['captured_stock_managed'])
+                    ? (bool) $line['captured_stock_managed']
+                    : (isset($line['stock_managed'])
+                        ? (bool) $line['stock_managed']
+                        : (isset($line['options']['captured_stock_managed'])
+                            ? (bool) $line['options']['captured_stock_managed']
+                            : (isset($line['options']['stock_managed']) ? (bool) $line['options']['stock_managed'] : null))),
+                capturedParentSerialRequired: isset($line['captured_serial_number_required'])
+                    ? (bool) $line['captured_serial_number_required']
+                    : (isset($line['serial_number_required'])
+                        ? (bool) $line['serial_number_required']
+                        : (isset($line['options']['captured_serial_number_required'])
+                            ? (bool) $line['options']['captured_serial_number_required']
+                            : (isset($line['options']['serial_number_required']) ? (bool) $line['options']['serial_number_required'] : null)))
             );
 
             foreach ($lineWarnings as $w) {
@@ -247,12 +261,14 @@ class ProductBundleLifecycleEvaluator
             $lineLabel = '';
 
             if (is_array($detail)) {
-                $bundleItems = $detail['bundle_items'] ?? [];
-                $parentProductId = $detail['product_id'] ?? 0;
-                $lineLabel = $detail['product_name'] ?? 'Baris Paket';
+                $bundleItems = $detail['bundle_items'] ?? ($detail['options']['bundle_items'] ?? []);
+                $parentProductId = $detail['product_id'] ?? ($detail['options']['product_id'] ?? 0);
+                $lineLabel = $detail['product_name'] ?? ($detail['name'] ?? 'Baris Paket');
                 if (!empty($bundleItems)) {
-                    $bundleId = $bundleItems[0]['bundle_id'] ?? null;
+                    $first = is_array($bundleItems[0]) ? $bundleItems[0] : (array) $bundleItems[0];
+                    $bundleId = $first['bundle_id'] ?? null;
                 }
+                $bundleId = $bundleId ?? ($detail['bundle_id'] ?? ($detail['options']['bundle_id'] ?? null));
             } elseif (is_object($detail)) {
                 if (method_exists($detail, 'relationLoaded') && $detail->relationLoaded('bundleItems')) {
                     $bundleItems = $detail->bundleItems->toArray();
@@ -262,12 +278,13 @@ class ProductBundleLifecycleEvaluator
                     $bundleItems = (array) $detail->options->bundle_items;
                 }
 
-                $parentProductId = $detail->product_id ?? ($detail->options->product_id ?? 0);
+                $parentProductId = $detail->product_id ?? ($detail->options->product_id ?? ($detail->id ?? 0));
                 $lineLabel = $detail->product_name ?? ($detail->name ?? 'Baris Paket');
                 if (!empty($bundleItems)) {
                     $first = is_array($bundleItems[0]) ? $bundleItems[0] : (array) $bundleItems[0];
                     $bundleId = $first['bundle_id'] ?? null;
                 }
+                $bundleId = $bundleId ?? ($detail->options->bundle_id ?? ($detail->bundle_id ?? null));
             }
 
             if (!$bundleId && empty($bundleItems)) {
@@ -302,7 +319,9 @@ class ProductBundleLifecycleEvaluator
         int $settingId,
         string $lineLabel,
         array $capturedComponents = [],
-        ?string $businessDate = null
+        ?string $businessDate = null,
+        ?bool $capturedParentStockManaged = null,
+        ?bool $capturedParentSerialRequired = null
     ): array {
         $warnings = [];
         $today = $businessDate ?? self::currentBusinessDate();
@@ -434,6 +453,46 @@ class ProductBundleLifecycleEvaluator
         $liveItemsByProductId = $liveItems->keyBy('product_id');
         $liveProductIds = $liveItemsByProductId->keys()->all();
 
+        // Check parent product operational classification drift if parentProductId is valid
+        if ($parentProductId > 0) {
+            $liveParentProduct = Product::find($parentProductId);
+            if ($liveParentProduct) {
+                if (isset($capturedParentStockManaged)) {
+                    $capturedStockManaged = (bool) $capturedParentStockManaged;
+                    $currentStockManaged = (bool) $liveParentProduct->stock_managed;
+                    if ($capturedStockManaged !== $currentStockManaged) {
+                        $warnings[] = [
+                            'type' => 'bundle_parent',
+                            'bundle_id' => $bundleId,
+                            'product_id' => $parentProductId,
+                            'product_name' => $liveParentProduct->product_name ?? $lineLabel,
+                            'reason' => BundleLifecycleReason::STOCK_MANAGED_CHANGED,
+                            'message' => "Status pengelolaan stok produk utama '{$lineLabel}' telah berubah",
+                            'captured_value' => $capturedStockManaged,
+                            'current_value' => $currentStockManaged,
+                        ];
+                    }
+                }
+
+                if (isset($capturedParentSerialRequired)) {
+                    $capturedSerialRequired = (bool) $capturedParentSerialRequired;
+                    $currentSerialRequired = (bool) $liveParentProduct->serial_number_required;
+                    if ($capturedSerialRequired !== $currentSerialRequired) {
+                        $warnings[] = [
+                            'type' => 'bundle_parent',
+                            'bundle_id' => $bundleId,
+                            'product_id' => $parentProductId,
+                            'product_name' => $liveParentProduct->product_name ?? $lineLabel,
+                            'reason' => BundleLifecycleReason::SERIAL_REQUIRED_CHANGED,
+                            'message' => "Status kewajiban nomor seri produk utama '{$lineLabel}' telah berubah",
+                            'captured_value' => $capturedSerialRequired,
+                            'current_value' => $currentSerialRequired,
+                        ];
+                    }
+                }
+            }
+        }
+
         // Collect captured product IDs
         $capturedProductIds = [];
         $capturedMissingLivePids = [];
@@ -474,12 +533,11 @@ class ProductBundleLifecycleEvaluator
                     'message' => "Komponen '{$compName}' telah dihapus dari definisi paket terkini",
                 ];
             } else {
-                // Check quantity-per-bundle drift if captured quantity per bundle is present
                 $liveItem = $liveItemsByProductId->get($compPid);
                 $liveQtyPerBundle = (float) ($liveItem->quantity ?? 0);
                 $capturedQtyPerBundle = isset($compArray['quantity_per_bundle'])
                     ? (float) $compArray['quantity_per_bundle']
-                    : null;
+                    : (isset($compArray['quantity']) ? (float) $compArray['quantity'] : null);
 
                 if ($capturedQtyPerBundle !== null && $capturedQtyPerBundle > 0 && abs($capturedQtyPerBundle - $liveQtyPerBundle) > 0.0001) {
                     $warnings[] = [
@@ -487,8 +545,29 @@ class ProductBundleLifecycleEvaluator
                         'bundle_id' => $bundleId,
                         'product_id' => $compPid,
                         'product_name' => $compName,
-                        'reason' => 'QUANTITY_CHANGED',
+                        'reason' => BundleLifecycleReason::QUANTITY_CHANGED,
                         'message' => "Kuantitas komponen '{$compName}' dalam definisi paket telah berubah dari {$capturedQtyPerBundle} menjadi {$liveQtyPerBundle}",
+                        'captured_value' => $capturedQtyPerBundle,
+                        'current_value' => $liveQtyPerBundle,
+                    ];
+                }
+
+                // Check informational_item_price drift
+                $liveInfoPrice = round((float) ($liveItem->informational_item_price ?? 0), 2);
+                $capturedInfoPrice = isset($compArray['informational_item_price']) && is_numeric($compArray['informational_item_price'])
+                    ? round((float) $compArray['informational_item_price'], 2)
+                    : null;
+
+                if ($capturedInfoPrice !== null && abs($capturedInfoPrice - $liveInfoPrice) > 0.0001) {
+                    $warnings[] = [
+                        'type' => 'component',
+                        'bundle_id' => $bundleId,
+                        'product_id' => $compPid,
+                        'product_name' => $compName,
+                        'reason' => BundleLifecycleReason::INFORMATIONAL_ALLOCATION_CHANGED,
+                        'message' => "Alokasi nilai informasi komponen '{$compName}' telah berubah dari Rp " . number_format($capturedInfoPrice, 0, ',', '.') . " menjadi Rp " . number_format($liveInfoPrice, 0, ',', '.'),
+                        'captured_value' => $capturedInfoPrice,
+                        'current_value' => $liveInfoPrice,
                     ];
                 }
             }
@@ -516,6 +595,41 @@ class ProductBundleLifecycleEvaluator
                     'reason' => BundleLifecycleReason::INACTIVE_COMPONENT,
                     'message' => "Komponen '{$compName}' telah digabungkan/tidak aktif",
                 ];
+            } else {
+                // Check stock_managed and serial_number_required classification drift
+                if (isset($compArray['stock_managed'])) {
+                    $capturedStockManaged = (bool) $compArray['stock_managed'];
+                    $currentStockManaged = (bool) $liveProduct->stock_managed;
+                    if ($capturedStockManaged !== $currentStockManaged) {
+                        $warnings[] = [
+                            'type' => 'component',
+                            'bundle_id' => $bundleId,
+                            'product_id' => $compPid,
+                            'product_name' => $compName,
+                            'reason' => BundleLifecycleReason::STOCK_MANAGED_CHANGED,
+                            'message' => "Status pengelolaan stok komponen '{$compName}' telah berubah",
+                            'captured_value' => $capturedStockManaged,
+                            'current_value' => $currentStockManaged,
+                        ];
+                    }
+                }
+
+                if (isset($compArray['serial_number_required'])) {
+                    $capturedSerialRequired = (bool) $compArray['serial_number_required'];
+                    $currentSerialRequired = (bool) $liveProduct->serial_number_required;
+                    if ($capturedSerialRequired !== $currentSerialRequired) {
+                        $warnings[] = [
+                            'type' => 'component',
+                            'bundle_id' => $bundleId,
+                            'product_id' => $compPid,
+                            'product_name' => $compName,
+                            'reason' => BundleLifecycleReason::SERIAL_REQUIRED_CHANGED,
+                            'message' => "Status kewajiban nomor seri komponen '{$compName}' telah berubah",
+                            'captured_value' => $capturedSerialRequired,
+                            'current_value' => $currentSerialRequired,
+                        ];
+                    }
+                }
             }
         }
 
@@ -528,7 +642,7 @@ class ProductBundleLifecycleEvaluator
                     'bundle_id' => $bundleId,
                     'product_id' => $liveItem->product_id,
                     'product_name' => $addedCompName,
-                    'reason' => 'COMPONENT_ADDED',
+                    'reason' => BundleLifecycleReason::COMPONENT_ADDED,
                     'message' => "Komponen baru '{$addedCompName}' telah ditambahkan ke definisi paket terkini",
                 ];
             }
