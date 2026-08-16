@@ -645,6 +645,7 @@ class PosCheckoutSplitPlannerService
             'line_total' => $this->fromMinor($lineSubtotalMinor),
             'bundle_id' => isset($line['bundle_id']) ? (int) $line['bundle_id'] : null,
             'bundle_items' => is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [],
+            'bundle_item_serials' => is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [],
         ];
     }
 

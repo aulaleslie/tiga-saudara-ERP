@@ -489,13 +489,15 @@ class PosSellController extends Controller
     ): JsonResponse {
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
+        $bundleItemId = $request->filled('bundle_item_id') ? (int) $request->input('bundle_item_id') : null;
 
         try {
             $snapshot = $cartService->assignSerials(
                 $settingId,
                 $sessionId,
                 $lineId,
-                (array) $request->input('serial_numbers')
+                (array) $request->input('serial_numbers'),
+                $bundleItemId
             );
         } catch (PosCheckoutValidationException $exception) {
             return response()->json([
@@ -538,17 +540,20 @@ class PosSellController extends Controller
     ): JsonResponse {
         $validated = $request->validate([
             'serial_number' => ['required', 'string', 'max:255'],
+            'bundle_item_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
+        $bundleItemId = isset($validated['bundle_item_id']) ? (int) $validated['bundle_item_id'] : null;
 
         try {
             $snapshot = $cartService->appendSerial(
                 $settingId,
                 $sessionId,
                 $lineId,
-                (string) $validated['serial_number']
+                (string) $validated['serial_number'],
+                $bundleItemId
             );
         } catch (PosCheckoutValidationException $exception) {
             return response()->json([
@@ -570,15 +575,21 @@ class PosSellController extends Controller
         Request $request,
         PosCartService $cartService
     ): JsonResponse {
+        $validated = $request->validate([
+            'bundle_item_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
+        $bundleItemId = isset($validated['bundle_item_id']) ? (int) $validated['bundle_item_id'] : null;
 
         try {
             $snapshot = $cartService->removeSerial(
                 $settingId,
                 $sessionId,
                 $lineId,
-                $serial
+                $serial,
+                $bundleItemId
             );
         } catch (PosCheckoutValidationException $exception) {
             return response()->json([

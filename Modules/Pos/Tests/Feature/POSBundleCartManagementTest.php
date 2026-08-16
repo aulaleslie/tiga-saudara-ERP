@@ -52,6 +52,8 @@ class POSBundleCartManagementTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -202,7 +204,13 @@ class POSBundleCartManagementTest extends TestCase
     private function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
-        $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, $name . '-cashier', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
         $terminal = $this->createTerminalForSetting($setting);
 
         // Add at least one payment method for POS session
@@ -265,6 +273,7 @@ class POSBundleCartManagementTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => true,
+            'pos_transactions_enabled' => true,
             'is_pkp' => false,
         ]);
     }
@@ -520,5 +529,155 @@ class POSBundleCartManagementTest extends TestCase
                 'serial_numbers' => ['SN-ANY'],
             ])
             ->assertStatus(422);
+    }
+
+    public function test_assign_append_and_remove_component_serials_in_cart(): void
+    {
+        $context = $this->createCheckoutContext('COMPONENT SERIAL CART OPS');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_NOSERIAL', 100000, false);
+        $childSerial = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_SERIAL', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle With Serial Child',
+            'bundle_sale_price' => 120000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $childSerial->id,
+            'quantity' => 2,
+            'informational_item_price' => 20000,
+        ]);
+
+        $sn1 = $this->createSerial($childSerial, $context['location'], 'SN-COMP-001');
+        $sn2 = $this->createSerial($childSerial, $context['location'], 'SN-COMP-002');
+        $sn3 = $this->createSerial($childSerial, $context['location'], 'SN-COMP-003');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // 1. Initial status is incomplete because component needs 2 serials (qty 1 * 2 per bundle)
+        $this->assertEquals('incomplete', $snapshot['lines'][0]['serial_status']);
+
+        // 2. Append first serial to component via cart.lines.serials.append
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-001',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-COMP-001'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+        $this->assertEquals('incomplete', $snapshot['lines'][0]['serial_status']);
+
+        // 3. Append second serial
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-002',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-COMP-001', 'SN-COMP-002'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+        $this->assertEquals('ok', $snapshot['lines'][0]['serial_status']);
+
+        // 4. Overfilling component capacity throws 422 SERIAL_CAPACITY_EXCEEDED
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-003',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertStatus(422);
+
+        // 5. Remove a component serial via cart.lines.serials.remove
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->deleteJson(route('pos.sell.cart.lines.serials.remove', [
+                'lineId' => $lineId,
+                'serial' => 'SN-COMP-001',
+            ]), [
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-COMP-002'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+        $this->assertEquals('incomplete', $snapshot['lines'][0]['serial_status']);
+
+        // 6. Bulk assign component serials via store
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-COMP-001', 'SN-COMP-003'],
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-COMP-001', 'SN-COMP-003'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+        $this->assertEquals('ok', $snapshot['lines'][0]['serial_status']);
+    }
+
+    public function test_draft_roundtrip_preserves_component_serials(): void
+    {
+        $context = $this->createCheckoutContext('DRAFT COMPONENT SERIAL ROUNDTRIP');
+
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_DRAFT', 100000, false);
+        $childSerial = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_DRAFT_SERIAL', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle Draft Component Serial',
+            'bundle_sale_price' => 120000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $childSerial->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        $sn = $this->createSerial($childSerial, $context['location'], 'SN-DRAFT-COMP-1');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-DRAFT-COMP-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        // Save transaction as draft via HTTP endpoint
+        $saveResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = (int) $saveResponse->json('transaction.id');
+
+        $emptySnapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEmpty($emptySnapshot['lines']);
+
+        // Reload draft via HTTP endpoint
+        $loadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
+
+        $loadedSnapshot = $loadResponse->json('cart_snapshot');
+        $this->assertEquals('ok', $loadedSnapshot['lines'][0]['serial_status']);
+        $this->assertEquals(['SN-DRAFT-COMP-1'], $loadedSnapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
     }
 }

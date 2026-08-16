@@ -397,6 +397,23 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         );
                     }
 
+                    $bundleItemId = (int) ($item['bundle_item_id'] ?? 0);
+                    $bundleItemSerials = is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [];
+                    $compAssignedSerials = array_values(array_filter(
+                        (array) ($bundleItemSerials[$bundleItemId] ?? ($item['assigned_serials'] ?? [])),
+                        static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
+                    ));
+
+                    $childSerialRecords = [];
+                    $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
+                    if ($compSerialRequired && $compAssignedSerials !== []) {
+                        $childSerialRecords = ProductSerialNumber::query()
+                            ->where('product_id', $childProductId)
+                            ->whereIn('serial_number', $compAssignedSerials)
+                            ->get()
+                            ->keyBy('serial_number');
+                    }
+
                     $this->recordStockMovement(
                         $childProductId,
                         $childQty,
@@ -408,7 +425,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         $dispatch,
                         $childTaxId,
                         $bundleId,
-                        [] // Serial items in bundles not supported yet
+                        $childSerialRecords instanceof \Illuminate\Support\Collection ? $childSerialRecords->all() : $childSerialRecords
                     );
                 }
             }

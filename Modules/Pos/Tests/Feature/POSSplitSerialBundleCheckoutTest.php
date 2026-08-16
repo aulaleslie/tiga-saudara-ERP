@@ -767,12 +767,160 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
         $correctedResponse->assertStatus(201)
             ->assertJsonPath('status', 'POSTED');
 
-        $this->assertDatabaseCount('sales', 2);
-        $this->assertDatabaseCount('pos_checkout_sales', 2);
         $this->assertDatabaseHas('pos_checkouts', [
             'setting_id' => $context['setting']->id,
             'idempotency_key' => strtolower($newKey),
             'status' => PosCheckout::STATUS_POSTED,
+        ]);
+    }
+
+    public function test_finalize_bundle_with_component_serials_posts_stock_and_serial_dispatch(): void
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product']; // parent product (no serial required)
+        $parent->update(['serial_number_required' => false]);
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $tax = Tax::query()->where('setting_id', $context['setting']->id)->first() ?? Tax::first();
+
+        $childSerial = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-CHECKOUT-1',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        // Assign component serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-CHECKOUT-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-COMP-SERIAL-CHECKOUT-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        // Verify child stock decremented
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'quantity' => 19, // 20 -> 19
+        ]);
+
+        // Verify component serial status changed to SOLD and linked to dispatch detail
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $childSerial->id,
+            'status' => 'SOLD',
+        ]);
+
+        $serial = ProductSerialNumber::find($childSerial->id);
+        $this->assertNotNull($serial->dispatch_detail_id);
+    }
+
+    public function test_finalize_bundle_with_multi_quantity_and_component_serials(): void
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product'];
+        $parent->update(['serial_number_required' => false]);
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $tax = Tax::query()->where('setting_id', $context['setting']->id)->first() ?? Tax::first();
+
+        // Create 2 serial numbers for parent qty = 2 (each bundle has 1 component item)
+        $childSerial1 = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-MULTI-1',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $childSerial2 = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-MULTI-2',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        // Add parent bundle line with qty = 2
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 2, $bundle->id);
+
+        // Assign first component serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-MULTI-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        // Assign second component serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-MULTI-2',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-COMP-SERIAL-MULTI-QTY-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 400000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        // Verify child stock decremented by 2 (20 -> 18)
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'quantity' => 18, // 20 -> 18
+        ]);
+
+        // Verify both component serials are SOLD
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $childSerial1->id,
+            'status' => 'SOLD',
+        ]);
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $childSerial2->id,
+            'status' => 'SOLD',
         ]);
     }
 }

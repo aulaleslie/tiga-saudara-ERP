@@ -154,6 +154,10 @@ class ProductBundleSnapshotMapper
                 ? (bool) $compArray['serial_number_required']
                 : false;
 
+            $assignedSerials = isset($compArray['assigned_serials']) && is_array($compArray['assigned_serials'])
+                ? array_values(array_map('strval', $compArray['assigned_serials']))
+                : [];
+
             $normalized[] = [
                 'bundle_item_id' => $bundleItemId,
                 'product_id' => $productId,
@@ -163,6 +167,7 @@ class ProductBundleSnapshotMapper
                 'informational_item_price' => round($informationalPrice, 2),
                 'stock_managed' => $stockManaged,
                 'serial_number_required' => $serialRequired,
+                'assigned_serials' => $assignedSerials,
             ];
         }
 

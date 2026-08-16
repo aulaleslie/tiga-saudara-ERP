@@ -1366,12 +1366,39 @@
                     approvedValueOf: (req) => req.requested_line_total ?? 0,
                 });
 
+                let bundleSerialBadge = '';
+                if (line.bundle_id && Array.isArray(line.bundle_items)) {
+                    const bundleItemSerials = (line.bundle_item_serials && typeof line.bundle_item_serials === 'object') ? line.bundle_item_serials : {};
+                    let hasSerialReq = false;
+                    let allCompFulfilled = true;
+                    for (const item of line.bundle_items) {
+                        if (item.serial_number_required === true) {
+                            hasSerialReq = true;
+                            const bItemId = Number(item.bundle_item_id || 0);
+                            const requiredCompQty = Math.round((Number(item.quantity_per_bundle || item.quantity || 1)) * Number(line.qty || 1));
+                            const assignedList = Array.isArray(bundleItemSerials[bItemId])
+                                ? bundleItemSerials[bItemId]
+                                : (Array.isArray(item.assigned_serials) ? item.assigned_serials : []);
+                            if (assignedList.length !== requiredCompQty) {
+                                allCompFulfilled = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasSerialReq) {
+                        bundleSerialBadge = allCompFulfilled
+                            ? '<span class="badge badge-success ml-1" style="font-size: 0.75rem;"><i class="fas fa-barcode mr-1"></i>Serial Lengkap</span>'
+                            : '<span class="badge badge-warning ml-1" style="font-size: 0.75rem;"><i class="fas fa-barcode mr-1"></i>Perlu Serial</span>';
+                    }
+                }
+
                 const bundleInfo = line.bundle_id
-                    ? `<div class="text-primary mt-1">
+                    ? `<div class="text-primary mt-1 d-flex align-items-center flex-wrap">
                          <button type="button" class="btn btn-link p-0 text-primary small font-weight-bold js-bundle-detail" 
                                  data-line-id="${lineId}" style="text-decoration: none; border: none; background: none; font-size: inherit;">
                              <i class="fas fa-box-open mr-1"></i> Paket: ${escapeHtml(line.bundle_name)}
                          </button>
+                         ${bundleSerialBadge}
                        </div>`
                     : '';
 
@@ -1477,22 +1504,42 @@
                 const allPricesValid = !snapshot || !Array.isArray(snapshot.lines) || 
                     snapshot.lines.every(line => line.price_valid !== false);
                 
-                // Check for serial count matching
+                // Check for serial count matching (parent lines and bundle component lines)
                 let mismatchMessage = null;
                 const allSerialsValid = !snapshot || !Array.isArray(snapshot.lines) ||
-                    snapshot.lines.every(line => {
-                        if (line.serial_number_required !== true) {
-                            return true; // Non-serial lines are always valid
-                        }
-                        const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
-                        if (assignedCount !== line.qty) {
-                            if (!mismatchMessage) {
-                                // Find the line number (display index + 1)
-                                const lineIndex = snapshot.lines.indexOf(line) + 1;
-                                mismatchMessage = `Baris ${lineIndex}: ${assignedCount} serial ditetapkan tetapi qty adalah ${line.qty}`;
+                    snapshot.lines.every((line, lineIdx) => {
+                        const lineNum = lineIdx + 1;
+                        if (line.serial_number_required === true) {
+                            const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
+                            if (assignedCount !== line.qty) {
+                                if (!mismatchMessage) {
+                                    mismatchMessage = `Baris ${lineNum}: ${assignedCount} serial ditetapkan tetapi qty adalah ${line.qty}`;
+                                }
+                                return false;
                             }
-                            return false;
                         }
+
+                        // Check bundle component serial requirements
+                        if (line.bundle_id && Array.isArray(line.bundle_items)) {
+                            const bundleItemSerials = (line.bundle_item_serials && typeof line.bundle_item_serials === 'object') ? line.bundle_item_serials : {};
+                            for (const item of line.bundle_items) {
+                                if (item.serial_number_required === true) {
+                                    const bItemId = Number(item.bundle_item_id || 0);
+                                    const requiredCompQty = Math.round((Number(item.quantity_per_bundle || item.quantity || 1)) * Number(line.qty || 1));
+                                    const assignedList = Array.isArray(bundleItemSerials[bItemId])
+                                        ? bundleItemSerials[bItemId]
+                                        : (Array.isArray(item.assigned_serials) ? item.assigned_serials : []);
+                                    if (assignedList.length !== requiredCompQty) {
+                                        if (!mismatchMessage) {
+                                            const compName = item.product_name || `Komponen #${bItemId}`;
+                                            mismatchMessage = `Baris ${lineNum} (${compName}): ${assignedList.length} serial ditetapkan tetapi butuh ${requiredCompQty}`;
+                                        }
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+
                         return true;
                     });
 
@@ -1817,28 +1864,146 @@
                 if (bundleDetailItems) {
                     bundleDetailItems.innerHTML = '';
                     const items = Array.isArray(line.bundle_items) ? line.bundle_items : [];
+                    const bundleItemSerials = (line.bundle_item_serials && typeof line.bundle_item_serials === 'object') ? line.bundle_item_serials : {};
                     
                     if (items.length > 0) {
                         if (bundleDetailEmptyItems) bundleDetailEmptyItems.classList.add('d-none');
                         
                         items.forEach(item => {
                             const li = document.createElement('li');
-                            li.className = 'list-group-item d-flex justify-content-between align-items-center border-0';
+                            li.className = 'list-group-item border-0 p-3 mb-2 bg-white rounded shadow-sm';
                             
-                            const serialBadge = item.serial_number_required 
-                                ? '<span class="badge badge-warning ml-2" style="font-size: 0.7rem;">Wajib Serial</span>' 
-                                : '';
+                            const bItemId = Number(item.bundle_item_id || 0);
+                            const serialRequired = Boolean(item.serial_number_required);
+                            const totalItemQty = Math.round((Number(item.quantity_per_bundle || item.quantity || 1)) * Number(line.qty || 1));
+                            const assignedList = Array.isArray(bundleItemSerials[bItemId]) 
+                                ? bundleItemSerials[bItemId] 
+                                : (Array.isArray(item.assigned_serials) ? item.assigned_serials : []);
                             
-                            const totalItemQty = (item.quantity || 0) * (line.qty || 1);
+                            let serialSectionHtml = '';
+                            if (serialRequired) {
+                                const isFulfilled = assignedList.length === totalItemQty;
+                                const isOver = assignedList.length > totalItemQty;
+                                const countTone = isFulfilled ? 'text-success' : (isOver ? 'text-danger' : 'text-warning');
+                                
+                                const chipsHtml = assignedList.map(sn => `
+                                    <span class="badge badge-primary p-2 mr-1 mb-1 d-inline-flex align-items-center" style="font-size: 0.8rem;">
+                                        <span class="mr-1">${escapeHtml(sn)}</span>
+                                        <button type="button" class="btn btn-link btn-sm p-0 text-white js-bundle-comp-serial-remove" 
+                                                data-line-id="${line.line_id}" 
+                                                data-bundle-item-id="${bItemId}" 
+                                                data-serial="${escapeHtml(sn)}" 
+                                                title="Hapus serial">&times;</button>
+                                    </span>
+                                `).join('');
+
+                                serialSectionHtml = `
+                                    <div class="mt-2 pt-2 border-top">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="small font-weight-bold ${countTone}">
+                                                <i class="fas fa-barcode mr-1"></i> ${assignedList.length} / ${totalItemQty} Serial
+                                            </span>
+                                            ${isFulfilled ? '<span class="badge badge-success">Lengkap</span>' : '<span class="badge badge-warning">Belum Lengkap</span>'}
+                                        </div>
+                                        ${chipsHtml ? `<div class="d-flex flex-wrap mb-2">${chipsHtml}</div>` : ''}
+                                        ${!isFulfilled ? `
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control js-bundle-comp-serial-input" 
+                                                       placeholder="Scan / Ketik nomor seri lalu Enter" 
+                                                       data-line-id="${line.line_id}" 
+                                                       data-bundle-item-id="${bItemId}">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline-primary js-bundle-comp-serial-submit" type="button" 
+                                                            data-line-id="${line.line_id}" 
+                                                            data-bundle-item-id="${bItemId}">
+                                                        <i class="fas fa-plus"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="small mt-1 text-muted js-bundle-comp-serial-status" data-bundle-item-id="${bItemId}"></div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }
                                 
                             li.innerHTML = `
-                                <div class="d-flex align-items-center">
-                                    <span class="font-weight-bold text-dark">${escapeHtml(item.product_name || '-')}</span>
-                                    ${serialBadge}
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center">
+                                        <span class="font-weight-bold text-dark">${escapeHtml(item.product_name || '-')}</span>
+                                        ${serialRequired ? '<span class="badge badge-warning ml-2" style="font-size: 0.7rem;">Wajib Serial</span>' : ''}
+                                    </div>
+                                    <span class="badge badge-light border font-weight-bold" style="font-size: 0.9rem;">x ${totalItemQty}</span>
                                 </div>
-                                <span class="badge badge-light border font-weight-bold" style="font-size: 0.9rem;">x ${totalItemQty}</span>
+                                ${serialSectionHtml}
                             `;
                             bundleDetailItems.appendChild(li);
+                        });
+
+                        // Attach event handlers for component serial actions inside the modal
+                        bundleDetailItems.querySelectorAll('.js-bundle-comp-serial-submit').forEach(btn => {
+                            btn.addEventListener('click', async function() {
+                                const lId = Number(this.getAttribute('data-line-id'));
+                                const bId = Number(this.getAttribute('data-bundle-item-id'));
+                                const input = bundleDetailItems.querySelector(`.js-bundle-comp-serial-input[data-bundle-item-id="${bId}"]`);
+                                const statusEl = bundleDetailItems.querySelector(`.js-bundle-comp-serial-status[data-bundle-item-id="${bId}"]`);
+                                if (!input) return;
+                                const sn = input.value.trim();
+                                if (!sn) return;
+
+                                try {
+                                    this.disabled = true;
+                                    const url = cartLinesBaseUrl + '/' + lId + '/serials/append';
+                                    const response = await jsonRequest(url, 'POST', { serial_number: sn, bundle_item_id: bId });
+                                    if (response && response.cart_snapshot) {
+                                        renderCart(response.cart_snapshot);
+                                        openBundleDetailModal(lId);
+                                        // Auto-focus next incomplete input if available
+                                        setTimeout(() => {
+                                            const nextInput = bundleDetailItems.querySelector('.js-bundle-comp-serial-input');
+                                            if (nextInput) nextInput.focus();
+                                        }, 100);
+                                    }
+                                } catch (err) {
+                                    if (statusEl) {
+                                        statusEl.textContent = err.message || 'Gagal menambahkan serial.';
+                                        statusEl.className = 'small mt-1 text-danger js-bundle-comp-serial-status';
+                                    }
+                                } finally {
+                                    this.disabled = false;
+                                }
+                            });
+                        });
+
+                        bundleDetailItems.querySelectorAll('.js-bundle-comp-serial-input').forEach(input => {
+                            input.addEventListener('keydown', function(e) {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const bId = this.getAttribute('data-bundle-item-id');
+                                    const btn = bundleDetailItems.querySelector(`.js-bundle-comp-serial-submit[data-bundle-item-id="${bId}"]`);
+                                    if (btn) btn.click();
+                                }
+                            });
+                        });
+
+                        bundleDetailItems.querySelectorAll('.js-bundle-comp-serial-remove').forEach(btn => {
+                            btn.addEventListener('click', async function() {
+                                const lId = Number(this.getAttribute('data-line-id'));
+                                const bId = Number(this.getAttribute('data-bundle-item-id'));
+                                const sn = this.getAttribute('data-serial');
+                                if (!sn) return;
+
+                                try {
+                                    this.disabled = true;
+                                    const url = cartLinesBaseUrl + '/' + lId + '/serials/' + encodeURIComponent(sn);
+                                    const response = await jsonRequest(url, 'DELETE', { bundle_item_id: bId });
+                                    if (response && response.cart_snapshot) {
+                                        renderCart(response.cart_snapshot);
+                                        openBundleDetailModal(lId);
+                                    }
+                                } catch (err) {
+                                    setCartStatus('Gagal menghapus serial: ' + (err.message || 'Error'), 'text-danger', true);
+                                }
+                            });
                         });
                     } else {
                         if (bundleDetailEmptyItems) bundleDetailEmptyItems.classList.remove('d-none');

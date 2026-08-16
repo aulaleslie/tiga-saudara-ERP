@@ -56,8 +56,8 @@
 
                 <!-- Bundle Items List -->
                 <div>
-                    <h6 class="font-weight-bold mb-3">Isi Paket</h6>
-                    <div id="pos-bundle-detail-items-container" style="max-height: 250px; overflow-y: auto;">
+                    <h6 class="font-weight-bold mb-3">Isi Paket & Serial</h6>
+                    <div id="pos-bundle-detail-items-container" style="max-height: 400px; overflow-y: auto;">
                         <ul id="pos-bundle-detail-items" class="list-group list-group-flush">
                             <!-- Items will be rendered here via JS -->
                         </ul>

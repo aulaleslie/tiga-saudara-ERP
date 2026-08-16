@@ -298,8 +298,7 @@ class FinalizePosCheckoutService
         // Build operational snapshot from captured snapshot with current product classifications
         $operationalSnapshot = $this->buildOperationalSnapshot($capturedCartSnapshot);
 
-        // Early policy and fulfillability gates: validate before checkout ledger creation
-        $this->validateBundleComponentSerialPolicy($operationalSnapshot);
+        // Early fulfillability gates: validate before checkout ledger creation
         $this->validateCartFulfillability($settingId, $operationalSnapshot);
 
         // Compute full payload hash from captured snapshot for storage
@@ -571,36 +570,6 @@ class FinalizePosCheckoutService
      * @param  array<string, mixed>  $cartSnapshot  The operational (live-overlaid) snapshot.
      * @throws PosCheckoutValidationException
      */
-    private function validateBundleComponentSerialPolicy(array $cartSnapshot): void
-    {
-        $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
-
-        foreach ($cartLines as $lineIndex => $line) {
-            $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
-            foreach ($bundleItems as $item) {
-                $compStockManaged = (bool) ($item['stock_managed'] ?? true);
-                $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
-
-                if ($compStockManaged && $compSerialRequired) {
-                    $compName = $item['product_name'] ?? ('Produk #' . ($item['product_id'] ?? ''));
-                    $parentName = $line['product_name'] ?? ('Baris #' . ($lineIndex + 1));
-                    throw new PosCheckoutValidationException(
-                        'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED',
-                        "Komponen '{$compName}' pada paket '{$parentName}' membutuhkan nomor seri. Penetapan nomor seri komponen belum didukung pada POS.",
-                        [
-                            'unsupported_line' => [
-                                'line_index' => $lineIndex,
-                                'bundle_id' => $line['bundle_id'] ?? null,
-                                'product_id' => (int) ($item['product_id'] ?? 0),
-                                'product_name' => $compName,
-                            ],
-                        ]
-                    );
-                }
-            }
-        }
-    }
-
     /**
      * Authoritatively validate that the cart can be fulfilled (serial numbers assigned and stock available).
      *
@@ -623,27 +592,41 @@ class FinalizePosCheckoutService
                 $this->validateSerialAssignments($line, $settingId);
             }
 
-            // Check bundle components for unsupported serial demand
+            // Validate serial assignments for bundle components
             $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            $bundleItemSerials = is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [];
+            $parentQty = max(0, (int) ($line['qty'] ?? 0));
+
             foreach ($bundleItems as $itemIndex => $item) {
                 $compStockManaged = (bool) ($item['stock_managed'] ?? true);
                 $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
 
                 if ($compStockManaged && $compSerialRequired) {
+                    $bundleItemId = (int) ($item['bundle_item_id'] ?? 0);
+                    $compSerials = array_values(array_filter(
+                        (array) ($bundleItemSerials[$bundleItemId] ?? ($item['assigned_serials'] ?? [])),
+                        static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
+                    ));
+                    $compQtyPerBundle = (float) ($item['quantity_per_bundle'] ?? ($item['quantity'] ?? 1));
+                    $requiredCompQty = (int) round($parentQty * $compQtyPerBundle);
                     $compName = $item['product_name'] ?? ('Produk #' . ($item['product_id'] ?? ''));
-                    $parentName = $line['product_name'] ?? ('Baris #' . ($lineIndex + 1));
-                    throw new PosCheckoutValidationException(
-                        'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED',
-                        "Komponen '{$compName}' pada paket '{$parentName}' membutuhkan nomor seri. Penetapan nomor seri komponen belum didukung pada POS.",
-                        [
-                            'unsupported_line' => [
-                                'line_index' => $lineIndex,
-                                'bundle_id' => $line['bundle_id'] ?? null,
-                                'product_id' => (int) ($item['product_id'] ?? 0),
-                                'product_name' => $compName,
-                            ],
-                        ]
-                    );
+
+                    if (count($compSerials) !== $requiredCompQty) {
+                        throw new PosCheckoutValidationException(
+                            'SERIAL_INVALID',
+                            "Komponen '{$compName}' membutuhkan {$requiredCompQty} nomor seri, tetapi " . count($compSerials) . ' yang diberikan.',
+                            [
+                                'component_serial_required' => [
+                                    'line_index' => $lineIndex,
+                                    'bundle_item_id' => $bundleItemId,
+                                    'product_id' => (int) ($item['product_id'] ?? 0),
+                                    'product_name' => $compName,
+                                    'required_qty' => $requiredCompQty,
+                                    'assigned_count' => count($compSerials),
+                                ],
+                            ]
+                        );
+                    }
                 }
             }
         }
@@ -1948,20 +1931,30 @@ class FinalizePosCheckoutService
 
             // Add bundle items if present and stock managed
             $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+            $bundleItemSerials = is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [];
             foreach ($bundleItems as $itemIndex => $item) {
                 $isCompStockManaged = (bool) ($item['stock_managed'] ?? false);
                 $isCompSerialRequired = (bool) ($item['serial_number_required'] ?? false);
 
                 if ($isCompStockManaged) {
+                    $bundleItemId = (int) ($item['bundle_item_id'] ?? 0);
+                    $compAssignedSerials = array_values(array_filter(
+                        (array) ($bundleItemSerials[$bundleItemId] ?? ($item['assigned_serials'] ?? [])),
+                        static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
+                    ));
+
+                    $compQtyPerBundle = (float) ($item['quantity_per_bundle'] ?? ($item['quantity'] ?? 1));
+                    $compNeededQty = (int) round($qty * $compQtyPerBundle);
+
                     $resolverLines["{$lineIndex}_C_{$itemIndex}"] = [
                         'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null, // Grouped by parent line_id
                         'product_id' => (int) ($item['product_id'] ?? 0),
                         'product_code' => null, // Name/code not strictly needed for resolver but good for logs
                         'product_name' => isset($item['product_name']) ? (string) $item['product_name'] : null,
-                        'qty' => $qty * (int) ($item['quantity'] ?? 1),
+                        'qty' => $compNeededQty,
                         'tax_id' => null, // Resolver resolves child's own tax configuration per source setting
                         'serial_number_required' => $isCompSerialRequired,
-                        'assigned_serials' => [], // Bundled serials not yet supported in POS frontend
+                        'assigned_serials' => $compAssignedSerials,
                     ];
                 }
             }

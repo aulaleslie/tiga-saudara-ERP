@@ -1197,7 +1197,26 @@ class PosCartService
                 // Re-evaluate serial_status based on current operational requirement
                 $assignedCount = count((array) ($line['assigned_serials'] ?? []));
                 $qty = (int) ($line['qty'] ?? 0);
-                $line['serial_status'] = ! $line['serial_number_required'] ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
+                $parentSerialOk = ! $line['serial_number_required'] || ($assignedCount === $qty);
+
+                $componentsSerialOk = true;
+                if (! empty($line['bundle_items']) && is_array($line['bundle_items'])) {
+                    foreach ($line['bundle_items'] as $bItem) {
+                        $cSerialRequired = (bool) ($bItem['serial_number_required'] ?? false);
+                        if ($cSerialRequired) {
+                            $bItemId = (int) ($bItem['bundle_item_id'] ?? 0);
+                            $cQtyPerBundle = (float) ($bItem['quantity_per_bundle'] ?? ($bItem['quantity'] ?? 1));
+                            $cRequiredQty = (int) round($qty * $cQtyPerBundle);
+                            $cAssignedCount = count((array) ($line['bundle_item_serials'][$bItemId] ?? ($bItem['assigned_serials'] ?? [])));
+                            if ($cAssignedCount < $cRequiredQty) {
+                                $componentsSerialOk = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                $line['serial_status'] = ($parentSerialOk && $componentsSerialOk) ? 'ok' : 'incomplete';
             }
             return $line;
         }, $calculated['lines']);
@@ -1596,17 +1615,17 @@ class PosCartService
      * @param  array<int, string>  $serialNumbers
      * @return array<string, mixed>
      */
-    public function assignSerials(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
+    public function assignSerials(int $settingId, int $sessionId, int $lineId, array $serialNumbers, ?int $bundleItemId = null): array
     {
-        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumbers): array {
-            return $this->assignSerialsWithinLock($settingId, $sessionId, $lineId, $serialNumbers);
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumbers, $bundleItemId): array {
+            return $this->assignSerialsWithinLock($settingId, $sessionId, $lineId, $serialNumbers, $bundleItemId);
         });
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function assignSerialsWithinLock(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
+    private function assignSerialsWithinLock(int $settingId, int $sessionId, int $lineId, array $serialNumbers, ?int $bundleItemId = null): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
@@ -1633,6 +1652,89 @@ class PosCartService
             throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
+        if ($bundleItemId !== null) {
+            $bundleItems = (array) ($line['bundle_items'] ?? []);
+            $foundItemIndex = null;
+            foreach ($bundleItems as $idx => $bItem) {
+                if ((int) ($bItem['bundle_item_id'] ?? 0) === $bundleItemId) {
+                    $foundItemIndex = $idx;
+                    break;
+                }
+            }
+
+            if ($foundItemIndex === null) {
+                throw new DomainException('Komponen paket tidak ditemukan pada baris keranjang ini.');
+            }
+
+            $targetItem = $bundleItems[$foundItemIndex];
+            $componentProductId = (int) ($targetItem['product_id'] ?? 0);
+            $liveComponentProduct = $componentProductId > 0 ? \Modules\Product\Entities\Product::find($componentProductId) : null;
+            $isSerialRequired = $liveComponentProduct ? (bool) $liveComponentProduct->serial_number_required : (bool) ($targetItem['serial_number_required'] ?? false);
+
+            if (! $isSerialRequired) {
+                throw new DomainException('Komponen ini tidak memerlukan nomor seri.');
+            }
+
+            $parentQty = (int) ($line['qty'] ?? 0);
+            $qtyPerBundle = (float) ($targetItem['quantity_per_bundle'] ?? ($targetItem['quantity'] ?? 1));
+            $requiredComponentQty = (int) round($parentQty * $qtyPerBundle);
+
+            if (count($serialNumbers) > $requiredComponentQty) {
+                throw new DomainException('Serial count (' . count($serialNumbers) . ") exceeds component quantity ($requiredComponentQty).");
+            }
+
+            if (count($serialNumbers) !== count(array_unique($serialNumbers))) {
+                throw new DomainException('Duplicate serial numbers provided.');
+            }
+
+            $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+            // Check for duplicates across all cart lines and components (excluding current line's component)
+            $allAssignedSerials = [];
+            foreach ($cart['lines'] as $cLineId => $cartLine) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+                foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                    if ((int) $cLineId === (int) $lineId && (int) $bId === $bundleItemId) {
+                        continue;
+                    }
+                    $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+                }
+            }
+
+            foreach ($serialNumbers as $sn) {
+                $record = \Modules\Product\Entities\ProductSerialNumber::query()
+                    ->where('product_id', $componentProductId)
+                    ->where('serial_number', $sn)
+                    ->first();
+
+                if (! $record) {
+                    throw new DomainException("Serial number $sn does not exist for this product.");
+                }
+
+                if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+                    throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
+                }
+
+                if (PendingDispatchSerialGuard::isReserved($sn)) {
+                    throw new DomainException("Serial number $sn sedang dalam proses pengiriman.");
+                }
+
+                if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
+                    throw new DomainException("Serial number $sn is located in a restricted location.");
+                }
+
+                if (in_array($sn, $allAssignedSerials, true)) {
+                    throw new DomainException("Serial number $sn is already assigned in this cart.");
+                }
+            }
+
+            $cart['lines'][$lineId]['bundle_item_serials'][$bundleItemId] = $serialNumbers;
+            $cart['lines'][$lineId]['bundle_items'][$foundItemIndex]['assigned_serials'] = $serialNumbers;
+            $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
+        }
+
         $productId = (int) ($line['product_id'] ?? 0);
         $liveProduct = $productId > 0 ? \Modules\Product\Entities\Product::find($productId) : null;
         $isSerialRequired = $liveProduct ? (bool) $liveProduct->serial_number_required : (bool) ($line['serial_number_required'] ?? false);
@@ -1644,7 +1746,7 @@ class PosCartService
         $qty = (int) ($line['qty'] ?? 0);
         // Allow incremental serial assignment: count($serialNumbers) must be <= qty
         if (count($serialNumbers) > $qty) {
-            throw new DomainException("Serial count ($(" . count($serialNumbers) . ")) exceeds line quantity ($qty).");
+            throw new DomainException("Serial count (" . count($serialNumbers) . ") exceeds line quantity ($qty).");
         }
 
         if (count($serialNumbers) !== count(array_unique($serialNumbers))) {
@@ -1654,10 +1756,15 @@ class PosCartService
         $taxId = $line['tax_id'] ?? null;
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
-        // Check for duplicates across all cart lines
+        // Check for duplicates across all cart lines and components (excluding current parent line)
         $allAssignedSerials = [];
-        foreach ($cart['lines'] as $cartLine) {
-            $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+        foreach ($cart['lines'] as $cLineId => $cartLine) {
+            if ((int) $cLineId !== (int) $lineId) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+            }
+            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+            }
         }
 
         foreach ($serialNumbers as $sn) {
@@ -1692,26 +1799,6 @@ class PosCartService
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
         return $this->buildSnapshot($settingId, $sessionId, $cart);
-    }
-
-    /**
-     * @return array<int, array{id: int, serial_number: string}>
-     */
-    public function availableSerialsForProduct(int $settingId, int $productId, string $query, int $limit = 10): array
-    {
-        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
-        $reservedSerials = PendingDispatchSerialGuard::getReservedSerialsForProduct($productId);
-
-        return \Modules\Product\Entities\ProductSerialNumber::query()
-            ->where('product_id', $productId)
-            ->whereIn('location_id', $allowedLocationIds)
-            ->where('status', 'ACTIVE')
-            ->whereNull('dispatch_detail_id')
-            ->when($reservedSerials !== [], fn ($q) => $q->whereNotIn('serial_number', $reservedSerials))
-            ->when($query !== '', fn ($q) => $q->where('serial_number', 'like', "%$query%"))
-            ->limit($limit)
-            ->get(['id', 'serial_number'])
-            ->toArray();
     }
 
     /**
@@ -1775,16 +1862,15 @@ class PosCartService
         return $this->buildSnapshot($settingId, $sessionId, $cart);
     }
 
-
     /**
-     * @return array{0: Product, 1: int|null}
+     * @return array{0: \Modules\Product\Entities\Product, 1: int|null}
      */
     private function resolveCartProduct(int $settingId, int $productId): array
     {
-        $product = Product::query()
+        $product = \Modules\Product\Entities\Product::query()
             ->active()
             ->where('id', $productId)
-            ->where(function($q) {
+            ->where(function ($q) {
                 $q->where('stock_managed', true)
                   ->orWhere('is_sold', true);
             })
@@ -1795,7 +1881,7 @@ class PosCartService
         }
 
         // Guard: product must have a price row for the active setting
-        $hasPriceRow = ProductPrice::query()
+        $hasPriceRow = \Modules\Product\Entities\ProductPrice::query()
             ->forProduct($productId)
             ->forSetting($settingId)
             ->exists();
@@ -1836,22 +1922,157 @@ class PosCartService
     }
 
     /**
-     * Append a single serial number to a cart line.
-     * If the line is full (assigned count == qty), auto-increment qty first.
+     * @return array<int, array{id: int, serial_number: string}>
+     */
+    public function availableSerialsForProduct(int $settingId, int $productId, string $query, int $limit = 10): array
+    {
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+        $reservedSerials = PendingDispatchSerialGuard::getReservedSerialsForProduct($productId);
+
+        return \Modules\Product\Entities\ProductSerialNumber::query()
+            ->where('product_id', $productId)
+            ->whereIn('location_id', $allowedLocationIds)
+            ->where('status', 'ACTIVE')
+            ->whereNull('dispatch_detail_id')
+            ->when($reservedSerials !== [], fn ($q) => $q->whereNotIn('serial_number', $reservedSerials))
+            ->when($query !== '', fn ($q) => $q->where('serial_number', 'LIKE', "%{$query}%"))
+            ->limit($limit)
+            ->get(['id', 'serial_number'])
+            ->toArray();
+    }
+
+    /**
+     * @return array<int, array{id: int, serial_number: string}>
+     */
+    public function availableSerialsForLine(int $settingId, int $sessionId, int $lineId, string $query, int $limit = 10): array
+    {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $line = $cart['lines'][$lineId] ?? null;
+
+        if ($line === null) {
+            return [];
+        }
+
+        $productId = (int) ($line['product_id'] ?? 0);
+        if ($productId <= 0) {
+            return [];
+        }
+
+        return $this->availableSerialsForProduct($settingId, $productId, $query, $limit);
+    }
+
+    /**
+     * Look up a serial number and find or create a matching cart line, appending the serial.
      *
      * @return array<string, mixed>
      */
-    public function appendSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    public function appendSerialByLookup(int $settingId, int $sessionId, string $serialNumber): array
     {
-        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber): array {
-            return $this->appendSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber);
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $serialNumber): array {
+            return $this->appendSerialByLookupWithinLock($settingId, $sessionId, $serialNumber);
         });
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function appendSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    private function appendSerialByLookupWithinLock(int $settingId, int $sessionId, string $serialNumber): array
+    {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
+
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+        // 1. Find the active serial record
+        $serialRecord = \Modules\Product\Entities\ProductSerialNumber::query()
+            ->where('serial_number', $serialNumber)
+            ->where('status', 'ACTIVE')
+            ->whereNull('dispatch_detail_id')
+            ->whereIn('location_id', $allowedLocationIds)
+            ->first();
+
+        if (! $serialRecord) {
+            throw new DomainException("Serial number $serialNumber is not available or does not exist.");
+        }
+
+        $productId = (int) $serialRecord->product_id;
+
+        // 2. Look for existing lines for this product
+        $matchingLineKeys = [];
+        foreach ($cart['lines'] as $k => $l) {
+            if ((int) ($l['product_id'] ?? 0) === $productId) {
+                $matchingLineKeys[] = $k;
+            }
+        }
+
+        // Check if serial already assigned anywhere in the cart
+        $allAssignedSerials = [];
+        foreach ($cart['lines'] as $cartLine) {
+            $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+            }
+        }
+
+        if (in_array($serialNumber, $allAssignedSerials, true)) {
+            throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
+        }
+
+        // Try to find a matching line that has empty serial slots
+        $targetLineId = null;
+        foreach ($matchingLineKeys as $k) {
+            $l = $cart['lines'][$k];
+            $assigned = (array) ($l['assigned_serials'] ?? []);
+            $qty = (int) ($l['qty'] ?? 0);
+            if (count($assigned) < $qty) {
+                $targetLineId = $k;
+                break;
+            }
+        }
+
+        // If no unfilled line exists, use the first matching line (which will auto-increment qty in appendSerialWithinLock)
+        if ($targetLineId === null && ! empty($matchingLineKeys)) {
+            $targetLineId = $matchingLineKeys[0];
+        }
+
+        // If no matching line exists at all, add a new line first with qty=1
+        if ($targetLineId === null) {
+            $this->addToCartWithinLock($settingId, $sessionId, $productId, 1);
+            // Re-fetch the cart to find the newly created line ID
+            $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+            // The newest line will have product_id == $productId and empty assigned_serials
+            foreach ($cart['lines'] as $k => $l) {
+                if ((int) ($l['product_id'] ?? 0) === $productId && empty($l['assigned_serials'])) {
+                    $targetLineId = $k;
+                    break;
+                }
+            }
+        }
+
+        if ($targetLineId === null) {
+            throw new DomainException('Could not create or find a cart line for this serial.');
+        }
+
+        return $this->appendSerialWithinLock($settingId, $sessionId, $targetLineId, $serialNumber);
+    }
+
+    /**
+     * Append a serial number to a cart line.
+     * If the line is full (assigned count == qty), auto-increment qty first.
+     *
+     * @return array<string, mixed>
+     */
+    public function appendSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber, ?int $bundleItemId = null): array
+    {
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber, $bundleItemId): array {
+            return $this->appendSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber, $bundleItemId);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function appendSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber, ?int $bundleItemId = null): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
@@ -1876,6 +2097,86 @@ class PosCartService
 
         if ($line === null) {
             throw new DomainException('Cart line was not found.');
+        }
+
+        if ($bundleItemId !== null) {
+            $bundleItems = (array) ($line['bundle_items'] ?? []);
+            $foundItemIndex = null;
+            foreach ($bundleItems as $idx => $bItem) {
+                if ((int) ($bItem['bundle_item_id'] ?? 0) === $bundleItemId) {
+                    $foundItemIndex = $idx;
+                    break;
+                }
+            }
+
+            if ($foundItemIndex === null) {
+                throw new DomainException('Komponen paket tidak ditemukan pada baris keranjang ini.');
+            }
+
+            $targetItem = $bundleItems[$foundItemIndex];
+            $componentProductId = (int) ($targetItem['product_id'] ?? 0);
+            $liveComponentProduct = $componentProductId > 0 ? \Modules\Product\Entities\Product::find($componentProductId) : null;
+            $isSerialRequired = $liveComponentProduct ? (bool) $liveComponentProduct->serial_number_required : (bool) ($targetItem['serial_number_required'] ?? false);
+
+            if (! $isSerialRequired) {
+                throw new DomainException('Komponen ini tidak memerlukan nomor seri.');
+            }
+
+            $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+            $record = \Modules\Product\Entities\ProductSerialNumber::query()
+                ->where('product_id', $componentProductId)
+                ->where('serial_number', $serialNumber)
+                ->first();
+
+            if (! $record) {
+                throw new DomainException("Serial number $serialNumber does not exist for this product.");
+            }
+
+            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+                throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
+            }
+
+            if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+                throw new DomainException("Serial number $serialNumber sedang dalam proses pengiriman.");
+            }
+
+            if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
+                throw new DomainException("Serial number $serialNumber is located in a restricted location.");
+            }
+
+            // Check for duplicate across all cart lines and components
+            $allAssignedSerials = [];
+            foreach ($cart['lines'] as $cartLine) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+                foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                    $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+                }
+            }
+
+            if (in_array($serialNumber, $allAssignedSerials, true)) {
+                throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
+            }
+
+            $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
+            $parentQty = (int) ($line['qty'] ?? 0);
+            $qtyPerBundle = (float) ($targetItem['quantity_per_bundle'] ?? ($targetItem['quantity'] ?? 1));
+            $requiredComponentQty = (int) round($parentQty * $qtyPerBundle);
+
+            if (count($assignedSerials) >= $requiredComponentQty) {
+                throw new PosCheckoutValidationException(
+                    'SERIAL_CAPACITY_EXCEEDED',
+                    "Kapasitas nomor seri untuk komponen ini telah penuh ({$requiredComponentQty})."
+                );
+            }
+
+            $assignedSerials[] = $serialNumber;
+            $cart['lines'][$lineId]['bundle_item_serials'][$bundleItemId] = $assignedSerials;
+            $cart['lines'][$lineId]['bundle_items'][$foundItemIndex]['assigned_serials'] = $assignedSerials;
+
+            $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
         }
 
         $productId = (int) ($line['product_id'] ?? 0);
@@ -1911,10 +2212,13 @@ class PosCartService
             throw new DomainException("Serial number $serialNumber is located in a restricted location.");
         }
 
-        // Check for duplicate across all cart lines
+        // Check for duplicate across all cart lines and components
         $allAssignedSerials = [];
         foreach ($cart['lines'] as $cartLine) {
             $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+            }
         }
 
         if (in_array($serialNumber, $allAssignedSerials, true)) {
@@ -1962,17 +2266,17 @@ class PosCartService
      *
      * @return array<string, mixed>
      */
-    public function removeSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    public function removeSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber, ?int $bundleItemId = null): array
     {
-        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber): array {
-            return $this->removeSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber);
+        return $this->withCartLock($settingId, $sessionId, function () use ($settingId, $sessionId, $lineId, $serialNumber, $bundleItemId): array {
+            return $this->removeSerialWithinLock($settingId, $sessionId, $lineId, $serialNumber, $bundleItemId);
         });
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function removeSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
+    private function removeSerialWithinLock(int $settingId, int $sessionId, int $lineId, string $serialNumber, ?int $bundleItemId = null): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
@@ -1997,6 +2301,38 @@ class PosCartService
 
         if ($line === null) {
             throw new DomainException('Cart line was not found.');
+        }
+
+        if ($bundleItemId !== null) {
+            $bundleItems = (array) ($line['bundle_items'] ?? []);
+            $foundItemIndex = null;
+            foreach ($bundleItems as $idx => $bItem) {
+                if ((int) ($bItem['bundle_item_id'] ?? 0) === $bundleItemId) {
+                    $foundItemIndex = $idx;
+                    break;
+                }
+            }
+
+            if ($foundItemIndex === null) {
+                return $this->buildSnapshot($settingId, $sessionId, $cart);
+            }
+
+            $targetItem = $bundleItems[$foundItemIndex];
+            $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
+            $key = array_search($serialNumber, $assignedSerials, true);
+
+            if ($key === false) {
+                return $this->buildSnapshot($settingId, $sessionId, $cart);
+            }
+
+            unset($assignedSerials[$key]);
+            $assignedSerials = array_values($assignedSerials);
+            $cart['lines'][$lineId]['bundle_item_serials'][$bundleItemId] = $assignedSerials;
+            $cart['lines'][$lineId]['bundle_items'][$foundItemIndex]['assigned_serials'] = $assignedSerials;
+
+            $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
         }
 
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);

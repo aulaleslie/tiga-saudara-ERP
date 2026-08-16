@@ -179,3 +179,24 @@ php artisan inventory:normalize-import-transactions --initialize --write
 
 # 3. Import product stock snapshot through the product stock import screen.
 ```
+
+### Import-Origin Base UOM Quick Conversion
+
+`product:convert-uom` is an operator tool to correct the base Unit of Measure (UOM) for products whose stock originated from an import/adjustment (`ADJ`) snapshot rather than receiving notes (`BUY`).
+
+```bash
+# Preview eligibility, projected stock/cost-basis changes, and removable draft documents
+php artisan product:convert-uom 4669 PCS 82 --dry-run
+
+# Execute correction with mandatory reason
+php artisan product:convert-uom 4669 PCS 82 --reason="Koreksi base UOM rokok dari BKS ke PCS"
+```
+
+**Eligibility & Safety Rules:**
+- **Zero Fulfillment History:** Refuses if any `DISPATCH`-type transaction or paid/dispatched `Sale` exists for the product.
+- **No BUY-Lineage:** Refuses if any `BUY`-type transaction exists (use Received Purchase Normalization instead).
+- **Ledger Integrity:** Verifies live stock matches running balance recorded across all locations and globally.
+- **Broken Stock:** Refuses if any `broken_quantity` bucket is non-zero.
+- **Unhandled Complexity:** Refuses if unit conversions exist, if barcode is set, or if footprint spans multiple settings.
+- **Automatic Draft Cleanup:** Force-deletes any pending POS drafts (`DRAFT`/`LOADED`) and unpaid/undispatched Sales referencing the product to prevent silent wrong-quantity dispatch, recording all deleted documents in the audit log (`product_uom_correction_audits` and `product_uom_correction_removed_documents`).
+

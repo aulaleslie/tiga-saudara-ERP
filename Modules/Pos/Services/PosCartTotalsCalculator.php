@@ -140,7 +140,26 @@ class PosCartTotalsCalculator
             $isSerialRequired = (bool) ($line['serial_number_required'] ?? false);
             $assignedCount = count((array) ($line['assigned_serials'] ?? []));
             $qty = (int) ($line['qty'] ?? 0);
-            $serialStatus = ! $isSerialRequired ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
+            $parentSerialOk = ! $isSerialRequired || ($assignedCount === $qty);
+
+            $componentsSerialOk = true;
+            if (! empty($line['bundle_items']) && is_array($line['bundle_items'])) {
+                foreach ($line['bundle_items'] as $bItem) {
+                    $cSerialRequired = (bool) ($bItem['serial_number_required'] ?? false);
+                    if ($cSerialRequired) {
+                        $bItemId = (int) ($bItem['bundle_item_id'] ?? 0);
+                        $cQtyPerBundle = (float) ($bItem['quantity_per_bundle'] ?? ($bItem['quantity'] ?? 1));
+                        $cRequiredQty = (int) round($qty * $cQtyPerBundle);
+                        $cAssignedCount = count((array) ($line['bundle_item_serials'][$bItemId] ?? ($bItem['assigned_serials'] ?? [])));
+                        if ($cAssignedCount < $cRequiredQty) {
+                            $componentsSerialOk = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $serialStatus = ($parentSerialOk && $componentsSerialOk) ? 'ok' : 'incomplete';
 
             return array_merge($line, [
                 'serial_status' => $serialStatus,

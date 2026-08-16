@@ -463,16 +463,16 @@ class POSBundleDraftLifecycleWarningTest extends TestCase
             'serial_number_required' => true,
         ]);
 
-        // Preflight with acknowledged lifecycle warning must fail with BUNDLE_COMPONENT_SERIAL_UNSUPPORTED
+        // Preflight with acknowledged lifecycle warning must fail with SERIAL_INVALID because component serial is not assigned
         $preflightResponse = $this->postJson(route('pos.sell.checkout.preflight'), [
             'acknowledge_lifecycle_warning' => true,
         ]);
 
         $preflightResponse->assertStatus(422)
-            ->assertJsonPath('code', 'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED')
-            ->assertJsonStructure(['details' => ['unsupported_line' => ['product_id', 'product_name']]]);
+            ->assertJsonPath('code', 'SERIAL_INVALID')
+            ->assertJsonStructure(['details' => ['component_serial_required' => ['product_id', 'product_name', 'required_qty', 'assigned_count']]]);
 
-        // Finalize must also block with BUNDLE_COMPONENT_SERIAL_UNSUPPORTED
+        // Finalize must also block with SERIAL_INVALID
         $finalizeResponse = $this->postJson(route('pos.sell.checkout.finalize'), [
             'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
             'acknowledge_lifecycle_warning' => true,
@@ -483,7 +483,7 @@ class POSBundleDraftLifecycleWarningTest extends TestCase
         ]);
 
         $finalizeResponse->assertStatus(422)
-            ->assertJsonPath('code', 'BUNDLE_COMPONENT_SERIAL_UNSUPPORTED');
+            ->assertJsonPath('code', 'SERIAL_INVALID');
 
         // Verify no checkout or sales records were created
         $this->assertDatabaseCount('pos_checkouts', 0);

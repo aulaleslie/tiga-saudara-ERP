@@ -46,6 +46,7 @@ class PosTransactionSnapshotMapper
                     'bundle_name' => $line['bundle_name'] ?? null,
                     'bundle_price' => $line['bundle_price'] ?? null,
                     'bundle_items' => $line['bundle_items'] ?? null,
+                    'bundle_item_serials' => $line['bundle_item_serials'] ?? null,
                     'breakdown' => $line['breakdown'] ?? null,
                     'pricing_basis' => $line['pricing_basis'] ?? null,
                 ];
@@ -235,6 +236,7 @@ class PosTransactionSnapshotMapper
                 'bundle_name' => $lineMeta['bundle_name'] ?? null,
                 'bundle_price' => $lineMeta['bundle_price'] ?? null,
                 'bundle_items' => $lineMeta['bundle_items'] ?? [],
+                'bundle_item_serials' => $lineMeta['bundle_item_serials'] ?? [],
                 'breakdown' => $lineMeta['breakdown'] ?? null,
                 'pricing_basis' => $lineMeta['pricing_basis'] ?? null,
                 'line_total' => $lineTotal,

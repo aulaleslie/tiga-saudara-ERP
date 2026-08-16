@@ -41,6 +41,7 @@ class ProductServiceProvider extends ServiceProvider
             \Modules\Product\Console\GenerateEan13BarcodesCommand::class,
             \Modules\Product\Console\PreflightIdentityCollisionsCommand::class,
             \Modules\Product\Console\ReconcileCatalogGroupCommand::class,
+            \Modules\Product\Console\ConvertProductUomCommand::class,
         ]);
     }
 
