@@ -1,87 +1,63 @@
 ## ADDED Requirements
+## Purpose
+Define the customer-facing POS row controls and approval interactions for unit-price and row-total overrides.
 
-### Requirement: Price Cell MUST Render Edit Trigger With Approval State
-The POS sell UI SHALL render each cart line's price cell with an edit trigger button that reflects the current PRICE_OVERRIDE approval state.
+## Requirements
+### Requirement: Each eligible POS row MUST expose two visually distinct monetary actions
+Each eligible customer-facing POS row SHALL expose an `Ubah Harga Satuan` action and an `Ubah Total Baris` action within that individual row's action area. The two controls MUST be visually distinct and unambiguous, and each MUST identify the row it belongs to.
 
-#### Scenario: No pending PRICE_OVERRIDE approval renders edit button
-- **WHEN** a cart line has no pending or approved PRICE_OVERRIDE approval request
-- **THEN** the price cell MUST display the formatted unit price and a pencil edit button with class `js-price-edit`
+#### Scenario: Eligible row renders both actions
+- **WHEN** an ordinary, packed, or billable bundle-parent row is rendered
+- **THEN** the row MUST display an `Ubah Harga Satuan` action
+- **AND** the row MUST display an `Ubah Total Baris` action
+- **AND** each action MUST be distinguishable by label or icon and MUST target only that row
 
-#### Scenario: Pending PRICE_OVERRIDE approval renders Periksa button
-- **WHEN** a cart line has a pending PRICE_OVERRIDE approval request
-- **THEN** the price cell MUST display the formatted unit price and a "Periksa" button with `data-approval-pending` attribute set to the request ID
-- **AND** the button MUST have class `js-price-edit`
+#### Scenario: Bundle components expose neither action
+- **WHEN** a bundle component row is rendered beneath its billable parent
+- **THEN** the component MUST NOT expose either monetary action
+- **AND** its commercial price and subtotal MUST remain zero
 
-#### Scenario: Approved PRICE_OVERRIDE approval renders Lanjutkan button
-- **WHEN** a cart line has an approved PRICE_OVERRIDE approval request with an execution token
-- **THEN** the price cell MUST display the formatted unit price and a "Lanjutkan" button showing the approved target price
-- **AND** the button MUST have `data-approval-token` and `data-approved-price` attributes
-- **AND** the button MUST have class `js-price-edit`
+#### Scenario: No monetary action appears at cart scope
+- **WHEN** the cart or payment grand-total area is rendered
+- **THEN** it MUST display the calculated grand total as read-only
+- **AND** MUST NOT expose an `Ubah Harga Satuan`, `Ubah Total Baris`, or cart-wide `Ubah Total` action
 
-### Requirement: Price Edit Button Click MUST Open Price Override Modal
-The POS sell UI SHALL open a price override modal when the user clicks the price edit button on a cart line that has no pending or approved approval state.
+### Requirement: The two row actions MUST use fully separate client state
+The unit-price interaction and the row-total interaction SHALL use separate modal identifiers, form state, endpoints, JavaScript handlers, labels, and error handling. Neither interaction MAY reuse the other's DOM state.
 
-#### Scenario: Click edit button opens modal with current price context
-- **WHEN** the user clicks a `js-price-edit` button that has no `data-approval-pending` or `data-approval-token` attribute
-- **THEN** the system MUST open the "Ubah Harga" modal
-- **AND** the modal MUST display the current unit price as read-only reference
-- **AND** the modal MUST provide an input field for the new target price pre-filled with the current price
-- **AND** the modal MUST allow values greater than or equal to 0
-
-#### Scenario: Click Periksa button checks approval status
-- **WHEN** the user clicks a `js-price-edit` button that has `data-approval-pending` attribute
-- **THEN** the system MUST call `ApprovalManager.checkApproval` with the pending request ID
-- **AND** the system MUST fetch a fresh cart snapshot and re-render
-
-#### Scenario: Click Lanjutkan button applies approved price via wrapAction
-- **WHEN** the user clicks a `js-price-edit` button that has `data-approval-token` attribute
-- **THEN** the system MUST call `ApprovalManager.wrapAction` with action type `PRICE_OVERRIDE`, the approval token, and the approved price
-- **AND** the action function MUST POST to `/pos/sell/cart/lines/{lineId}/price-override` with `unit_price` and `approval_token`
-
-### Requirement: Price Override Modal Submit MUST Use ApprovalManager.wrapAction
-The price override modal submission SHALL route through `ApprovalManager.wrapAction()` using an action type of `PRICE_OVERRIDE`, matching the established pattern for LINE_REMOVE, CART_CLEAR, and QTY_REDUCE.
-
-#### Scenario: Privileged user submits price change via modal
-- **WHEN** a user with `pos.overrides.price` permission submits a new price through the modal
-- **THEN** the system MUST call `ApprovalManager.wrapAction` which invokes the action function
-- **AND** the action function MUST POST to `/pos/sell/cart/lines/{lineId}/price-override` with the new `unit_price`
-- **AND** the backend MUST apply the price immediately and return an updated cart snapshot
-- **AND** the cart MUST re-render with the new price
-
-#### Scenario: Non-privileged user submits price change via modal and triggers approval
-- **WHEN** a user without `pos.overrides.price` permission submits a new price through the modal
-- **THEN** the system MUST call `ApprovalManager.wrapAction` which attempts the action and receives `APPROVAL_REQUIRED`
-- **AND** the `ApprovalManager` MUST create an approval request via `POST /pos/sell/approval-requests`
-- **AND** the price edit button MUST transition to "Periksa" state with `data-approval-pending` attribute
-- **AND** the system MUST fetch a fresh cart snapshot and re-render
-
-### Requirement: Price Override Modal MUST Enforce Client-Side Validation Before Enabling the Submission Button
-The price override modal SHALL enforce client-side validation before enabling the submission button.
-
-#### Scenario: Empty or non-numeric input disables submit
-- **WHEN** the target price input is empty or contains non-numeric characters
-- **THEN** the submit button MUST be disabled
-- **AND** an inline validation error MUST be displayed
-
-#### Scenario: Negative input disables submit
-- **WHEN** the target price input is a negative number
-- **THEN** the submit button MUST be disabled
-- **AND** an inline validation error MUST be displayed
-
-#### Scenario: Zero input is valid
-- **WHEN** the target price input is exactly 0
-- **THEN** the submit button MUST be enabled
-- **AND** no validation error MUST be displayed
-
-#### Scenario: Same price as current disables submit
-- **WHEN** the target price input equals the current unit price
-- **THEN** the submit button MUST be disabled
-- **AND** an inline message MUST indicate that the price is unchanged
-
-### Requirement: Price Override Modal MUST Be An Extracted Blade Partial
-The price override modal HTML SHALL be extracted to a separate Blade partial file consistent with the existing modal organization pattern.
-
-#### Scenario: Modal partial exists at expected path
+#### Scenario: Modals are separately identified
 - **WHEN** the POS sell view is rendered
-- **THEN** the view MUST include a Blade partial at `pos::sell.modals.price_override`
-- **AND** the partial MUST contain a Bootstrap modal with id `pos-price-override-modal`
+- **THEN** the unit-price modal and the row-total modal MUST have distinct element identifiers
+- **AND** neither MUST reuse the retired ambiguous `price_override` identifiers for both operations
+
+#### Scenario: Each modal shows row identity and its own current value
+- **WHEN** either monetary modal is opened from a row
+- **THEN** it MUST display the selected product and row identity
+- **AND** the unit-price modal MUST display and edit the row's current unit price
+- **AND** the row-total modal MUST display and edit the row's current authoritative final total
+
+#### Scenario: Each action posts to its own endpoint
+- **WHEN** the user submits the unit-price modal
+- **THEN** the request MUST target the unit-price endpoint with the `LINE_UNIT_PRICE_OVERRIDE` contract
+- **AND** submitting the row-total modal MUST target the row-total endpoint with the `LINE_TOTAL_OVERRIDE` contract
+
+### Requirement: Both row modals MUST validate input before enabling submission
+Each modal SHALL accept a numeric value greater than or equal to zero, reject blank, nonnumeric, negative, and unchanged values with its own error surface, capture an optional reason, and retain authoritative server-side validation.
+
+#### Scenario: Invalid input disables submission
+- **WHEN** a user enters a blank, nonnumeric, negative, or unchanged value in either modal
+- **THEN** that modal MUST display its own error message
+- **AND** MUST keep its submission control disabled
+
+#### Scenario: Errors do not leak between modals
+- **WHEN** one modal displays a validation error and the other modal is opened
+- **THEN** the second modal MUST NOT display the first modal's error state
+
+### Requirement: Both row modals MUST use the established approval lifecycle
+Each interaction SHALL use the existing `ApprovalManager` request, check, and continue flow with its own action type, target line, requested value, and row fingerprint. Approval state MUST be keyed by both line and action type.
+
+#### Scenario: Approval state stays keyed by line and action
+- **WHEN** one row has a pending unit-price request and a pending row-total request
+- **THEN** each control MUST display only its own approval state
+- **AND** neither MUST display the other's `Periksa Persetujuan` state
+- **AND** no other row's controls MUST display either request

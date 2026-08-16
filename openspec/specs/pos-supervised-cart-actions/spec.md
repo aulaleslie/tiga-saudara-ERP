@@ -98,25 +98,107 @@ The POS system SHALL require explicit user confirmation after approval before mu
 - **WHEN** a consumed execution token is reused
 - **THEN** the system MUST reject the request and MUST NOT apply any cart mutation
 
-### Requirement: Price Override MUST Follow Role-Aware Supervisory Governance
-The POS system SHALL allow direct price override only for authorized manager-level users and SHALL require approval workflow for non-authorized users. The system SHALL accept zero as a valid override price.
+### Requirement: Both row overrides MUST follow role-aware supervisory governance
+The POS system SHALL apply valid `LINE_UNIT_PRICE_OVERRIDE` and `LINE_TOTAL_OVERRIDE` immediately for a user with `pos.overrides.price`, and SHALL require the existing request, supervisor decision, one-time token, and explicit confirmation flow for other users, unless the user is Super Admin.
 
-#### Scenario: Non-authorized user requests price change
-- **WHEN** a Floor Staff or Cashier Staff user attempts to alter sales price without direct override permission
-- **THEN** the system MUST create approval request and MUST NOT apply new price until approval is confirmed and executed
+#### Scenario: Restricted cashier requests either row override
+- **WHEN** a cashier without direct override permission submits a valid unit price or row total
+- **THEN** the system MUST create a line-scoped approval request and MUST NOT alter the row until approval is executed
 
-#### Scenario: Authorized manager overrides price directly
-- **WHEN** a Store Manager user with price override permission updates item sales price
-- **THEN** the system MUST apply the new price immediately and MUST record audit metadata for actor and timestamp
+#### Scenario: Direct or Super Admin execution bypasses approval
+- **WHEN** a user with direct permission or Super Admin authority submits a valid row override
+- **THEN** the system MUST apply it immediately and record the action in the approval audit trail
 
-#### Scenario: User sets price to zero
-- **WHEN** a user submits a price override with unit_price equal to 0
-- **THEN** the system MUST accept the value as valid and process it through the normal authorization flow
-- **AND** the system MUST NOT reject the request with a validation error
+### Requirement: Approval requests MUST state which value they change
+Each row-override request and supervisor review SHALL identify the action type, source value, requested value, delta, product and line identity, requester, and reason, comparing unit price with unit price and row total with row total.
 
-#### Scenario: User submits negative price
-- **WHEN** a user submits a price override with unit_price less than 0
-- **THEN** the system MUST reject the request with a validation error
+#### Scenario: Supervisor review distinguishes both actions
+- **WHEN** a supervisor reviews a pending row override
+- **THEN** the queue MUST label unit prices and row totals according to the active action type
+
+### Requirement: The current row total MUST be derived through the canonical totals calculator
+The source final row total for approval, delta, and audit SHALL come from the canonical POS totals calculator using current discounts, taxes, quantity, customer, and cart context, in minor units, rather than quantity multiplied by unit price.
+
+#### Scenario: Discounted row reports its canonical source total
+- **WHEN** an override request is created for a discounted row
+- **THEN** the source row total MUST equal the canonical post-discount total
+
+### Requirement: Approval tokens MUST be action-specific and single-use
+An approval token SHALL authorize only its exact action type, requester, POS session, target type, and target line; it MUST be consumed at most once.
+
+#### Scenario: Cross-action token is rejected
+- **WHEN** a unit-price token is submitted to the row-total endpoint
+- **THEN** the system MUST reject it without changing the cart or consuming the token
+
+### Requirement: Supervised execution MUST compare the submitted value against the approved value exactly
+Supervised execution SHALL compare submitted unit price or row total to its approved minor-unit value and validate the exact session, line, requester, target type, and fingerprint; it MUST NOT resolve a product-ID fallback.
+
+#### Scenario: Mismatched value remains retryable
+- **WHEN** the submitted value differs from the approved value
+- **THEN** the system MUST reject without mutation or token consumption and leave the token usable
+
+### Requirement: Failed supervised execution MUST leave no partial effect
+Validation, calculation, persistence, token, and audit failures MUST leave no successful audit, consumed token, or applied override; post-persistence failures MUST roll back and restore the exact pre-operation cart while the lock remains held.
+
+#### Scenario: Persistence failure compensates safely
+- **WHEN** token or audit persistence fails after cart persistence
+- **THEN** the system MUST restore the pre-operation cart before releasing the lock
+
+### Requirement: Every POS cart writer MUST serialize through a cart mutation lock
+Every operation that persists, clears, replaces, or hydrates a POS cart SHALL acquire a setting-and-session keyed lock, including both overrides, all line and customer mutations, notes, staged payments, clear, checkout clear, and transaction load or reset.
+
+#### Scenario: Competing mutation waits
+- **WHEN** an override holds the cart lock and another writer targets the same cart
+- **THEN** the competing writer MUST wait or receive the retryable busy error without changing the cart
+
+### Requirement: Checkout MUST hold the cart mutation lock across its authoritative span
+Checkout SHALL hold the lock from authoritative snapshot through posting and clearing so concurrent mutation cannot modify the cart being posted.
+
+#### Scenario: Checkout clears the posted cart
+- **WHEN** checkout completes posting
+- **THEN** it MUST clear the same cart snapshot that was posted
+
+### Requirement: The cart revision MUST be monotonic across clearing
+Cart revisions SHALL advance across every write and survive clearing so a recreated cart cannot reuse an earlier revision or satisfy a stale compare-and-set.
+
+#### Scenario: Recreated cart receives a new revision
+- **WHEN** a cart is cleared and recreated for the same session
+- **THEN** its revision MUST be greater than every previously issued revision
+
+### Requirement: Execution MUST hold the cart mutation lock across the persistence boundary
+One coordinator SHALL serve direct and supervised execution for both active actions and hold the lock through successful commit or completed compensation.
+
+#### Scenario: Direct audit failure is compensated
+- **WHEN** direct execution persists the cart but audit fails
+- **THEN** the exact pre-operation cart MUST be restored before the lock is released
+
+### Requirement: Successful mutation MUST precede successful audit
+Successful audit records SHALL be written only after mutation and approval consumption succeed and SHALL carry the exact active action, session, line, values, reason, fingerprint, actors, timestamp, and result.
+
+#### Scenario: Failed attempt has no success audit
+- **WHEN** any override step fails
+- **THEN** no successful-execution audit record MUST be written
+
+### Requirement: Override approval state SHALL remain isolated by line and action
+Pending and approved override requests SHALL appear only on their target line and be keyed by line and action; quantity and other controls MUST ignore them.
+
+#### Scenario: Both active approvals coexist
+- **WHEN** one line has pending unit-price and row-total requests
+- **THEN** each control MUST display only its own request state
+
+### Requirement: Relevant mutation MUST invalidate pending approvals for both active actions
+Any relevant line or cart mutation SHALL invalidate pending or approved-but-unconsumed requests for both active row-override action types.
+
+#### Scenario: Mutation invalidates both actions
+- **WHEN** a relevant line change occurs with both requests pending
+- **THEN** both requests MUST be invalidated and neither token may mutate the row
+
+### Requirement: Retired override actions MUST NOT authorize new operations
+Legacy `PRICE_OVERRIDE` and `TOTAL_PRICE_OVERRIDE` actions MUST NOT be created or authorize new operations, while historical records remain readable and read-only.
+
+#### Scenario: Legacy history is non-actionable
+- **WHEN** historical approval or audit records use a legacy action type
+- **THEN** they MUST render without error and MUST NOT authorize mutation
 
 ### Requirement: Supervisory Queue MUST Resolve Pending Requests
 Users with supervisory approval permission SHALL be able to review, approve, and reject pending POS approval requests.
@@ -150,18 +232,6 @@ The POS UI SHALL ensure that the "Kosongkan Keranjang" button maintains its inte
 #### Scenario: Cart clear action finishes or fails
 - **WHEN** the cart clear action is triggered and subsequently completes or encounters an error
 - **THEN** the system MUST restore the button label to "Kosongkan Keranjang"
-
-### Requirement: Cart Snapshot MUST Expose Requested Unit Price From PRICE_OVERRIDE Approval Payloads
-The cart snapshot builder SHALL extract `unit_price` from PRICE_OVERRIDE approval request payloads and expose it as `requested_unit_price` in the line's `pending_approvals` array.
-
-#### Scenario: PRICE_OVERRIDE approval includes requested_unit_price in snapshot
-- **WHEN** a cart line has a pending or approved PRICE_OVERRIDE approval request with `unit_price` in its request payload
-- **THEN** the snapshot's `pending_approvals` entry for that line MUST include `requested_unit_price` with the value from the request payload
-
-#### Scenario: Non-PRICE_OVERRIDE approvals remain unchanged
-- **WHEN** a cart line has a pending QTY_REDUCE approval request
-- **THEN** the snapshot's `pending_approvals` entry MUST include `requested_qty` as before
-- **AND** MUST NOT include `requested_unit_price`
 
 ### Requirement: Finish-as-debt checkout MUST require supervisory approval for non-authorized users
 The POS system SHALL treat finishing a transaction as debt as a supervised action that follows the same request → approve → token-consume flow as restricted cart mutations. When the acting user lacks direct permission for the action, the system MUST create an approval request and MUST NOT post the debt sale, UNLESS the user has Super Admin role.
