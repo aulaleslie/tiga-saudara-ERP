@@ -132,8 +132,15 @@ class PosCheckoutSplitPlannerService
 
                     $childKey = "{$lineIndex}_C_{$j}";
                     $childAllocations = $allocations[$childKey] ?? null;
+                    $isBiStockManaged = (bool) ($bi['stock_managed'] ?? true);
+                    if ($isBiStockManaged) {
+                        if (! is_array($childAllocations) || empty($childAllocations)) {
+                            throw new PosCheckoutValidationException(
+                                'STOCK_UNAVAILABLE',
+                                "Alokasi stok tidak ditemukan untuk komponen paket #{$childKey}."
+                            );
+                        }
 
-                    if ($bi['stock_managed'] && is_array($childAllocations)) {
                         $childParts[$childKey] = [
                             'allocations' => $childAllocations,
                             'total_minor' => $itemAllocMinor,
@@ -192,7 +199,8 @@ class PosCheckoutSplitPlannerService
                 $sourceIsPkp = (bool) ($chunk['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
 
                 if ($isBundledLine) {
-                    $taxRequired = $sourceIsPkp;
+                    // Bundled revenue is taxable ONLY when this group is owned by the POS transaction owner AND that owner is PKP
+                    $taxRequired = ($sourceSettingId === $settingId) && $posOwnerIsPkp;
                     $candidateTaxId = (int) ($line['tax_id'] ?? 0);
                     [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
                     $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
@@ -203,7 +211,7 @@ class PosCheckoutSplitPlannerService
                     $chunk['effective_tax_id'] = $effectiveTaxId;
                     $chunk['tax_name'] = $taxName;
                     $chunk['tax_rate'] = $taxRate;
-                    $chunk['tax_bucket_used'] = $effectiveTaxId > 0;
+                    // Preserve resolver's physical tax_bucket_used if present
                 } else {
                     $splitKey = (string) $chunk['split_key'];
                 }
@@ -226,7 +234,7 @@ class PosCheckoutSplitPlannerService
                     $sourceSettingId = (int) $part['source_setting_id'];
                     $sourceLocationId = (int) $part['source_location_id'];
                     $sourceIsPkp = (bool) ($part['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
-                    $taxRequired = $sourceIsPkp;
+                    $taxRequired = ($sourceSettingId === $settingId) && $posOwnerIsPkp;
                     $candidateTaxId = (int) ($line['tax_id'] ?? 0);
                     [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
                     $taxBucket = $effectiveTaxId > 0 ? 'TAX:' . $effectiveTaxId : 'NON_TAX';
@@ -262,10 +270,11 @@ class PosCheckoutSplitPlannerService
                     $childShares = $this->allocateMinorByQuantity($part['allocations'], $part['total_minor'], $part['total_qty']);
                     foreach ($part['allocations'] as $chunkIndex => $chunk) {
                         $sourceLocationId = (int) ($chunk['source_location_id'] ?? 0);
-                        $sourceSettingId = (int) ($chunk['source_setting_id'] ?? $this->resolveSourceSettingId($settingId, $sourceLocationId));
+                        $suppliedSettingId = isset($chunk['source_setting_id']) ? (int) $chunk['source_setting_id'] : null;
+                        $sourceSettingId = $this->resolveSourceSettingId($settingId, $sourceLocationId, $suppliedSettingId);
                         $sourceIsPkp = (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId));
 
-                        $taxRequired = $sourceIsPkp;
+                        $taxRequired = ($sourceSettingId === $settingId) && $posOwnerIsPkp;
                         $candidateTaxId = (int) ($line['tax_id'] ?? 0);
 
                         [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
@@ -287,7 +296,7 @@ class PosCheckoutSplitPlannerService
                         $lineRevenueByGroup[$splitKey]['subtotal_minor'] += $childShares[$chunkIndex];
                         $lineRevenueByGroup[$splitKey]['child_allocations'][$childKey][] = array_merge($chunk, [
                             'allocated_minor' => $childShares[$chunkIndex],
-                            'tax_bucket_used' => (bool) ($effectiveTaxId > 0),
+                            'tax_bucket_used' => (bool) ($chunk['tax_bucket_used'] ?? false),
                             'tax_policy_snapshot' => [
                                 'source_is_pkp' => (bool) ($chunk['tax_policy_snapshot']['source_is_pkp'] ?? $this->sourceIsPkp($sourceSettingId)),
                                 'tax_id' => $effectiveTaxId,
@@ -540,10 +549,8 @@ class PosCheckoutSplitPlannerService
                 );
             }
 
-            $sourceSettingId = (int) ($allocation['source_setting_id'] ?? 0);
-            if ($sourceSettingId <= 0) {
-                $sourceSettingId = $this->resolveSourceSettingId($settingId, $sourceLocationId);
-            }
+            $suppliedSettingId = isset($allocation['source_setting_id']) ? (int) $allocation['source_setting_id'] : null;
+            $sourceSettingId = $this->resolveSourceSettingId($settingId, $sourceLocationId, $suppliedSettingId);
 
             $snapshot = is_array($allocation['tax_policy_snapshot'] ?? null)
                 ? $allocation['tax_policy_snapshot']
@@ -553,10 +560,9 @@ class PosCheckoutSplitPlannerService
                 ? (bool) $snapshot['source_is_pkp']
                 : $this->sourceIsPkp($sourceSettingId);
 
+            $taxRequired = $sourceIsPkp || (bool) ($allocation['tax_bucket_used'] ?? false);
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
             $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : (int) ($snapshot['tax_id'] ?? 0);
-
-            $taxRequired = $sourceIsPkp;
 
             [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax($taxRequired, $candidateTaxId);
 
@@ -685,11 +691,27 @@ class PosCheckoutSplitPlannerService
         ]];
     }
 
-    private function resolveSourceSettingId(int $fallbackSettingId, int $locationId): int
+    private function resolveSourceSettingId(int $fallbackSettingId, int $locationId, ?int $suppliedSettingId = null): int
     {
         $location = $this->locationById($locationId);
 
-        return (int) ($location?->setting_id ?? $fallbackSettingId);
+        if (! $location) {
+            throw new PosCheckoutValidationException(
+                'STOCK_UNAVAILABLE',
+                "Lokasi sumber #{$locationId} tidak ditemukan."
+            );
+        }
+
+        $locationSettingId = (int) $location->setting_id;
+
+        if ($suppliedSettingId !== null && $suppliedSettingId > 0 && $suppliedSettingId !== $locationSettingId) {
+            throw new PosCheckoutValidationException(
+                'STOCK_UNAVAILABLE',
+                "Ketidakcocokan kepemilikan: setting #{$suppliedSettingId} tidak sesuai dengan setting #{$locationSettingId} pada lokasi #{$locationId}."
+            );
+        }
+
+        return $locationSettingId > 0 ? $locationSettingId : $fallbackSettingId;
     }
 
     private function sourceIsPkp(int $settingId): bool

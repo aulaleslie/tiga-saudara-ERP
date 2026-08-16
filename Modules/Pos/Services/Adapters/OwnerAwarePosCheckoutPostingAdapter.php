@@ -55,13 +55,6 @@ class OwnerAwarePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             return false;
         }
 
-        // Stock-only carts are entirely owned by whatever the allocator picked, which is
-        // the behavior the config flag has always gated. Multiple allocation groups there
-        // are normal and must keep posting inline, exactly as before.
-        if (! $this->containsNonStockContent($lines)) {
-            return false;
-        }
-
         $terminalSettingId = (int) ($context['setting_id'] ?? 0);
 
         $plan = $this->splitPlanner->plan([
@@ -76,16 +69,24 @@ class OwnerAwarePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             return false;
         }
 
-        // Groups are keyed by source_setting_id + source_location_id + tax_bucket, so more
-        // than one group means the checkout genuinely spans several owners.
-        if (count($groups) > 1) {
+        // Distinct owner settings across all groups
+        $distinctOwnerSettings = array_unique(array_map(
+            static fn (array $group): int => (int) ($group['source_setting_id'] ?? 0),
+            $groups
+        ));
+
+        // If plan spans multiple owner settings, split posting is mandatory
+        if (count($distinctOwnerSettings) > 1) {
             return true;
         }
 
-        // A single group is not automatically safe for inline posting: when that one owner
-        // is not the terminal setting, inline posting would create the Sale under the
-        // terminal business and misattribute the whole checkout.
-        return (int) ($groups[0]['source_setting_id'] ?? 0) !== $terminalSettingId;
+        // If sole owner setting is not the terminal setting, split posting is mandatory
+        if (count($distinctOwnerSettings) === 1 && reset($distinctOwnerSettings) !== $terminalSettingId) {
+            return true;
+        }
+
+        // Wholly owned by the terminal setting: if feature flag is enabled, split posting can be used, otherwise inline
+        return (bool) config('pos.checkout.split_posting.enabled', false);
     }
 
     /**

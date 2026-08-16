@@ -61,7 +61,6 @@ class ResolvePosStockAllocationsService
             ->where('setting_sale_locations.setting_id', $settingId)
             ->where('setting_sale_locations.is_enabled', true)
             ->orderBy('setting_sale_locations.position')
-            ->orderByRaw('CASE WHEN locations.setting_id = setting_sale_locations.setting_id THEN 0 ELSE 1 END')
             ->orderBy('locations.name')
             ->orderBy('locations.id')
             ->select([

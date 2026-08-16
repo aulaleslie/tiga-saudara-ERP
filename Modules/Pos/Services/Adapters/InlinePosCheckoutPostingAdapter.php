@@ -330,7 +330,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     // Sum up tax contributions from all child allocations
                     foreach ($childAllocations as $ca) {
                         $caSnapshot = $ca['tax_policy_snapshot'] ?? [];
-                        if ((bool) ($caSnapshot['source_is_pkp'] ?? false)) {
+                        $caTaxId = isset($caSnapshot['tax_id']) ? (int) $caSnapshot['tax_id'] : null;
+                        if ($caTaxId !== null && $caTaxId > 0) {
                             $caTaxRate = (float) ($caSnapshot['tax_rate'] ?? 0);
                             $childTaxAmount += $this->fromMinor($this->extractIncludedTaxMinor(
                                 (int) ($ca['allocated_minor'] ?? 0),

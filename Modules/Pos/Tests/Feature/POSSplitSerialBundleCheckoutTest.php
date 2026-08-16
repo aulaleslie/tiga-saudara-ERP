@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
+use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\PosSessionLifecycleService;
@@ -651,5 +652,127 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
         $detailResponse->assertSee($child->product_name);
         $detailResponse->assertSee('x2');
         $this->assertSame(1, substr_count($detailResponse->getContent(), $child->product_name));
+    }
+
+    /**
+     * Requirement: Later group failure in multi-owner split checkout MUST roll back all earlier created Sales,
+     * dispatches, serial mutations, stock deductions, payments, and checkout ledger records atomically.
+     */
+    public function test_split_posting_rolls_back_earlier_owner_groups_on_later_group_failure(): void
+    {
+        $context = $this->createMultiSourceBundleSplitContext();
+        $product = $context['product'];
+        $bundle = $context['bundle'];
+        $serials = $context['serials']; // 0 from Loc A, 1 from Loc B
+
+        // Add 2 quantity of serial-tracked bundle product
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2, $bundle->id);
+        $this->assignSerials($context['cashier'], $context['setting'], $lineId, [
+            $serials[0]->serial_number,
+            $serials[1]->serial_number
+        ]);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        // Inject failure on the second Sale creation
+        $createdSales = 0;
+        $shouldInjectFailure = true;
+        Sale::creating(function () use (&$createdSales, &$shouldInjectFailure) {
+            $createdSales++;
+            if ($shouldInjectFailure && $createdSales === 2) {
+                throw new \RuntimeException('Injected second split group posting failure');
+            }
+        });
+
+        $failedKey = 'K-ROLLBACK-SPLIT-' . uniqid();
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $failedKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 400000,
+            ],
+        ]);
+
+        $response->assertStatus(500)
+            ->assertJsonPath('code', 'POSTING_FAILURE');
+
+        // Assert full rollback: 0 sales, 0 sale details, 0 bundle items, 0 dispatches, 0 dispatch details, 0 pos checkout sales, 0 sale payments
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_details', 0);
+        $this->assertDatabaseCount('sale_bundle_items', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+        $this->assertDatabaseCount('pos_checkout_sales', 0);
+
+        // No cash sale events created for the failed checkout
+        $this->assertDatabaseMissing('pos_session_cash_events', [
+            'event_type' => \Modules\Pos\Entities\PosSessionCashEvent::EVENT_CASH_SALE_IN,
+        ]);
+
+        // Original product stocks remain unchanged (Loc A = 1, Loc B = 10)
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['loc_a']->id,
+            'quantity' => 1,
+        ]);
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['loc_b']->id,
+            'quantity' => 10,
+        ]);
+
+        // Serials remain ACTIVE (not SOLD) and unlinked
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $serials[0]->id,
+            'status' => 'ACTIVE',
+            'dispatch_detail_id' => null,
+        ]);
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $serials[1]->id,
+            'status' => 'ACTIVE',
+            'dispatch_detail_id' => null,
+        ]);
+
+        // Failed checkout is persisted with STATUS_FAILED
+        $this->assertDatabaseHas('pos_checkouts', [
+            'setting_id' => $context['setting']->id,
+            'idempotency_key' => strtolower($failedKey),
+            'status' => PosCheckout::STATUS_FAILED,
+        ]);
+
+        // Replaying with the same failed key returns 409 conflict
+        $replayResponse = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $failedKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 400000,
+            ],
+        ]);
+        $replayResponse->assertStatus(409)
+            ->assertJsonPath('code', 'IDEMPOTENCY_PREVIOUS_FAILED');
+
+        // Disable failure injection so corrected checkout can succeed
+        $shouldInjectFailure = false;
+
+        // Corrected checkout succeeds once with a new idempotency key
+        $newKey = 'K-CORRECTED-SPLIT-' . uniqid();
+        $correctedResponse = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $newKey,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 400000,
+            ],
+        ]);
+
+        $correctedResponse->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+
+        $this->assertDatabaseCount('sales', 2);
+        $this->assertDatabaseCount('pos_checkout_sales', 2);
+        $this->assertDatabaseHas('pos_checkouts', [
+            'setting_id' => $context['setting']->id,
+            'idempotency_key' => strtolower($newKey),
+            'status' => PosCheckout::STATUS_POSTED,
+        ]);
     }
 }

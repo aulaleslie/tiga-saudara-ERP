@@ -321,10 +321,13 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
 
         $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
-        // Apply price override to 5,500,000
+        // Apply price override to 5,500,000 using active unit-price-override endpoint
         $this->actingAs($cashier)->withSession(['setting_id' => $setting1->id])->postJson(
-            route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]),
-            ['unit_price' => 5500000]
+            route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]),
+            [
+                'unit_price' => 5500000,
+                'reason' => 'Integration test override',
+            ]
         )->assertOk();
 
         $this->selectCustomerInCart($cashier, $setting1, $customer);
@@ -521,25 +524,19 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
         $tax11 = Tax::query()->create(['name' => 'PPN 11%', 'value' => 11, 'is_default' => true]);
 
         // Stock parent: 2 at Loc 2 (Setting 2 Non-PKP), 5 at Loc 1 (Setting 1 PKP)
-        $parent = $this->createStockedProduct($setting1, $loc2, 'PARENT-ROUND', 1000001, 2, null);
+        $parent = $this->createStockedProduct($setting1, $loc1, 'PARENT-ROUND', 1000001, 5, $tax11);
         $parent->update(['product_quantity' => 10]);
 
         ProductStock::create([
             'product_id' => $parent->id,
-            'location_id' => $loc1->id,
-            'quantity' => 5,
-            'quantity_tax' => 5,
-            'quantity_non_tax' => 0,
+            'location_id' => $loc2->id,
+            'quantity' => 2,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 2,
             'broken_quantity' => 0,
             'broken_quantity_tax' => 0,
             'broken_quantity_non_tax' => 0,
-            'tax_id' => $tax11->id,
-        ]);
-        ProductPrice::create([
-            'product_id' => $parent->id,
-            'setting_id' => $setting2->id,
-            'sale_price' => 1000001,
-            'sale_tax_id' => null,
+            'tax_id' => null,
         ]);
 
         $comp = $this->createStockedProduct($setting3, $loc3, 'COMP-ROUND', 100000, 10, null);
@@ -573,7 +570,6 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
         $response->assertStatus(201);
         $checkoutId = (int) $response->json('pos_checkout_id');
         $checkout = PosCheckout::with(['checkoutSales.sale'])->findOrFail($checkoutId);
-
         $sales = $checkout->checkoutSales->map->sale;
         $this->assertCount(3, $sales);
 
@@ -678,6 +674,167 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
         $this->assertEquals('BUNDLE_RESIDUAL_NEGATIVE', $response->json('code'));
     }
 
+    /**
+     * Requirement: A single product (Product X) appearing simultaneously as:
+     * 1. Bundle parent (Line 1)
+     * 2. Component of that same bundle (Line 1 component)
+     * 3. Standalone cart line (Line 2)
+     *
+     * Proves per-role quantities, stock deduction, Sale details, bundle items, and aggregate revenue
+     * remain isolated without cross-role leakage or double-allocation.
+     */
+    public function test_same_sku_across_bundle_parent_component_and_standalone_lines(): void
+    {
+        $setting1 = $this->createSetting('Setting 1 SameSKU', 'DOC1', 'SO1', true);
+
+        $cashier = $this->createUserForSetting($setting1, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment'
+        ]);
+
+        $loc1 = Location::create(['name' => 'LOC-1', 'setting_id' => $setting1->id]);
+
+        $this->createTerminalAndSaleLocations($setting1, [$loc1]);
+        $methods = $this->seedPaymentMethods($setting1, true);
+        $this->openSession($setting1, PosTerminal::where('setting_id', $setting1->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($setting1);
+
+        $tax11 = Tax::query()->create(['name' => 'PPN 11%', 'value' => 11, 'is_default' => true]);
+
+        // Product X: Sale price 1,000,000, 10 units in stock
+        $prodX = $this->createStockedProduct($setting1, $loc1, 'PROD-X', 1000000, 10, $tax11);
+
+        // Bundle: Parent is Prod X, and it contains 1 unit of Prod X as a self-component
+        // Bundle sale price = 1,000,000; Informational price for component = 300,000
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $prodX->id,
+            'setting_id' => $setting1->id,
+            'name' => 'SELF BUNDLE X',
+            'bundle_sale_price' => 1000000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $prodX->id,
+            'quantity' => 1,
+            'informational_item_price' => 300000,
+        ]);
+
+        // Cart contains:
+        // Line 1: Bundle with Prod X (1 parent + 1 component = 2 units of Prod X consumed) -> 1,000,000
+        // Line 2: Standalone Prod X qty 3 (3 units of Prod X consumed) -> 3,000,000
+        // Total Prod X consumed = 2 + 3 = 5 units
+        $this->addCartLine($cashier, $setting1, $prodX->id, 1, $bundle->id);
+        $this->addCartLine($cashier, $setting1, $prodX->id, 3, null);
+        $this->selectCustomerInCart($cashier, $setting1, $customer);
+
+        $response = $this->finalize($cashier, $setting1, [
+            'idempotency_key' => 'K-SAME-SKU-SINGLE-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 4000000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $checkoutId = (int) $response->json('pos_checkout_id');
+        $checkout = PosCheckout::with([
+            'checkoutSales.sale.saleDetails.bundleItems',
+        ])->findOrFail($checkoutId);
+
+        $sales = $checkout->checkoutSales->map->sale;
+        $this->assertCount(1, $sales);
+
+        $sale = $sales->first();
+        $this->assertEquals(4000000.0, (float) $sale->total_amount);
+
+        // Verify stock deduction: 10 initial - 5 sold = 5 remaining
+        $stock = ProductStock::where('product_id', $prodX->id)->where('location_id', $loc1->id)->first();
+        $this->assertEquals(5, $stock->quantity);
+
+        // Verify sale details:
+        // 1. Bundle parent detail (qty 1) with subtotal 1,000,000 (captured bundle price)
+        // 2. Standalone detail (qty 3) with subtotal 3,000,000
+        $details = $sale->saleDetails;
+        $this->assertCount(2, $details);
+
+        $parentDetail = $details->firstWhere('quantity', 1);
+        $standaloneDetail = $details->firstWhere('quantity', 3);
+
+        $this->assertNotNull($parentDetail);
+        $this->assertNotNull($standaloneDetail);
+
+        $this->assertEquals(1, (int) $parentDetail->quantity);
+        $this->assertEquals(1000000.0, (float) $parentDetail->sub_total);
+
+        $this->assertEquals(3, (int) $standaloneDetail->quantity);
+        $this->assertEquals(3000000.0, (float) $standaloneDetail->sub_total);
+
+        // Verify sale bundle items: 1 child component item for Prod X with informational price 300,000 and 0 price/sub_total
+        $bundleItems = $parentDetail->bundleItems;
+        $this->assertCount(1, $bundleItems);
+        $bi = $bundleItems->first();
+        $this->assertEquals($prodX->id, $bi->product_id);
+        $this->assertEquals(1, $bi->quantity);
+        $this->assertEquals(300000.0, (float) $bi->informational_item_price);
+        $this->assertEquals(0.0, (float) $bi->price);
+        $this->assertEquals(0.0, (float) $bi->sub_total);
+    }
+
+    /**
+     * Requirement: Multi-owner plan with split_posting feature flag disabled MUST still route to split posting.
+     */
+    public function test_disabled_feature_flag_forces_split_posting_for_cross_owner_plan(): void
+    {
+        config(['pos.checkout.split_posting.enabled' => false]);
+
+        $setting1 = $this->createSetting('Setting 1 FlagTest', 'DOC1', 'SO1', true);
+        $setting2 = $this->createSetting('Setting 2 FlagTest', 'DOC2', 'SO2', false);
+
+        $cashier = $this->createUserForSetting($setting1, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment'
+        ]);
+
+        $loc1 = Location::create(['name' => 'LOC-1', 'setting_id' => $setting1->id]);
+        $loc2 = Location::create(['name' => 'LOC-2', 'setting_id' => $setting2->id]);
+
+        $this->createTerminalAndSaleLocations($setting1, [$loc1, $loc2]);
+        $methods = $this->seedPaymentMethods($setting1, true);
+        $this->openSession($setting1, PosTerminal::where('setting_id', $setting1->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($setting1);
+
+        $tax11 = Tax::query()->create(['name' => 'PPN 11%', 'value' => 11, 'is_default' => true]);
+
+        $p1 = $this->createStockedProduct($setting1, $loc1, 'PROD-S1', 100000, 5, $tax11);
+        $p2 = $this->createStockedProduct($setting2, $loc2, 'PROD-S2', 200000, 5, null);
+        ProductPrice::create([
+            'product_id' => $p2->id,
+            'setting_id' => $setting1->id,
+            'sale_price' => 200000,
+            'sale_tax_id' => null,
+        ]);
+
+        $this->addCartLine($cashier, $setting1, $p1->id, 1);
+        $this->addCartLine($cashier, $setting1, $p2->id, 1);
+        $this->selectCustomerInCart($cashier, $setting1, $customer);
+
+        $response = $this->finalize($cashier, $setting1, [
+            'idempotency_key' => 'K-FLAG-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 300000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $checkoutId = (int) $response->json('pos_checkout_id');
+        $checkout = PosCheckout::with(['checkoutSales.sale'])->findOrFail($checkoutId);
+
+        // Assert that even with config disabled, 2 distinct Sales are created (one per owner setting)
+        $sales = $checkout->checkoutSales->map->sale;
+        $this->assertCount(2, $sales);
+        $this->assertNotNull($sales->firstWhere('setting_id', $setting1->id));
+        $this->assertNotNull($sales->firstWhere('setting_id', $setting2->id));
+    }
+
     // ==== HELPER METHODS ====
 
     private function createSetting(string $name, string $docPrefix, string $salePrefix, bool $isPkp): Setting
@@ -713,6 +870,7 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
 
     private function createTerminalAndSaleLocations(Setting $setting, array $locations): void
     {
+        SettingSaleLocation::query()->where('setting_id', $setting->id)->delete();
         foreach ($locations as $index => $loc) {
             SettingSaleLocation::create([
                 'setting_id' => $setting->id,

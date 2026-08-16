@@ -576,9 +576,9 @@ class PosCartService
         foreach ($cart['lines'] as $lineId => $line) {
             $priceSource = (string) ($line['price_source'] ?? 'BASE');
 
-            // Skip OVERRIDE, TOTAL_OVERRIDE, or BUNDLE lines - keep existing price.
-            // Bundled row prices are authoritative and bypass customer tier repricing.
-            if ($priceSource === 'OVERRIDE' || $priceSource === 'BUNDLE' || $priceSource === 'TOTAL_OVERRIDE') {
+            // Skip OVERRIDE, TOTAL_OVERRIDE, LINE_UNIT_PRICE_OVERRIDE, LINE_TOTAL_OVERRIDE, or BUNDLE lines - keep existing price.
+            // Bundled row prices and explicit overrides are authoritative and bypass customer tier repricing.
+            if ($priceSource === 'OVERRIDE' || $priceSource === 'BUNDLE' || $priceSource === 'TOTAL_OVERRIDE' || $priceSource === 'LINE_UNIT_PRICE_OVERRIDE' || $priceSource === 'LINE_TOTAL_OVERRIDE') {
                 $repricedLines[$lineId] = $line;
                 continue;
             }

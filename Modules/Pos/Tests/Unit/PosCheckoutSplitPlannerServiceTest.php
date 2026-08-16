@@ -20,6 +20,46 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Setting::firstOrCreate(['id' => 1], [
+            'company_name' => 'Setting 1',
+            'company_email' => 's1@example.com',
+            'company_phone' => '0811',
+            'company_address' => 'Addr 1',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 's1@example.com',
+            'footer_text' => 'F1',
+            'document_prefix' => 'D1',
+            'purchase_prefix_document' => 'P1',
+            'sale_prefix_document' => 'S1',
+            'pos_enabled' => true,
+            'is_pkp' => true,
+        ]);
+        Setting::firstOrCreate(['id' => 2], [
+            'company_name' => 'Setting 2',
+            'company_email' => 's2@example.com',
+            'company_phone' => '0812',
+            'company_address' => 'Addr 2',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 's2@example.com',
+            'footer_text' => 'F2',
+            'document_prefix' => 'D2',
+            'purchase_prefix_document' => 'P2',
+            'sale_prefix_document' => 'S2',
+            'pos_enabled' => true,
+            'is_pkp' => false,
+        ]);
+
+        Location::firstOrCreate(['id' => 10], ['name' => 'Loc 10', 'setting_id' => 1]);
+        Location::firstOrCreate(['id' => 11], ['name' => 'Loc 11', 'setting_id' => 1]);
+        Location::firstOrCreate(['id' => 20], ['name' => 'Loc 20', 'setting_id' => 2]);
+    }
+
     public function test_pkp_source_without_explicit_line_tax_uses_fallback_tax_bucket(): void
     {
         $defaultTax = Tax::query()->create([
@@ -272,6 +312,7 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
 
     public function test_tax_required_allocation_throws_actionable_error_when_no_fallback_tax_exists(): void
     {
+        Tax::query()->delete();
         $planner = new PosCheckoutSplitPlannerService();
 
         try {
@@ -433,6 +474,8 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
 
     public function test_bundle_decomposition_throws_exception_on_negative_residual(): void
     {
+        Tax::firstOrCreate(['name' => 'PPN 11'], ['value' => 11, 'is_default' => true]);
+
         $this->expectException(PosCheckoutValidationException::class);
         $this->expectExceptionMessage("Harga paket 'Super Bundle' tidak mencukupi untuk menutupi alokasi komponen.");
 
@@ -482,6 +525,8 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
 
     public function test_bundle_uses_informational_item_price_without_falling_back_to_live_price(): void
     {
+        Tax::firstOrCreate(['name' => 'PPN 11'], ['value' => 11, 'is_default' => true]);
+
         $planner = new PosCheckoutSplitPlannerService();
         $plan = $planner->plan([
             'setting_id' => 1,
@@ -555,6 +600,8 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
 
     public function test_bundle_minor_unit_rounding_allocates_remainders_deterministically(): void
     {
+        Tax::firstOrCreate(['name' => 'PPN 11'], ['value' => 11, 'is_default' => true]);
+
         $service = new PosCheckoutSplitPlannerService();
 
         // 3 units of parent split across 2 sources with uneven quantities (2 and 1)
@@ -636,5 +683,157 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
         // Aggregate reconciles exactly to 1000.01 with 0 minor unit loss
         $aggregateTotal = (float) $group10['grand_total'] + (float) $group11['grand_total'] + (float) $group20['grand_total'];
         $this->assertEquals(1000.01, round($aggregateTotal, 2));
+    }
+
+    public function test_rejects_allocation_when_source_setting_id_disagrees_with_location_setting(): void
+    {
+        $setting1 = Setting::find(1);
+        $setting2 = Setting::find(2);
+
+        // Location 50 belongs to Setting 2
+        $loc = Location::create([
+            'id' => 50,
+            'name' => 'Loc 50',
+            'setting_id' => $setting2->id,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+
+        $this->expectException(PosCheckoutValidationException::class);
+        $this->expectExceptionMessage('Ketidakcocokan kepemilikan');
+
+        // Allocation falsely claims Setting 1 for Location 50 (which belongs to Setting 2)
+        $planner->plan([
+            'setting_id' => $setting1->id,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Product Test',
+                        'qty' => 1,
+                        'unit_price' => 1000,
+                        'line_subtotal' => 1000,
+                        'stock_managed' => true,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                0 => [
+                    [
+                        'source_setting_id' => $setting1->id, // Mismatch!
+                        'source_location_id' => $loc->id,
+                        'allocated_qty' => 1,
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    public function test_rejects_stock_managed_bundle_component_with_missing_allocations(): void
+    {
+        $setting = Setting::create([
+            'company_name' => 'Setting B',
+            'company_email' => 'sb@example.com',
+            'company_phone' => '0811',
+            'company_address' => 'Addr B',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'sb@example.com',
+            'footer_text' => 'FB',
+            'document_prefix' => 'DB',
+            'purchase_prefix_document' => 'PB',
+            'sale_prefix_document' => 'SB',
+            'pos_enabled' => true,
+        ]);
+
+        $loc = Location::create([
+            'id' => 60,
+            'name' => 'Loc 60',
+            'setting_id' => $setting->id,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+
+        $this->expectException(PosCheckoutValidationException::class);
+        $this->expectExceptionMessage('Alokasi stok tidak ditemukan untuk komponen paket');
+
+        $planner->plan([
+            'setting_id' => $setting->id,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Bundle Parent',
+                        'qty' => 1,
+                        'unit_price' => 1000,
+                        'line_subtotal' => 1000,
+                        'bundle_id' => 5,
+                        'bundle_items' => [
+                            [
+                                'product_id' => 20,
+                                'product_name' => 'Stock-Managed Component',
+                                'quantity' => 1,
+                                'stock_managed' => true,
+                                'informational_item_price' => 200,
+                            ],
+                        ],
+                        'stock_managed' => true,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                '0_P' => [
+                    [
+                        'source_setting_id' => $setting->id,
+                        'source_location_id' => $loc->id,
+                        'allocated_qty' => 1,
+                    ],
+                ],
+                // Missing '0_C_0' allocation
+            ],
+        ]);
+    }
+
+    public function test_rejects_allocation_when_source_location_does_not_exist(): void
+    {
+        $planner = new PosCheckoutSplitPlannerService();
+
+        $this->expectException(PosCheckoutValidationException::class);
+        $this->expectExceptionMessage('Lokasi sumber #9999 tidak ditemukan');
+
+        // Allocation with non-existent location ID 9999
+        $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 10,
+                        'product_name' => 'Product Test',
+                        'qty' => 1,
+                        'unit_price' => 1000,
+                        'line_subtotal' => 1000,
+                        'stock_managed' => true,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                0 => [
+                    [
+                        'source_setting_id' => 1,
+                        'source_location_id' => 9999, // Nonexistent location
+                        'allocated_qty' => 1,
+                    ],
+                ],
+            ],
+        ]);
     }
 }

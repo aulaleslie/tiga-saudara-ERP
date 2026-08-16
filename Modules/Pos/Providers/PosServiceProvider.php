@@ -48,18 +48,7 @@ class PosServiceProvider extends ServiceProvider
         // inherit another's re-entrant ownership and bypass the real lock.
         $this->app->scoped(\Modules\Pos\Services\PosCartMutationLock::class);
 
-        $this->app->bind(PosCheckoutPostingAdapter::class, function ($app) {
-            $splitPostingEnabled = (bool) config('pos.checkout.split_posting.enabled', false);
-
-            if ($splitPostingEnabled) {
-                return $app->make(SplitPosCheckoutPostingAdapter::class);
-            }
-
-            // With split posting disabled, still refuse to collapse a genuinely
-            // multi-owner checkout into one terminal-owned Sale. Stock-only carts keep
-            // the existing inline behavior.
-            return $app->make(OwnerAwarePosCheckoutPostingAdapter::class);
-        });
+        $this->app->bind(PosCheckoutPostingAdapter::class, OwnerAwarePosCheckoutPostingAdapter::class);
         $this->app->bind(PosCashDrawerAdapter::class, LoggingPosCashDrawerAdapter::class);
     }
 
