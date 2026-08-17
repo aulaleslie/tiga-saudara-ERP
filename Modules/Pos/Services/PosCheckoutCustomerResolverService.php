@@ -17,32 +17,58 @@ class PosCheckoutCustomerResolverService
      */
     public function resolve(int $settingId, ?int $selectedCustomerId): array
     {
-        // No customer selected - return non-fatal unresolved payload
-        if ($selectedCustomerId === null || $selectedCustomerId < 1) {
+        // 1. Explicitly selected customer
+        if ($selectedCustomerId !== null && $selectedCustomerId > 0) {
+            $selectedCustomer = Customer::query()
+                ->whereKey($selectedCustomerId)
+                ->first(['id', 'customer_name', 'contact_name', 'customer_phone']);
+
+            if (! $selectedCustomer) {
+                throw new \DomainException('Selected customer is not valid.');
+            }
+
+            $mappedSelected = $this->mapCustomer($selectedCustomer);
+
             return [
-                'selected_customer_id' => null,
-                'selected_customer' => null,
-                'resolved_customer_id' => null,
-                'resolution_source' => 'none',
+                'selected_customer_id' => $mappedSelected['id'],
+                'selected_customer' => $mappedSelected,
+                'resolved_customer_id' => $mappedSelected['id'],
+                'resolution_source' => 'selected',
                 'resolution_error' => null,
             ];
         }
 
-        $selectedCustomer = Customer::query()
-            ->whereKey($selectedCustomerId)
-            ->first(['id', 'customer_name', 'contact_name', 'customer_phone']);
+        // 2. Default walk-in customer configured for setting
+        if ($settingId > 0) {
+            $walkInCustomerId = (int) (\Modules\Setting\Entities\Setting::query()
+                ->whereKey($settingId)
+                ->value('pos_walk_in_customer_id') ?? 0);
 
-        if (! $selectedCustomer) {
-            throw new \DomainException('Selected customer is not valid.');
+            if ($walkInCustomerId > 0) {
+                $walkInCustomer = Customer::query()
+                    ->whereKey($walkInCustomerId)
+                    ->first(['id', 'customer_name', 'contact_name', 'customer_phone']);
+
+                if ($walkInCustomer) {
+                    $mappedWalkIn = $this->mapCustomer($walkInCustomer);
+
+                    return [
+                        'selected_customer_id' => null,
+                        'selected_customer' => $mappedWalkIn,
+                        'resolved_customer_id' => $mappedWalkIn['id'],
+                        'resolution_source' => 'walk_in',
+                        'resolution_error' => null,
+                    ];
+                }
+            }
         }
 
-        $mappedSelected = $this->mapCustomer($selectedCustomer);
-
+        // 3. No customer selected and no walk-in default configured
         return [
-            'selected_customer_id' => $mappedSelected['id'],
-            'selected_customer' => $mappedSelected,
-            'resolved_customer_id' => $mappedSelected['id'],
-            'resolution_source' => 'selected',
+            'selected_customer_id' => null,
+            'selected_customer' => null,
+            'resolved_customer_id' => null,
+            'resolution_source' => 'none',
             'resolution_error' => null,
         ];
     }

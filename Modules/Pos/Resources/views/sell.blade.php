@@ -964,12 +964,13 @@
                 const selectedTier = selected && selected.tier ? selected.tier : null;
                 const resolutionSource = customer.resolution_source || 'unresolved';
 
-                if (resolutionSource === 'selected') {
-                    // Phase 3C: Make selected customer display prominent
+                if (resolutionSource === 'selected' || resolutionSource === 'walk_in') {
+                    // Phase 3C: Make selected/default customer display prominent
                     const tierBadge = selectedTier ? `<span class="badge badge-primary ml-2">${escapeHtml(selectedTier)}</span>` : '';
+                    const defaultBadge = resolutionSource === 'walk_in' ? '<span class="badge badge-secondary ml-2">Default</span>' : '';
                     customerResolutionElement.innerHTML = `
                         <div class="card p-2 bg-light border-primary">
-                            <div class="font-weight-bold" style="font-size: 1.1rem;">${escapeHtml(selectedName || 'Pelanggan terpilih')}${tierBadge}</div>
+                            <div class="font-weight-bold" style="font-size: 1.1rem;">${escapeHtml(selectedName || 'Pelanggan terpilih')}${tierBadge}${defaultBadge}</div>
                             ${selectedPhone ? '<div class="small text-muted">' + escapeHtml(selectedPhone) + '</div>' : ''}
                         </div>
                     `;
@@ -998,7 +999,9 @@
                     if (reqId === latestNoteRequestId) {
                         setNoteStatus('Tersimpan', 'text-success');
                         setTimeout(() => {
-                            if (reqId === latestNoteRequestId) setNoteStatus('', 'text-muted');
+                            if (reqId === latestNoteRequestId) {
+                                setNoteStatus('', 'text-muted');
+                            }
                         }, 2000);
                         if (response.cart_snapshot) {
                             renderCart(response.cart_snapshot);
@@ -1498,7 +1501,7 @@
                 const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
                 const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
                 const customer = snapshot && snapshot.customer ? snapshot.customer : {};
-                const hasCustomer = customer.resolution_source === 'selected' || customer.resolution_source === 'default';
+                const hasCustomer = customer.resolution_source === 'selected' || customer.resolution_source === 'walk_in' || customer.resolution_source === 'default';
                 
                 // Check for price validity
                 const allPricesValid = !snapshot || !Array.isArray(snapshot.lines) || 

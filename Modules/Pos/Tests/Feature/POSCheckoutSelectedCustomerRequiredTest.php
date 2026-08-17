@@ -150,21 +150,20 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
         $response->assertJsonPath('cart_snapshot.lines.0.unit_price', 35000);
     }
 
-    public function test_no_default_walk_in_fallback_at_checkout(): void
+    public function test_default_walk_in_fallback_at_checkout(): void
     {
-        $setting = $this->createSetting('NO WALKIN FALLBACK');
-        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'NO WALKIN FALLBACK');
+        $setting = $this->createSetting('DEFAULT WALKIN FALLBACK');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'DEFAULT WALKIN FALLBACK');
 
         $methods = $this->seedPaymentMethods($setting);
         
-        // Even with walk-in configured, checkout must have explicit selection
         $walkIn = Customer::factory()->create(['setting_id' => $setting->id]);
         $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
 
         $product = $this->createStockedProduct($setting, $location, 'P-NO-WALKIN', 25000);
         $this->addCartLine($cashier, $setting, $product->id, 1);
 
-        // Try to finalize WITHOUT selecting customer (even though walk-in is configured)
+        // Finalize WITHOUT selecting customer - should resolve configured walk-in default
         $response = $this->finalize($cashier, $setting, [
             'idempotency_key' => 'K-NO-WALKIN',
             'payment' => [
@@ -173,9 +172,8 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
             ],
         ]);
 
-        // Should still reject (no fallback anymore)
-        $response->assertStatus(422)
-            ->assertJsonPath('code', 'CUSTOMER_UNRESOLVED');
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
     }
 
     // --- Helpers (complete set) ---

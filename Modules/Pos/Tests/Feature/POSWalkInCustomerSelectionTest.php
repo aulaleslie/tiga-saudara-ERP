@@ -49,6 +49,10 @@ class POSWalkInCustomerSelectionTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.cart.clear',
+            'pos.checkout.payment',
+            'pos.transactions.load',
+            'pos.transactions.save',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -192,6 +196,340 @@ class POSWalkInCustomerSelectionTest extends TestCase
         $this->assertSame($baseline, $afterSwitch);
     }
 
+    public function test_fresh_cart_on_page_load_prepopulates_default_walk_in_customer(): void
+    {
+        $setting = $this->createSetting('BIZ DEFAULT WALKIN LOAD');
+        $walkIn = $this->createCustomer($setting, 'Pelanggan Umum Toko', '08129999001');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'DEFAULT WALKIN LOAD');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $response->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in')
+            ->assertJsonPath('cart_snapshot.customer.selected_customer.id', $walkIn->id);
+    }
+
+    public function test_clear_cart_reapplies_default_walk_in_customer(): void
+    {
+        $setting = $this->createSetting('BIZ DEFAULT WALKIN CLEAR');
+        $walkIn = $this->createCustomer($setting, 'Pelanggan Umum Toko', '08129999002');
+        $vipCustomer = $this->createCustomer($setting, 'Pelanggan VIP', '08129999003');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'DEFAULT WALKIN CLEAR');
+        $product = $this->createStockedProduct($setting, $location, 'SKU-CLR-001', 'Produk Clear', 10000, $cashier->id);
+
+        // Switch to VIP customer and add a product
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $vipCustomer->id])
+            ->assertOk();
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        // Clear the cart
+        $clearResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->deleteJson(route('pos.sell.cart.clear'));
+
+        $clearResponse->assertOk()
+            ->assertJsonPath('cart_snapshot.lines', [])
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in');
+    }
+
+    public function test_fresh_cart_after_successful_checkout_reapplies_default_walk_in_customer(): void
+    {
+        $setting = $this->createSetting('BIZ DEFAULT WALKIN CHECKOUT');
+        $walkIn = $this->createCustomer($setting, 'Pelanggan Umum Toko', '08129999004');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'DEFAULT WALKIN CHECKOUT');
+        $product = $this->createStockedProduct($setting, $location, 'SKU-CHK-001', 'Produk Checkout', 25000, $cashier->id);
+        
+        // Seed payment method
+        $coaId = \DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'COA Cash Checkout ' . $setting->id,
+            'account_number' => 'ACC-CSH-' . $setting->id,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $pm = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash Checkout ' . $setting->id,
+            'coa_id' => $coaId,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+        \Modules\Setting\Entities\SettingPosPaymentMethod::create([
+            'setting_id' => $setting->id,
+            'payment_method_id' => $pm->id,
+            'is_enabled' => true,
+        ]);
+
+        // Add line to cart (customer will resolve to walkIn)
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        // Finalize checkout
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-WALKIN-CHK-' . uniqid(),
+                'payment' => [
+                    'payment_method_id' => $pm->id,
+                    'amount_paid' => 25000,
+                ],
+            ])
+            ->assertStatus(201);
+
+        // Next cart read builds fresh cart with default walk-in customer resolved
+        $nextCartResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $nextCartResponse->assertOk()
+            ->assertJsonPath('cart_snapshot.lines', [])
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in');
+    }
+
+    public function test_no_configured_default_leaves_customer_null_on_cart_starts(): void
+    {
+        $setting = $this->createSetting('BIZ NO WALKIN DEFAULT');
+        $setting->update(['pos_walk_in_customer_id' => null]);
+
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'NO WALKIN DEFAULT');
+
+        // First load
+        $loadResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $loadResponse->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'none');
+
+        // Clear cart
+        $clearResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->deleteJson(route('pos.sell.cart.clear'));
+
+        $clearResponse->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'none');
+    }
+
+    public function test_two_terminals_under_same_setting_both_receive_default_independently(): void
+    {
+        $setting = $this->createSetting('BIZ DUAL TERMINAL WALKIN');
+        $walkIn = $this->createCustomer($setting, 'Pelanggan Walkin Bersama', '08129999005');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier1, $loc1, $session1] = $this->createCashierAndOpenSession($setting, 'DUAL T1');
+        [$cashier2, $loc2, $session2] = $this->createCashierAndOpenSession($setting, 'DUAL T2');
+
+        $response1 = $this->actingAs($cashier1)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $response2 = $this->actingAs($cashier2)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $response1->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in');
+
+        $response2->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in');
+    }
+
+    public function test_cashier_can_override_default_and_tier_repricing_applies_normally(): void
+    {
+        $setting = $this->createSetting('BIZ OVERRIDE WALKIN TIER');
+        $walkIn = $this->createCustomer($setting, 'Pelanggan Regular', '08129999006');
+        $wholesaler = $this->createCustomer($setting, 'Pelanggan Grosir', '08129999007');
+        $wholesaler->update(['tier' => 'WHOLESALER']);
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'OVERRIDE WALKIN TIER');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-TIER-001', 'Produk Bertingkat', 100000, $cashier->id);
+        ProductPrice::query()
+            ->where('product_id', $product->id)
+            ->where('setting_id', $setting->id)
+            ->update([
+                'sale_price' => 100000,
+                'tier_1_price' => 80000,
+            ]);
+
+        // Add line with default regular customer (base price)
+        $addResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        $addResponse->assertJsonPath('cart_snapshot.lines.0.unit_price', 100000);
+
+        // Override default customer with wholesaler
+        $overrideResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $wholesaler->id,
+            ])
+            ->assertOk();
+
+        // Repriced to wholesaler tier 1 price (80000)
+        $overrideResponse->assertJsonPath('cart_snapshot.customer.selected_customer_id', $wholesaler->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'selected')
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 80000)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 80000);
+    }
+
+    public function test_loading_draft_with_different_or_no_customer_is_not_overridden_by_default(): void
+    {
+        $setting = $this->createSetting('BIZ DRAFT LOAD WALKIN');
+        $walkIn = $this->createCustomer($setting, 'Walkin Default Setting', '08129999008');
+        $otherCustomer = $this->createCustomer($setting, 'Pelanggan Khusus Draf', '08129999009');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'DRAFT LOAD WALKIN');
+        $product = $this->createStockedProduct($setting, $location, 'SKU-DFT-001', 'Produk Draf', 50000, $cashier->id);
+
+        // Create a DRAFT transaction with otherCustomer
+        $draftWithCustomer = \Modules\Pos\Entities\PosTransaction::create([
+            'setting_id' => $setting->id,
+            'source_pos_session_id' => $session->id,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'customer_id' => $otherCustomer->id,
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_DRAFT,
+            'code' => 'TRX-DFT-001',
+        ]);
+        $draftLine1 = \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $draftWithCustomer->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 1,
+            'unit_price' => 50000,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'tax_rate_snapshot' => 0,
+        ]);
+        $mapper = app(\Modules\Pos\Services\PosTransactionSnapshotMapper::class);
+        $draftWithCustomer->update([
+            'snapshot_hash' => $mapper->buildSnapshotHash($draftWithCustomer->fresh()),
+        ]);
+
+        // Load the draft into cart
+        $load1Response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $draftWithCustomer->id]))
+            ->assertOk();
+
+        // Customer must be otherCustomer, NOT the setting's walkIn default
+        $load1Response->assertJsonPath('cart_snapshot.customer.selected_customer_id', $otherCustomer->id);
+
+        // Clear/unload cart to test draft with NO customer
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->deleteJson(route('pos.sell.cart.clear'))
+            ->assertOk();
+
+        $draftWithoutCustomer = \Modules\Pos\Entities\PosTransaction::create([
+            'setting_id' => $setting->id,
+            'source_pos_session_id' => $session->id,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'customer_id' => null,
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_DRAFT,
+            'code' => 'TRX-DFT-002',
+        ]);
+        $draftLine2 = \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $draftWithoutCustomer->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 1,
+            'unit_price' => 50000,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'tax_rate_snapshot' => 0,
+        ]);
+        $draftWithoutCustomer->update([
+            'snapshot_hash' => $mapper->buildSnapshotHash($draftWithoutCustomer->fresh()),
+        ]);
+
+        $load2Response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.transactions.load', ['transaction' => $draftWithoutCustomer->id]))
+            ->assertOk();
+
+        // Customer selection remains null, but resolves to setting walk_in default
+        $load2Response->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $walkIn->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'walk_in');
+    }
+
+    public function test_save_draft_without_explicit_customer_persists_resolved_walk_in_customer(): void
+    {
+        $setting = $this->createSetting('BIZ SAVE DRAFT WALKIN');
+        $walkIn = $this->createCustomer($setting, 'Walkin Default Draft', '08129999010');
+        $setting->update(['pos_walk_in_customer_id' => $walkIn->id]);
+
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SAVE DRAFT WALKIN');
+        $product = $this->createStockedProduct($setting, $location, 'SKU-SAV-001', 'Produk Save Draft', 30000, $cashier->id);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
+
+        // Save as draft (save-and-new) without explicitly picking a customer
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = $response->json('transaction.id');
+        $savedTransaction = \Modules\Pos\Entities\PosTransaction::findOrFail($transactionId);
+
+        $this->assertEquals($walkIn->id, $savedTransaction->customer_id);
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([
@@ -207,6 +545,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => true,
+            'pos_transactions_enabled' => true,
         ]);
     }
 
@@ -230,7 +569,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
         $cashier = $this->createUserForSetting(
             $setting,
             $roleSuffix . ' CASHIER',
-            ['pos.access', 'pos.sell', 'pos.sessions.open']
+            ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.cart.clear', 'pos.checkout.payment', 'pos.transactions.load', 'pos.transactions.save']
         );
 
         $terminal = $this->createTerminalForSetting($setting);

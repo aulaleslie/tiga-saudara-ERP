@@ -94,16 +94,21 @@ class PosTransactionService
                     );
                 }
 
+                $resolvedCustomerId = (int) ($snapshot['customer']['resolved_customer_id'] ?? 0);
+                $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
+
                 $transaction->update([
                     'status' => PosTransaction::STATUS_DRAFT,
                     'last_saved_by' => $user->id,
-                    'customer_id' => $cart['selected_customer_id'] ?? null,
+                    'customer_id' => $resolvedCustomerId,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $snapshotTotals,
                     'note' => $cart['note'] ?? null,
                 ]);
             } else {
                 $code = $this->codeGenerator->generate($settingId);
+                $resolvedCustomerId = (int) ($snapshot['customer']['resolved_customer_id'] ?? 0);
+                $resolvedCustomerId = $resolvedCustomerId > 0 ? $resolvedCustomerId : null;
 
                 $transaction = PosTransaction::create([
                     'setting_id' => $settingId,
@@ -112,7 +117,7 @@ class PosTransactionService
                     'created_by' => $user->id,
                     'owner_user_id' => $user->id,
                     'last_saved_by' => $user->id,
-                    'customer_id' => $cart['selected_customer_id'] ?? null,
+                    'customer_id' => $resolvedCustomerId,
                     'source_pos_session_id' => $activeSession->id,
                     'snapshot_totals' => $snapshotTotals,
                     'note' => $cart['note'] ?? null,

@@ -276,7 +276,9 @@ class FinalizePosCheckoutService
             }
         }
 
-        if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0)) {
+        $customerResolutionSource = (string) ($cartSnapshot['customer']['resolution_source'] ?? 'none');
+
+        if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0 || $customerResolutionSource !== 'selected')) {
             throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
         }
 
