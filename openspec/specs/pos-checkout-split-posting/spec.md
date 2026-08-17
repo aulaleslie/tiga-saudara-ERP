@@ -145,7 +145,7 @@ When a selected bundle contains a non-stock-managed component, split planning SH
 - **THEN** checkout preflight or finalize SHALL fail with an actionable validation error
 
 ### Requirement: Split planning SHALL preserve serial parent allocations
-When split posting plans a stock-managed serial-tracked POS checkout line, the system SHALL provide a usable parent allocation to the grouped posting context for that line. The grouped parent allocation MUST include source location, source setting, allocated quantity, tax bucket usage, tax policy snapshot, and assigned serial information needed for posting.
+When split posting plans a stock-managed serial-tracked POS checkout line, the system SHALL provide a usable parent allocation to the grouped posting context for that line. The grouped parent allocation MUST include source location, source setting, allocated quantity, tax bucket usage, tax policy snapshot, and assigned serial information needed for posting. When the line is a bundle line, this preservation requirement SHALL also apply independently to each serial-required bundle component, so each component's assigned serials are carried into its grouped child allocation.
 
 #### Scenario: Serial parent allocation survives split planning
 - **WHEN** split posting is enabled and checkout finalization plans a stock-managed serial-tracked parent line with valid assigned serials
@@ -156,6 +156,16 @@ When split posting plans a stock-managed serial-tracked POS checkout line, the s
 - **WHEN** a stock-managed serial-tracked parent line has assigned serials from two different allowed source location or tax-bucket groups
 - **THEN** split planning creates one grouped parent line per source group
 - **AND** each grouped parent line receives only the serial allocation and quantity for that group
+
+#### Scenario: Serial-required bundle component allocation survives split planning
+- **WHEN** split posting plans a bundle line containing a serial-required component with valid assigned serials
+- **THEN** the grouped child allocation for that component MUST include the component's assigned serial information
+- **AND** the posting adapter does not fail with missing stock allocation for that component.
+
+#### Scenario: Serial-required bundle component split across two source groups
+- **WHEN** a serial-required bundle component has assigned serials sourced from two different owner groups
+- **THEN** split planning creates grouped child allocations per source group for that component
+- **AND** each grouped child allocation receives only the serial subset and quantity belonging to that group.
 
 ### Requirement: Split planning SHALL not duplicate bundle child allocations across groups
 When split posting plans a bundled POS checkout line, bundle child allocations SHALL be scoped to the grouped parent line quantity. The system MUST NOT copy the original full-cart bundle child allocation into every split group.
@@ -169,5 +179,4 @@ When split posting plans a bundled POS checkout line, bundle child allocations S
 - **WHEN** a bundled serial-tracked parent line is planned into one split group
 - **THEN** the group receives exactly the bundle child allocation required for that grouped parent quantity
 - **AND** no additional duplicate child allocation is attached to another group
-
 
