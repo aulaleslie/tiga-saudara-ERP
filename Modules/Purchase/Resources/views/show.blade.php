@@ -545,14 +545,6 @@
                                     @endif
                                 @endcan
 
-                                @can('uomNormalize', $purchase)
-                                    @if (!$purchase->isArchived() && in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY], true))
-                                        <a href="{{ route('purchases.uom-normalize.edit', $purchase->id) }}" class="btn btn-info">
-                                            <i class="bi bi-arrow-repeat mr-2"></i> Normalisasi UOM
-                                        </a>
-                                    @endif
-                                @endcan
-
                                 @can('overrideReportingDate', $purchase)
                                     <button type="button" id="reportingDateOverrideButton" class="btn btn-secondary" data-toggle="modal" data-target="#reportingDateOverrideModal">
                                         <i class="bi bi-calendar-event mr-2"></i> Ubah Tanggal Pelaporan

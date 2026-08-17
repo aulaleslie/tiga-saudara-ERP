@@ -71,6 +71,16 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/products/search', [ProductController::class, 'search'])->name('products.search');
     Route::delete('/products/{product}/media/{media}', [ProductController::class, 'destroyMedia'])->name('products.media.destroy');
 
+    // UOM Normalization
+    Route::middleware('can:uomNormalize,product')
+        ->group(function () {
+            Route::get('/products/{product}/uom-normalize', [\Modules\Product\Http\Controllers\UomNormalizationController::class, 'edit'])->name('products.uom-normalize.edit');
+            Route::post('/products/{product}/uom-normalize/preview', [\Modules\Product\Http\Controllers\UomNormalizationController::class, 'preview'])->name('products.uom-normalize.preview');
+            Route::post('/products/{product}/uom-normalize', [\Modules\Product\Http\Controllers\UomNormalizationController::class, 'store'])->name('products.uom-normalize.store');
+            Route::get('/products/{product}/uom-normalize/units/search', [\Modules\Product\Http\Controllers\UomNormalizationController::class, 'searchUnits'])->name('products.uom-normalize.units.search');
+            Route::get('/products/{product}/uom-normalize/candidate-lines', [\Modules\Product\Http\Controllers\UomNormalizationController::class, 'candidateLines'])->name('products.uom-normalize.candidate-lines');
+        });
+
     Route::resource('products', 'ProductController')->middleware('idempotency');
 
     Route::prefix('products/{product}/bundles')->group(function () {

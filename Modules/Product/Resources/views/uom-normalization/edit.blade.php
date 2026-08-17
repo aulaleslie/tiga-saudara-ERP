@@ -7,35 +7,35 @@
     <div class="row mb-4">
         <div class="col-12">
             <h1 class="h3">Normalisasi UOM Penerimaan</h1>
-            <a href="{{ route('purchases.show', $purchase->id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="cil-arrow-left"></i> Kembali ke Detail Pembelian
+            <a href="{{ route('products.show', $product->id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="cil-arrow-left"></i> Kembali ke Detail Produk
             </a>
         </div>
     </div>
 
-    {{-- Purchase Summary --}}
+    {{-- Product Identity Header --}}
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card">
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-6">
-                            <p class="text-muted small mb-1">Referensi</p>
-                            <p class="font-weight-bold">{{ $purchase->reference }}</p>
+                            <p class="text-muted small mb-1">Nama Produk</p>
+                            <p class="font-weight-bold">{{ $product->product_name }}</p>
                         </div>
                         <div class="col-md-6">
-                            <p class="text-muted small mb-1">Pemasok</p>
-                            <p class="font-weight-bold">{{ $purchase->supplier->supplier_name ?? '—' }}</p>
+                            <p class="text-muted small mb-1">Kode Produk</p>
+                            <p class="font-weight-bold">{{ $product->product_code }}</p>
                         </div>
                     </div>
                     <div class="row mt-3">
                         <div class="col-md-6">
-                            <p class="text-muted small mb-1">Status</p>
-                            <p class="font-weight-bold">{{ $purchase->status }}</p>
+                            <p class="text-muted small mb-1">Unit Dasar Saat Ini</p>
+                            <p class="font-weight-bold">{{ $product->baseUnit->name ?? 'N/A' }} ({{ $product->baseUnit->short_name ?? '—' }})</p>
                         </div>
                         <div class="col-md-6">
-                            <p class="text-muted small mb-1">Total</p>
-                            <p class="font-weight-bold">{{ format_currency($purchase->total_amount) }}</p>
+                            <p class="text-muted small mb-1">Total Stok Sistem</p>
+                            <p class="font-weight-bold">{{ (float) $product->product_quantity }} {{ $product->baseUnit->short_name ?? '' }}</p>
                         </div>
                     </div>
                 </div>
@@ -44,7 +44,7 @@
     </div>
 
     {{-- Normalization Form --}}
-    <div id="uomNormalizationApp" x-data="uomNormalization()" x-init="init()">
+    <div id="uomNormalizationApp" x-data="uomNormalization({{ (int) $product->id }}, {{ (int) ($product->base_unit_id ?? 0) }}, '{{ addslashes($product->baseUnit->name ?? '') }}')" x-init="init()">
 
         {{-- Flash Error Message --}}
         <div class="alert alert-danger" x-show="errorMessage" x-cloak>
@@ -54,55 +54,10 @@
             </button>
         </div>
 
-        {{-- Step 1: Select Product --}}
+        {{-- Step 1: Select Target UOM --}}
         <div class="card mb-4">
             <div class="card-header bg-light">
-                <h6 class="mb-0">1. Pilih Produk</h6>
-            </div>
-            <div class="card-body">
-                <div class="form-group mb-0">
-                    <label for="uomProductSearchInput">Produk</label>
-                    <div class="position-relative" x-data="uomProductSearch()" x-init="init()">
-                        <input
-                            type="text"
-                            id="uomProductSearchInput"
-                            class="form-control"
-                            x-model="query"
-                            @input.debounce.500ms="search()"
-                            @focus="open = true"
-                            @blur="setTimeout(() => open = false, 150)"
-                            placeholder="Ketik nama produk, kode, atau barcode..."
-                            autocomplete="off"
-                        >
-                        <div class="dropdown-menu w-100 shadow show"
-                             x-show="open && results.length > 0"
-                             x-cloak
-                             style="position: absolute; z-index: 1050; max-height: 250px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                            <template x-for="product in results" :key="product.id">
-                                <button type="button"
-                                    @mousedown.prevent="selectProduct(product)"
-                                    class="dropdown-item"
-                                    x-text="product.display_name"></button>
-                            </template>
-                        </div>
-                        <div class="dropdown-menu w-100 show"
-                             x-show="open && query.length >= 2 && results.length === 0 && !loading"
-                             x-cloak
-                             style="position: absolute; z-index: 1050; top: 100%; left: 0; right: 0;">
-                            <div class="dropdown-item disabled">Produk tidak ditemukan...</div>
-                        </div>
-                    </div>
-                    <div class="mt-2" x-show="selectedProductLabel">
-                        <span class="badge badge-primary p-2" x-text="selectedProductLabel"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {{-- Step 2: Select Target UOM --}}
-        <div class="card mb-4" x-show="selectedProductId">
-            <div class="card-header bg-light">
-                <h6 class="mb-0">2. Pilih Unit Base Baru dan Faktor Konversi</h6>
+                <h6 class="mb-0">1. Pilih Unit Base Baru dan Faktor Konversi</h6>
             </div>
             <div class="card-body">
                 <div class="alert alert-info mt-2">
@@ -111,7 +66,7 @@
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label for="uomTargetUnitSearchInput">Unit Base Baru</label>
-                        <div class="position-relative" x-data="uomUnitSearch()" x-init="init()">
+                        <div class="position-relative" x-data="uomUnitSearch({{ (int) ($product->base_unit_id ?? 0) }})" x-init="init()">
                             <input
                                 type="text"
                                 id="uomTargetUnitSearchInput"
@@ -147,23 +102,27 @@
                     </div>
                     <div class="form-group col-md-6">
                         <label for="factorInput">Faktor Konversi (Qty <span x-text="baseUnitName"></span> / Unit Base Baru)</label>
-                        <input type="number" id="factorInput" class="form-control" x-model="factor" min="0.000001" step="any" @input="previewData = null">
+                        <input type="number" id="factorInput" class="form-control" x-model="factor" min="0.000001" step="any" @input="onFactorChanged()">
                     </div>
                 </div>
             </div>
         </div>
 
-        {{-- Step 3: Select Purchase Lines --}}
+        {{-- Step 2: Informational Purchase Lines --}}
         <div class="card mb-4" x-show="targetUnitId && factor > 0">
             <div class="card-header bg-light">
-                <h6 class="mb-0">3. Pilih Baris Pembelian</h6>
+                <h6 class="mb-0">2. Baris Pembelian yang Dinormalisasi</h6>
             </div>
             <div class="card-body">
                 <div x-show="loadingLines" class="text-muted small mb-2">Memuat baris pembelian...</div>
-                <table class="table table-bordered table-sm" x-show="!loadingLines">
+                
+                <div x-show="!loadingLines && candidateLines.length === 0" class="alert alert-warning mb-0">
+                    Tidak ada baris pembelian yang dapat dinormalisasi untuk produk ini di setting aktif.
+                </div>
+
+                <table class="table table-bordered table-sm" x-show="!loadingLines && candidateLines.length > 0">
                     <thead>
                         <tr>
-                            <th><input type="checkbox" @change="toggleAllLines($event)"></th>
                             <th>PO Ref</th>
                             <th>Produk</th>
                             <th>Qty Pesan</th>
@@ -176,11 +135,6 @@
                     <tbody>
                         <template x-for="detail in candidateLines" :key="detail.id">
                             <tr>
-                                <td>
-                                    <input type="checkbox" :value="detail.id"
-                                        class="line-checkbox"
-                                        @change="onLineToggled($event, detail.id)">
-                                </td>
                                 <td x-text="detail.purchase_reference || '—'"></td>
                                 <td x-text="detail.product_name + ' (' + detail.product_code + ')'"></td>
                                 <td x-text="Number(detail.quantity).toFixed(3)"></td>
@@ -198,10 +152,10 @@
             </div>
         </div>
 
-        {{-- Step 4: Reason --}}
-        <div class="card mb-4" x-show="selectedLines.length > 0">
+        {{-- Step 3: Reason --}}
+        <div class="card mb-4" x-show="candidateLines.length > 0 && targetUnitId && factor > 0">
             <div class="card-header bg-light">
-                <h6 class="mb-0">4. Alasan Normalisasi</h6>
+                <h6 class="mb-0">3. Alasan Normalisasi</h6>
             </div>
             <div class="card-body">
                 <div class="form-group">
@@ -212,7 +166,7 @@
         </div>
 
         {{-- Preview Button --}}
-        <div class="mb-4" x-show="selectedLines.length > 0 && targetUnitId && factor > 0">
+        <div class="mb-4" x-show="candidateLines.length > 0 && targetUnitId && factor > 0">
             <button type="button" class="btn btn-info" @click="fetchPreview()" :disabled="loadingPreview">
                 <span x-show="!loadingPreview"><i class="cil-search"></i> Pratinjau Normalisasi</span>
                 <span x-show="loadingPreview"><i class="cil-reload cil-spin"></i> Memuat...</span>
@@ -314,11 +268,7 @@
                     </tbody>
                 </table>
 
-                {{-- Per-PurchaseDetail total, distinct from receipt-line
-                     subtotals above — never presented as a receipt-line
-                     value. Shown only when a purchase detail spans more
-                     than one receipt line, to make the allocation's exact
-                     conservation visible. --}}
+                {{-- Per-PurchaseDetail total --}}
                 <template x-if="purchaseDetailTotals().length > 0">
                     <div class="mt-2">
                         <p class="small text-muted mb-1">Total per Detail Pembelian (bukan subtotal per baris penerimaan):</p>
@@ -398,18 +348,16 @@
 
 @push('page_scripts')
 <script>
-function uomNormalization() {
+function uomNormalization(productId, baseUnitId, baseUnitName) {
     return {
-        selectedProductId: null,
-        selectedProductLabel: '',
+        productId: productId,
+        baseUnitId: baseUnitId,
+        baseUnitName: baseUnitName,
         targetUnitId: '',
         targetUnitName: '',
         factor: '',
-        baseUnitName: '',
-        baseUnitId: null,
         candidateLines: [],
         loadingLines: false,
-        selectedLines: [],
         reason: '',
         isAcknowledged: false,
         isSalesPriceWarningAcknowledged: false,
@@ -420,23 +368,7 @@ function uomNormalization() {
         errorMessage: null,
 
         init() {
-            window.addEventListener('uomProductSelected', (e) => this.onProductSelected(e.detail));
             window.addEventListener('uomUnitSelected', (e) => this.onUnitSelected(e.detail));
-        },
-
-        onProductSelected(product) {
-            this.selectedProductId = product.id;
-            this.selectedProductLabel = product.display_name;
-            this.baseUnitName = product.base_unit_name || '?';
-            this.baseUnitId = product.base_unit_id;
-            window.__uomBaseUnitId = product.base_unit_id;
-            this.targetUnitId = '';
-            this.targetUnitName = '';
-            this.factor = '';
-            this.previewData = null;
-            this.candidateLines = [];
-            this.selectedLines = [];
-
             this.fetchCandidateLines();
         },
 
@@ -446,16 +378,14 @@ function uomNormalization() {
             this.previewData = null;
         },
 
-        async fetchCandidateLines() {
-            if (!this.selectedProductId) {
-                this.candidateLines = [];
-                return;
-            }
+        onFactorChanged() {
+            this.previewData = null;
+        },
 
+        async fetchCandidateLines() {
             this.loadingLines = true;
             try {
-                const params = new URLSearchParams({ product_id: this.selectedProductId });
-                const response = await fetch("{{ route('purchases.uom-normalize.candidate-lines', $purchase->id) }}?" + params, {
+                const response = await fetch("{{ route('products.uom-normalize.candidate-lines', $product->id) }}", {
                     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 });
                 this.candidateLines = await response.json();
@@ -467,30 +397,13 @@ function uomNormalization() {
             }
         },
 
-        toggleAllLines(event) {
-            const checked = event.target.checked;
-            const checkboxes = document.querySelectorAll('.line-checkbox');
-            checkboxes.forEach(cb => { cb.checked = checked; });
-            this.selectedLines = checked ? this.candidateLines.map(l => l.id) : [];
-            this.previewData = null;
-        },
-
-        onLineToggled(event, id) {
-            if (event.target.checked) {
-                if (!this.selectedLines.includes(id)) this.selectedLines.push(id);
-            } else {
-                this.selectedLines = this.selectedLines.filter(x => x !== id);
-            }
-            this.previewData = null;
-        },
-
         async fetchPreview() {
             this.loadingPreview = true;
             this.previewData = null;
             this.errorMessage = null;
 
             try {
-                const response = await fetch("{{ route('purchases.uom-normalize.preview', $purchase->id) }}", {
+                const response = await fetch("{{ route('products.uom-normalize.preview', $product->id) }}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -498,10 +411,9 @@ function uomNormalization() {
                         'Accept': 'application/json',
                     },
                     body: JSON.stringify({
-                        product_id: parseInt(this.selectedProductId),
                         target_unit_id: parseInt(this.targetUnitId),
                         factor: parseFloat(this.factor),
-                        purchase_detail_ids: this.selectedLines,
+                        purchase_detail_ids: this.candidateLines.map(l => l.id),
                     }),
                 });
 
@@ -530,7 +442,7 @@ function uomNormalization() {
             this.errorMessage = null;
 
             try {
-                const response = await fetch("{{ route('purchases.uom-normalize.store', $purchase->id) }}", {
+                const response = await fetch("{{ route('products.uom-normalize.store', $product->id) }}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -538,10 +450,9 @@ function uomNormalization() {
                         'Accept': 'application/json',
                     },
                     body: JSON.stringify({
-                        product_id: parseInt(this.selectedProductId),
                         target_unit_id: parseInt(this.targetUnitId),
                         factor: parseFloat(this.factor),
-                        purchase_detail_ids: this.selectedLines,
+                        purchase_detail_ids: this.candidateLines.map(l => l.id),
                         reason: this.reason,
                         is_acknowledged: this.isAcknowledged,
                         is_sales_price_warning_acknowledged: this.isSalesPriceWarningAcknowledged,
@@ -552,9 +463,9 @@ function uomNormalization() {
                 if (data.success) {
                     this.executionResult = data;
                     this.previewData = null;
-                    // Reload after short delay
+                    // Redirect back to product show page
                     setTimeout(() => {
-                        window.location.href = "{{ route('purchases.show', $purchase->id) }}";
+                        window.location.href = "{{ route('products.show', $product->id) }}";
                     }, 2000);
                 } else {
                     this.errorMessage = data.message || 'Gagal menjalankan normalisasi.';
@@ -572,19 +483,11 @@ function uomNormalization() {
             return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2 }).format(value);
         },
 
-        // Higher-precision display for exact unrounded unit prices and
-        // rounding residuals (6 decimals), used only in the rounding
-        // disclosure — never for supplier subtotal recalculation.
         formatCurrencyPrecise(value) {
             if (value === null || value === undefined) return '—';
             return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(value);
         },
 
-        // Groups preview lines by purchase_detail_id, returning only the
-        // PurchaseDetail-level totals for details spanning MORE THAN ONE
-        // receipt line — surfaced separately from the per-receipt subtotal
-        // column so the allocation's exact conservation is visible without
-        // ever presenting this total as a single receipt line's subtotal.
         purchaseDetailTotals() {
             const lines = this.previewData?.lines || [];
             const grouped = {};
@@ -604,8 +507,9 @@ function uomNormalization() {
     };
 }
 
-function uomProductSearch() {
+function uomUnitSearch(excludeUnitId) {
     return {
+        excludeUnitId: excludeUnitId,
         query: '',
         results: [],
         open: false,
@@ -613,64 +517,6 @@ function uomProductSearch() {
         abortController: null,
 
         init() {},
-
-        async search() {
-            if (this.query.length < 2) {
-                this.results = [];
-                this.open = false;
-                return;
-            }
-
-            this.loading = true;
-            this.open = true;
-
-            if (this.abortController) {
-                this.abortController.abort();
-            }
-            this.abortController = new AbortController();
-
-            try {
-                const params = new URLSearchParams({ query: this.query, limit: 20 });
-                const response = await fetch("{{ route('purchases.uom-normalize.products.search', $purchase->id) }}?" + params, {
-                    signal: this.abortController.signal,
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                });
-                if (!response.ok) throw new Error('Network response was not ok');
-                this.results = await response.json();
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    console.error('Product search error:', error);
-                    this.results = [];
-                }
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        selectProduct(product) {
-            this.query = '';
-            this.results = [];
-            this.open = false;
-            window.dispatchEvent(new CustomEvent('uomProductSelected', { detail: product }));
-        },
-    };
-}
-
-function uomUnitSearch() {
-    return {
-        query: '',
-        results: [],
-        open: false,
-        loading: false,
-        abortController: null,
-
-        init() {
-            window.addEventListener('uomProductSelected', () => {
-                // Product changed: clear any stale unit search results.
-                this.query = '';
-                this.results = [];
-            });
-        },
 
         async search() {
             if (this.query.length < 1) {
@@ -688,11 +534,10 @@ function uomUnitSearch() {
             this.abortController = new AbortController();
 
             try {
-                const excludeUnitId = window.__uomBaseUnitId || null;
                 const params = new URLSearchParams({ query: this.query, limit: 20 });
-                if (excludeUnitId) params.set('exclude_unit_id', excludeUnitId);
+                if (this.excludeUnitId) params.set('exclude_unit_id', this.excludeUnitId);
 
-                const response = await fetch("{{ route('purchases.uom-normalize.units.search', $purchase->id) }}?" + params, {
+                const response = await fetch("{{ route('products.uom-normalize.units.search', $product->id) }}?" + params, {
                     signal: this.abortController.signal,
                     headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
                 });

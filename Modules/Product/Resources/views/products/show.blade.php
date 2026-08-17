@@ -121,8 +121,13 @@
 
         <!-- Unit and Conversion Information -->
         <div class="card mt-4">
-            <div class="card-header">
-                <h5>Informasi Unit & Konversi</h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Informasi Unit & Konversi</h5>
+                @can('uomNormalize', $product)
+                    <a href="{{ route('products.uom-normalize.edit', $product->id) }}" class="btn btn-info btn-sm">
+                        <i class="bi bi-arrow-repeat mr-1"></i> Normalisasi UOM
+                    </a>
+                @endcan
             </div>
             <div class="card-body">
                 <div class="table-responsive">

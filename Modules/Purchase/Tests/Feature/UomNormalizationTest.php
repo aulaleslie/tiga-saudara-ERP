@@ -524,50 +524,73 @@ class UomNormalizationTest extends TestCase
 
     public function test_authorized_user_can_access_normalization_form()
     {
-        $purchase = $this->createPurchase();
-        $purchase->update(['status' => Purchase::STATUS_RECEIVED]);
-
         $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->get(route('purchases.uom-normalize.edit', $purchase->id))
+            ->get(route('products.uom-normalize.edit', $this->product->id))
             ->assertStatus(200);
     }
 
     public function test_unauthorized_user_cannot_access_normalization_form()
     {
-        $purchase = $this->createPurchase();
-        $purchase->update(['status' => Purchase::STATUS_RECEIVED]);
-
         $this->actingAs($this->unauthorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->get(route('purchases.uom-normalize.edit', $purchase->id))
+            ->get(route('products.uom-normalize.edit', $this->product->id))
             ->assertStatus(403);
     }
 
-    public function test_normalization_denied_for_non_received_purchase()
+    public function test_normalization_denied_for_non_stock_managed_product()
     {
-        $purchase = $this->createPurchase();
-        $purchase->update(['status' => Purchase::STATUS_APPROVED]); // Not received
+        $this->product->update(['stock_managed' => false]);
 
         $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->get(route('purchases.uom-normalize.edit', $purchase->id))
+            ->get(route('products.uom-normalize.edit', $this->product->id))
             ->assertStatus(403);
     }
 
-    public function test_normalization_denied_for_wrong_setting()
+    public function test_normalization_denied_for_merged_product()
     {
-        $otherSetting = Setting::factory()->create();
-        $purchase = $this->createPurchase();
-        $purchase->update([
-            'status' => Purchase::STATUS_RECEIVED,
-            'setting_id' => $otherSetting->id, // Different setting
+        $otherProduct = Product::create([
+            'product_name' => 'Target Merged',
+            'product_code' => 'MRG-001',
+            'product_cost' => 100,
+            'product_price' => 200,
+            'product_quantity' => 0,
+            'setting_id' => $this->setting->id,
+            'stock_managed' => true,
+            'base_unit_id' => $this->pcsUnit->id,
+            'unit_id' => $this->pcsUnit->id,
+        ]);
+        $this->product->update(['merged_into_id' => $otherProduct->id]);
+
+        $this->actingAs($this->authorizedUser)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('products.uom-normalize.edit', $this->product->id))
+            ->assertStatus(403);
+    }
+
+    public function test_product_with_no_eligible_purchase_history_can_open_page()
+    {
+        // A brand new product without any purchases/receipts
+        $newProduct = Product::create([
+            'product_name' => 'Zero Purchases Product',
+            'product_code' => 'ZERO-001',
+            'product_cost' => 100,
+            'product_price' => 200,
+            'product_quantity' => 0,
+            'setting_id' => $this->setting->id,
+            'stock_managed' => true,
+            'base_unit_id' => $this->pcsUnit->id,
+            'unit_id' => $this->pcsUnit->id,
         ]);
 
-        $this->actingAs($this->authorizedUser)
+        $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->get(route('purchases.uom-normalize.edit', $purchase->id))
-            ->assertStatus(403);
+            ->get(route('products.uom-normalize.edit', $newProduct->id));
+
+        $response->assertStatus(200);
+        $response->assertSee('Zero Purchases Product');
+        $response->assertSee('Tidak ada baris pembelian yang dapat dinormalisasi');
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -1710,8 +1733,7 @@ class UomNormalizationTest extends TestCase
         // POST directly to store — never call the preview endpoint.
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->postJson(route('purchases.uom-normalize.store', $purchaseA->id), [
-                'product_id' => $this->product->id,
+            ->postJson(route('products.uom-normalize.store', $this->product->id), [
                 'target_unit_id' => $this->targetUnit->id,
                 'factor' => (float) $this->factor,
                 'purchase_detail_ids' => [$pdA->id], // B omitted -> partial scope
@@ -1958,7 +1980,7 @@ class UomNormalizationTest extends TestCase
 
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->get(route('purchases.uom-normalize.edit', $purchase->id));
+            ->get(route('products.uom-normalize.edit', $this->product->id));
 
         $response->assertStatus(200);
         $html = $response->getContent();
@@ -1973,169 +1995,15 @@ class UomNormalizationTest extends TestCase
         $this->assertStringNotContainsString('BulkUnit50', $html);
     }
 
-    public function test_product_search_endpoint_returns_scoped_limited_results()
-    {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
-        for ($i = 0; $i < 110; $i++) {
-            Product::create([
-                'product_name' => "Bulk Product {$i}",
-                'product_code' => "BULK-{$i}",
-                'product_cost' => 100,
-                'product_price' => 200,
-                'product_quantity' => 0,
-                'setting_id' => $this->setting->id,
-                'stock_managed' => true,
-                'base_unit_id' => $this->pcsUnit->id,
-                'unit_id' => $this->pcsUnit->id,
-            ]);
-        }
-
-        // A distinctly-named product WITH purchase history in the same
-        // setting, but on a DIFFERENT purchase than the route Purchase.
-        // The product selector is scoped to the route Purchase's own
-        // products, so this must NOT be discoverable here even though it
-        // shares the same setting.
-        $findable = Product::create([
-            'product_name' => 'Findable Widget XYZ',
-            'product_code' => 'FIND-XYZ-001',
-            'product_cost' => 100,
-            'product_price' => 200,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        $findablePurchase = $this->createPurchase();
-        PurchaseDetail::create([
-            'purchase_id' => $findablePurchase->id,
-            'product_id' => $findable->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $findable->product_name,
-            'product_code' => $findable->product_code,
-        ]);
-
-        $response = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.products.search', $purchase->id) . '?query=Findable');
-
-        $response->assertStatus(200);
-        $this->assertCount(0, $response->json());
-    }
-
-    public function test_product_search_endpoint_returns_only_products_on_route_purchase()
-    {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
-        // Second product ALSO on the route Purchase — must be discoverable.
-        $onRoutePurchase = Product::create([
-            'product_name' => 'On Route Purchase Widget',
-            'product_code' => 'ON-ROUTE-001',
-            'barcode' => 'BARCODE-ON-ROUTE-001',
-            'product_cost' => 100,
-            'product_price' => 200,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        PurchaseDetail::create([
-            'purchase_id' => $purchase->id,
-            'product_id' => $onRoutePurchase->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $onRoutePurchase->product_name,
-            'product_code' => $onRoutePurchase->product_code,
-        ]);
-
-        // A product with purchase history in the same setting, but on a
-        // DIFFERENT purchase — must be excluded even though it matches by
-        // name/code/barcode search terms overlapping the route product.
-        $offRoutePurchaseProduct = Product::create([
-            'product_name' => 'Off Route Purchase Widget',
-            'product_code' => 'OFF-ROUTE-001',
-            'barcode' => 'BARCODE-OFF-ROUTE-001',
-            'product_cost' => 100,
-            'product_price' => 200,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        $otherPurchase = $this->createPurchase();
-        PurchaseDetail::create([
-            'purchase_id' => $otherPurchase->id,
-            'product_id' => $offRoutePurchaseProduct->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $offRoutePurchaseProduct->product_name,
-            'product_code' => $offRoutePurchaseProduct->product_code,
-        ]);
-
-        // Search by name.
-        $byName = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.products.search', $purchase->id) . '?query=Route Purchase Widget');
-        $byName->assertStatus(200);
-        $namedIds = collect($byName->json())->pluck('id')->all();
-        $this->assertContains($onRoutePurchase->id, $namedIds);
-        $this->assertNotContains($offRoutePurchaseProduct->id, $namedIds);
-
-        // Search by code.
-        $byCode = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.products.search', $purchase->id) . '?query=ON-ROUTE-001');
-        $byCode->assertStatus(200);
-        $this->assertCount(1, $byCode->json());
-        $this->assertEquals($onRoutePurchase->id, $byCode->json()[0]['id']);
-
-        // Search by barcode.
-        $byBarcode = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.products.search', $purchase->id) . '?query=BARCODE-ON-ROUTE-001');
-        $byBarcode->assertStatus(200);
-        $this->assertCount(1, $byBarcode->json());
-        $this->assertEquals($onRoutePurchase->id, $byBarcode->json()[0]['id']);
-
-        // Confirm the off-route product is genuinely excluded from every
-        // search mode, not merely absent from this one query.
-        $offRouteByCode = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.products.search', $purchase->id) . '?query=OFF-ROUTE-001');
-        $offRouteByCode->assertStatus(200);
-        $this->assertCount(0, $offRouteByCode->json());
-    }
-
     public function test_unit_search_endpoint_excludes_current_base_unit_and_limits_results()
     {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
         for ($i = 0; $i < 55; $i++) {
             Unit::create(['name' => "SearchUnit{$i}", 'short_name' => "SU{$i}"]);
         }
 
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.units.search', $purchase->id) . '?query=SearchUnit&limit=50');
+            ->getJson(route('products.uom-normalize.units.search', $this->product->id) . '?query=SearchUnit&limit=50');
 
         $response->assertStatus(200);
         $results = $response->json();
@@ -2143,164 +2011,19 @@ class UomNormalizationTest extends TestCase
         $this->assertGreaterThan(0, count($results));
 
         // Now exclude one specific unit and confirm it's absent.
-        // Unit names are stored uppercased (BaseModel::setAttribute), so query
-        // using the actual persisted casing rather than the original literal.
         $excludeUnit = Unit::where('name', 'SEARCHUNIT0')->first();
         $this->assertNotNull($excludeUnit);
         $response2 = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.units.search', $purchase->id) . '?query=SearchUnit0&exclude_unit_id=' . $excludeUnit->id);
+            ->getJson(route('products.uom-normalize.units.search', $this->product->id) . '?query=SearchUnit0&exclude_unit_id=' . $excludeUnit->id);
 
         $response2->assertStatus(200);
         $ids = collect($response2->json())->pluck('id')->all();
         $this->assertNotContains($excludeUnit->id, $ids);
     }
 
-    // ─── Server-Side Product-Belongs-To-Purchase Boundary ────────────────
-
-    public function test_candidate_lines_rejects_product_not_on_route_purchase()
+    public function test_candidate_lines_endpoint_returns_lines_across_active_setting()
     {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
-        $offRouteProduct = Product::create([
-            'product_name' => 'Off Route Candidate Product',
-            'product_code' => 'OFF-ROUTE-CAND-001',
-            'product_cost' => 500,
-            'product_price' => 1000,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        $otherPurchase = $this->createPurchase();
-        PurchaseDetail::create([
-            'purchase_id' => $otherPurchase->id,
-            'product_id' => $offRouteProduct->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $offRouteProduct->product_name,
-            'product_code' => $offRouteProduct->product_code,
-        ]);
-
-        $response = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.candidate-lines', $purchase->id) . '?product_id=' . $offRouteProduct->id);
-
-        $response->assertStatus(422);
-        $response->assertJson(['message' => 'Produk tidak terdapat pada pembelian ini.']);
-    }
-
-    public function test_preview_rejects_product_not_on_route_purchase_without_mutation()
-    {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
-        $offRouteProduct = Product::create([
-            'product_name' => 'Off Route Preview Product',
-            'product_code' => 'OFF-ROUTE-PREVIEW-001',
-            'product_cost' => 500,
-            'product_price' => 1000,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        $otherPurchase = $this->createPurchase();
-        $offRoutePurchaseDetail = PurchaseDetail::create([
-            'purchase_id' => $otherPurchase->id,
-            'product_id' => $offRouteProduct->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $offRouteProduct->product_name,
-            'product_code' => $offRouteProduct->product_code,
-        ]);
-
-        $response = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->postJson(route('purchases.uom-normalize.preview', $purchase->id), [
-                'product_id' => $offRouteProduct->id,
-                'target_unit_id' => $this->targetUnit->id,
-                'factor' => (float) $this->factor,
-                'purchase_detail_ids' => [$offRoutePurchaseDetail->id],
-            ]);
-
-        $response->assertStatus(422);
-        $response->assertJson([
-            'success' => false,
-            'message' => 'Produk tidak terdapat pada pembelian ini.',
-        ]);
-    }
-
-    public function test_store_rejects_product_not_on_route_purchase_without_mutation()
-    {
-        [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
-
-        $offRouteProduct = Product::create([
-            'product_name' => 'Off Route Store Product',
-            'product_code' => 'OFF-ROUTE-STORE-001',
-            'product_cost' => 500,
-            'product_price' => 1000,
-            'product_quantity' => 0,
-            'setting_id' => $this->setting->id,
-            'stock_managed' => true,
-            'base_unit_id' => $this->pcsUnit->id,
-            'unit_id' => $this->pcsUnit->id,
-        ]);
-        $otherPurchase = $this->createPurchase();
-        $offRoutePurchaseDetail = PurchaseDetail::create([
-            'purchase_id' => $otherPurchase->id,
-            'product_id' => $offRouteProduct->id,
-            'quantity' => 5,
-            'unit_price' => 1000,
-            'price' => 1000,
-            'sub_total' => 5000,
-            'product_discount_type' => 'Fixed',
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'product_name' => $offRouteProduct->product_name,
-            'product_code' => $offRouteProduct->product_code,
-        ]);
-
-        $beforeBatchCount = UomNormalizationBatch::count();
-
-        $response = $this->actingAs($this->authorizedUser)
-            ->withSession(['setting_id' => $this->setting->id])
-            ->postJson(route('purchases.uom-normalize.store', $purchase->id), [
-                'product_id' => $offRouteProduct->id,
-                'target_unit_id' => $this->targetUnit->id,
-                'factor' => (float) $this->factor,
-                'purchase_detail_ids' => [$offRoutePurchaseDetail->id],
-                'reason' => 'Should be rejected before execution',
-                'is_acknowledged' => true,
-                'is_sales_price_warning_acknowledged' => true,
-            ]);
-
-        $response->assertStatus(422);
-        $response->assertJson([
-            'success' => false,
-            'message' => 'Produk tidak terdapat pada pembelian ini.',
-        ]);
-        $this->assertEquals($beforeBatchCount, UomNormalizationBatch::count());
-        $this->assertEquals(5.0, (float) $offRoutePurchaseDetail->fresh()->quantity);
-    }
-
-    public function test_valid_route_purchase_product_still_discovers_lines_across_active_setting()
-    {
-        // Proves the UI-boundary fix did not weaken product-wide correction
-        // safety: a product that legitimately appears on the route
-        // Purchase must still surface its OTHER purchase-detail lines
-        // elsewhere in the same active setting via candidate-lines.
         [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
 
         $otherPurchase = $this->createPurchase();
@@ -2320,7 +2043,7 @@ class UomNormalizationTest extends TestCase
 
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.candidate-lines', $purchase->id) . '?product_id=' . $this->product->id);
+            ->getJson(route('products.uom-normalize.candidate-lines', $this->product->id));
 
         $response->assertStatus(200);
         $results = collect($response->json());
@@ -2328,7 +2051,7 @@ class UomNormalizationTest extends TestCase
         $this->assertTrue($results->contains(fn ($r) => $r['id'] === $otherSettingPurchaseDetail->id));
     }
 
-    public function test_candidate_lines_endpoint_returns_only_selected_products_lines()
+    public function test_candidate_lines_endpoint_returns_only_route_products_lines()
     {
         [$purchase, $purchaseDetail, $receivedNote, $receivedNoteDetail] = $this->createReceivedPurchase(10);
 
@@ -2359,7 +2082,7 @@ class UomNormalizationTest extends TestCase
 
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->getJson(route('purchases.uom-normalize.candidate-lines', $purchase->id) . '?product_id=' . $this->product->id);
+            ->getJson(route('products.uom-normalize.candidate-lines', $this->product->id));
 
         $response->assertStatus(200);
         $results = collect($response->json());
@@ -2867,8 +2590,7 @@ class UomNormalizationTest extends TestCase
 
         $response = $this->actingAs($this->authorizedUser)
             ->withSession(['setting_id' => $this->setting->id])
-            ->postJson(route('purchases.uom-normalize.preview', $purchase->id), [
-                'product_id' => $this->product->id,
+            ->postJson(route('products.uom-normalize.preview', $this->product->id), [
                 'target_unit_id' => $this->targetUnit->id,
                 'factor' => 3,
                 'purchase_detail_ids' => [$purchaseDetail->id],

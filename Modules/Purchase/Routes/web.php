@@ -90,18 +90,6 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             Route::post('/purchases/{purchase}/correct/recalculate', [PurchaseCorrectionController::class, 'executeRecalculation'])->name('purchases.correction.recalculate');
         });
 
-    // UOM Normalization
-    Route::middleware('can:purchases.received.uom-normalize')
-        ->group(function () {
-            Route::get('/purchases/{purchase}/uom-normalize', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'edit'])->name('purchases.uom-normalize.edit');
-            Route::post('/purchases/{purchase}/uom-normalize/preview', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'preview'])->name('purchases.uom-normalize.preview');
-            Route::post('/purchases/{purchase}/uom-normalize', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'store'])->name('purchases.uom-normalize.store');
-            Route::get('/purchases/{purchase}/uom-normalize/history', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'history'])->name('purchases.uom-normalize.history');
-            Route::get('/purchases/{purchase}/uom-normalize/products/search', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'searchProducts'])->name('purchases.uom-normalize.products.search');
-            Route::get('/purchases/{purchase}/uom-normalize/units/search', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'searchUnits'])->name('purchases.uom-normalize.units.search');
-            Route::get('/purchases/{purchase}/uom-normalize/candidate-lines', [\Modules\Purchase\Http\Controllers\UomNormalizationController::class, 'candidateLines'])->name('purchases.uom-normalize.candidate-lines');
-        });
-
     // Purchase Receiving Completions
     Route::middleware('can:purchases.receive.complete_shortfall')
         ->group(function () {
