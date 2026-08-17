@@ -163,7 +163,20 @@
             {{-- Mobile: vertical list; Desktop: tight grid --}}
             <div class="space-y-2 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3 lg:gap-4">
                 @foreach($products as $product)
-                    <div class="rounded-md border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    @php
+                        $isOos = ($product->stock_state ?? '') === 'out_of_stock';
+                        $isService = ($product->stock_state ?? '') === 'service';
+                    @endphp
+                    <div class="relative rounded-md border shadow-sm overflow-hidden {{ $isOos ? 'opacity-65 grayscale cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-white border-slate-200' }}">
+                        @if($isOos)
+                            <div class="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 bg-red-600/90 text-white px-2.5 py-0.5 rounded font-extrabold text-[11px] uppercase tracking-wider whitespace-nowrap pointer-events-none z-10 shadow border border-white/20">
+                                Stok Kosong
+                            </div>
+                        @elseif($isService)
+                            <div class="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 bg-sky-500/90 text-white px-2.5 py-0.5 rounded font-extrabold text-[11px] uppercase tracking-wider whitespace-nowrap pointer-events-none z-10 shadow border border-white/20">
+                                Service
+                            </div>
+                        @endif
                         <div class="p-3 md:p-2.5">
                             {{-- Mobile: row (image ≈26% left). Desktop: column (image on top). --}}
                             <div class="flex items-start gap-3 md:block md:space-y-2">
@@ -211,8 +224,26 @@
                                             @endif
                                         </div>
 
-                                        {{-- Codes (product code + barcode) --}}
+                                        {{-- Stok --}}
                                         <div class="mb-1 md:mb-0">
+                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Stok</div>
+                                            @if($isService)
+                                                <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
+                                                    -
+                                                </div>
+                                            @elseif($isOos)
+                                                <div class="text-[13.5px] md:text-[12.5px] font-bold text-red-600">
+                                                    {{ $product->formatted_available_qty ?? (float) ($product->available_qty ?? 0) }}
+                                                </div>
+                                            @else
+                                                <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
+                                                    {{ $product->formatted_available_qty ?? (float) ($product->available_qty ?? 0) }}
+                                                </div>
+                                            @endif
+                                        </div>
+
+                                        {{-- Codes (product code + barcode) --}}
+                                        <div class="mb-1 md:mb-0 md:col-span-2">
                                             <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Kode / Barcode</div>
                                             <div class="text-[14px] md:text-[13px] text-slate-700 break-words">
                                                 <span class="font-mono">{{ $product->product_code }}</span>

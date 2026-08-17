@@ -2,6 +2,7 @@
 
 namespace App\Livewire\PricePoint;
 
+use App\Support\SalesLocationResolver;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -163,6 +164,12 @@ class Browser extends Component
 
         $settingId = $this->setting->id;
 
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)
+            ->filter(fn ($locationId) => (int) $locationId > 0)
+            ->map(fn ($locationId) => (int) $locationId)
+            ->values()
+            ->all();
+
         $products = Product::query()
             ->select('products.*')
             ->selectSub(function ($q) {
@@ -186,6 +193,16 @@ class Browser extends Component
                     ->where('pp.setting_id', $this->setting->id)
                     ->limit(1);
             }, 'display_tier_2_price')
+            ->when(
+                !empty($allowedLocationIds),
+                function ($q) use ($allowedLocationIds) {
+                    $ids = implode(',', $allowedLocationIds);
+                    $q->selectRaw("COALESCE((SELECT SUM(ps.quantity) FROM product_stocks ps WHERE ps.product_id = products.id AND ps.location_id IN ({$ids})), 0) as available_qty");
+                },
+                function ($q) {
+                    $q->selectRaw('0 as available_qty');
+                }
+            )
             ->whereExists(function ($q) {
                 $q->from('product_prices as pp')
                     ->select(DB::raw(1))
@@ -195,9 +212,10 @@ class Browser extends Component
             ->with([
                 'brand:id,name',
                 'category:id,category_name',
+                'baseUnit:id,short_name',
                 'conversions' => function ($q) use ($settingId) {
                     $q->with([
-                        'unit:id,name',
+                        'unit:id,name,short_name',
                         'prices' => fn ($priceQuery) => $priceQuery->where('setting_id', $settingId),
                     ]);
                 },
@@ -237,13 +255,40 @@ class Browser extends Component
                 pageName: $this->pageName // <- IMPORTANT
             );
 
-        // Add contextual prices to each product to avoid N+1 queries in the view
+        // Add contextual prices, stock state, and formatted available quantity to each product to avoid N+1 queries in the view
         $products->transform(function ($product) {
             $product->contextual_price = $this->resolveContextualPrice(
                 $product->display_sale_price,
                 $product->display_tier_1_price,
                 $product->display_tier_2_price
             );
+
+            if (!$product->stock_managed) {
+                $product->stock_state = 'service';
+            } elseif ((float) $product->available_qty <= 0) {
+                $product->stock_state = 'out_of_stock';
+            } else {
+                $product->stock_state = 'in_stock';
+            }
+
+            $qty = (int) ($product->available_qty ?? 0);
+            $baseUnit = $product->baseUnit;
+            $conversions = $product->conversions;
+
+            if ($baseUnit && $conversions && $conversions->isNotEmpty()) {
+                $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
+                $conversionFactor = $biggestConversion->conversion_factor ?: 1;
+                $convertedQuantity = floor($qty / $conversionFactor);
+                $remainder = $qty % $conversionFactor;
+                $biggestUnitShortName = $biggestConversion->unit->short_name ?? $biggestConversion->unit->name ?? '';
+
+                $product->formatted_available_qty = "{$convertedQuantity} {$biggestUnitShortName} {$remainder} {$baseUnit->short_name}";
+            } elseif ($baseUnit) {
+                $product->formatted_available_qty = "{$qty} {$baseUnit->short_name}";
+            } else {
+                $product->formatted_available_qty = (string) $qty;
+            }
+
             return $product;
         });
 

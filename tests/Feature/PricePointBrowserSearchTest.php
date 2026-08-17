@@ -191,4 +191,207 @@ class PricePointBrowserSearchTest extends TestCase
         $products = $component->viewData('products');
         $this->assertCount(0, $products);
     }
+
+    public function test_stock_state_and_available_qty_are_computed_correctly_per_setting_locations(): void
+    {
+        $location = Location::create(['name' => 'Main Shop', 'setting_id' => $this->setting->id]);
+        \Modules\Setting\Entities\SettingSaleLocation::create([
+            'setting_id' => $this->setting->id,
+            'location_id' => $location->id,
+            'is_enabled' => true,
+            'position' => 1,
+        ]);
+        \App\Support\SalesLocationResolver::forget($this->setting->id);
+
+        // 1. In-stock product
+        $inStockProduct = $this->createProduct([
+            'product_name' => 'In Stock Item',
+            'stock_managed' => true,
+        ]);
+        $this->createProductPrice($inStockProduct);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $inStockProduct->id,
+            'location_id' => $location->id,
+            'quantity' => 15,
+            'quantity_non_tax' => 15,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // 2. Out of stock product (quantity <= 0)
+        $oosProduct = $this->createProduct([
+            'product_name' => 'OOS Item',
+            'stock_managed' => true,
+        ]);
+        $this->createProductPrice($oosProduct);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $oosProduct->id,
+            'location_id' => $location->id,
+            'quantity' => 0,
+            'quantity_non_tax' => 0,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // 3. Service product (stock_managed = false)
+        $serviceProduct = $this->createProduct([
+            'product_name' => 'Service Item',
+            'stock_managed' => false,
+            'is_sold' => true,
+        ]);
+        $this->createProductPrice($serviceProduct);
+
+        $component = Livewire::actingAs($this->user)
+            ->test(Browser::class, ['setting' => $this->setting]);
+
+        $products = $component->viewData('products')->keyBy('id');
+
+        $this->assertEquals(15, (float) $products[$inStockProduct->id]->available_qty);
+        $this->assertEquals('in_stock', $products[$inStockProduct->id]->stock_state);
+
+        $this->assertEquals(0, (float) $products[$oosProduct->id]->available_qty);
+        $this->assertEquals('out_of_stock', $products[$oosProduct->id]->stock_state);
+
+        $this->assertEquals('service', $products[$serviceProduct->id]->stock_state);
+
+        // Verify HTML rendering contains badges and values
+        $component->assertSee('Stok Kosong')
+            ->assertSee('Service')
+            ->assertSee('15');
+    }
+
+    public function test_unit_denominated_stock_quantity_formatting(): void
+    {
+        $location = Location::create(['name' => 'Storefront', 'setting_id' => $this->setting->id]);
+        \Modules\Setting\Entities\SettingSaleLocation::create([
+            'setting_id' => $this->setting->id,
+            'location_id' => $location->id,
+            'is_enabled' => true,
+            'position' => 1,
+        ]);
+        \App\Support\SalesLocationResolver::forget($this->setting->id);
+
+        $baseUnit = Unit::create(['name' => 'Pcs', 'short_name' => 'pcs', 'operator' => '*', 'operation_value' => 1]);
+        $boxUnit = Unit::create(['name' => 'Dus', 'short_name' => 'dus', 'operator' => '*', 'operation_value' => 1]);
+        $cartonUnit = Unit::create(['name' => 'Karton', 'short_name' => 'ktn', 'operator' => '*', 'operation_value' => 1]);
+
+        // (a) Product with base unit and 1 conversion: 25 pcs with Dus (10 pcs) -> "2 dus 5 pcs"
+        $prodA = $this->createProduct([
+            'product_name' => 'Prod A Conversion',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+        ]);
+        $this->createProductPrice($prodA);
+        ProductUnitConversion::create([
+            'product_id' => $prodA->id,
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $boxUnit->id,
+            'conversion_factor' => 10,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $prodA->id,
+            'location_id' => $location->id,
+            'quantity' => 25,
+            'quantity_non_tax' => 25,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // (b) Product with multiple conversions: Dus (10 pcs) & Karton (50 pcs), 125 pcs -> "2 ktn 25 pcs" (picks largest factor)
+        $prodB = $this->createProduct([
+            'product_name' => 'Prod B Multi Conversion',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+        ]);
+        $this->createProductPrice($prodB);
+        ProductUnitConversion::create([
+            'product_id' => $prodB->id,
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $boxUnit->id,
+            'conversion_factor' => 10,
+        ]);
+        ProductUnitConversion::create([
+            'product_id' => $prodB->id,
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $cartonUnit->id,
+            'conversion_factor' => 50,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $prodB->id,
+            'location_id' => $location->id,
+            'quantity' => 125,
+            'quantity_non_tax' => 125,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // (c) Product with base unit and no conversions: 7 pcs -> "7 pcs"
+        $prodC = $this->createProduct([
+            'product_name' => 'Prod C Base Unit Only',
+            'stock_managed' => true,
+            'base_unit_id' => $baseUnit->id,
+        ]);
+        $this->createProductPrice($prodC);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $prodC->id,
+            'location_id' => $location->id,
+            'quantity' => 7,
+            'quantity_non_tax' => 7,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // (d) Product with no base unit: 9 -> "9"
+        $prodD = $this->createProduct([
+            'product_name' => 'Prod D No Unit',
+            'stock_managed' => true,
+            'base_unit_id' => null,
+        ]);
+        $this->createProductPrice($prodD);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $prodD->id,
+            'location_id' => $location->id,
+            'quantity' => 9,
+            'quantity_non_tax' => 9,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        // (e) Service product: stock_managed = false -> "-"
+        $prodE = $this->createProduct([
+            'product_name' => 'Prod E Service',
+            'stock_managed' => false,
+            'is_sold' => true,
+            'base_unit_id' => $baseUnit->id,
+        ]);
+        $this->createProductPrice($prodE);
+
+        $component = Livewire::actingAs($this->user)
+            ->test(Browser::class, ['setting' => $this->setting]);
+
+        $products = $component->viewData('products')->keyBy('id');
+
+        $this->assertEquals('2 DUS 5 PCS', $products[$prodA->id]->formatted_available_qty);
+        $this->assertEquals('2 KTN 25 PCS', $products[$prodB->id]->formatted_available_qty);
+        $this->assertEquals('7 PCS', $products[$prodC->id]->formatted_available_qty);
+        $this->assertEquals('9', $products[$prodD->id]->formatted_available_qty);
+
+        $component->assertSee('2 DUS 5 PCS')
+            ->assertSee('2 KTN 25 PCS')
+            ->assertSee('7 PCS')
+            ->assertSee('9')
+            ->assertSee('Service');
+    }
 }

@@ -30,7 +30,7 @@ class Product extends BaseModel implements HasMedia
 
     protected function shouldUppercase(string $key): bool
     {
-        if (in_array($key, ['product_name', 'canonical_name'])) {
+        if (in_array($key, ['product_name', 'canonical_name', 'stock_state', 'formatted_available_qty'])) {
             return false;
         }
         return parent::shouldUppercase($key);
