@@ -162,6 +162,97 @@ class SettingsWalkInCustomerMappingTest extends TestCase
         ]);
     }
 
+    public function test_settings_index_does_not_preload_full_customer_list(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING INDEX');
+        $customer1 = $this->createCustomer($setting, 'Cust Alpha', '0811111111');
+        $customer2 = $this->createCustomer($setting, 'Cust Beta', '0822222222');
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR INDEX');
+
+        // When pos_walk_in_customer_id is set to customer1
+        $setting->update(['pos_walk_in_customer_id' => $customer1->id]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('settings.index'));
+
+        $response->assertOk();
+        $response->assertViewHas('walkInCustomer', function ($customer) use ($customer1) {
+            return $customer && $customer->id === $customer1->id;
+        });
+        $response->assertSee((string) $customer1->id);
+        $response->assertSee($customer1->customer_name);
+        $response->assertDontSee($customer2->customer_name);
+    }
+
+    public function test_settings_customers_search_returns_matching_customers(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING SEARCH');
+        $customer1 = $this->createCustomer($setting, 'Budi Santoso', '08123456789');
+        $customer2 = $this->createCustomer($setting, 'Santoso Group', '08987654321');
+        $otherCustomer = $this->createCustomer($setting, 'Andi Wijaya', '08555555555');
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR SEARCH');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('settings.customers.search', ['q' => 'Santoso']));
+
+        $response->assertOk()
+            ->assertJsonPath('meta.result_count', 2)
+            ->assertJsonFragment(['id' => $customer1->id, 'customer_name' => 'BUDI SANTOSO'])
+            ->assertJsonFragment(['id' => $customer2->id, 'customer_name' => 'SANTOSO GROUP'])
+            ->assertJsonMissing(['id' => $otherCustomer->id]);
+    }
+
+    public function test_settings_customers_search_respects_settings_access_authorization(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING AUTH CHECK');
+        $this->createCustomer($setting, 'Budi Santoso', '08123456789');
+
+        // User without settings.access
+        $unauthorizedRole = Role::firstOrCreate(['name' => 'UNAUTHORIZED USER']);
+        $unauthorizedUser = User::factory()->create();
+        $unauthorizedUser->assignRole($unauthorizedRole);
+        $unauthorizedUser->settings()->attach($setting->id, ['role_id' => $unauthorizedRole->id]);
+
+        $response = $this->actingAs($unauthorizedUser)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('settings.customers.search', ['q' => 'Budi']));
+
+        $response->assertForbidden();
+    }
+
+    public function test_settings_customers_search_succeeds_when_pos_is_disabled_for_business(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING POS DISABLED');
+        $setting->update(['pos_enabled' => false]);
+        $customer = $this->createCustomer($setting, 'Customer When Pos Disabled', '08123456789');
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR NO POS');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('settings.customers.search', ['q' => 'Customer When']));
+
+        $response->assertOk()
+            ->assertJsonFragment(['id' => $customer->id]);
+    }
+
+    public function test_settings_customers_search_succeeds_without_pos_permissions(): void
+    {
+        $setting = $this->createSetting('BIZ SETTING NO POS PERMS');
+        $customer = $this->createCustomer($setting, 'Customer No Pos Perm', '08123456789');
+
+        // User has settings.access and settings.edit, but NOT pos.access or pos.returns.view
+        $user = $this->createSettingsEditor($setting, 'SETTING EDITOR ONLY');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('settings.customers.search', ['q' => 'Customer No Pos']));
+
+        $response->assertOk()
+            ->assertJsonFragment(['id' => $customer->id]);
+    }
+
     public function test_settings_update_rejects_missing_customer(): void
     {
         $setting = $this->createSetting('BIZ SETTING WALK-IN MISSING');

@@ -12,6 +12,8 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Http\Requests\StoreSettingsRequest;
 use Modules\Setting\Http\Requests\StoreSmtpSettingsRequest;
 
+use Modules\Pos\Services\PosCustomerSearchService;
+
 class SettingController extends Controller
 {
 
@@ -20,12 +22,30 @@ class SettingController extends Controller
 
         $currentSettingId = session('setting_id');
         $settings = Setting::findOrFail($currentSettingId);
-        $walkInCustomerOptions = Customer::query()
-            ->orderBy('customer_name')
-            ->orderBy('id')
-            ->get(['id', 'customer_name', 'contact_name', 'customer_phone']);
+        $walkInCustomer = $settings->pos_walk_in_customer_id
+            ? Customer::query()
+                ->where('id', $settings->pos_walk_in_customer_id)
+                ->first(['id', 'customer_name', 'contact_name', 'customer_phone'])
+            : null;
 
-        return view('setting::index', compact('settings', 'walkInCustomerOptions'));
+        return view('setting::index', compact('settings', 'walkInCustomer'));
+    }
+
+    public function customerSearch(Request $request, PosCustomerSearchService $searchService)
+    {
+        abort_if(Gate::denies('settings.access'), 403);
+
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $payload = $searchService->search(
+            (string) $validated['q'],
+            (int) ($validated['limit'] ?? 10)
+        );
+
+        return response()->json($payload);
     }
 
 

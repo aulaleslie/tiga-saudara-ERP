@@ -128,19 +128,18 @@
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="pos_walk_in_customer_id">Pelanggan Walk-In POS</label>
-                                        <select class="form-control" id="pos_walk_in_customer_id" name="pos_walk_in_customer_id">
+                                        <select class="form-control" id="pos_walk_in_customer_id" name="pos_walk_in_customer_id" style="width: 100%;">
                                             <option value="">Belum diatur</option>
-                                            @foreach($walkInCustomerOptions as $customerOption)
+                                            @if($walkInCustomer)
                                                 @php
-                                                    $displayName = $customerOption->contact_name
-                                                        ? $customerOption->contact_name . ' - ' . $customerOption->customer_name
-                                                        : $customerOption->customer_name;
+                                                    $displayName = $walkInCustomer->contact_name
+                                                        ? $walkInCustomer->contact_name . ' - ' . $walkInCustomer->customer_name
+                                                        : $walkInCustomer->customer_name;
                                                 @endphp
-                                                <option value="{{ $customerOption->id }}"
-                                                    {{ (string) old('pos_walk_in_customer_id', $settings->pos_walk_in_customer_id) === (string) $customerOption->id ? 'selected' : '' }}>
-                                                    {{ $displayName }}{{ $customerOption->customer_phone ? ' (' . $customerOption->customer_phone . ')' : '' }}
+                                                <option value="{{ $walkInCustomer->id }}" selected>
+                                                    {{ $displayName }}{{ $walkInCustomer->customer_phone ? ' (' . $walkInCustomer->customer_phone . ')' : '' }}
                                                 </option>
-                                            @endforeach
+                                            @endif
                                         </select>
                                         <small class="form-text text-muted">
                                             Digunakan sebagai pelanggan default saat kasir tidak memilih pelanggan pada POS.
@@ -177,6 +176,42 @@
             initFormSubmissionLock('settings-update-form', {
                 errorEventName: 'settings:submit-error'
             });
+
+            const $walkInCustomer = $('#pos_walk_in_customer_id');
+            if ($walkInCustomer.length) {
+                $walkInCustomer.select2({
+                    placeholder: 'Belum diatur',
+                    allowClear: true,
+                    theme: 'coreui',
+                    width: '100%',
+                    minimumInputLength: 1,
+                    ajax: {
+                        url: '{{ route('settings.customers.search') }}',
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                q: params.term || ''
+                            };
+                        },
+                        processResults: function (data) {
+                            return {
+                                results: (data.results || []).map(function (customer) {
+                                    var label = customer.display_name || customer.customer_name;
+                                    if (customer.customer_phone) {
+                                        label += ' (' + customer.customer_phone + ')';
+                                    }
+                                    return {
+                                        id: customer.id,
+                                        text: label
+                                    };
+                                })
+                            };
+                        },
+                        cache: true
+                    }
+                });
+            }
 
             // Toggle POS Transactions based on POS enabled
             const posEnabled = document.getElementById('pos_enabled');
