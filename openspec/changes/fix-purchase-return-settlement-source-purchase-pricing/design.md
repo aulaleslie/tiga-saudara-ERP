@@ -95,6 +95,38 @@ The exemption deliberately does **not** consider the detail's `po_id`. That colu
 
 Alternatives rejected: validating against `total_amount` for all settlement methods (weakens the guard on methods this change does not touch), and dropping approval-time validation entirely (removes a defence-in-depth check against directly manipulated records).
 
+### 9. The per-unit price is derived from `sub_total / quantity`, not `unit_price`
+
+*Amended during implementation, after inspecting production data.*
+
+The resolver initially read `purchase_details.unit_price`. That column is not reliably the price actually paid. On purchase 18587 it holds 730,000 while `price` holds 693,000 and `sub_total` is 2,772,000 over quantity 4 — the document total reconciles with `price`, not `unit_price`.
+
+A survey of production rows where the two columns diverge (76 rows) found `sub_total` reconciling with `price × quantity` in 74 cases and with `unit_price × quantity` in 2. Those 2 are UOM-converted lines where `price` is per box and `unit_price` per piece; there `sub_total / quantity` still yields the correct per-piece basis. So neither price column is dependable alone, while `sub_total / quantity` is correct in all 76.
+
+This also aligns the form with `reducePurchaseDetailAmounts()`, which derives `perUnitSubTotal = sub_total / quantity` when applying an approved settlement. The value shown therefore equals what the purchase actually loses — the end-to-end consistency this change set out to achieve.
+
+A consequence worth stating: because `sub_total` is net of any line discount, discounts are inherently reflected. That is correct, since it matches the deduction.
+
+### 10. The client-side nominal seeder is removed
+
+The Blade view carried a `change` handler that stamped the nominal input from the select's `data-max-nominal` attribute and dispatched `input` to push it into Livewire. That attribute is rendered once and is stale after any server-side reprice, so the handler overwrote the correct value in the browser on every method change.
+
+The method select uses `wire:model.live`, so the server already seeds the value for every method — targeted lines from the target purchase, other methods from the line's own ceiling. The handler was redundant before this change and actively wrong after it, so it is deleted rather than patched.
+
+This defect was invisible to the test suite: `Livewire::test()` exercises the PHP component and runs no JavaScript. Confirming the browser layer relies on manual verification.
+
+### 11. The browser layer needed three separate corrections
+
+Server-side repricing was correct well before the page showed the right figure. Three distinct client-side defects sat between them, each masking the next:
+
+1. **A second payload builder.** `ensurePurchaseInList()` builds its own dropdown entry and still read `unit_price`, reintroducing the wrong basis on the serialized auto-select path. Both builders now share `derivePurchaseUnitPrice()`.
+
+2. **A deferred entangle.** The nota dropdown entangles `target_purchase_id` without `.live`, so selecting a nota updated the value client-side only and never reached `updatedSettlementLines()`. Adding `.live` was tried and reverted: it re-renders the component mid-interaction, and because the Alpine `x-data` bakes in its options and its `wire:key` contains the current method, the dropdown's own selection broke. The dropdown instead calls a dedicated `selectTargetPurchase()` action — one explicit round-trip that leaves its state untouched.
+
+3. **An attribute-bound input.** The nominal input used `x-bind:value`, which sets the `value` *attribute*; a browser ignores that once the element has a value property, so a repriced figure never appeared even though `Maks` — plain interpolated text — updated correctly. Replaced with `x-effect` writing the DOM property, guarded so it does not fight the user while the field is focused.
+
+The general lesson for this component: `Livewire::test()` exercises none of this. Every one of these three passed the PHP suite while the page stayed wrong, so changes to this form need manual verification regardless of test results.
+
 ## Risks / Trade-offs
 
 **Visible value changes on in-flight drafts** → Draft lines already reviewed by operators may show a different `Nilai Penyelesaian` after deployment. This is the intended correction, but it is unannounced from the operator's perspective. Mitigation: it is confined to `MODIFY_PURCHASE` lines with a target purchase, and the new value is the one consistent with the nota displayed beside it.

@@ -2,12 +2,25 @@
 
 ### Requirement: Selected source purchase is the authority for a targeted settlement value
 
-When a purchase return settlement line uses the `MODIFY_PURCHASE` method and has a target purchase selected, the system SHALL derive that line's settlement value from the target purchase's own line price, computed as the target purchase detail's `unit_price` for the line's product multiplied by the line's settled quantity. The system SHALL NOT derive the value from the product catalogue or from the return line's stored value while a target purchase is selected.
+When a purchase return settlement line uses the `MODIFY_PURCHASE` method and has a target purchase selected, the system SHALL derive that line's settlement value from the target purchase's own line price, computed as the target purchase line's recorded subtotal divided by its recorded quantity, multiplied by the line's settled quantity. The system SHALL NOT derive the value from the product catalogue, from the return line's stored value, or from a nominal unit-price field that does not reconcile with the target purchase line's subtotal.
+
+The system SHALL also update the ceiling displayed alongside a repriced value so that the two never disagree.
 
 #### Scenario: Targeted line is valued from the target purchase
 
-- **WHEN** a draft settlement line uses `MODIFY_PURCHASE` and has a target purchase whose detail for that product records a unit price
-- **THEN** the settlement value SHALL equal that unit price multiplied by the line's settled quantity
+- **WHEN** a draft settlement line uses `MODIFY_PURCHASE` and has a target purchase whose line for that product records a subtotal and quantity
+- **THEN** the settlement value SHALL equal that line's subtotal divided by its quantity, multiplied by the settled quantity
+
+#### Scenario: Target purchase line records a unit price that disagrees with its subtotal
+
+- **WHEN** the target purchase line's recorded unit-price field does not reconcile with its subtotal divided by its quantity
+- **THEN** the settlement value SHALL be derived from the subtotal and quantity
+- **AND** the settlement value SHALL NOT be derived from the disagreeing unit-price field
+
+#### Scenario: Displayed ceiling follows a repriced value
+
+- **WHEN** a draft settlement line is repriced from its target purchase
+- **THEN** the ceiling displayed alongside the value SHALL equal the repriced value
 
 #### Scenario: Target purchase price differs from the return's recorded value
 

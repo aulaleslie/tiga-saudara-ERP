@@ -152,15 +152,61 @@ class PurchaseReturnSettlementForm extends Component
         $this->loadUnpaidPurchases();
 
         // Recompute nominal for eligible lines with a target purchase
-        foreach ($this->settlementLines as $index => &$line) {
-            if ($this->isLineEligibleForRecomputation($line)) {
-                $resolvedNominal = $this->resolveSettlementNominal($line);
-                if ($resolvedNominal !== null) {
-                    $line['nominal'] = $resolvedNominal;
-                }
-            }
+        foreach (array_keys($this->settlementLines) as $index) {
+            $this->applyTargetPurchasePricing($index);
         }
-        unset($line);
+    }
+
+    /**
+     * Reprice an eligible settlement line from its target purchase, updating both the
+     * value and the ceiling shown beside it so the two never disagree. No-op when the
+     * line is not eligible or no price can be resolved from the target purchase.
+     */
+    protected function applyTargetPurchasePricing(int|string $index): void
+    {
+        if (!isset($this->settlementLines[$index])) {
+            return;
+        }
+
+        if (!$this->isLineEligibleForRecomputation($this->settlementLines[$index])) {
+            return;
+        }
+
+        $resolvedNominal = $this->resolveSettlementNominal($this->settlementLines[$index]);
+        if ($resolvedNominal === null) {
+            return;
+        }
+
+        $this->settlementLines[$index]['nominal'] = $resolvedNominal;
+        $this->settlementLines[$index]['max_nominal'] = $resolvedNominal;
+
+        // The nominal input's entangle is deferred, so the browser keeps its own copy of
+        // the value and re-sends it on the next round-trip, undoing this write. Tell the
+        // input explicitly to adopt the repriced figure.
+        $this->dispatch('settlement-line-repriced', index: (int) $index, nominal: $resolvedNominal);
+    }
+
+    /**
+     * Derive the per-unit purchase price for a product's lines on a purchase.
+     *
+     * Uses sub_total / quantity rather than the unit_price column. unit_price is not
+     * reliably the price actually paid: it can hold a list price, or a different unit
+     * basis after UOM conversion, while sub_total always reconciles with the document
+     * total. This also matches how approval reduces the purchase (see
+     * reducePurchaseDetailAmounts), so the value shown equals what the purchase loses
+     * when the settlement is applied.
+     *
+     * Every payload exposing product_unit_price must go through here — the dropdown is
+     * built in two places, and they previously disagreed.
+     */
+    protected function derivePurchaseUnitPrice($details): float
+    {
+        $quantity = (float) collect($details)->sum('quantity');
+        if ($quantity <= 0) {
+            return 0.0;
+        }
+
+        return round((float) collect($details)->sum('sub_total') / $quantity, 2);
     }
 
     protected function loadUnpaidPurchases(): void
@@ -209,8 +255,9 @@ class PurchaseReturnSettlementForm extends Component
                     $matchingDetails = $purchase->purchaseDetails->where('product_id', $productId);
                     $productQty = $matchingDetails->sum('quantity');
                     $productReceivedQty = $matchingDetails->sum('received_quantity');
-                    $productUnitPrice = (float) ($matchingDetails->first()?->unit_price ?? 0);
-                    
+
+                    $productUnitPrice = $this->derivePurchaseUnitPrice($matchingDetails);
+
                     return [
                         'id' => $purchase->id,
                         'label' => $ref . $statusLabel . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ''),
@@ -387,12 +434,7 @@ class PurchaseReturnSettlementForm extends Component
                      }
                  }
 
-                 if ($this->isLineEligibleForRecomputation($this->settlementLines[$index])) {
-                     $resolvedNominal = $this->resolveSettlementNominal($this->settlementLines[$index]);
-                     if ($resolvedNominal !== null) {
-                         $this->settlementLines[$index]['nominal'] = $resolvedNominal;
-                     }
-                 }
+                 $this->applyTargetPurchasePricing($index);
             }
 
             // Determine whether the line is editable
@@ -409,17 +451,7 @@ class PurchaseReturnSettlementForm extends Component
         // Handle target_purchase_id change to recalculate nominal for MODIFY_PURCHASE
         if (Str::endsWith($key, '.target_purchase_id')) {
             $index = explode('.', $key)[0];
-            $line = &$this->settlementLines[$index];
-            $method = strtoupper($line['method'] ?? '');
-            
-            if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && !empty($line['target_purchase_id'])) {
-                if ($this->isLineEligibleForRecomputation($line)) {
-                    $resolvedNominal = $this->resolveSettlementNominal($line);
-                    if ($resolvedNominal !== null) {
-                        $line['nominal'] = $resolvedNominal;
-                    }
-                }
-            }
+            $this->applyTargetPurchasePricing($index);
         }
     }
 
@@ -441,7 +473,7 @@ class PurchaseReturnSettlementForm extends Component
             'text' => $ref,
             'due_amount' => $purchase->due_amount,
             'product_quantity' => $purchase->purchaseDetails->where('product_id', $productId)->first()?->quantity ?? 0,
-            'product_unit_price' => (float) ($purchase->purchaseDetails->where('product_id', $productId)->first()?->unit_price ?? 0),
+            'product_unit_price' => $this->derivePurchaseUnitPrice($purchase->purchaseDetails->where('product_id', $productId)),
         ];
 
         if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && $productId) {
@@ -471,6 +503,29 @@ class PurchaseReturnSettlementForm extends Component
     public function settlementTotal(): float
     {
         return (float) $this->purchaseReturn->total_amount;
+    }
+
+    /**
+     * Set a line's target purchase and reprice it from that purchase.
+     *
+     * The nota dropdown is an Alpine component whose target_purchase_id is entangled
+     * without .live, so assigning it client-side does not reach updatedSettlementLines().
+     * Making that entangle live would re-render the component mid-interaction and reset
+     * the dropdown's own state, so the dropdown calls this instead: one explicit
+     * round-trip that updates the value and its ceiling together.
+     */
+    public function selectTargetPurchase(int $index, $purchaseId): void
+    {
+        if (!isset($this->settlementLines[$index])) {
+            return;
+        }
+
+        if (!$this->isLineEligibleForRecomputation($this->settlementLines[$index])) {
+            return;
+        }
+
+        $this->settlementLines[$index]['target_purchase_id'] = $purchaseId ?: null;
+        $this->applyTargetPurchasePricing($index);
     }
 
     /**

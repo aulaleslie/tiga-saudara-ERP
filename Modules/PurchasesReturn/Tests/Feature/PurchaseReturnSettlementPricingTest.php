@@ -792,6 +792,192 @@ class PurchaseReturnSettlementPricingTest extends TestCase
     }
 
     /**
+     * The per-unit price is derived from sub_total / quantity, not from the unit_price
+     * column. On real data those disagree: unit_price can carry a list price or a
+     * different unit basis after UOM conversion, while sub_total reconciles with the
+     * document total. Mirrors purchase 18587: unit_price 730000, price 693000,
+     * sub_total 2772000 over qty 4.
+     */
+    public function test_price_is_derived_from_sub_total_not_unit_price_column(): void
+    {
+        $purchase = $this->createPurchase([
+            'total_amount' => 2772000,
+            'due_amount' => 2772000,
+        ]);
+        PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 4,
+            'price' => 693000,
+            'unit_price' => 730000, // list price: must NOT be used
+            'sub_total' => 2772000, // authoritative: 693000 * 4
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $purchaseReturn = $this->createReturn(['total_amount' => 100, 'due_amount' => 100]);
+        $this->createReturnDetailFor($purchaseReturn, null, 4, 25);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_MODIFY_PURCHASE)
+            ->set('settlementLines.0.target_purchase_id', $purchase->id)
+            // 693000 * 4 = 2772000, not 730000 * 4 = 2920000
+            ->assertSet('settlementLines.0.nominal', 2772000.0)
+            ->assertSet('settlementLines.0.max_nominal', 2772000.0);
+    }
+
+    /**
+     * A UOM-converted line: unit_price is per piece while price is per box. sub_total
+     * remains the reliable basis. Mirrors purchase detail 34991.
+     */
+    public function test_price_derivation_handles_uom_converted_line(): void
+    {
+        $purchase = $this->createPurchase([
+            'total_amount' => 35000,
+            'due_amount' => 35000,
+        ]);
+        PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1000,
+            'price' => 35, // per piece
+            'unit_price' => 17500, // per box: must NOT be used as the per-unit basis
+            'sub_total' => 35000, // 35 * 1000 pieces
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $purchaseReturn = $this->createReturn(['total_amount' => 100, 'due_amount' => 100]);
+        $this->createReturnDetailFor($purchaseReturn, null, 10, 10);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_MODIFY_PURCHASE)
+            ->set('settlementLines.0.target_purchase_id', $purchase->id)
+            // 35 per piece * 10 returned = 350
+            ->assertSet('settlementLines.0.nominal', 350.0);
+    }
+
+    /**
+     * The dropdown payload is built in two places: loadUnpaidPurchases() and
+     * ensurePurchaseInList(), the latter used when a purchase is injected on
+     * auto-select. Both must derive the price identically or the auto-select path
+     * reintroduces the unit_price basis.
+     */
+    public function test_auto_selected_purchase_injected_into_list_uses_sub_total_basis(): void
+    {
+        // ensurePurchaseInList() is reached only from the serialized auto-select branch,
+        // and only actually injects when the purchase is absent from the list built by
+        // loadUnpaidPurchases(). A RETURNED status falls outside that query's status
+        // filter, so the injected payload is the one the resolver reads.
+        $purchase = $this->createPurchase([
+            'total_amount' => 693000,
+            'due_amount' => 693000,
+            'paid_amount' => 0,
+            'status' => Purchase::STATUS_RETURNED,
+        ]);
+        PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'product_code' => $this->serialProduct->product_code,
+            'quantity' => 1,
+            'price' => 693000,
+            'unit_price' => 730000, // list price: must NOT be used
+            'sub_total' => 693000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $sn = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-ENSURE-LIST-01',
+            'location_id' => $this->location->id,
+        ]);
+
+        $purchaseReturn = $this->createReturn(['total_amount' => 730000, 'due_amount' => 730000]);
+        PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'po_id' => $purchase->id,
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'product_code' => $this->serialProduct->product_code,
+            'quantity' => 1,
+            'price' => 730000,
+            'unit_price' => 730000,
+            'sub_total' => 730000,
+            'serial_number_ids' => [$sn->id],
+            'location_id' => $this->location->id,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_MODIFY_PURCHASE)
+            ->assertSet('settlementLines.0.target_purchase_id', $purchase->id)
+            // sub_total basis 693000, not the unit_price column's 730000
+            ->assertSet('settlementLines.0.nominal', 693000.0)
+            ->assertSet('settlementLines.0.max_nominal', 693000.0);
+    }
+
+    /**
+     * A return line with no recorded originating purchase (po_id NULL) gets no
+     * auto-selected target, so both the value and the ceiling must follow the target
+     * the user picks by hand. Mirrors purchase return 6.
+     */
+    public function test_manually_selected_target_reprices_line_without_origin_purchase(): void
+    {
+        $purchase = $this->createReceivedPurchaseWithDetail(4, 693000, 'MANUAL-PICK');
+        $purchase->purchaseDetails()->update(['unit_price' => 730000]);
+
+        // po_id NULL: no origin, so nothing is auto-assigned on mount.
+        $purchaseReturn = $this->createReturn(['total_amount' => 2920000, 'due_amount' => 2920000]);
+        $this->createReturnDetailFor($purchaseReturn, null, 4, 730000);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->assertSet('settlementLines.0.target_purchase_id', null)
+            ->assertSet('settlementLines.0.max_nominal', 2920000.0)
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_MODIFY_PURCHASE)
+            // The nota dropdown calls selectTargetPurchase() rather than assigning the
+            // entangled property, since that entangle is deferred.
+            ->call('selectTargetPurchase', 0, $purchase->id)
+            ->assertSet('settlementLines.0.target_purchase_id', $purchase->id)
+            ->assertSet('settlementLines.0.nominal', 2772000.0)
+            ->assertSet('settlementLines.0.max_nominal', 2772000.0)
+            // The input's entangle is deferred, so the browser needs telling explicitly
+            // to adopt the repriced value instead of re-sending its stale copy.
+            ->assertDispatched('settlement-line-repriced', function (string $event, array $params) {
+                return ($params['index'] ?? null) === 0
+                    && abs(((float) ($params['nominal'] ?? 0)) - 2772000.0) < 0.01;
+            });
+    }
+
+    /**
+     * The Maks ceiling shown beside the value is recomputed too, so the label and the
+     * value never disagree after a reprice.
+     */
+    public function test_max_nominal_is_recomputed_alongside_nominal(): void
+    {
+        $purchase = $this->createReceivedPurchaseWithDetail(4, 693000, 'MAXNOM');
+        // Diverge unit_price from the sub_total basis so the assertion discriminates.
+        $purchase->purchaseDetails()->update(['unit_price' => 730000]);
+
+        // Return line stored at a lower catalogue-derived value.
+        $purchaseReturn = $this->createReturn(['total_amount' => 100000, 'due_amount' => 100000]);
+        $this->createReturnDetailFor($purchaseReturn, null, 4, 25000);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->assertSet('settlementLines.0.max_nominal', 100000.0)
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_MODIFY_PURCHASE)
+            ->set('settlementLines.0.target_purchase_id', $purchase->id)
+            ->assertSet('settlementLines.0.nominal', 2772000.0)
+            ->assertSet('settlementLines.0.max_nominal', 2772000.0);
+    }
+
+    /**
      * Build a submitted settlement item directly, bypassing the form, so approval-time
      * validation can be exercised against values the form would not itself produce.
      */

@@ -438,6 +438,10 @@
                                                                 this.selectedId = id;
                                                                 this.open = false;
                                                                 this.search = '';
+                                                                // Push the choice to the server so the line is repriced from
+                                                                // the selected purchase. The entangle above is deferred, so
+                                                                // without this the value and Maks would stay stale.
+                                                                $wire.selectTargetPurchase({{ $index }}, id);
                                                             }
                                                          }"
                                                     >
@@ -541,11 +545,26 @@
                                                                     return clean === '' ? 0 : parseFloat(clean);
                                                                 }
                                                             }"
-                                                            type="text" 
+                                                            type="text"
                                                             name="{{ 'settlementLines.'.$index.'.nominal' }}"
+                                                            value="{{ $line['nominal'] !== null && $line['nominal'] !== '' ? 'Rp ' . number_format((float) $line['nominal'], 0, ',', '.') : '' }}"
                                                             wire:key="nominal-input-{{ $index }}"
                                                             class="form-control form-control-premium text-end settlement-nominal @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
-                                                            x-bind:value="format(nominal)"
+                                                            {{-- x-effect writes the DOM property, so a server-side reprice is
+                                                                 reflected in the visible text. x-bind:value only sets the
+                                                                 attribute, which the browser ignores once the input has a
+                                                                 value -- leaving a stale figure after the line is repriced.
+                                                                 Skipped while focused so it cannot fight the user's typing. --}}
+                                                            x-effect="if (document.activeElement !== $el) $el.value = format(nominal)"
+                                                            {{-- The entangle above is deferred, so the browser's copy of the
+                                                                 value survives a round-trip and would overwrite a reprice.
+                                                                 Adopt the server's figure when it says the line was repriced. --}}
+                                                            x-on:settlement-line-repriced.window="
+                                                                if ($event.detail.index === {{ $index }}) {
+                                                                    nominal = $event.detail.nominal;
+                                                                    $el.value = format(nominal);
+                                                                }
+                                                            "
                                                             x-on:focus="$el.value = (nominal || 0); $el.select()"
                                                             x-on:blur="$el.value = format(nominal)"
                                                             x-on:input="nominal = parse($el.value)"
@@ -586,25 +605,12 @@
         </form>
     </div>
 </div>
-<script>
-    document.addEventListener('change', function (e) {
-        var target = e.target;
-        if (!target) return;
-        if (target.matches('select[data-index][data-max-nominal]')) {
-            var methodVal = target.value;
-            var index = target.getAttribute('data-index');
-            var status = target.getAttribute('data-status');
-            var maxNom = target.getAttribute('data-max-nominal');
-            if (!index) return;
-            if (!['DRAFT', 'REJECTED'].includes(status)) return;
-            var inputSelector = 'input[name="settlementLines.' + index + '.nominal"]';
-            var inputEl = document.querySelector(inputSelector);
-            if (!inputEl) return;
-            var num = parseFloat(maxNom) || 0;
-            inputEl.value = 'Rp ' + new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-    });
-</script>
+{{--
+    The method select uses wire:model.live, so the server seeds the settlement value on
+    every method change: MODIFY_PURCHASE lines are priced from the target purchase, and
+    other methods fall back to the line's own ceiling. A client-side handler previously
+    duplicated that seeding by stamping the nominal input from the data-max-nominal
+    attribute, which is baked in at render time and therefore stale after a reprice --
+    overwriting the value the server had just computed. It has been removed.
+--}}
 

@@ -60,6 +60,25 @@
 - [x] 9.7 Add a test asserting a non-`MODIFY_PURCHASE` settlement above the return line's subtotal is still rejected at approval
 - [x] 9.8 Verify test 9.6 fails against the pre-fix condition and passes against the fix, confirming it pins the exemption boundary rather than passing vacuously
 
+## 10. Correct the price source and the browser-side overwrite
+
+- [x] 10.1 Derive `product_unit_price` in `loadUnpaidPurchases()` from `sub_total / quantity` instead of the `unit_price` column, which can hold a list price or a different unit basis
+- [x] 10.2 Recompute `max_nominal` alongside `nominal` so the displayed ceiling tracks the repriced value
+- [x] 10.3 Route all three repricing call sites through a single `applyTargetPurchasePricing()` helper
+- [x] 10.4 Delete the Blade `change` handler that stamped the nominal input from the stale `data-max-nominal` attribute
+- [x] 10.5 Add a test asserting the value derives from `sub_total`, not `unit_price`, when the two disagree (mirrors purchase 18587)
+- [x] 10.6 Add a test covering a UOM-converted line where `unit_price` is a different unit basis
+- [x] 10.7 Add a test asserting `max_nominal` is recomputed alongside `nominal`
+- [x] 10.8 Verify all three new tests fail against the `unit_price` basis and pass against the `sub_total` basis
+- [x] 10.9 Confirm no regressions in `Modules/PurchasesReturn/Tests/Feature/` against the recorded baseline
+- [x] 10.10 Route `ensurePurchaseInList()` through the same derivation — it builds a second dropdown payload and still read `unit_price`, reintroducing the wrong basis on the serialized auto-select path
+- [x] 10.11 Extract `derivePurchaseUnitPrice()` so both payload builders share one basis and cannot drift again
+- [x] 10.12 Add a test covering the injected-payload path (purchase outside `loadUnpaidPurchases()`'s status filter), verified to fail against the `unit_price` basis
+- [x] 10.13 Add `selectTargetPurchase()` and call it from the nota dropdown, so a deferred entangle no longer leaves the selection unseen by the server
+- [x] 10.14 Revert the `.live` entangle attempt, which re-rendered the Alpine dropdown mid-interaction and broke purchase selection
+- [x] 10.15 Replace `x-bind:value` on the nominal input with `x-effect` writing the DOM property, so a repriced value is visible; seed the initial render via the `value` attribute
+- [x] 10.16 Add a test asserting a manually selected target reprices a line whose detail has no `po_id` (mirrors purchase return 6)
+
 ## 8. Regression and verification
 
 - [x] 8.1 Run the purchase return settlement suite: `php artisan test --filter=PurchaseReturnSettlement`
