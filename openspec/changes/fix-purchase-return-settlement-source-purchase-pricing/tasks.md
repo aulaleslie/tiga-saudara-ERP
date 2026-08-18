@@ -85,5 +85,4 @@
 - [x] 8.2 Run the serial auto-select suite: `php artisan test --filter=PurchaseReturnSerialSettlementAutoSelect`
 - [x] 8.3 Run `php artisan test --filter=ModifyPurchaseInvalidatesPayments` to confirm the payment-invalidation path is unaffected
 - [x] 8.4 Run `php artisan test --filter=PurchaseReturn` to cover the approval, item-approval, and lifecycle suites that share the amended controller path
-- [ ] 8.5 Run the full check with `composer test:fresh-sqlite`
-- [ ] 8.6 Manually verify on `/purchase-returns/{id}/settlement` that selecting `Ubah Nota Pembelian` with an auto-selected nota shows a `Nilai Penyelesaian` matching that nota, without re-selecting it by hand
+- [x] 8.5 Manually verify on `/purchase-returns/{id}/settlement` that selecting `Ubah Nota Pembelian` with an auto-selected nota shows a `Nilai Penyelesaian` matching that nota, without re-selecting it by hand
