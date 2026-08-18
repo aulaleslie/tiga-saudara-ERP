@@ -45,7 +45,7 @@
                                 Status: <strong>{{ $sale_return->status }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $sale_return->payment_status }}</strong>
+                                Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale_return->payment_status) }}</strong>
                             </div>
                         </div>
 

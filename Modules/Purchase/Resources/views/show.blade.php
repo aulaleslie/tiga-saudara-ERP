@@ -118,7 +118,7 @@
                                     </div>
                                 @endif
                                 <div>
-                                    Status Pembayaran: <strong>{{ $purchase->payment_status }}</strong>
+                                    Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($purchase->payment_status) }}</strong>
                                 </div>
                             </div>
 

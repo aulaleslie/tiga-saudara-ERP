@@ -72,6 +72,27 @@ class Purchase extends BaseModel implements HasMedia
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
 
+    const STATUS_LABELS = [
+        self::STATUS_DRAFTED => 'Draft',
+        self::STATUS_WAITING_APPROVAL => 'Menunggu Persetujuan',
+        self::STATUS_APPROVED => 'Disetujui',
+        self::STATUS_REJECTED => 'Ditolak',
+        self::STATUS_RECEIVED_PARTIALLY => 'Penerimaan Sebagian',
+        self::STATUS_RECEIVED => 'Diterima',
+        self::STATUS_RETURNED => 'Dikembalikan',
+        self::STATUS_RETURNED_PARTIALLY => 'Pengembalian Sebagian',
+    ];
+
+    const PAYMENT_STATUS_PAID = 'Paid';
+    const PAYMENT_STATUS_PARTIAL = 'Partial';
+    const PAYMENT_STATUS_UNPAID = 'Unpaid';
+
+    const PAYMENT_STATUS_LABELS = [
+        self::PAYMENT_STATUS_PAID => 'Lunas',
+        self::PAYMENT_STATUS_PARTIAL => 'Sebagian',
+        self::PAYMENT_STATUS_UNPAID => 'Belum Lunas',
+    ];
+
     const EDIT_MODE_FULL = 'FULL';
     const EDIT_MODE_MONETARY_ONLY = 'MONETARY_ONLY';
     const EDIT_MODE_NONE = 'NONE';

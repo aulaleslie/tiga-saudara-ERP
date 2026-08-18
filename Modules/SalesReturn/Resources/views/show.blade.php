@@ -137,7 +137,7 @@
                                         <dt class="col-5 text-muted">Lokasi</dt>
                                         <dd class="col-7 fw-semibold">{{ optional($sale_return->location)->name ?? '-' }}</dd>
                                         <dt class="col-5 text-muted">Status Pembayaran</dt>
-                                        <dd class="col-7 fw-semibold">{{ $sale_return->payment_status }}</dd>
+                                        <dd class="col-7 fw-semibold">{{ \App\Constants\PaymentStatus::label($sale_return->payment_status) }}</dd>
                                         @if($sale_return->received_at)
                                             <dt class="col-5 text-muted">Diterima</dt>
                                             <dd class="col-7 fw-semibold">{{ $sale_return->received_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->receivedBy)->name ?? '-' }}</dd>

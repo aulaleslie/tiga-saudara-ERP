@@ -169,6 +169,16 @@
                 return 'badge-primary';
             };
 
+            const getStatusLabel = (status) => {
+                const labels = {
+                    'DRAFT': 'Draft',
+                    'COMPLETED': 'Selesai',
+                    'CANCELLED': 'Dibatalkan',
+                    'LOADED': 'Dimuat',
+                };
+                return labels[status] || status;
+            };
+
             const canCancelRow = (row) => {
                 if (!row || row.status !== 'DRAFT') {
                     return false;
@@ -250,7 +260,7 @@
                     return `
                         <tr>
                             <td><strong>${escapeHtml(row.code)}</strong></td>
-                            <td><span class="badge ${statusBadgeClass(row.status)}">${escapeHtml(row.status || '-')}</span></td>
+                            <td><span class="badge ${statusBadgeClass(row.status)}">${escapeHtml(getStatusLabel(row.status) || '-')}</span></td>
                             <td>${escapeHtml(ownerName)}</td>
                             <td>${escapeHtml(customerName)}</td>
                             <td class="text-right">${formatCurrency(grandTotal)}</td>
