@@ -150,6 +150,17 @@ class PurchaseReturnSettlementForm extends Component
 
         // Load unpaid purchases for MODIFY_PURCHASE method
         $this->loadUnpaidPurchases();
+
+        // Recompute nominal for eligible lines with a target purchase
+        foreach ($this->settlementLines as $index => &$line) {
+            if ($this->isLineEligibleForRecomputation($line)) {
+                $resolvedNominal = $this->resolveSettlementNominal($line);
+                if ($resolvedNominal !== null) {
+                    $line['nominal'] = $resolvedNominal;
+                }
+            }
+        }
+        unset($line);
     }
 
     protected function loadUnpaidPurchases(): void
@@ -262,6 +273,41 @@ class PurchaseReturnSettlementForm extends Component
         });
     }
 
+    protected function resolveSettlementNominal(array $line): ?float
+    {
+        $method = strtoupper($line['method'] ?? '');
+        if ($method !== PurchaseReturnDetail::METHOD_MODIFY_PURCHASE || empty($line['target_purchase_id'])) {
+            return null;
+        }
+
+        $productId = $line['product_id'] ?? null;
+        $targetPurchaseId = $line['target_purchase_id'];
+        if (!$productId || !$targetPurchaseId) {
+            return null;
+        }
+
+        $purchaseList = $this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [];
+        $selectedPurchase = collect($purchaseList)->firstWhere('id', $targetPurchaseId);
+
+        if (!$selectedPurchase || !isset($selectedPurchase['product_unit_price'])) {
+            return null;
+        }
+
+        $unitPrice = (float) $selectedPurchase['product_unit_price'];
+        $quantity = (float) ($line['quantity'] ?? 1);
+
+        return $unitPrice * $quantity;
+    }
+
+    protected function isLineEligibleForRecomputation(array $line): bool
+    {
+        $status = $line['status'] ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT;
+        return in_array($status, [
+            \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
+            \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED,
+        ]);
+    }
+
     protected function rules(): array
     {
         $rules = [
@@ -271,7 +317,8 @@ class PurchaseReturnSettlementForm extends Component
 
         // Add conditional validation for nominal max value
         foreach ($this->settlementLines as $index => $line) {
-            $maxNominal = $line['max_nominal'] ?? 0;
+            $resolvedNominal = $this->resolveSettlementNominal($line);
+            $maxNominal = $resolvedNominal !== null ? $resolvedNominal : ($line['max_nominal'] ?? 0);
             $rules["settlementLines.{$index}.nominal"] = "required|numeric|min:0|max:{$maxNominal}";
         }
 
@@ -281,7 +328,8 @@ class PurchaseReturnSettlementForm extends Component
     protected function rulesForLineSubmit(int $index): array
     {
         $line = $this->settlementLines[$index];
-        $maxNominal = $line['max_nominal'] ?? 0;
+        $resolvedNominal = $this->resolveSettlementNominal($line);
+        $maxNominal = $resolvedNominal !== null ? $resolvedNominal : ($line['max_nominal'] ?? 0);
 
         $rules = [
             "settlementLines.{$index}.method" => 'required|string|in:' . implode(',', array_keys(\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods())),
@@ -338,10 +386,17 @@ class PurchaseReturnSettlementForm extends Component
                          $this->settlementLines[$index]['target_purchase_id'] = $originPurchaseId;
                      }
                  }
+
+                 if ($this->isLineEligibleForRecomputation($this->settlementLines[$index])) {
+                     $resolvedNominal = $this->resolveSettlementNominal($this->settlementLines[$index]);
+                     if ($resolvedNominal !== null) {
+                         $this->settlementLines[$index]['nominal'] = $resolvedNominal;
+                     }
+                 }
             }
-            // Determine current status and whether the line is editable
-            $status = $this->settlementLines[$index]['status'] ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT;
-            $isEditable = in_array($status, [\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED]);
+
+            // Determine whether the line is editable
+            $isEditable = $this->isLineEligibleForRecomputation($this->settlementLines[$index]);
 
             if ($method !== PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
                 // Non-modify methods use the line's max value for consistency.
@@ -358,21 +413,11 @@ class PurchaseReturnSettlementForm extends Component
             $method = strtoupper($line['method'] ?? '');
             
             if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && !empty($line['target_purchase_id'])) {
-                $productId = $line['product_id'];
-                $targetPurchaseId = $line['target_purchase_id'];
-                
-                // Find the selected purchase in the unpaidPurchases list
-                $purchaseList = $this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [];
-                $selectedPurchase = collect($purchaseList)->firstWhere('id', $targetPurchaseId);
-                
-                if ($selectedPurchase) {
-                    $unitPrice = (float) ($selectedPurchase['product_unit_price'] ?? 0);
-                    $quantity = (float) ($line['quantity'] ?? 1);
-                    $newNominal = $unitPrice * $quantity;
-                    
-                    // Apply max nominal cap from original return value
-                    $maxNominal = (float) ($line['max_nominal'] ?? $newNominal);
-                    $line['nominal'] = min($newNominal, $maxNominal);
+                if ($this->isLineEligibleForRecomputation($line)) {
+                    $resolvedNominal = $this->resolveSettlementNominal($line);
+                    if ($resolvedNominal !== null) {
+                        $line['nominal'] = $resolvedNominal;
+                    }
                 }
             }
         }

@@ -155,10 +155,18 @@ class PurchasesReturnSettlementController extends Controller
             \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement) {
                 // Validation at approval time
                 $nominal = $itemSettlement->getEffectiveNominal();
-                $maxNominal = (float) ($itemSettlement->detail?->sub_total ?? 0);
-                
-                if ($nominal > $maxNominal + 0.01) { // Small epsilon for float comparison
-                    throw new \Exception('Nominal penyelesaian melebihi subtotal item.');
+                // Only an explicitly targeted MODIFY_PURCHASE settlement is priced from the
+                // target purchase and so may legitimately exceed the return line's subtotal.
+                // The detail's po_id is the line's originating purchase, not a chosen target,
+                // so it must not widen this exemption to untargeted settlements.
+                $isTargetedModify = strtoupper($itemSettlement->method) === 'MODIFY_PURCHASE'
+                    && $itemSettlement->target_purchase_id;
+
+                if (!$isTargetedModify) {
+                    $maxNominal = (float) ($itemSettlement->detail?->sub_total ?? 0);
+                    if ($nominal > $maxNominal + 0.01) { // Small epsilon for float comparison
+                        throw new \Exception('Nominal penyelesaian melebihi subtotal item.');
+                    }
                 }
 
                 if (strtoupper($itemSettlement->method) === 'MODIFY_PURCHASE') {
