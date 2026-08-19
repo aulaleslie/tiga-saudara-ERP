@@ -138,6 +138,67 @@ class SaleByProductReport extends Component
         unset($this->productLabels[$id]);
     }
 
+    private function applyTokenizedSearch($query, string $value, array $columns): void
+    {
+        $tokens = array_filter(preg_split('/\s+/', trim($value)), fn($t) => $t !== '');
+        if (empty($tokens)) {
+            return;
+        }
+
+        $query->where(function ($q) use ($tokens, $columns) {
+            foreach ($tokens as $token) {
+                $q->where(function ($tokenQuery) use ($token, $columns) {
+                    $lowerToken = '%' . mb_strtolower($token) . '%';
+                    foreach ($columns as $column) {
+                        $tokenQuery->orWhereRaw("LOWER({$column}) LIKE ?", [$lowerToken]);
+                    }
+                });
+            }
+        });
+    }
+
+    private function buildProductSearchQuery(string $value)
+    {
+        $query = Product::query();
+        $this->applyTokenizedSearch($query, $value, ['product_name', 'product_code']);
+        return $query;
+    }
+
+    public function selectAllMatchingProducts(): void
+    {
+        $value = trim($this->productSearch);
+        if (strlen($value) < 2) {
+            return;
+        }
+
+        $query = $this->buildProductSearchQuery($value);
+        $totalMatches = (clone $query)->count();
+
+        if ($totalMatches === 0) {
+            return;
+        }
+
+        $ceiling = 500;
+        $matchedProducts = $query->limit($ceiling)->get(['id', 'product_name', 'product_code']);
+
+        foreach ($matchedProducts as $product) {
+            if (!in_array($product->id, $this->productIds)) {
+                $this->productIds[] = $product->id;
+                $label = !empty($product->product_code)
+                    ? "{$product->product_code} | {$product->product_name}"
+                    : $product->product_name;
+                $this->productLabels[$product->id] = $label;
+            }
+        }
+
+        if ($totalMatches > $ceiling) {
+            $this->dispatch('alert', [
+                'type' => 'warning',
+                'message' => "Pencarian menghasilkan {$totalMatches} produk. Hanya {$ceiling} produk pertama yang dipilih secara otomatis."
+            ]);
+        }
+    }
+
     public function updatedCustomerSearch($value): void
     {
         $value = trim($value);
@@ -145,9 +206,10 @@ class SaleByProductReport extends Component
             $this->customerOptions = [];
             return;
         }
-        $this->customerOptions = Customer::query()
-            ->whereRaw('LOWER(customer_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
-            ->orWhereRaw('LOWER(contact_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
+        $query = Customer::query();
+        $this->applyTokenizedSearch($query, $value, ['customer_name', 'contact_name']);
+
+        $this->customerOptions = $query
             ->limit(10)->get(['id', 'customer_name', 'contact_name'])
             ->map(fn($c) => ['id' => $c->id, 'customer_name' => $c->canonical_name])->toArray();
     }
@@ -172,9 +234,10 @@ class SaleByProductReport extends Component
             $this->categoryOptions = [];
             return;
         }
-        $this->categoryOptions = Category::query()
-            ->where('setting_id', $this->settingId)
-            ->whereRaw('LOWER(category_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
+        $query = Category::query();
+        $this->applyTokenizedSearch($query, $value, ['category_name']);
+
+        $this->categoryOptions = $query
             ->limit(10)->get(['id', 'category_name'])->toArray();
     }
 
@@ -185,10 +248,8 @@ class SaleByProductReport extends Component
             $this->productOptions = [];
             return;
         }
-        $this->productOptions = Product::query()
-            ->where('setting_id', $this->settingId)
-            ->whereRaw('LOWER(product_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
-            ->limit(10)->get(['id', 'product_name'])->toArray();
+        $this->productOptions = $this->buildProductSearchQuery($value)
+            ->limit(10)->get(['id', 'product_name', 'product_code'])->toArray();
     }
 
     public function cancelFilters(): void

@@ -529,4 +529,229 @@ class SaleByProductReportTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertEquals($product1->id, $results[0]->product_id);
     }
+
+    /** @test */
+    public function it_asserts_multi_token_search_matches_non_contiguous_words()
+    {
+        $p1 = $this->makeProduct(['product_name' => 'ALFA INK EPSON BLACK']);
+        $p2 = $this->makeProduct(['product_name' => 'CANON INK BLACK']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'alf bla')
+            ->assertSet('productOptions', function ($options) use ($p1, $p2) {
+                $ids = collect($options)->pluck('id')->toArray();
+                return in_array($p1->id, $ids) && !in_array($p2->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_asserts_search_returns_empty_when_one_token_matches_nothing()
+    {
+        $this->makeProduct(['product_name' => 'ALFA INK EPSON BLACK']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'alfa xyznomatch')
+            ->assertSet('productOptions', []);
+    }
+
+    /** @test */
+    public function it_asserts_token_order_does_not_affect_matched_set()
+    {
+        $p1 = $this->makeProduct(['product_name' => 'ALFA INK EPSON BLACK']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        $component1 = Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'epson alfa');
+        $opts1 = collect($component1->get('productOptions'))->pluck('id')->toArray();
+
+        $component2 = Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'alfa epson');
+        $opts2 = collect($component2->get('productOptions'))->pluck('id')->toArray();
+
+        $this->assertEquals($opts1, $opts2);
+        $this->assertContains($p1->id, $opts1);
+    }
+
+    /** @test */
+    public function it_asserts_product_is_found_by_product_code()
+    {
+        $p1 = $this->makeProduct([
+            'product_name' => 'SOME INK ITEM',
+            'product_code' => 'SKU-XYZ-9988',
+        ]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', '9988')
+            ->assertSet('productOptions', function ($options) use ($p1) {
+                return collect($options)->contains('id', $p1->id);
+            });
+    }
+
+    /** @test */
+    public function it_asserts_tokens_across_name_and_code_together_select_product()
+    {
+        $p1 = $this->makeProduct([
+            'product_name' => 'ALFA INK EPSON',
+            'product_code' => 'SKU-RED-11',
+        ]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'alfa RED-11')
+            ->assertSet('productOptions', function ($options) use ($p1) {
+                return collect($options)->contains('id', $p1->id);
+            });
+    }
+
+    /** @test */
+    public function it_asserts_product_options_carry_product_code()
+    {
+        $p1 = $this->makeProduct([
+            'product_name' => 'ALFA INK EPSON',
+            'product_code' => 'SKU-001',
+        ]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'alfa')
+            ->assertSet('productOptions', function ($options) use ($p1) {
+                $option = collect($options)->firstWhere('id', $p1->id);
+                return $option && isset($option['product_code']) && $option['product_code'] === 'SKU-001';
+            });
+    }
+
+    /** @test */
+    public function it_asserts_minimum_search_length_suppresses_options()
+    {
+        $this->makeProduct(['product_name' => 'ALFA INK EPSON']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'a')
+            ->assertSet('productOptions', []);
+    }
+
+    /** @test */
+    public function it_asserts_select_all_matching_selects_beyond_displayed_limit()
+    {
+        $createdIds = [];
+        for ($i = 1; $i <= 15; $i++) {
+            $p = $this->makeProduct([
+                'product_name' => "BULKTEST PRODUCT {$i}",
+                'product_code' => "BT-{$i}",
+            ]);
+            $createdIds[] = $p->id;
+        }
+
+        session(['setting_id' => $this->setting->id]);
+
+        $test = Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'bulktest')
+            ->call('selectAllMatchingProducts');
+
+        $this->assertCount(10, $test->get('productOptions'));
+        $this->assertEqualsCanonicalizing($createdIds, $test->get('productIds'));
+    }
+
+    /** @test */
+    public function it_asserts_select_all_matching_merges_without_duplicates()
+    {
+        $p1 = $this->makeProduct(['product_name' => 'MERGETEST PROD 1']);
+        $p2 = $this->makeProduct(['product_name' => 'MERGETEST PROD 2']);
+        $pOther = $this->makeProduct(['product_name' => 'OTHER PROD']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        $test = Livewire::test(SaleByProductReport::class)
+            ->set('productIds', [$pOther->id, $p1->id])
+            ->set('productLabels', [
+                $pOther->id => 'OTHER PROD',
+                $p1->id => 'MERGETEST PROD 1',
+            ])
+            ->set('productSearch', 'mergetest')
+            ->call('selectAllMatchingProducts');
+
+        $productIds = $test->get('productIds');
+        $this->assertCount(3, $productIds);
+        $this->assertEqualsCanonicalizing([$pOther->id, $p1->id, $p2->id], $productIds);
+    }
+
+    /** @test */
+    public function it_asserts_ceiling_truncates_selection_and_dispatches_alert()
+    {
+        Product::query()->delete();
+        $records = [];
+        for ($i = 1; $i <= 505; $i++) {
+            $records[] = [
+                'setting_id' => $this->setting->id,
+                'product_name' => "CEILINGTEST PROD {$i}",
+                'product_code' => "CT-{$i}",
+                'product_cost' => 500,
+                'product_price' => 1000,
+                'product_quantity' => 10,
+                'product_unit' => 'Pcs',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+        Product::insert($records);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'ceilingtest')
+            ->call('selectAllMatchingProducts')
+            ->assertDispatched('alert', ['type' => 'warning', 'message' => 'Pencarian menghasilkan 505 produk. Hanya 500 produk pertama yang dipilih secara otomatis.'])
+            ->assertSet('productIds', function ($ids) {
+                return count($ids) === 500;
+            });
+    }
+
+    /** @test */
+    public function it_asserts_select_all_matching_is_no_op_below_minimum_search_length()
+    {
+        $this->makeProduct(['product_name' => 'TEST PRODUCT']);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 't')
+            ->call('selectAllMatchingProducts')
+            ->assertSet('productIds', []);
+    }
+
+    /** @test */
+    public function it_asserts_report_applied_after_bulk_selection_reflects_every_selected_product()
+    {
+        $customer = $this->makeCustomer('Bulk Customer');
+        $p1 = $this->makeProduct(['product_name' => 'BULKREP P1']);
+        $p2 = $this->makeProduct(['product_name' => 'BULKREP P2']);
+        $pUnselected = $this->makeProduct(['product_name' => 'UNSELECTED P3']);
+
+        $sale = $this->makeSale($customer);
+        $this->makeSaleDetail($sale, ['product_id' => $p1->id, 'quantity' => 2, 'unit_price' => 1000, 'sub_total' => 2000]);
+        $this->makeSaleDetail($sale, ['product_id' => $p2->id, 'quantity' => 3, 'unit_price' => 1000, 'sub_total' => 3000]);
+        $this->makeSaleDetail($sale, ['product_id' => $pUnselected->id, 'quantity' => 5, 'unit_price' => 1000, 'sub_total' => 5000]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'bulkrep')
+            ->call('selectAllMatchingProducts')
+            ->call('applyFilters')
+            ->assertViewHas('products', function ($paginator) use ($p1, $p2, $pUnselected) {
+                $ids = collect($paginator->items())->pluck('product_id')->toArray();
+                return in_array($p1->id, $ids) && in_array($p2->id, $ids) && !in_array($pUnselected->id, $ids);
+            });
+    }
 }
