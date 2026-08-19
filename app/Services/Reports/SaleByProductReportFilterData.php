@@ -4,10 +4,12 @@ namespace App\Services\Reports;
 
 class SaleByProductReportFilterData
 {
+    public array $scopeSettingIds = [];
+
     public function __construct(
         public string $startDate,
         public string $endDate,
-        public ?int $scopeSettingId = null,
+        array $scopeSettingIds = [],
         public array $customerIds = [],
         public array $tagIds = [],
         public string $tagLogic = 'Salah satu',
@@ -18,6 +20,9 @@ class SaleByProductReportFilterData
         public string $sortDirection = 'asc',
         public ?string $periodPreset = null
     ) {
+        $filtered = array_filter(array_map('intval', $scopeSettingIds), fn($id) => $id > 0);
+        sort($filtered, SORT_NUMERIC);
+        $this->scopeSettingIds = array_values($filtered);
     }
 
     public function toArray(): array
@@ -25,7 +30,7 @@ class SaleByProductReportFilterData
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
-            'scopeSettingId' => $this->scopeSettingId,
+            'scopeSettingIds' => $this->scopeSettingIds,
             'customerIds' => $this->customerIds,
             'tagIds' => $this->tagIds,
             'tagLogic' => $this->tagLogic,
@@ -40,10 +45,17 @@ class SaleByProductReportFilterData
 
     public static function fromArray(array $data): self
     {
+        $scopeSettingIds = [];
+        if (isset($data['scopeSettingIds']) && is_array($data['scopeSettingIds'])) {
+            $scopeSettingIds = $data['scopeSettingIds'];
+        } elseif (isset($data['scopeSettingId']) && !is_null($data['scopeSettingId'])) {
+            $scopeSettingIds = [(int) $data['scopeSettingId']];
+        }
+
         return new self(
             startDate: $data['startDate'] ?? '',
             endDate: $data['endDate'] ?? '',
-            scopeSettingId: $data['scopeSettingId'] ?? null,
+            scopeSettingIds: $scopeSettingIds,
             customerIds: $data['customerIds'] ?? [],
             tagIds: $data['tagIds'] ?? [],
             tagLogic: $data['tagLogic'] ?? 'Salah satu',

@@ -175,7 +175,7 @@ class SaleByProductEffectiveDateTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: '2026-02-01',
             endDate: '2026-02-28',
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
         $service = new SaleByProductReportQueryService();
         $query = $service->build($filter);

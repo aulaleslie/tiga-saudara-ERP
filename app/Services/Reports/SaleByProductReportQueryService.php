@@ -10,7 +10,9 @@ class SaleByProductReportQueryService
 {
     public function build(SaleByProductReportFilterData $filter): Builder
     {
-        $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
+        $scopeSettingIds = !empty($filter->scopeSettingIds)
+            ? $filter->scopeSettingIds
+            : [(int) session('setting_id')];
 
         // 1. Sold Aggregate
         $soldQuery = DB::table('sale_details')
@@ -28,7 +30,7 @@ class SaleByProductReportQueryService
                 DB::raw('SUM(CASE WHEN sales.is_tax_included = 1 THEN sale_details.sub_total - COALESCE(sale_details.product_tax_amount, 0) ELSE sale_details.sub_total END) as sold_value'),
                 DB::raw('0 as return_value')
             )
-            ->where('sales.setting_id', $scopeSettingId)
+            ->whereIn('sales.setting_id', $scopeSettingIds)
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
@@ -53,7 +55,7 @@ class SaleByProductReportQueryService
                 DB::raw('0 as sold_value'),
                 DB::raw('SUM(CASE WHEN sales.is_tax_included = 1 THEN sale_return_details.sub_total - COALESCE(sale_return_details.product_tax_amount, 0) ELSE sale_return_details.sub_total END) as return_value')
             )
-            ->where('sale_returns.setting_id', $scopeSettingId)
+            ->whereIn('sale_returns.setting_id', $scopeSettingIds)
             ->whereDate('sale_returns.date', '>=', $filter->startDate)
             ->whereDate('sale_returns.date', '<=', $filter->endDate)
             ->whereIn(DB::raw('LOWER(sale_returns.status)'), ['awaiting settlement', 'completed']);

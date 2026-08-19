@@ -102,9 +102,19 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
                 
                 $sheet->insertNewRowBefore(1, 5);
 
-                $setting = \Modules\Setting\Entities\Setting::find($this->filter->scopeSettingId) 
-                           ?? \Modules\Setting\Entities\Setting::first();
-                $companyName = $setting ? $setting->company_name : 'COMPANY NAME';
+                $allSettings = \Modules\Setting\Entities\Setting::query()->orderBy('company_name')->get();
+                $scopeSettingIds = !empty($this->filter->scopeSettingIds) ? $this->filter->scopeSettingIds : [(int) session('setting_id')];
+                $count = count($scopeSettingIds);
+                $totalCount = $allSettings->count();
+
+                if ($count === 1) {
+                    $setting = $allSettings->firstWhere('id', $scopeSettingIds[0]);
+                    $companyName = $setting ? $setting->company_name : 'COMPANY NAME';
+                } elseif ($count === $totalCount && $totalCount > 0) {
+                    $companyName = 'Semua Perusahaan';
+                } else {
+                    $companyName = 'Beberapa Perusahaan';
+                }
 
                 $startDate = Carbon::parse($this->filter->startDate)->format('d/m/Y');
                 $endDate = Carbon::parse($this->filter->endDate)->format('d/m/Y');

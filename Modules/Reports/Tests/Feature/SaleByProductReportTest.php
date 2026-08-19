@@ -82,14 +82,15 @@ class SaleByProductReportTest extends TestCase
         ]);
     }
 
-    protected function makeCategory(string $name = 'Category 1'): Category
+    protected function makeCategory(string $name = 'Category 1', ?int $settingId = null): Category
     {
         static $counter = 0;
         $counter++;
         return Category::create([
-            'setting_id' => $this->setting->id,
+            'setting_id' => $settingId ?? $this->setting->id,
             'category_code' => "CAT-{$counter}",
             'category_name' => $name,
+            'created_by' => $this->user->id,
         ]);
     }
 
@@ -240,7 +241,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -271,7 +272,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -296,7 +297,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -322,7 +323,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -409,7 +410,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -456,7 +457,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
         $queryService = new SaleByProductReportQueryService();
         $query = $queryService->build($filter);
@@ -483,7 +484,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id
+            scopeSettingIds: [$this->setting->id]
         );
 
         $queryService = new SaleByProductReportQueryService();
@@ -518,7 +519,7 @@ class SaleByProductReportTest extends TestCase
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
             endDate: now()->format('Y-m-d'),
-            scopeSettingId: $this->setting->id,
+            scopeSettingIds: [$this->setting->id],
             tagIds: [$tag1Id, $tag2Id],
             tagLogic: 'Mencakup semua'
         );
@@ -753,5 +754,344 @@ class SaleByProductReportTest extends TestCase
                 $ids = collect($paginator->items())->pluck('product_id')->toArray();
                 return in_array($p1->id, $ids) && in_array($p2->id, $ids) && !in_array($pUnselected->id, $ids);
             });
+    }
+
+    /** @test */
+    public function it_asserts_default_empty_scope_matches_current_setting_behaviour()
+    {
+        // 7.1 Default (empty) scope matches current-setting behaviour
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        $c1 = $this->makeCustomer('Customer S1', $this->setting->id);
+        $c2 = $this->makeCustomer('Customer S2', $setting2->id);
+        $p1 = $this->makeProduct(['product_name' => 'Product S1', 'setting_id' => $this->setting->id]);
+        $p2 = $this->makeProduct(['product_name' => 'Product S2', 'setting_id' => $setting2->id]);
+
+        $s1 = $this->makeSale($c1, ['setting_id' => $this->setting->id]);
+        $this->makeSaleDetail($s1, ['product_id' => $p1->id, 'quantity' => 2, 'sub_total' => 2000]);
+
+        $s2 = $this->makeSale($c2, ['setting_id' => $setting2->id]);
+        $this->makeSaleDetail($s2, ['product_id' => $p2->id, 'quantity' => 4, 'sub_total' => 4000]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        $filterEmpty = new SaleByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingIds: []
+        );
+
+        $queryService = new SaleByProductReportQueryService();
+        $results = $queryService->build($filterEmpty)->get();
+
+        $this->assertCount(1, $results);
+        $this->assertEquals($p1->id, $results[0]->product_id);
+        $this->assertEquals(2, $results[0]->sold_quantity);
+    }
+
+    /** @test */
+    public function it_asserts_multi_setting_scope_combines_rows_and_excludes_unselected_settings()
+    {
+        // 7.2 Multi-setting scope combines rows and excludes unselected settings
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+        $setting3 = Setting::create([
+            'company_name' => 'Company 3',
+            'company_email' => 'comp3@example.com',
+            'company_phone' => '111222333',
+            'notification_email' => 'comp3@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 3',
+            'company_address' => 'Address 3'
+        ]);
+
+        $c1 = $this->makeCustomer('Cust 1', $this->setting->id);
+        $c2 = $this->makeCustomer('Cust 2', $setting2->id);
+        $c3 = $this->makeCustomer('Cust 3', $setting3->id);
+
+        $p1 = $this->makeProduct(['product_name' => 'Prod 1', 'setting_id' => $this->setting->id]);
+        $p2 = $this->makeProduct(['product_name' => 'Prod 2', 'setting_id' => $setting2->id]);
+        $p3 = $this->makeProduct(['product_name' => 'Prod 3', 'setting_id' => $setting3->id]);
+
+        $s1 = $this->makeSale($c1, ['setting_id' => $this->setting->id]);
+        $this->makeSaleDetail($s1, ['product_id' => $p1->id, 'quantity' => 1, 'sub_total' => 1000]);
+
+        $s2 = $this->makeSale($c2, ['setting_id' => $setting2->id]);
+        $this->makeSaleDetail($s2, ['product_id' => $p2->id, 'quantity' => 2, 'sub_total' => 2000]);
+
+        $s3 = $this->makeSale($c3, ['setting_id' => $setting3->id]);
+        $this->makeSaleDetail($s3, ['product_id' => $p3->id, 'quantity' => 3, 'sub_total' => 3000]);
+
+        $filter = new SaleByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingIds: [$this->setting->id, $setting2->id]
+        );
+
+        $queryService = new SaleByProductReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        $this->assertCount(2, $results);
+        $matchedIds = collect($results)->pluck('product_id')->toArray();
+        $this->assertContains($p1->id, $matchedIds);
+        $this->assertContains($p2->id, $matchedIds);
+        $this->assertNotContains($p3->id, $matchedIds);
+    }
+
+    /** @test */
+    public function it_asserts_returns_are_scoped_by_sale_returns_setting_id()
+    {
+        // 7.3 Returns scoped by sale_returns.setting_id
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        $c1 = $this->makeCustomer('Cust 1', $this->setting->id);
+        $c2 = $this->makeCustomer('Cust 2', $setting2->id);
+        $p = $this->makeProduct(['product_name' => 'Shared Product']);
+
+        $ret1 = $this->makeSaleReturn($c1, ['setting_id' => $this->setting->id, 'status' => 'Completed']);
+        $this->makeSaleReturnDetail($ret1, ['product_id' => $p->id, 'quantity' => 2, 'sub_total' => 2000]);
+
+        $ret2 = $this->makeSaleReturn($c2, ['setting_id' => $setting2->id, 'status' => 'Completed']);
+        $this->makeSaleReturnDetail($ret2, ['product_id' => $p->id, 'quantity' => 3, 'sub_total' => 3000]);
+
+        // Filter only setting 1
+        $filter1 = new SaleByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingIds: [$this->setting->id]
+        );
+
+        $queryService = new SaleByProductReportQueryService();
+        $results1 = $queryService->build($filter1)->get();
+        $this->assertCount(1, $results1);
+        $this->assertEquals(2, $results1[0]->return_quantity);
+
+        // Filter both setting 1 and setting 2
+        $filterBoth = new SaleByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingIds: [$this->setting->id, $setting2->id]
+        );
+        $resultsBoth = $queryService->build($filterBoth)->get();
+        $this->assertCount(1, $resultsBoth);
+        $this->assertEquals(5, $resultsBoth[0]->return_quantity);
+    }
+
+    /** @test */
+    public function it_asserts_same_product_in_two_settings_merges_into_one_row()
+    {
+        // 7.4 Same product in two settings merges into one row
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        $c1 = $this->makeCustomer('Cust 1', $this->setting->id);
+        $c2 = $this->makeCustomer('Cust 2', $setting2->id);
+        $product = $this->makeProduct(['product_name' => 'Unified Product', 'product_code' => 'UNI-01']);
+
+        $s1 = $this->makeSale($c1, ['setting_id' => $this->setting->id]);
+        $this->makeSaleDetail($s1, ['product_id' => $product->id, 'quantity' => 10, 'unit_price' => 1000, 'sub_total' => 10000]);
+
+        $s2 = $this->makeSale($c2, ['setting_id' => $setting2->id]);
+        $this->makeSaleDetail($s2, ['product_id' => $product->id, 'quantity' => 15, 'unit_price' => 1000, 'sub_total' => 15000]);
+
+        $filter = new SaleByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingIds: [$this->setting->id, $setting2->id]
+        );
+
+        $queryService = new SaleByProductReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        $this->assertCount(1, $results);
+        $this->assertEquals(25, $results[0]->sold_quantity);
+        $this->assertEquals(25000, $results[0]->sold_value);
+    }
+
+    /** @test */
+    public function it_asserts_hash_stability_across_reversed_order_types_and_key_gaps()
+    {
+        // 7.5 Hash stability: reversed selection order, string-vs-int ids, and key-gapped arrays
+        $filterStandard = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: [1, 2]
+        );
+
+        $filterReversed = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: [2, 1]
+        );
+
+        $filterStrings = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: ['2', '1']
+        );
+
+        $filterKeyGapped = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: [10 => 2, 25 => 1]
+        );
+
+        $this->assertEquals($filterStandard->hash(), $filterReversed->hash());
+        $this->assertEquals($filterStandard->hash(), $filterStrings->hash());
+        $this->assertEquals($filterStandard->hash(), $filterKeyGapped->hash());
+    }
+
+    /** @test */
+    public function it_asserts_changed_scope_invalidates_export_snapshot()
+    {
+        // 7.6 Changed scope invalidates export snapshot
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        $filterOriginal = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: [$this->setting->id]
+        );
+
+        $snapshotService = app(\App\Services\Reports\SaleByProductReportSnapshotService::class);
+        $snapshotService->createSnapshot($filterOriginal, 5);
+
+        $this->assertTrue($snapshotService->isValidForExport($filterOriginal));
+
+        $filterModified = new SaleByProductReportFilterData(
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+            scopeSettingIds: [$this->setting->id, $setting2->id]
+        );
+
+        $this->assertFalse($snapshotService->isValidForExport($filterModified));
+    }
+
+    /** @test */
+    public function it_asserts_product_filter_offers_product_whose_setting_differs_from_sale()
+    {
+        // 7.7 Product filter offers a product whose products.setting_id differs from the sale's
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        // Product created under setting 2
+        $p = $this->makeProduct(['product_name' => 'CROSS SETTING PRODUCT', 'setting_id' => $setting2->id]);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('productSearch', 'cross setting')
+            ->assertSet('productOptions', function ($options) use ($p) {
+                return collect($options)->contains('id', $p->id);
+            });
+    }
+
+    /** @test */
+    public function it_asserts_duplicate_category_names_listed_separately()
+    {
+        // 7.8 Duplicate category names across settings are listed as separate options
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+
+        $cat1 = $this->makeCategory('Shared Category Name', $this->setting->id);
+        $cat2 = $this->makeCategory('Shared Category Name', $setting2->id);
+
+        session(['setting_id' => $this->setting->id]);
+
+        Livewire::test(SaleByProductReport::class)
+            ->set('categorySearch', 'shared category')
+            ->assertSet('categoryOptions', function ($options) use ($cat1, $cat2) {
+                $ids = collect($options)->pluck('id')->toArray();
+                return in_array($cat1->id, $ids) && in_array($cat2->id, $ids);
+            });
+    }
+
+    /** @test */
+    public function it_asserts_invalid_setting_ids_are_discarded()
+    {
+        // 7.9 Invalid setting ids discarded before querying
+        $staffRole = Role::where('name', 'Staff')->first();
+        $setting2 = Setting::create([
+            'company_name' => 'Company 2',
+            'company_email' => 'comp2@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'comp2@example.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer 2',
+            'company_address' => 'Address 2'
+        ]);
+        $this->user->settings()->attach($setting2->id, ['role_id' => $staffRole->id]);
+
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        // When selectedSettingIds contains invalid/non-existent ID like 99999
+        $component = Livewire::test(SaleByProductReport::class)
+            ->set('selectedSettingIds', [$this->setting->id, 99999])
+            ->call('applyFilters');
+
+        $appliedFilters = $component->get('appliedFilters');
+        $this->assertEquals([$this->setting->id], $appliedFilters['scopeSettingIds']);
     }
 }

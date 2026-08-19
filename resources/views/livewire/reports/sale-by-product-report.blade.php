@@ -10,6 +10,15 @@
     @endif
 
     <div class="d-flex flex-wrap gap-2 mb-3 align-items-end">
+        <div style="min-width: 220px;">
+            @include('livewire.reports.business-source-selector', [
+                'selectId' => 'saleByProductSettingIds',
+                'availableSettings' => $availableSettings,
+                'livewireProperty' => 'selectedSettingIds',
+                'selectedValues' => $selectedSettingIds,
+                'placeholder' => 'Pilih perusahaan...'
+            ])
+        </div>
         <div>
             <label class="form-label small">Periode</label>
             <select wire:model.live="periodPreset" class="form-control">
@@ -71,13 +80,14 @@
         <div class="offcanvas-body p-3" style="overflow-y: auto; flex-grow: 1; min-height: 0;">
 
             {{-- Customer multi-select searchable --}}
-            <div class="mb-3" x-data="{ expanded: false }">
+            <div class="mb-3" x-data="{ expanded: false, open: false }" @click.outside="open = false" @keydown.escape="open = false">
                 <label class="form-label small">Customer</label>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="customerSearch"
+                           @focus="open = true" @input="open = true"
                            class="form-control" placeholder="Cari Customer (min 2 karakter)...">
                     @if(strlen($customerSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div x-show="open" class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($customerOptions as $option)
                                 @if(in_array($option['id'], $customerIds))
                                     <button type="button"
@@ -86,6 +96,7 @@
                                     </button>
                                 @else
                                     <button type="button"
+                                            @click="open = false"
                                             wire:click='selectCustomer({{ $option['id'] }}, @json($option['customer_name']))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $option['customer_name'] }}
@@ -134,7 +145,7 @@
             </div>
 
             {{-- Category multi-select searchable --}}
-            <div class="mb-3" x-data="{ expanded: false }">
+            <div class="mb-3" x-data="{ expanded: false, open: false }" @click.outside="open = false" @keydown.escape="open = false">
                 <label class="form-label small">Kategori Produk</label>
                 <select wire:model="categoryLogic" class="form-control form-control-sm mb-2">
                     <option value="Salah satu">Salah satu</option>
@@ -142,9 +153,10 @@
                 </select>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="categorySearch"
+                           @focus="open = true" @input="open = true"
                            class="form-control" placeholder="Cari Kategori (min 2 karakter)...">
                     @if(strlen($categorySearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div x-show="open" class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($categoryOptions as $option)
                                 @if(in_array($option['id'], $categoryIds))
                                     <button type="button"
@@ -153,6 +165,7 @@
                                     </button>
                                 @else
                                     <button type="button"
+                                            @click="open = false"
                                             wire:click='selectCategory({{ $option['id'] }}, @json($option['category_name']))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $option['category_name'] }}
@@ -201,7 +214,7 @@
             </div>
 
             {{-- Product multi-select searchable --}}
-            <div class="mb-3" x-data="{ expanded: false }">
+            <div class="mb-3" x-data="{ expanded: false, open: false }" @click.outside="open = false" @keydown.escape="open = false">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label small mb-0">Produk</label>
                     @if(strlen(trim($productSearch)) >= 2)
@@ -214,9 +227,10 @@
                 </div>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="productSearch"
+                           @focus="open = true" @input="open = true"
                            class="form-control" placeholder="Cari Produk (min 2 karakter)...">
                     @if(strlen($productSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div x-show="open" class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($productOptions as $option)
                                 @php
                                     $optLabel = ($option['product_code'] ?? '') ? $option['product_code'] . ' | ' . $option['product_name'] : $option['product_name'];
@@ -234,6 +248,7 @@
                                     </button>
                                 @else
                                     <button type="button"
+                                            @click="open = false"
                                             wire:click='selectProduct({{ $option['id'] }}, @json($optLabel))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         @if(!empty($option['product_code']))
@@ -285,7 +300,7 @@
             </div>
 
             {{-- Grup dengan tag multi-select searchable --}}
-            <div class="mb-3" x-data="{ expanded: false }">
+            <div class="mb-3" x-data="{ expanded: false, open: false }" @click.outside="open = false" @keydown.escape="open = false">
                 <label class="form-label small">Grup dengan tag</label>
                 <select wire:model="tagLogic" class="form-control form-control-sm mb-2">
                     <option value="Salah satu">Salah satu</option>
@@ -293,9 +308,10 @@
                 </select>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="tagSearch"
+                           @focus="open = true" @input="open = true"
                            class="form-control" placeholder="Cari Tag (min 2 karakter)...">
                     @if(strlen($tagSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div x-show="open" class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($tagOptions as $option)
                                 @php
                                     $locale = app()->getLocale();
@@ -309,6 +325,7 @@
                                     </button>
                                 @else
                                     <button type="button"
+                                            @click="open = false"
                                             wire:click='selectTag({{ $option['id'] }}, @json($tagName))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $tagName }}

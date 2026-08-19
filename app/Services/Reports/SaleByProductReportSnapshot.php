@@ -9,7 +9,7 @@ class SaleByProductReportSnapshot
         public string $validatedFilterHash,
         public string $generatedAt,
         public int $actorUserId,
-        public ?int $scopeSettingId,
+        public array $scopeSettingIds,
         public int $resultCount
     ) {
     }
@@ -21,19 +21,26 @@ class SaleByProductReportSnapshot
             'validatedFilterHash' => $this->validatedFilterHash,
             'generatedAt' => $this->generatedAt,
             'actorUserId' => $this->actorUserId,
-            'scopeSettingId' => $this->scopeSettingId,
+            'scopeSettingIds' => $this->scopeSettingIds,
             'resultCount' => $this->resultCount,
         ];
     }
 
     public static function fromArray(array $data): self
     {
+        $scopeSettingIds = [];
+        if (isset($data['scopeSettingIds']) && is_array($data['scopeSettingIds'])) {
+            $scopeSettingIds = $data['scopeSettingIds'];
+        } elseif (isset($data['scopeSettingId']) && !is_null($data['scopeSettingId'])) {
+            $scopeSettingIds = [(int) $data['scopeSettingId']];
+        }
+
         return new self(
             snapshotKey: $data['snapshotKey'],
             validatedFilterHash: $data['validatedFilterHash'],
             generatedAt: $data['generatedAt'],
             actorUserId: $data['actorUserId'],
-            scopeSettingId: $data['scopeSettingId'] ?? null,
+            scopeSettingIds: $scopeSettingIds,
             resultCount: $data['resultCount'] ?? 0
         );
     }

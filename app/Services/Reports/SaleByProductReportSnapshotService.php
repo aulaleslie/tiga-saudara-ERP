@@ -15,7 +15,7 @@ class SaleByProductReportSnapshotService
             validatedFilterHash: $filter->hash(),
             generatedAt: now()->toIso8601String(),
             actorUserId: auth()->id() ?? 0,
-            scopeSettingId: $filter->scopeSettingId,
+            scopeSettingIds: $filter->scopeSettingIds,
             resultCount: $resultCount
         );
 

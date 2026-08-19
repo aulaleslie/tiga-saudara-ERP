@@ -15,6 +15,8 @@ class SaleByProductReportValidator
         $validator = Validator::make($data, [
             'startDate' => 'required|date',
             'endDate' => 'required|date|after_or_equal:startDate',
+            'scopeSettingIds' => 'nullable|array',
+            'scopeSettingIds.*' => 'integer',
             'customerIds' => 'nullable|array',
             'customerIds.*' => 'integer|exists:customers,id',
             'tagIds' => 'nullable|array',

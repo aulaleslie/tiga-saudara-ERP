@@ -19,9 +19,9 @@ use Illuminate\Validation\ValidationException;
 class SaleByProductReport extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     public $startDate, $endDate;
-    public $settingId;
     public $sortField = 'product_name';
     public $sortDirection = 'asc';
 
@@ -56,11 +56,16 @@ class SaleByProductReport extends Component
 
     public function mount()
     {
-        $this->settingId = session('setting_id');
+        $this->selectedSettingIds = [];
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->appliedFilters = $this->exportFilters();
         $this->filterTriggered = false;
+    }
+
+    public function updatedSelectedSettingIds(): void
+    {
+        $this->resetPage();
     }
 
     public function updatedPeriodPreset($value): void
@@ -283,6 +288,7 @@ class SaleByProductReport extends Component
 
     public function resetFilters(): void
     {
+        $this->selectedSettingIds = [];
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->periodPreset = '';
@@ -307,13 +313,19 @@ class SaleByProductReport extends Component
         $this->categoryOptions = [];
         $this->productSearch = '';
         $this->productOptions = [];
+
+        $this->dispatch('sync-select2-saleByProductSettingIds', ['values' => []]);
     }
 
     private function exportFilters(): array
     {
+        $availableSettings = $this->getAvailableSettings();
+        $validatedScopeIds = $this->validateSettingIds($this->getEffectiveSettingIds(), $availableSettings);
+
         return [
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
+            'scopeSettingIds' => $validatedScopeIds,
             'periodPreset' => $this->periodPreset,
             'customerIds' => $this->customerIds,
             'tagIds' => $this->tagIds,
@@ -347,7 +359,6 @@ class SaleByProductReport extends Component
             $this->filterTriggered = true;
 
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-            $filter->scopeSettingId = $this->settingId;
             $count = $queryService->build($filter)->count();
             $snapshotService->createSnapshot($filter, $count);
             
@@ -368,7 +379,6 @@ class SaleByProductReport extends Component
         }
 
         $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-        $filter->scopeSettingId = $this->settingId;
 
         if (!$snapshotService->isValidForExport($filter)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Kondisi filter telah berubah. Silakan terapkan filter kembali sebelum mengekspor.']);
@@ -393,7 +403,6 @@ class SaleByProductReport extends Component
         }
 
         $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-        $filter->scopeSettingId = $this->settingId;
 
         if (!$snapshotService->isValidForExport($filter)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Kondisi filter telah berubah. Silakan terapkan filter kembali sebelum mengekspor.']);
@@ -410,13 +419,16 @@ class SaleByProductReport extends Component
 
     public function render(SaleByProductReportQueryService $queryService)
     {
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->validateSettingIds($this->getEffectiveSettingIds(), $availableSettings);
+        $scopeLabel = $this->getScopeLabel($availableSettings, $effectiveSettingIds);
+
         $products = collect();
         $grandTotalSold = 0;
         $grandTotalReturn = 0;
 
         if ($this->filterTriggered) {
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-            $filter->scopeSettingId = $this->settingId;
 
             $query = $queryService->build($filter);
             $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
@@ -429,6 +441,9 @@ class SaleByProductReport extends Component
         }
 
         return view('livewire.reports.sale-by-product-report', [
+            'availableSettings' => $availableSettings,
+            'selectedSettingIds' => $this->selectedSettingIds,
+            'scopeLabel' => $scopeLabel,
             'products' => $products,
             'grandTotalSold' => $grandTotalSold,
             'grandTotalReturn' => $grandTotalReturn,

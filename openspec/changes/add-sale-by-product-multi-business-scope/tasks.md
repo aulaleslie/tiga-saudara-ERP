@@ -3,7 +3,7 @@
 - [x] 1.1 Remove `->where('setting_id', $this->settingId)` from `updatedProductSearch()` in `app/Livewire/Reports/SaleByProductReport.php` (line ~189), keeping the 2-character minimum and `limit(10)`
 - [x] 1.2 Remove `->where('setting_id', $this->settingId)` from `updatedCategorySearch()` in the same file (line ~176), keeping the 2-character minimum and `limit(10)`
 - [x] 1.3 Confirm `updatedCustomerSearch()` (line ~148) and `updatedTagSearch()` are already unscoped and require no change; record the finding rather than editing
-- [x] 1.4 Manually verify against local data that searching "alfa ink" under CV TIGA NUSA (`setting_id = 1`) now returns product `286` "ALFA INK L SERIES EPSON BLACK"
+- [ ] 1.4 Manually verify against local data that searching "alfa ink" under CV TIGA NUSA (`setting_id = 1`) now returns product `286` "ALFA INK L SERIES EPSON BLACK"
 
 ## 2. Make the filter scope plural and normalized
 
@@ -39,8 +39,8 @@
 
 - [x] 6.1 In `app/Exports/SaleByProductReportExport.php` (line ~105), replace `Setting::find($this->filter->scopeSettingId)` with logic that resolves a single company name when exactly one setting is selected, and an appropriate multi-company label otherwise
 - [x] 6.2 Include the `livewire.reports.business-source-selector` partial in `resources/views/livewire/reports/sale-by-product-report.blade.php`, passing `selectId` = `saleByProductSettingIds`, `availableSettings`, `livewireProperty` = `selectedSettingIds`, and `selectedValues`
-- [x] 6.3 Place the selector to match the profit-loss layout and confirm the Select2 styling renders identically
-- [x] 6.4 Verify the selector re-initialises correctly after a Livewire re-render and on filter reset
+- [ ] 6.3 Place the selector to match the profit-loss layout and confirm the Select2 styling renders identically
+- [ ] 6.4 Verify the selector re-initialises correctly after a Livewire re-render and on filter reset
 
 ## 7. Tests
 
@@ -58,6 +58,6 @@
 ## 8. Verification
 
 - [x] 8.1 Run `composer test:fresh-sqlite` or a focused `php artisan test` filter and confirm the suite passes
-- [x] 8.2 Manually verify the report at `/reports/sale-by-product` with a single business selected, matching pre-change output
-- [x] 8.3 Manually verify multi-business selection, the scope label (`Semua Perusahaan` when all are selected), and Excel/CSV export
+- [ ] 8.2 Manually verify the report at `/reports/sale-by-product` with a single business selected, matching pre-change output
+- [ ] 8.3 Manually verify multi-business selection, the scope label (`Semua Perusahaan` when all are selected), and Excel/CSV export
 - [x] 8.4 Confirm no database migration was added and no unrelated report changed behaviour
