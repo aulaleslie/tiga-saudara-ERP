@@ -328,7 +328,21 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 }
 
                 $childAllocatedQty = array_sum(array_column($childAllocations, 'allocated_qty'));
-                $childAllocatedMinor = array_sum(array_column($childAllocations, 'allocated_minor'));
+
+                // Split-planned allocations carry an exact minor-unit revenue share
+                // (allocated_minor). The simpler stock-resolver allocation path used for
+                // wholly-terminal-owned carts does not compute revenue shares at all, so
+                // fall back to the captured per-unit informational price for that path.
+                $hasRevenueAllocation = $childAllocations !== [] && array_key_exists('allocated_minor', $childAllocations[0]);
+                if ($hasRevenueAllocation) {
+                    $childAllocatedMinor = array_sum(array_column($childAllocations, 'allocated_minor'));
+                } else {
+                    $informationalItemPrice = isset($item['informational_item_price']) && is_numeric($item['informational_item_price'])
+                        ? (float) $item['informational_item_price']
+                        : 0.0;
+                    $childAllocatedMinor = $this->toMinor(round($informationalItemPrice * $childAllocatedQty, 2));
+                }
+
                 $childUnitPrice = $childAllocatedQty > 0 ? $this->fromMinor((int) round($childAllocatedMinor / $childAllocatedQty)) : 0;
 
                 // Resolve child tax context from allocations where available
@@ -371,11 +385,11 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'product_id' => $childProductId,
                     'name' => (string) ($item['product_name'] ?? ''),
                     'quantity' => $childAllocatedQty,
-                    'price' => 0.0,
+                    'price' => $childUnitPrice,
                     'informational_item_price' => isset($item['informational_item_price']) && is_numeric($item['informational_item_price'])
                         ? round((float) $item['informational_item_price'], 2)
                         : null,
-                    'sub_total' => 0.0,
+                    'sub_total' => $this->fromMinor((int) $childAllocatedMinor),
                     'tax_id' => $childTaxId,
                     'tax_amount' => round($childTaxAmount, 2),
                     'line_group_key' => "pos-{$index}-{$itemIndex}",

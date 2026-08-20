@@ -768,15 +768,18 @@ class PosBundleCapturedPricingAndAllocationTest extends TestCase
         $this->assertEquals(3, (int) $standaloneDetail->quantity);
         $this->assertEquals(3000000.0, (float) $standaloneDetail->sub_total);
 
-        // Verify sale bundle items: 1 child component item for Prod X with informational price 300,000 and 0 price/sub_total
+        // Verify sale bundle items: 1 child component item for Prod X with informational price
+        // 300,000. Its captured internal allocation (price/sub_total) now persists as non-zero
+        // nested allocation identity within the parent detail's 1,000,000 captured bundle price
+        // (single-owner posting: no split, so this is inline persistence, not split posting).
         $bundleItems = $parentDetail->bundleItems;
         $this->assertCount(1, $bundleItems);
         $bi = $bundleItems->first();
         $this->assertEquals($prodX->id, $bi->product_id);
         $this->assertEquals(1, $bi->quantity);
         $this->assertEquals(300000.0, (float) $bi->informational_item_price);
-        $this->assertEquals(0.0, (float) $bi->price);
-        $this->assertEquals(0.0, (float) $bi->sub_total);
+        $this->assertEquals(300000.0, (float) $bi->price);
+        $this->assertEquals(300000.0, (float) $bi->sub_total);
     }
 
     /**

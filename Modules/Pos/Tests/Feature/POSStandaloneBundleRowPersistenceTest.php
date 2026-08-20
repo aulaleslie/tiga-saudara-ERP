@@ -94,8 +94,11 @@ class POSStandaloneBundleRowPersistenceTest extends TestCase
         $this->assertEquals($child->id, $row->product_id);
         $this->assertEquals($child->product_name, $row->name);
         $this->assertEquals(1, $row->quantity);
-        $this->assertEquals(0, $row->price);
-        $this->assertEquals(0, $row->sub_total);
+        // Captured internal allocation now persists as nested allocation identity
+        // (component's informational_item_price of 20,000 scaled by fulfilled quantity),
+        // not a customer-facing charge — the parent detail still carries the full price.
+        $this->assertEquals(20000.0, (float) $row->price);
+        $this->assertEquals(20000.0, (float) $row->sub_total);
         $this->assertEquals($context['tax']->id, $row->tax_id);
         $this->assertNotNull($row->sale_detail_id);
         $this->assertStringStartsWith('pos-0-', $row->line_group_key);

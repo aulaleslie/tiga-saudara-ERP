@@ -174,9 +174,273 @@ class SplitBundleTransactionTest extends TestCase
         $this->assertEquals(50000.0, (float)$biB->price); // Actual price persisted
 
         // Verify Tax
-        // VAT 11% included in 175,000 -> 175,000 * 11 / 111 = 17342.34 -> rounded to 17342
-        $totalTax = (float)$saleTerminal->tax_amount + (float)$saleSource->tax_amount;
-        $this->assertEquals(17342.0, round($totalTax, 2));
+        // Bundled revenue is taxable ONLY for the PKP POS transaction owner's own group
+        // allocation (Terminal: 125,000 = 100k residual + 25k Comp A), not the full
+        // customer-facing bundle price. VAT 11% included: 125,000 * 11 / 111 = 12387.39 -> 12387.
+        // The Source setting's group (Comp B, 50,000) is a non-tax source-owner allocation.
+        $this->assertEquals(12387.0, round((float) $saleTerminal->tax_amount, 2));
+        $this->assertEquals(0.0, round((float) $saleSource->tax_amount, 2));
+
+        // 5. Verify Receipt Presentation: persisted internal component allocations must not
+        // leak into the customer-facing receipt. Parent shows the full captured bundle price
+        // once; components remain zero/free (composition entries carry no price fields).
+        $checkout = PosCheckout::findOrFail((int) $payload['pos_checkout_id']);
+        $receiptData = app(PosReceiptService::class)->getReceiptData($checkout);
+        $this->assertCount(1, $receiptData['lines']);
+        $this->assertEquals(175000.0, (float) $receiptData['lines'][0]['sub_total']);
+        $compositionKeys = array_keys($receiptData['lines'][0]['bundle_composition'][0] ?? []);
+        $this->assertNotContains('price', $compositionKeys);
+        $this->assertNotContains('sub_total', $compositionKeys);
+    }
+
+    public function test_split_bundle_multi_quantity_allocation_persists_rounding_sensitive_component_subtotals(): void
+    {
+        $terminalSetting = $this->createSetting('TERMINAL QTY BIZ', 'T-DOC', 'T-SO');
+        $sourceSetting = $this->createSetting('SOURCE QTY BIZ', 'S-DOC', 'S-SO');
+
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier-qty', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        $locTerminal = Location::create(['name' => 'TERMINAL QTY LOC', 'setting_id' => $terminalSetting->id]);
+        $locSource = Location::create(['name' => 'SOURCE QTY LOC', 'setting_id' => $sourceSetting->id]);
+
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal, $locSource]);
+        $methods = $this->seedPaymentMethods($terminalSetting, true);
+        $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
+        $this->assignDefaultWalkInCustomer($sourceSetting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        // Component B is priced so its total (across 3 bundles) does not divide evenly by 3,
+        // exercising the minor-unit rounding path: 10,000 / 3 = 3333.33...
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'PARENT-QTY', 60000, 3, $tax);
+        $compB = $this->createStockedProduct($sourceSetting, $locSource, 'COMP-B-QTY', 0, 3, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $terminalSetting->id,
+            'name' => 'Qty Bundle',
+            'bundle_sale_price' => 70000,
+            'price' => 10000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compB->id, 'quantity' => 1, 'informational_item_price' => 10000]);
+
+        $this->addCartLine($cashier, $terminalSetting, $parent->id, 3, $bundle->id);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
+
+        $response = $this->finalize($cashier, $terminalSetting, [
+            'idempotency_key' => 'K-BUNDLE-QTY-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 210000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $payload = $response->json();
+
+        $saleIds = array_column($payload['split_groups'], 'sale_id');
+        $sales = Sale::with(['saleDetails.bundleItems'])->whereIn('id', $saleIds)->get()->keyBy('setting_id');
+
+        $saleSource = $sales->get($sourceSetting->id);
+        $this->assertNotNull($saleSource);
+
+        $sourceDetail = $saleSource->saleDetails->sole();
+        $sourceBundleItem = $sourceDetail->bundleItems->sole();
+
+        // Exact captured allocation for Comp B across 3 fulfilled bundles = 3 * 10,000 = 30,000.
+        // sub_total must be the exact minor-unit sum; price is derived without losing that exactness.
+        $this->assertEquals(3, $sourceBundleItem->quantity);
+        $this->assertEquals(30000.0, (float) $sourceBundleItem->sub_total);
+        $this->assertEqualsWithDelta(10000.0, (float) $sourceBundleItem->price, 0.01);
+        $this->assertEqualsWithDelta(30000.0, (float) $sourceBundleItem->price * $sourceBundleItem->quantity, 1.0);
+    }
+
+    public function test_split_bundle_same_owner_nested_allocation_persists_component_subtotal_without_split(): void
+    {
+        $setting = $this->createSetting('SAME OWNER BIZ', 'T-DOC', 'T-SO');
+
+        $cashier = $this->createUserForSetting($setting, 'cashier-same', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        $loc = Location::create(['name' => 'SAME OWNER LOC', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $methods = $this->seedPaymentMethods($setting, true);
+        $this->openSession($setting, PosTerminal::where('setting_id', $setting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        $parent = $this->createStockedProduct($setting, $loc, 'PARENT-SAME', 80000, 1, $tax);
+        $compA = $this->createStockedProduct($setting, $loc, 'COMP-A-SAME', 0, 1, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $setting->id,
+            'name' => 'Same Owner Bundle',
+            'bundle_sale_price' => 100000,
+            'price' => 20000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compA->id, 'quantity' => 1, 'informational_item_price' => 20000]);
+
+        $this->addCartLine($cashier, $setting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $setting, $customer);
+
+        $response = $this->finalize($cashier, $setting, [
+            'idempotency_key' => 'K-BUNDLE-SAME-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $payload = $response->json();
+        $this->assertCount(1, $payload['split_groups']);
+
+        $sale = Sale::with(['saleDetails.bundleItems'])->findOrFail((int) $payload['split_groups'][0]['sale_id']);
+        $detail = $sale->saleDetails->sole();
+        $bundleItem = $detail->bundleItems->sole();
+
+        $this->assertEquals(1, $detail->quantity);
+        $this->assertEquals(80000.0, (float) $detail->unit_price);
+        $this->assertEquals(100000.0, (float) $detail->sub_total);
+        $this->assertEquals(20000.0, (float) $bundleItem->sub_total);
+        $this->assertEquals(20000.0, (float) $bundleItem->price);
+    }
+
+    public function test_split_bundle_idempotent_replay_does_not_duplicate_component_allocation_rows(): void
+    {
+        $terminalSetting = $this->createSetting('TERMINAL REPLAY BIZ', 'T-DOC', 'T-SO');
+        $sourceSetting = $this->createSetting('SOURCE REPLAY BIZ', 'S-DOC', 'S-SO');
+
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier-replay', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        $locTerminal = Location::create(['name' => 'TERMINAL REPLAY LOC', 'setting_id' => $terminalSetting->id]);
+        $locSource = Location::create(['name' => 'SOURCE REPLAY LOC', 'setting_id' => $sourceSetting->id]);
+
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal, $locSource]);
+        $methods = $this->seedPaymentMethods($terminalSetting, true);
+        $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
+        $this->assignDefaultWalkInCustomer($sourceSetting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'PARENT-REPLAY', 100000, 1, $tax);
+        $compB = $this->createStockedProduct($sourceSetting, $locSource, 'COMP-B-REPLAY', 0, 1, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $terminalSetting->id,
+            'name' => 'Replay Bundle',
+            'bundle_sale_price' => 150000,
+            'price' => 50000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compB->id, 'quantity' => 1, 'informational_item_price' => 50000]);
+
+        $this->addCartLine($cashier, $terminalSetting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
+
+        $payload = [
+            'idempotency_key' => 'K-BUNDLE-REPLAY-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 150000,
+            ],
+        ];
+
+        $first = $this->finalize($cashier, $terminalSetting, $payload);
+        $first->assertStatus(201)->assertJsonPath('idempotent_replay', false);
+
+        $second = $this->finalize($cashier, $terminalSetting, $payload);
+        $second->assertStatus(200)->assertJsonPath('idempotent_replay', true);
+
+        $this->assertDatabaseCount('sale_bundle_items', 1);
+
+        $saleIds = array_column($first->json()['split_groups'], 'sale_id');
+        $sourceSale = Sale::with('saleDetails.bundleItems')->whereIn('id', $saleIds)->get()->keyBy('setting_id')->get($sourceSetting->id);
+        $bundleItem = $sourceSale->saleDetails->sole()->bundleItems->sole();
+
+        $this->assertEquals(50000.0, (float) $bundleItem->sub_total);
+        $this->assertEquals(50000.0, (float) $bundleItem->price);
+    }
+
+    public function test_split_bundle_failure_in_later_owner_group_leaves_no_partial_posting(): void
+    {
+        $terminalSetting = $this->createSetting('TERMINAL ATOMIC BIZ', 'T-DOC', 'T-SO');
+        $sourceSetting = $this->createSetting('SOURCE ATOMIC BIZ', 'S-DOC', 'S-SO');
+
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier-atomic', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+
+        $locTerminal = Location::create(['name' => 'TERMINAL ATOMIC LOC', 'setting_id' => $terminalSetting->id]);
+        $locSource = Location::create(['name' => 'SOURCE ATOMIC LOC', 'setting_id' => $sourceSetting->id]);
+
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal, $locSource]);
+        $methods = $this->seedPaymentMethods($terminalSetting, true);
+        $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
+        $this->assignDefaultWalkInCustomer($sourceSetting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'PARENT-ATOMIC', 100000, 1, $tax);
+        // Component B has zero stock at its owning source location, forcing a
+        // STOCK_UNAVAILABLE failure while resolving the second owner group,
+        // after the first (terminal) owner group has already been posted in-memory.
+        $compB = $this->createStockedProduct($sourceSetting, $locSource, 'COMP-B-ATOMIC', 0, 0, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $terminalSetting->id,
+            'name' => 'Atomic Bundle',
+            'bundle_sale_price' => 150000,
+            'price' => 50000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compB->id, 'quantity' => 1, 'informational_item_price' => 50000]);
+
+        $this->addCartLine($cashier, $terminalSetting, $parent->id, 1, $bundle->id);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
+
+        $response = $this->finalize($cashier, $terminalSetting, [
+            'idempotency_key' => 'K-BUNDLE-ATOMIC-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 150000,
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        // No partial Sales, bundle items, payments, dispatches, or inventory movements
+        // must survive a mid-posting failure — the whole finalize is one DB transaction.
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_bundle_items', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
     }
 
     public function test_split_bundle_groups_pkp_fallback_components_with_non_pkp_non_tax_components_separately(): void
