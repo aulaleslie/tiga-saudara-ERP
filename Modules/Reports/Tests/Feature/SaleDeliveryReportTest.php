@@ -523,7 +523,7 @@ class SaleDeliveryReportTest extends TestCase
         $sale = $this->makeSale($customer);
         $product = $this->makeProduct();
 
-        $this->makeSaleDetail($sale, [
+        $saleDetail = $this->makeSaleDetail($sale, [
             'product_id' => $product->id,
             'product_name' => $product->product_name,
             'quantity' => 1,
@@ -547,7 +547,7 @@ class SaleDeliveryReportTest extends TestCase
             ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
             ->call('applyFilters')
             ->assertSee($customer->customer_name)
-            ->assertSee($product->product_name)
+            ->assertSee($saleDetail->product_name)
             ->assertSee('2.000') // Unit amount
             ->assertSee('Subtotal')
             ->assertSee('Total Keseluruhan');
