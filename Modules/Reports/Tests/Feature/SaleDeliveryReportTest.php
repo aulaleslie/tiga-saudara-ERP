@@ -187,12 +187,108 @@ class SaleDeliveryReportTest extends TestCase
     }
 
     /** @test */
-    public function it_verifies_no_sale_detail_id_migration_is_required_for_dispatch_details()
+    public function it_keeps_dispatch_details_sale_detail_id_nullable_for_legacy_composite_key_matching()
     {
-        $this->assertFalse(
+        $this->assertTrue(
             Schema::hasColumn('dispatch_details', 'sale_detail_id'),
-            'Regression: dispatch_details should not have sale_detail_id. Delivery matching must use composite key.'
+            'dispatch_details.sale_detail_id is used for exact lineage matching and must exist.'
         );
+
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+        $dispatch = $this->makeDispatch($customer, ['sale_id' => $sale->id]);
+        $detail = $this->makeDispatchDetail($dispatch, ['sale_id' => $sale->id, 'product_id' => $this->makeProduct()->id]);
+
+        $this->assertNull(
+            $detail->fresh()->sale_detail_id,
+            'sale_detail_id must remain nullable so legacy rows without exact lineage stay readable.'
+        );
+    }
+
+    /** @test */
+    public function it_matches_delivery_to_the_exact_sale_detail_lineage_when_two_details_share_a_composite_key()
+    {
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+        $product = $this->makeProduct();
+
+        // Two sale details for the same product/tax/bundle composite key (e.g. two identical
+        // lines added separately), distinguishable only by their sale_detail_id lineage.
+        $saleDetailOne = $this->makeSaleDetail($sale, [
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'sub_total' => 1000,
+        ]);
+        $saleDetailTwo = $this->makeSaleDetail($sale, [
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'sub_total' => 4000,
+        ]);
+
+        $dispatch = $this->makeDispatch($customer, ['sale_id' => $sale->id]);
+
+        // Only the second sale detail was actually dispatched; exact lineage must attribute
+        // the delivered amount to its own commercial value (4000), not the composite-key
+        // aggregate across both details (1000 + 4000 = 5000).
+        $this->makeDispatchDetail($dispatch, [
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailTwo->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+        ]);
+
+        $filter = new SaleDeliveryReportFilterData(
+            startDate: now()->startOfMonth()->format('Y-m-d'),
+            endDate: now()->endOfMonth()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new SaleDeliveryReportQueryService();
+        $result = $queryService->build($filter)->get();
+
+        $this->assertCount(1, $result);
+        $this->assertEquals(1, $result[0]->delivered_quantity);
+        $this->assertEquals(4000, $result[0]->unit_amount);
+        $this->assertEquals(4000, $result[0]->delivered_amount);
+    }
+
+    /** @test */
+    public function it_falls_back_to_composite_key_matching_when_dispatch_detail_has_no_sale_detail_id()
+    {
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+        $product = $this->makeProduct();
+
+        $this->makeSaleDetail($sale, [
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'sub_total' => 1000,
+        ]);
+
+        $dispatch = $this->makeDispatch($customer, ['sale_id' => $sale->id]);
+
+        // Legacy/import-style dispatch detail without sale_detail_id lineage must still be
+        // matched by the composite key (sale_id, product_id, tax_id, bundle_id).
+        $this->makeDispatchDetail($dispatch, [
+            'sale_id' => $sale->id,
+            'sale_detail_id' => null,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+        ]);
+
+        $filter = new SaleDeliveryReportFilterData(
+            startDate: now()->startOfMonth()->format('Y-m-d'),
+            endDate: now()->endOfMonth()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new SaleDeliveryReportQueryService();
+        $result = $queryService->build($filter)->get();
+
+        $this->assertCount(1, $result);
+        $this->assertEquals(1, $result[0]->delivered_quantity);
+        $this->assertEquals(1000, $result[0]->unit_amount);
+        $this->assertEquals(1000, $result[0]->delivered_amount);
     }
 
     /** @test */

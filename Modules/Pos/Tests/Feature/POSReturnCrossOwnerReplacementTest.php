@@ -95,7 +95,47 @@ class POSReturnCrossOwnerReplacementTest extends PosTransactionFeatureTestCase
         $this->assertSame($this->settingB->id, (int) $newSale->setting_id);
         $this->assertSame(Sale::STATUS_DISPATCHED, $newSale->status);
         $this->assertSame('paid', strtolower((string) $newSale->payment_status));
-        $this->assertSame($originalSale->date, $newSale->date);
+        $this->assertSame(
+            $originalSale->date->toDateString(),
+            $newSale->date->toDateString(),
+            'Replacement-owner Sale should preserve the original Sale calendar date.'
+        );
+    }
+
+    /** @test */
+    public function cross_owner_replacement_preserves_original_date_when_approved_on_a_later_day(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->settingA);
+
+        [$posReturn, $originalSale, , $product, $replacementSerial, $customer] = $this->createPendingApprovalCrossOwnerReplacement();
+
+        $originalSale->forceFill(['date' => now()->subDays(5)->toDateString()])->save();
+
+        $this->travelTo(now()->addDays(2));
+        $this->service->executeApprovalFromPreview($posReturn->id);
+        $this->travelBack();
+
+        $newSale = Sale::query()
+            ->where('setting_id', $this->settingB->id)
+            ->where('note', 'like', '%' . $posReturn->reference . '%')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($newSale, 'A replacement-owner Sale under Setting B should have been created.');
+        $this->assertSame(
+            $originalSale->fresh()->date->toDateString(),
+            $newSale->date->toDateString(),
+            'Replacement-owner Sale should preserve the original Sale calendar date even when created on a later day.'
+        );
+
+        $newPayment = $newSale->salePayments()->latest('id')->first();
+        if ($newPayment !== null) {
+            $this->assertSame(
+                $originalSale->fresh()->date->toDateString(),
+                \Illuminate\Support\Carbon::parse($newPayment->date)->toDateString(),
+                'Replacement-owner payment should preserve the original Sale calendar date.'
+            );
+        }
     }
 
     /** @test */

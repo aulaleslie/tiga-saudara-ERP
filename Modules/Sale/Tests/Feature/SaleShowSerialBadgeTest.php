@@ -73,6 +73,7 @@ class SaleShowSerialBadgeTest extends TestCase
         ]);
 
         Permission::firstOrCreate(['name' => 'sales.show']);
+        Permission::firstOrCreate(['name' => 'sales.reporting-date.override']);
 
         $this->user = User::factory()->create();
         $this->user->givePermissionTo(['sales.show']);

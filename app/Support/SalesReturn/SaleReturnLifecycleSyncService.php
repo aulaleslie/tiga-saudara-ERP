@@ -82,7 +82,83 @@ class SaleReturnLifecycleSyncService
     }
 
     /**
-     * Archive the source sale when cumulative COMPLETED returns fully cover dispatched qty.
+     * Determine whether cumulative effective (received, AWAITING SETTLEMENT or COMPLETED)
+     * Sales Return quantities fully cover every dispatched line for the given sale.
+     *
+     * Coverage is evaluated per dispatch_detail_id so an over-return on one line cannot
+     * mask an under-return on another. Sale Return details without a dispatch_detail_id
+     * (legacy/ambiguous lineage) are excluded from proving coverage and are reported
+     * separately so archival never guesses.
+     *
+     * @return array{fully_covered: bool, ambiguous_quantity: float, dispatch_lines: array<int, array{dispatched: float, returned: float, covered: bool}>}
+     */
+    public function calculateEffectiveStandardReturnCoverage(int $saleId): array
+    {
+        $dispatchLines = DispatchDetail::query()
+            ->where('sale_id', $saleId)
+            ->selectRaw('id, SUM(dispatched_quantity) as dispatched_quantity')
+            ->groupBy('id')
+            ->pluck('dispatched_quantity', 'id')
+            ->map(fn ($quantity) => (float) $quantity)
+            ->all();
+
+        $returnedByDispatchDetail = SaleReturnDetail::query()
+            ->whereNotNull('dispatch_detail_id')
+            ->whereHas('saleReturn', function ($query) use ($saleId) {
+                $query->withArchived()
+                    ->where('sale_id', $saleId)
+                    ->whereIn('status', ['AWAITING SETTLEMENT', 'COMPLETED']);
+            })
+            ->selectRaw('dispatch_detail_id, SUM(quantity) as returned_quantity')
+            ->groupBy('dispatch_detail_id')
+            ->pluck('returned_quantity', 'dispatch_detail_id')
+            ->map(fn ($quantity) => (float) $quantity)
+            ->all();
+
+        $ambiguousQuantity = (float) SaleReturnDetail::query()
+            ->whereNull('dispatch_detail_id')
+            ->whereHas('saleReturn', function ($query) use ($saleId) {
+                $query->withArchived()
+                    ->where('sale_id', $saleId)
+                    ->whereIn('status', ['AWAITING SETTLEMENT', 'COMPLETED']);
+            })
+            ->sum('quantity');
+
+        if (empty($dispatchLines)) {
+            return [
+                'fully_covered' => false,
+                'ambiguous_quantity' => $ambiguousQuantity,
+                'dispatch_lines' => [],
+            ];
+        }
+
+        $lines = [];
+        $fullyCovered = true;
+        foreach ($dispatchLines as $dispatchDetailId => $dispatchedQuantity) {
+            $returnedQuantity = (float) ($returnedByDispatchDetail[$dispatchDetailId] ?? 0);
+            $covered = $dispatchedQuantity > 0 && $returnedQuantity >= $dispatchedQuantity;
+
+            $lines[$dispatchDetailId] = [
+                'dispatched' => $dispatchedQuantity,
+                'returned' => $returnedQuantity,
+                'covered' => $covered,
+            ];
+
+            if (! $covered) {
+                $fullyCovered = false;
+            }
+        }
+
+        return [
+            'fully_covered' => $fullyCovered,
+            'ambiguous_quantity' => $ambiguousQuantity,
+            'dispatch_lines' => $lines,
+        ];
+    }
+
+    /**
+     * Archive the source sale when either POS-corrected active quantities are zero
+     * (existing fast path) or effective standard-return coverage is fully complete.
      * This is intentionally triggered only after the sale return itself is completed.
      */
     public function archiveSourceSaleIfFullyReturnedAndCompleted(SaleReturn $saleReturn, int $actorId): void
@@ -115,7 +191,24 @@ class SaleReturnLifecycleSyncService
             ->where('sale_id', $sale->id)
             ->sum('dispatched_quantity');
 
-        if ($activeSaleQuantity > 0 || $activeDispatchedQuantity > 0) {
+        $posCorrectedFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0;
+
+        // POS returns mutate sale-detail and dispatch quantities directly during receiving,
+        // so the standard-return effective-coverage fallback (which reasons over persisted
+        // dispatched quantities) only applies to sales that were never POS-corrected; it must
+        // never be combined with POS-mutated quantities to avoid double-counting.
+        $saleHasPosCorrection = SaleReturn::withArchived()
+            ->where('sale_id', $sale->id)
+            ->whereNotNull('pos_return_id')
+            ->exists();
+
+        $standardFullyCovered = false;
+        if (! $posCorrectedFullyReturned && ! $saleHasPosCorrection) {
+            $effectiveCoverage = $this->calculateEffectiveStandardReturnCoverage($sale->id);
+            $standardFullyCovered = $effectiveCoverage['fully_covered'];
+        }
+
+        if (! $posCorrectedFullyReturned && ! $standardFullyCovered) {
             return;
         }
 

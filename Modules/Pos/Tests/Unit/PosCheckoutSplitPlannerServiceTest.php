@@ -234,7 +234,7 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
                         'allocated_qty' => 1,
                         'tax_bucket_used' => true,
                         'tax_policy_snapshot' => [
-                            'source_is_pkp' => false,
+                            'source_is_pkp' => true,
                             'tax_id' => null,
                             'tax_name' => null,
                             'tax_rate' => 0,
@@ -250,6 +250,67 @@ class PosCheckoutSplitPlannerServiceTest extends TestCase
         $this->assertSame('2:20:TAX:' . $defaultTax->id, $groups[0]['split_key']);
         $this->assertSame('TAX:' . $defaultTax->id, $groups[0]['tax_bucket']);
         $this->assertSame($defaultTax->id, $groups[0]['lines'][0]['tax_id']);
+    }
+
+    public function test_non_pkp_source_allocation_stays_non_tax_even_if_tax_bucket_used_flag_is_set(): void
+    {
+        // The selling owner's PKP status alone determines customer-tax applicability.
+        // A non-PKP source_is_pkp must never become taxable, even if a mis-tagged
+        // allocation carries tax_bucket_used=true.
+        Tax::query()->create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $planner = new PosCheckoutSplitPlannerService();
+        $plan = $planner->plan([
+            'setting_id' => 1,
+            'cart_snapshot' => [
+                'lines' => [
+                    [
+                        'line_id' => 1,
+                        'product_id' => 99,
+                        'product_name' => 'Split Product',
+                        'product_code' => 'SP-001',
+                        'qty' => 1,
+                        'unit_price' => 100,
+                        'tax_id' => null,
+                        'tax_rate' => 0,
+                        'line_discount_type' => 'fixed',
+                        'line_discount_value' => 0,
+                        'line_discount_amount' => 0,
+                        'bill_discount_amount' => 0,
+                        'line_subtotal' => 100,
+                        'serial_number_required' => false,
+                        'assigned_serials' => [],
+                    ],
+                ],
+            ],
+            'allocations' => [
+                [
+                    [
+                        'source_setting_id' => 2,
+                        'source_location_id' => 20,
+                        'allocated_qty' => 1,
+                        'tax_bucket_used' => true,
+                        'tax_policy_snapshot' => [
+                            'source_is_pkp' => false,
+                            'tax_id' => null,
+                            'tax_name' => null,
+                            'tax_rate' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $groups = $plan['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('2:20:NON_TAX', $groups[0]['split_key']);
+        $this->assertSame('NON_TAX', $groups[0]['tax_bucket']);
+        $this->assertNull($groups[0]['lines'][0]['tax_id']);
     }
 
     public function test_non_pkp_allocation_without_quantity_tax_remains_non_tax(): void

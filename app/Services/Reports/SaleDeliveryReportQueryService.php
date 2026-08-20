@@ -11,7 +11,25 @@ class SaleDeliveryReportQueryService
     {
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
 
-        // 1. Commercial aggregate from sale_details (bundle_id = 0)
+        // 1a. Exact commercial lineage keyed by sale_detail_id, for dispatch details that
+        // recorded which specific sale detail they were dispatched against.
+        $exactCommercial = DB::table('sale_details')
+            ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
+            ->select(
+                'sale_details.id as sale_detail_id',
+                'sale_details.sale_id',
+                'sale_details.product_id',
+                DB::raw('COALESCE(sale_details.tax_id, 0) as tax_id'),
+                DB::raw('0 as bundle_id'),
+                DB::raw('sale_details.quantity as ordered_quantity'),
+                DB::raw('sale_details.sub_total as commercial_line_amount'),
+                'sale_details.product_name',
+                'sale_details.product_code'
+            )
+            ->where('sales.setting_id', $scopeSettingId);
+
+        // 1. Commercial aggregate from sale_details (bundle_id = 0), keyed by composite key
+        // for legacy/import-style dispatch rows without an exact sale_detail_id.
         $standardCommercial = DB::table('sale_details')
             ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
             ->select(
@@ -49,7 +67,9 @@ class SaleDeliveryReportQueryService
             ->mergeBindings($standardCommercial)
             ->mergeBindings($bundleCommercial);
 
-        // 3. Delivery aggregate
+        // 3. Delivery aggregate. Group by sale_detail_id too (when present) so dispatch rows
+        // with exact lineage do not collapse into the composite-key aggregate of every sale
+        // detail sharing the same (sale_id, product_id, tax_id, bundle_id).
         $deliveryAggregate = DB::table('dispatch_details')
             ->join('dispatches', 'dispatch_details.dispatch_id', '=', 'dispatches.id')
             ->join('sales', 'dispatches.sale_id', '=', 'sales.id')
@@ -60,6 +80,7 @@ class SaleDeliveryReportQueryService
                 'dispatches.dispatch_date',
                 'sales.reference as dispatch_reference',
                 'dispatch_details.sale_id',
+                'dispatch_details.sale_detail_id',
                 'dispatch_details.product_id',
                 DB::raw('COALESCE(dispatch_details.tax_id, 0) as tax_id'),
                 DB::raw('COALESCE(dispatch_details.bundle_id, 0) as bundle_id'),
@@ -75,6 +96,7 @@ class SaleDeliveryReportQueryService
                 'dispatches.dispatch_date',
                 'sales.reference',
                 'dispatch_details.sale_id',
+                'dispatch_details.sale_detail_id',
                 'dispatch_details.product_id',
                 DB::raw('COALESCE(dispatch_details.tax_id, 0)'),
                 DB::raw('COALESCE(dispatch_details.bundle_id, 0)')
@@ -97,8 +119,12 @@ class SaleDeliveryReportQueryService
             });
         }
 
-        // 4. Join and calculate
+        // 4. Join and calculate. Prefer the exact sale_detail_id lineage when the dispatch
+        // detail recorded one; fall back to composite-key matching for legacy/import rows.
         $query = DB::query()->fromSub($deliveryAggregate, 'delivery')
+            ->leftJoinSub($exactCommercial, 'exact', function ($join) {
+                $join->on('delivery.sale_detail_id', '=', 'exact.sale_detail_id');
+            })
             ->leftJoinSub($commercialAggregate, 'commercial', function ($join) {
                 $join->on('delivery.sale_id', '=', 'commercial.sale_id')
                      ->on('delivery.product_id', '=', 'commercial.product_id')
@@ -118,13 +144,13 @@ class SaleDeliveryReportQueryService
                 'delivery.tax_id',
                 'delivery.bundle_id',
                 'delivery.delivered_quantity',
-                DB::raw('COALESCE(commercial.product_name, products.product_name) as product_name'),
-                DB::raw('COALESCE(commercial.product_code, products.product_code) as product_code'),
+                DB::raw('COALESCE(exact.product_name, commercial.product_name, products.product_name) as product_name'),
+                DB::raw('COALESCE(exact.product_code, commercial.product_code, products.product_code) as product_code'),
                 DB::raw('COALESCE(units.short_name, base_units.short_name, products.product_unit, \'-\') as unit_name'),
-                'commercial.ordered_quantity',
-                'commercial.commercial_line_amount',
-                DB::raw('CASE WHEN commercial.ordered_quantity > 0 THEN commercial.commercial_line_amount / commercial.ordered_quantity ELSE 0 END as unit_amount'),
-                DB::raw('delivery.delivered_quantity * CASE WHEN commercial.ordered_quantity > 0 THEN commercial.commercial_line_amount / commercial.ordered_quantity ELSE 0 END as delivered_amount')
+                DB::raw('COALESCE(exact.ordered_quantity, commercial.ordered_quantity) as ordered_quantity'),
+                DB::raw('COALESCE(exact.commercial_line_amount, commercial.commercial_line_amount) as commercial_line_amount'),
+                DB::raw('CASE WHEN COALESCE(exact.ordered_quantity, commercial.ordered_quantity) > 0 THEN COALESCE(exact.commercial_line_amount, commercial.commercial_line_amount) / COALESCE(exact.ordered_quantity, commercial.ordered_quantity) ELSE 0 END as unit_amount'),
+                DB::raw('delivery.delivered_quantity * CASE WHEN COALESCE(exact.ordered_quantity, commercial.ordered_quantity) > 0 THEN COALESCE(exact.commercial_line_amount, commercial.commercial_line_amount) / COALESCE(exact.ordered_quantity, commercial.ordered_quantity) ELSE 0 END as delivered_amount')
             );
 
         // Tags filter

@@ -329,9 +329,12 @@ class POSStockAllocationResolverTest extends TestCase
         $this->assertSame('SERIAL_TAX_STOCK_UNAVAILABLE', $result['unfulfilled_details'][0]['reason_code']);
     }
 
-    public function test_non_taxable_line_uses_non_tax_bucket_first_across_locations(): void
+    public function test_pkp_source_uses_tax_bucket_only_across_locations(): void
     {
+        // Both locations are owned by the same PKP setting, so both may only allocate from
+        // quantity_tax. Loc1 has non-tax stock that a PKP source is never allowed to consume.
         $setting = $this->createSetting('BIZ-NON-TAX-FIRST');
+        $setting->update(['is_pkp' => true]);
         $loc1 = $this->createLocation($setting, 'LOC-FIRST');
         $loc2 = $this->createLocation($setting, 'LOC-SECOND');
         SettingSaleLocation::withoutEvents(function () use ($setting, $loc1, $loc2) {
@@ -355,11 +358,11 @@ class POSStockAllocationResolverTest extends TestCase
         ProductStock::query()
             ->where('product_id', $product->id)
             ->where('location_id', $loc1->id)
-            ->update(['quantity_tax' => 4]);
+            ->update(['quantity_non_tax' => 0, 'quantity_tax' => 4]);
         ProductStock::query()
             ->where('product_id', $product->id)
             ->where('location_id', $loc2->id)
-            ->update(['quantity_tax' => 4]);
+            ->update(['quantity_non_tax' => 0, 'quantity_tax' => 4]);
 
         $resolver = app(ResolvePosStockAllocationsService::class);
         $result = $resolver->resolve($setting->id, [
@@ -367,18 +370,18 @@ class POSStockAllocationResolverTest extends TestCase
         ]);
 
         $this->assertSame([], $result['unfulfilled_lines']);
-        $this->assertCount(2, $result['allocations'][0]);
-        // Loc1 has 1 non-tax and 4 tax. Line needs 3.
-        // In ordered source priority: Loc1 fulfills 1 (non-tax) + 2 (tax) = 3 total, leaving Loc2 untouched.
-        $this->assertSame([1, 2], array_column($result['allocations'][0], 'allocated_qty'));
-        $this->assertSame([false, true], array_column($result['allocations'][0], 'tax_bucket_used'));
+        $this->assertCount(1, $result['allocations'][0]);
+        $this->assertSame(3, $result['allocations'][0][0]['allocated_qty']);
+        $this->assertTrue((bool) $result['allocations'][0][0]['tax_bucket_used']);
         $this->assertSame($loc1->id, $result['allocations'][0][0]['source_location_id']);
-        $this->assertSame($loc1->id, $result['allocations'][0][1]['source_location_id']);
     }
 
-    public function test_non_taxable_line_falls_back_to_tax_bucket_when_non_tax_is_exhausted(): void
+    public function test_non_pkp_source_with_only_tax_stock_is_unfulfilled(): void
     {
+        // A non-PKP source may only allocate from quantity_non_tax. Stock existing only in
+        // quantity_tax must not be silently consumed as a fallback.
         $setting = $this->createSetting('BIZ-NON-TAX-FALLBACK');
+        $setting->update(['is_pkp' => false]);
         $location = $this->createLocation($setting, 'LOC-FALLBACK');
         $this->assignSaleLocation($setting, $location);
 
@@ -397,19 +400,18 @@ class POSStockAllocationResolverTest extends TestCase
             ['product_id' => $product->id, 'qty' => 3, 'tax_id' => null],
         ]);
 
-        $this->assertSame([], $result['unfulfilled_lines']);
-        $this->assertCount(2, $result['allocations'][0]);
+        $this->assertSame([0], $result['unfulfilled_lines']);
+        $this->assertCount(1, $result['allocations'][0]);
         $this->assertSame(1, $result['allocations'][0][0]['allocated_qty']);
         $this->assertFalse((bool) $result['allocations'][0][0]['tax_bucket_used']);
-        $this->assertSame(2, $result['allocations'][0][1]['allocated_qty']);
-        $this->assertTrue((bool) $result['allocations'][0][1]['tax_bucket_used']);
-        $this->assertNull($result['allocations'][0][1]['tax_policy_snapshot']['tax_id']);
+        $this->assertSame(1, $result['unfulfilled_details'][0]['allocated_qty']);
+        $this->assertSame(3, $result['unfulfilled_details'][0]['requested_qty']);
     }
 
-    public function test_quantity_tax_fallback_snapshot_uses_default_tax_when_metadata_is_missing(): void
+    public function test_pkp_source_quantity_tax_fallback_snapshot_uses_default_tax_when_metadata_is_missing(): void
     {
         $setting = $this->createSetting('BIZ-TAX-BUCKET-FALLBACK');
-        $setting->update(['is_pkp' => false]);
+        $setting->update(['is_pkp' => true]);
 
         $location = $this->createLocation($setting, 'LOC-TAX-BUCKET-FALLBACK');
         $this->assignSaleLocation($setting, $location);

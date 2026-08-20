@@ -560,7 +560,10 @@ class PosCheckoutSplitPlannerService
                 ? (bool) $snapshot['source_is_pkp']
                 : $this->sourceIsPkp($sourceSettingId);
 
-            $taxRequired = $sourceIsPkp || (bool) ($allocation['tax_bucket_used'] ?? false);
+            // The selling owner's PKP status alone determines customer-tax applicability.
+            // Which physical stock bucket was consumed (tax_bucket_used) must never
+            // independently make a non-PKP source's allocation taxable.
+            $taxRequired = $sourceIsPkp;
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
             $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : (int) ($snapshot['tax_id'] ?? 0);
 

@@ -345,4 +345,199 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertSame(1, Transaction::query()->count());
         $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->exists());
     }
+
+    /** @test */
+    public function retrying_settlement_approval_does_not_duplicate_archival_or_refund_payment(): void
+    {
+        $fixture = $this->createSingleSerialSaleReturnFixture();
+        $sale = $fixture['sale'];
+        $saleReturn = $fixture['saleReturn'];
+        $saleReturnDetail = $fixture['saleReturnDetail'];
+        $product = $fixture['product'];
+        $stock = $fixture['stock'];
+        $serial = $fixture['serial'];
+
+        $this->post(route('sale-returns.receive', $saleReturn))->assertRedirect();
+
+        $settlementItem = SaleReturnItemSettlement::create([
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => $saleReturnDetail->id,
+            'product_serial_number_id' => $serial->id,
+            'method' => SaleReturnDetail::METHOD_CASH_REFUND,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+            'nominal' => 1500,
+        ]);
+
+        $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
+            'approval_note' => 'Cash refund finalized',
+        ])->assertRedirect();
+
+        $sale->refresh();
+        $stock->refresh();
+        $product->refresh();
+        $serial->refresh();
+
+        $archivedAtFirst = $sale->archived_at;
+        $this->assertNotNull($archivedAtFirst);
+        $this->assertSame(1, Transaction::query()->count());
+        $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count());
+
+        // Retry the same approval action; the settlement item is no longer approvable.
+        $retryResponse = $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
+            'approval_note' => 'Retried finalize',
+        ]);
+        $retryResponse->assertRedirect();
+
+        $sale->refresh();
+        $stock->refresh();
+        $product->refresh();
+        $serial->refresh();
+
+        $this->assertEquals($archivedAtFirst, $sale->archived_at, 'Archival timestamp must remain stable on retry.');
+        $this->assertEquals(1, (int) $stock->quantity);
+        $this->assertEquals(1, (int) $product->product_quantity);
+        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
+        $this->assertSame(1, Transaction::query()->count(), 'Retry must not duplicate inventory movement.');
+        $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count(), 'Retry must not duplicate refund payment.');
+    }
+
+    /** @test */
+    public function partial_standard_return_settlement_does_not_archive_source_sale(): void
+    {
+        $customer = Customer::factory()->create(['setting_id' => 1]);
+        $location = Location::create(['id' => 2, 'name' => 'Secondary Warehouse', 'setting_id' => 1]);
+
+        $product = Product::create([
+            'product_name' => 'Partial Coverage Product',
+            'product_code' => 'PARTIAL-001',
+            'product_quantity' => 0,
+            'product_cost' => 1000,
+            'product_price' => 1500,
+            'setting_id' => 1,
+        ]);
+
+        $stock = ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 0,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 3000,
+            'paid_amount' => 0,
+            'due_amount' => 3000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'setting_id' => 1,
+            'is_tax_included' => false,
+            'reference' => 'SO-PARTIAL-001',
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 3000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+
+        $dispatchDetail = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $location->id,
+            'tax_id' => null,
+            'serial_numbers' => json_encode([]),
+        ]);
+
+        $saleReturn = SaleReturn::create([
+            'sale_id' => $sale->id,
+            'setting_id' => 1,
+            'reference' => 'SR-PARTIAL-001',
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'location_id' => $location->id,
+            'date' => now()->toDateString(),
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'approval_status' => 'approved',
+            'status' => 'Awaiting Receiving',
+        ]);
+
+        $saleReturnDetail = SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'location_id' => $location->id,
+            'tax_id' => null,
+            'serial_number_ids' => [],
+        ]);
+
+        $this->post(route('sale-returns.receive', $saleReturn))->assertRedirect();
+
+        $settlementItem = SaleReturnItemSettlement::create([
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => $saleReturnDetail->id,
+            'product_serial_number_id' => null,
+            'method' => SaleReturnDetail::METHOD_CASH_REFUND,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+            'nominal' => 1500,
+        ]);
+
+        $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
+            'approval_note' => 'Partial cash refund finalized',
+        ])->assertRedirect();
+
+        $sale->refresh();
+        $saleReturn->refresh();
+
+        $this->assertEquals('COMPLETED', strtoupper((string) $saleReturn->status));
+        $this->assertEquals(Sale::STATUS_RETURNED_PARTIALLY, $sale->status);
+        $this->assertNull($sale->archived_at, 'A partially covered standard return must not archive the source Sale.');
+    }
 }

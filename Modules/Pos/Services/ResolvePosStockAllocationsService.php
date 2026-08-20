@@ -337,8 +337,11 @@ class ResolvePosStockAllocationsService
     /**
      * Allocate a non-serial line sequentially across configured (location_id, setting_id) sources.
      *
-     * Iterates each configured source in exact sequence. Consumes non-tax stock first, then tax stock
-     * at that specific source before moving to the next source in the configured order.
+     * Each source's PKP status determines which single bucket it is allowed to consume:
+     * a PKP source may only consume quantity_tax, and a non-PKP source may only consume
+     * quantity_non_tax. A source whose stock exists only in the bucket incompatible with its
+     * PKP status contributes nothing here; it is surfaced by the caller as insufficient stock
+     * (an actionable validation failure) rather than silently falling back to the wrong bucket.
      *
      * @param  int  $productId
      * @param  int  $neededQty
@@ -384,9 +387,46 @@ class ResolvePosStockAllocationsService
                 continue;
             }
 
-            // Sub-phase A: Allocate non-tax stock from this source
-            $availableNonTax = (int) $stock->quantity_non_tax;
-            if ($availableNonTax > 0) {
+            if ($sourceIsPkp) {
+                // PKP sources hold and consume only quantity_tax.
+                $availableTax = (int) $stock->quantity_tax;
+                if ($availableTax <= 0) {
+                    continue;
+                }
+
+                $take = min($remainingQty, $availableTax);
+
+                [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
+                    productId: $productId,
+                    terminalSettingId: $settingId,
+                    explicitLineTaxId: $taxId,
+                    stockTaxId: isset($stock->tax_id) ? (int) $stock->tax_id : null,
+                    sourceIsPkp: $sourceIsPkp,
+                    taxBucketUsed: true,
+                    taxesCache: $taxesCache,
+                );
+
+                $lineAllocations[] = [
+                    'source_location_id' => $locationId,
+                    'source_setting_id' => $sourceSettingId,
+                    'allocated_qty' => $take,
+                    'tax_bucket_used' => true,
+                    'tax_policy_snapshot' => [
+                        'source_is_pkp' => $sourceIsPkp,
+                        'tax_id' => $effectiveTaxId,
+                        'tax_name' => $taxName,
+                        'tax_rate' => $taxRate,
+                    ],
+                ];
+
+                $remainingQty -= $take;
+            } else {
+                // Non-PKP sources hold and consume only quantity_non_tax.
+                $availableNonTax = (int) $stock->quantity_non_tax;
+                if ($availableNonTax <= 0) {
+                    continue;
+                }
+
                 $take = min($remainingQty, $availableNonTax);
 
                 [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
@@ -413,39 +453,6 @@ class ResolvePosStockAllocationsService
                 ];
 
                 $remainingQty -= $take;
-            }
-
-            // Sub-phase B: Allocate tax stock from this source if remaining
-            if ($remainingQty > 0) {
-                $availableTax = (int) $stock->quantity_tax;
-                if ($availableTax > 0) {
-                    $take = min($remainingQty, $availableTax);
-
-                    [$effectiveTaxId, $taxName, $taxRate] = $this->resolveAllocationTaxPolicySnapshot(
-                        productId: $productId,
-                        terminalSettingId: $settingId,
-                        explicitLineTaxId: $taxId,
-                        stockTaxId: isset($stock->tax_id) ? (int) $stock->tax_id : null,
-                        sourceIsPkp: $sourceIsPkp,
-                        taxBucketUsed: true,
-                        taxesCache: $taxesCache,
-                    );
-
-                    $lineAllocations[] = [
-                        'source_location_id' => $locationId,
-                        'source_setting_id' => $sourceSettingId,
-                        'allocated_qty' => $take,
-                        'tax_bucket_used' => true,
-                        'tax_policy_snapshot' => [
-                            'source_is_pkp' => $sourceIsPkp,
-                            'tax_id' => $effectiveTaxId,
-                            'tax_name' => $taxName,
-                            'tax_rate' => $taxRate,
-                        ],
-                    ];
-
-                    $remainingQty -= $take;
-                }
             }
         }
 
@@ -475,7 +482,9 @@ class ResolvePosStockAllocationsService
         bool $taxBucketUsed,
         array &$taxesCache
     ): array {
-        if (! $sourceIsPkp && ! $taxBucketUsed) {
+        // Tax fallback resolution only ever applies once the source owner is established as
+        // PKP; a non-PKP source is never taxable regardless of which bucket it consumed from.
+        if (! $sourceIsPkp) {
             return [null, null, 0.0];
         }
 

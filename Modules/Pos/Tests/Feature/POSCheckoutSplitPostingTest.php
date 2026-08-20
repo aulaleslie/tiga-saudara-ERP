@@ -242,7 +242,43 @@ class POSCheckoutSplitPostingTest extends TestCase
         }
     }
 
-    public function test_finalize_quantity_tax_checkout_persists_fallback_tax_for_non_pkp_source(): void
+    public function test_finalize_pkp_owner_consuming_quantity_tax_persists_taxable_sale(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        // Default context settings are already is_pkp = true and stock is seeded entirely
+        // into quantity_tax at both locations, so this is the valid PKP/tax-bucket pairing.
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-PKP-TAX-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)->assertJsonCount(1, 'split_groups');
+
+        $payload = $response->json();
+        $sale = Sale::query()->with('saleDetails')->findOrFail((int) $payload['sale_id']);
+        $saleDetail = $sale->saleDetails->sole();
+
+        $this->assertSame((int) $context['tax']->id, (int) $saleDetail->tax_id);
+        $this->assertGreaterThan(0, (float) $sale->tax_amount);
+
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $context['product']->id,
+            'setting_id' => $context['setting']->id,
+            'location_id' => $context['terminal_location']->id,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'type' => 'DISPATCH',
+        ]);
+    }
+
+    public function test_finalize_non_pkp_owner_consuming_quantity_non_tax_persists_non_taxable_sale(): void
     {
         $context = $this->createSplitCheckoutContext();
         $context['setting']->update(['is_pkp' => false]);
@@ -257,8 +293,8 @@ class POSCheckoutSplitPostingTest extends TestCase
             ->where('location_id', $context['terminal_location']->id)
             ->update([
                 'quantity' => 2,
-                'quantity_tax' => 2,
-                'quantity_non_tax' => 0,
+                'quantity_tax' => 0,
+                'quantity_non_tax' => 2,
                 'tax_id' => null,
             ]);
 
@@ -278,21 +314,19 @@ class POSCheckoutSplitPostingTest extends TestCase
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
-            'idempotency_key' => 'K-SPLIT-TAX-BUCKET-001',
+            'idempotency_key' => 'K-SPLIT-NONPKP-NONTAX-001',
             'payment' => [
                 'payment_method_id' => $context['methods']['cash']->id,
                 'amount_paid' => 100000,
             ],
         ]);
 
-        $response->assertStatus(201)
-            ->assertJsonCount(1, 'split_groups');
+        $response->assertStatus(201)->assertJsonCount(1, 'split_groups');
 
         $payload = $response->json();
         $sale = Sale::query()->with('saleDetails')->findOrFail((int) $payload['sale_id']);
         $saleDetail = $sale->saleDetails->sole();
 
-        // Authoritative rule: non-PKP source setting is non-tax
         $this->assertNull($saleDetail->tax_id);
         $this->assertEquals(0, (float) $saleDetail->product_tax_amount);
         $this->assertEquals(0, (float) $sale->tax_amount);
@@ -308,10 +342,126 @@ class POSCheckoutSplitPostingTest extends TestCase
             'product_id' => $context['product']->id,
             'setting_id' => $context['setting']->id,
             'location_id' => $context['terminal_location']->id,
-            'quantity_tax' => 1,
-            'quantity_non_tax' => 0,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 1,
             'type' => 'DISPATCH',
         ]);
+    }
+
+    public function test_finalize_rejects_non_pkp_owner_whose_only_available_stock_is_quantity_tax(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        $context['setting']->update(['is_pkp' => false]);
+        $context['source_setting']->update(['is_pkp' => false]);
+
+        // Stock exists only in the tax bucket, which a non-PKP owner is never allowed to consume.
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['terminal_location']->id)
+            ->update(['quantity' => 1, 'quantity_tax' => 1, 'quantity_non_tax' => 0]);
+
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['source_location']->id)
+            ->update(['quantity' => 10, 'quantity_tax' => 10, 'quantity_non_tax' => 0]);
+
+        $saleCountBefore = Sale::query()->count();
+        $dispatchDetailCountBefore = DB::table('dispatch_details')->count();
+        $salePaymentCountBefore = DB::table('sale_payments')->count();
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-NONPKP-REJECT-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('code', 'STOCK_UNAVAILABLE');
+
+        $this->assertSame($saleCountBefore, Sale::query()->count());
+        $this->assertSame($dispatchDetailCountBefore, DB::table('dispatch_details')->count());
+        $this->assertSame($salePaymentCountBefore, DB::table('sale_payments')->count());
+    }
+
+    public function test_finalize_rejects_pkp_owner_whose_only_available_stock_is_quantity_non_tax(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        // Default context settings are is_pkp = true; force stock into the incompatible
+        // non-tax bucket only, which a PKP owner is never allowed to consume.
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['terminal_location']->id)
+            ->update(['quantity' => 1, 'quantity_tax' => 0, 'quantity_non_tax' => 1]);
+
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->where('location_id', $context['source_location']->id)
+            ->update(['quantity' => 10, 'quantity_tax' => 0, 'quantity_non_tax' => 10]);
+
+        $saleCountBefore = Sale::query()->count();
+        $dispatchDetailCountBefore = DB::table('dispatch_details')->count();
+        $salePaymentCountBefore = DB::table('sale_payments')->count();
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-PKP-REJECT-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('code', 'STOCK_UNAVAILABLE');
+
+        $this->assertSame($saleCountBefore, Sale::query()->count());
+        $this->assertSame($dispatchDetailCountBefore, DB::table('dispatch_details')->count());
+        $this->assertSame($salePaymentCountBefore, DB::table('sale_payments')->count());
+    }
+
+    public function test_finalize_missing_tax_id_for_pkp_tax_stock_uses_configured_fallback(): void
+    {
+        $context = $this->createSplitCheckoutContext();
+        // Default context settings are is_pkp = true and stock lives entirely in quantity_tax.
+        // Clear the explicit sale_tax_id and the stock's own tax_id so resolution must fall
+        // back to the configured default Tax record.
+        ProductPrice::query()
+            ->where('product_id', $context['product']->id)
+            ->update(['sale_tax_id' => null]);
+
+        ProductStock::query()
+            ->where('product_id', $context['product']->id)
+            ->whereIn('location_id', [$context['terminal_location']->id, $context['source_location']->id])
+            ->update(['tax_id' => null]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-PKP-FALLBACK-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)->assertJsonCount(1, 'split_groups');
+
+        $payload = $response->json();
+        $sale = Sale::query()->with('saleDetails')->findOrFail((int) $payload['sale_id']);
+        $saleDetail = $sale->saleDetails->sole();
+
+        // The default Tax record (created with is_default = true in createSplitCheckoutContext)
+        // must be used as the fallback since the owner is established as PKP.
+        $this->assertSame((int) $context['tax']->id, (int) $saleDetail->tax_id);
+        $this->assertGreaterThan(0, (float) $sale->tax_amount);
     }
 
     public function test_split_posting_copies_note_to_every_sale(): void

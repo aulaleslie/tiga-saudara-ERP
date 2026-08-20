@@ -218,15 +218,20 @@ class SplitBundleTransactionTest extends TestCase
         ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compA->id, 'quantity' => 1, 'informational_item_price' => 25000]);
         ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compB->id, 'quantity' => 1, 'informational_item_price' => 50000]);
 
+        // parent/compA are owned by the PKP terminal setting, so they may only allocate from
+        // quantity_tax; clearing the explicit sale_tax_id here exercises the fallback-tax
+        // resolution path once the PKP owner is established.
         foreach ([$parent->id, $compA->id] as $productId) {
             ProductPrice::query()->where('product_id', $productId)->update(['sale_tax_id' => null]);
             ProductStock::query()->where('product_id', $productId)->update([
-                'quantity_tax' => 0,
-                'quantity_non_tax' => 1,
+                'quantity_tax' => 1,
+                'quantity_non_tax' => 0,
                 'tax_id' => null,
             ]);
         }
 
+        // compB is owned by the non-PKP source setting, so it may only allocate from
+        // quantity_non_tax.
         ProductPrice::query()->where('product_id', $compB->id)->update(['sale_tax_id' => null]);
         ProductStock::query()->where('product_id', $compB->id)->update([
             'quantity_tax' => 0,

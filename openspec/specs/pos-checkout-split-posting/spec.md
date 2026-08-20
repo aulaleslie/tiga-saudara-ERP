@@ -66,7 +66,9 @@ The system MUST use minor-unit-safe arithmetic so parent residual plus fixed com
 - **AND** aggregate quantities and money SHALL equal the captured checkout values exactly
 
 ### Requirement: Tax fallback SHALL be applied for split tax bucket resolution
-For POS checkout split planning, the system SHALL resolve the effective split tax bucket from source owner policy and tax evidence in precedence order: explicit POS line tax, product or product-price sale tax, serial-derived tax for serial-assigned lines, allocation or stock tax, and finally fallback policy (default tax first, otherwise latest active tax). Tax applicability SHALL be gated by source owner policy and allocation bucket: when the source owner setting is PKP (`is_pkp=true`) or the allocation consumes `quantity_tax`, the effective tax bucket MUST be `TAX:<tax_id>` using fallback tax resolution when needed; when the source owner setting is non-PKP (`is_pkp=false`) and the allocation does not consume `quantity_tax`, the effective tax bucket MUST be `NON_TAX` regardless of candidate tax evidence.
+For POS checkout split planning, the system SHALL resolve the effective split tax bucket from source owner policy and tax evidence in precedence order: explicit POS line tax, product or product-price sale tax, serial-derived tax for serial-assigned lines, allocation or stock tax, and finally fallback policy (default tax first, otherwise latest active tax). Tax applicability SHALL be gated solely by the source owner's PKP status: when the source owner setting is PKP (`is_pkp=true`), the effective tax bucket MUST be `TAX:<tax_id>` using fallback tax resolution when needed; when the source owner setting is non-PKP (`is_pkp=false`), the effective tax bucket MUST be `NON_TAX` regardless of candidate tax evidence. Which physical stock bucket (`quantity_tax` vs `quantity_non_tax`) an allocation consumed MUST NOT independently make a non-PKP source's allocation taxable, and tax fallback resolution MUST NOT run until the source owner is established as PKP.
+
+Each source owner's stock bucket usage MUST itself stay compatible with its PKP status: a PKP source SHALL only allocate from `quantity_tax`, and a non-PKP source SHALL only allocate from `quantity_non_tax`. When a source's only available stock sits in the bucket incompatible with its own PKP status, allocation from that source MUST fail as insufficient stock (an actionable validation error) rather than silently consuming the incompatible bucket or silently applying fallback tax.
 
 #### Scenario: Serial-assigned taxable line resolves tax bucket from serial context for PKP source owner
 - **WHEN** a serial-required line is sourced from a PKP owner and is taxable by assigned serial context while `line.tax_id` is null
@@ -83,8 +85,18 @@ For POS checkout split planning, the system SHALL resolve the effective split ta
 - **THEN** the split planner MUST apply fallback policy in order: default tax first, otherwise latest active tax
 - **AND** the generated split group MUST use `TAX:<fallback_tax_id>` instead of `NON_TAX`.
 
-#### Scenario: Tax-bucket stock allocation without explicit tax uses fallback tax
-- **WHEN** a POS allocation consumes `quantity_tax` and has no explicit line tax, no product sale tax, and no stock tax
+#### Scenario: Non-PKP source with only quantity_tax stock is rejected, not silently taxed or non-taxed
+- **WHEN** a non-serial POS line is sourced from a non-PKP owner whose only available physical stock at that source sits in `quantity_tax`
+- **THEN** the resolver MUST NOT allocate from that source's `quantity_tax` bucket
+- **AND** checkout MUST fail with an actionable `STOCK_UNAVAILABLE` validation error instead of posting a non-tax or fallback-taxed allocation
+
+#### Scenario: PKP source with only quantity_non_tax stock is rejected, not silently allocated
+- **WHEN** a non-serial POS line is sourced from a PKP owner whose only available physical stock at that source sits in `quantity_non_tax`
+- **THEN** the resolver MUST NOT allocate from that source's `quantity_non_tax` bucket
+- **AND** checkout MUST fail with an actionable `STOCK_UNAVAILABLE` validation error instead of posting a non-taxable allocation from PKP-owned stock
+
+#### Scenario: PKP source consuming its own quantity_tax stock without explicit tax uses fallback tax
+- **WHEN** a POS allocation is sourced from a PKP owner and consumes that owner's `quantity_tax` bucket with no explicit line tax, no product sale tax, and no stock tax
 - **THEN** the split planner MUST apply fallback policy in order: default tax first, otherwise latest active tax
 - **AND** the allocation MUST be posted with a taxable split bucket and taxable dispatch context.
 
