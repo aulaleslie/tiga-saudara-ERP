@@ -475,6 +475,117 @@ class DispatchNonStockProductsTest extends TestCase
         $this->assertEquals(2, $detail->dispatched_quantity);
     }
 
+    public function test_rejected_non_stock_quantity_is_available_for_new_dispatch(): void
+    {
+        [$setting, $user, $sale, $serviceProduct, $_, $location] = $this->createSetup(nonStockOnly: true);
+
+        $compositeKey = $serviceProduct->id . '--0';
+
+        // First dispatch requests full demand (2) and gets rejected.
+        $dispatch1 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch1->id,
+            'sale_id' => $sale->id,
+            'product_id' => $serviceProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.reject', $dispatch1), [
+                'rejection_reason' => 'Not performed yet',
+            ])
+            ->assertRedirect();
+
+        $dispatch1->refresh();
+        $this->assertEquals(Dispatch::STATUS_REJECTED, $dispatch1->status);
+
+        $sale->refresh();
+        $this->assertEquals(Sale::STATUS_APPROVED, $sale->status, 'Sale should not be considered dispatched after rejection');
+
+        // Full demand (2) should be resubmittable because rejected quantity does not
+        // count toward outstanding pending+approved demand.
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [$compositeKey => 2],
+        ];
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('sales.storeDispatch', $sale), $payload);
+
+        $response->assertRedirect(route('sales.dispatches.index'));
+        $response->assertSessionHasNoErrors();
+
+        $dispatch2 = Dispatch::where('sale_id', $sale->id)->where('id', '!=', $dispatch1->id)->first();
+        $this->assertNotNull($dispatch2);
+        $detail = DispatchDetail::where('dispatch_id', $dispatch2->id)->first();
+        $this->assertEquals(2, $detail->dispatched_quantity);
+
+        // Approving the resubmitted dispatch completes the Sale.
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.approve', $dispatch2));
+
+        $sale->refresh();
+        $this->assertEquals(Sale::STATUS_DISPATCHED, $sale->status);
+    }
+
+    public function test_rejected_stock_managed_quantity_is_available_for_new_dispatch(): void
+    {
+        [$setting, $user, $sale, $_, $stockProduct, $location] = $this->createSetup(mixedProducts: true);
+
+        $stockKey = $stockProduct->id . '--0';
+
+        $dispatch1 = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch1->id,
+            'sale_id' => $sale->id,
+            'product_id' => $stockProduct->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $location->id,
+            'is_inventory_managed' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.reject', $dispatch1), [
+                'rejection_reason' => 'Damaged in transit',
+            ])
+            ->assertRedirect();
+
+        $dispatch1->refresh();
+        $this->assertEquals(Dispatch::STATUS_REJECTED, $dispatch1->status);
+
+        $stockProduct->refresh();
+        $this->assertEquals(100, $stockProduct->product_quantity, 'Rejected stock dispatch must not have moved inventory');
+
+        // Full stock demand (1) should be resubmittable.
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [$stockKey => 1],
+            'selectedLocations' => [$stockKey => $location->id],
+        ];
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('sales.storeDispatch', $sale), $payload);
+
+        $response->assertRedirect(route('sales.dispatches.index'));
+        $response->assertSessionHasNoErrors();
+    }
+
     public function test_mixed_service_and_stock_separate_line_items_dispatch(): void
     {
         // This tests a mixed sale where service and stock are separate line items (not a bundle)
@@ -635,6 +746,19 @@ class DispatchNonStockProductsTest extends TestCase
             'product_unit' => $unit->id,
         ]);
 
+        // Non-stock diagnostic-check component (audit-only, no inventory effect)
+        $diagnosticCheck = Product::create([
+            'product_name' => 'Diagnostic Check',
+            'product_code' => 'DIAG-001',
+            'setting_id' => $setting->id,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'stock_managed' => false,
+            'product_price' => 0,
+            'category_id' => $category->id,
+            'product_unit' => $unit->id,
+        ]);
+
         // RAM stock
         ProductStock::create([
             'product_id' => $ramReplacement->id,
@@ -699,6 +823,19 @@ class DispatchNonStockProductsTest extends TestCase
             'sub_total' => 0,
         ]);
 
+        // Bundle component: 2× Diagnostic Check (non-stock, audit-only)
+        SaleBundleItem::create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentDetail->id,
+            'product_id' => $diagnosticCheck->id,
+            'bundle_id' => 1,
+            'bundle_item_id' => 2,
+            'name' => $diagnosticCheck->product_name,
+            'quantity' => 2,  // 1 per bundle parent × 2 parents
+            'price' => 0,
+            'sub_total' => 0,
+        ]);
+
         // VERIFY: Dispatch aggregation shows two independent obligations
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -722,14 +859,22 @@ class DispatchNonStockProductsTest extends TestCase
         $this->assertEquals(2, $aggregated[$ramKey]['total_quantity']);
         $this->assertTrue($aggregated[$ramKey]['is_inventory_managed'], 'RAM should be inventory-managed');
 
-        // STEP 1: Submit RAM quantity 2 with location through storeDispatch
+        // Diagnostic Check acknowledgement: quantity 2, audit-only (no inventory)
+        $diagnosticKey = $diagnosticCheck->id . '-' . null . '-1'; // bundle_id=1
+        $this->assertArrayHasKey($diagnosticKey, $aggregated, "Diagnostic key $diagnosticKey not found in aggregation");
+        $this->assertEquals(2, $aggregated[$diagnosticKey]['total_quantity']);
+        $this->assertFalse($aggregated[$diagnosticKey]['is_inventory_managed'], 'Diagnostic component should not be inventory-managed');
+
+        // STEP 1: Submit RAM (inventory) and Diagnostic Check (non-stock) together through storeDispatch
         $ramKey = $ramReplacement->id . '--1'; // composite key: product_id--bundle_id
+        $diagnosticKey = $diagnosticCheck->id . '--1';
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
             ->post(route('sales.storeDispatch', $sale), [
                 'dispatch_date' => now()->toDateString(),
                 'dispatchedQuantities' => [
                     $ramKey => 2,
+                    $diagnosticKey => 2,
                 ],
                 'selectedLocations' => [
                     $ramKey => $location->id,
@@ -744,15 +889,22 @@ class DispatchNonStockProductsTest extends TestCase
         $this->assertNotNull($ramDispatch);
         $this->assertEquals(Dispatch::STATUS_PENDING, $ramDispatch->status);
 
-        // Verify RAM detail exists and is correct
+        // Verify RAM and Diagnostic details both exist and are correct
         $ramDetails = DispatchDetail::where('dispatch_id', $ramDispatch->id)->get();
-        $this->assertEquals(1, $ramDetails->count(), 'Should have exactly one detail (RAM only)');
+        $this->assertEquals(2, $ramDetails->count(), 'Should have two details (RAM + Diagnostic Check)');
 
-        $ramDetail = $ramDetails->first();
-        $this->assertEquals($ramReplacement->id, $ramDetail->product_id);
+        $ramDetail = $ramDetails->firstWhere('product_id', $ramReplacement->id);
+        $this->assertNotNull($ramDetail);
         $this->assertEquals(2, $ramDetail->dispatched_quantity);
         $this->assertEquals(1, $ramDetail->bundle_id);
         $this->assertEquals($location->id, $ramDetail->location_id);
+
+        $diagnosticDetail = $ramDetails->firstWhere('product_id', $diagnosticCheck->id);
+        $this->assertNotNull($diagnosticDetail);
+        $this->assertEquals(2, $diagnosticDetail->dispatched_quantity);
+        $this->assertEquals(1, $diagnosticDetail->bundle_id);
+        $this->assertNull($diagnosticDetail->location_id, 'Non-stock component detail should have no location');
+        $this->assertNull($diagnosticDetail->serial_numbers, 'Non-stock component detail should have no serials');
 
         // Verify no service detail yet
         $serviceDetails = DispatchDetail::where('dispatch_id', $ramDispatch->id)
@@ -778,6 +930,15 @@ class DispatchNonStockProductsTest extends TestCase
             ->where('location_id', $location->id)
             ->first();
         $this->assertEquals(8, $locationStock->quantity_non_tax, 'RAM location stock should decrease by 2');
+
+        // Verify Diagnostic Check component created no inventory effect
+        $diagnosticCheck->refresh();
+        $this->assertEquals(0, $diagnosticCheck->product_quantity, 'Diagnostic Check quantity should not change (already 0 for non-stock)');
+        $this->assertEquals(
+            0,
+            \Modules\Product\Entities\Transaction::where('product_id', $diagnosticCheck->id)->count(),
+            'No inventory transactions for non-stock Diagnostic Check component'
+        );
 
         // Sale should be DISPATCHED_PARTIALLY (service not yet approved)
         $sale->refresh();

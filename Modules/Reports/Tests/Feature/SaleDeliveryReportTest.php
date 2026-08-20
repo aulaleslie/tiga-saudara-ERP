@@ -335,6 +335,178 @@ class SaleDeliveryReportTest extends TestCase
     }
 
     /** @test */
+    public function it_includes_approved_non_stock_acknowledgement_quantity_as_completed_work(): void
+    {
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+        $service = $this->makeProduct(['stock_managed' => false, 'product_quantity' => 0]);
+
+        $this->makeSaleDetail($sale, [
+            'product_id' => $service->id,
+            'quantity' => 2,
+            'sub_total' => 2000,
+        ]);
+
+        $dispatch = $this->makeDispatch($customer, [
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->format('Y-m-d'),
+            'status' => 'APPROVED',
+        ]);
+        $this->makeDispatchDetail($dispatch, [
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'dispatched_quantity' => 2,
+            'is_inventory_managed' => false,
+            'location_id' => null,
+        ]);
+
+        $filter = new SaleDeliveryReportFilterData(
+            startDate: now()->startOfMonth()->format('Y-m-d'),
+            endDate: now()->endOfMonth()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new SaleDeliveryReportQueryService();
+        $result = $queryService->build($filter)->get();
+
+        $this->assertCount(1, $result, 'Approved non-stock acknowledgement quantity must be included as completed work');
+        $this->assertEquals(2, $result[0]->delivered_quantity);
+        $this->assertEquals(2000, $result[0]->delivered_amount);
+    }
+
+    /** @test */
+    public function it_excludes_pending_and_rejected_acknowledgement_quantity_regardless_of_inventory_routing(): void
+    {
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+        $service = $this->makeProduct(['stock_managed' => false, 'product_quantity' => 0]);
+        $stockProduct = $this->makeProduct(['stock_managed' => true]);
+
+        $this->makeSaleDetail($sale, [
+            'product_id' => $service->id,
+            'quantity' => 2,
+            'sub_total' => 2000,
+        ]);
+        $this->makeSaleDetail($sale, [
+            'product_id' => $stockProduct->id,
+            'quantity' => 3,
+            'sub_total' => 3000,
+        ]);
+
+        $pendingDispatch = $this->makeDispatch($customer, [
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->format('Y-m-d'),
+            'status' => 'PENDING',
+        ]);
+        $this->makeDispatchDetail($pendingDispatch, [
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'dispatched_quantity' => 2,
+            'is_inventory_managed' => false,
+            'location_id' => null,
+        ]);
+
+        $rejectedDispatch = $this->makeDispatch($customer, [
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->format('Y-m-d'),
+            'status' => 'REJECTED',
+        ]);
+        $this->makeDispatchDetail($rejectedDispatch, [
+            'sale_id' => $sale->id,
+            'product_id' => $stockProduct->id,
+            'dispatched_quantity' => 3,
+            'is_inventory_managed' => true,
+        ]);
+
+        $filter = new SaleDeliveryReportFilterData(
+            startDate: now()->startOfMonth()->format('Y-m-d'),
+            endDate: now()->endOfMonth()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new SaleDeliveryReportQueryService();
+        $result = $queryService->build($filter)->get();
+
+        $this->assertCount(0, $result, 'Pending and rejected acknowledgement quantity must not appear in the report');
+    }
+
+    /** @test */
+    public function it_keeps_standalone_bundle_and_tax_contexts_separated_when_mixing_stock_and_non_stock_work(): void
+    {
+        $customer = $this->makeCustomer();
+        $sale = $this->makeSale($customer);
+
+        // Standalone non-stock service.
+        $service = $this->makeProduct(['stock_managed' => false, 'product_quantity' => 0]);
+        $this->makeSaleDetail($sale, [
+            'product_id' => $service->id,
+            'quantity' => 1,
+            'sub_total' => 1000,
+        ]);
+
+        // Bundle parent (stock-managed) with a non-stock component, taxed context.
+        $component = $this->makeProduct(['stock_managed' => false, 'product_quantity' => 0]);
+        $bundleParent = $this->makeProduct(['stock_managed' => true]);
+        $bundleDetail = $this->makeSaleDetail($sale, [
+            'product_id' => $bundleParent->id,
+            'tax_id' => 7,
+            'quantity' => 1,
+            'sub_total' => 5000,
+        ]);
+        $this->makeSaleBundleItem($sale, $bundleDetail, [
+            'product_id' => $component->id,
+            'bundle_id' => $bundleDetail->id,
+            'quantity' => 1,
+            'sub_total' => 1500,
+        ]);
+
+        $dispatch = $this->makeDispatch($customer, ['sale_id' => $sale->id]);
+
+        // Standalone service acknowledgement.
+        $this->makeDispatchDetail($dispatch, [
+            'sale_id' => $sale->id,
+            'product_id' => $service->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => false,
+            'location_id' => null,
+        ]);
+
+        // Bundle component acknowledgement, inheriting parent's tax and bundle_id.
+        $this->makeDispatchDetail($dispatch, [
+            'sale_id' => $sale->id,
+            'product_id' => $component->id,
+            'tax_id' => 7,
+            'bundle_id' => $bundleDetail->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => false,
+            'location_id' => null,
+        ]);
+
+        $filter = new SaleDeliveryReportFilterData(
+            startDate: now()->startOfMonth()->format('Y-m-d'),
+            endDate: now()->endOfMonth()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new SaleDeliveryReportQueryService();
+        $result = $queryService->build($filter)->get();
+
+        $this->assertCount(2, $result, 'Standalone and bundled acknowledgement rows must remain separated by the composite key');
+
+        $standaloneRow = $result->firstWhere('product_id', $service->id);
+        $this->assertNotNull($standaloneRow);
+        $this->assertEquals(0, $standaloneRow->bundle_id);
+        $this->assertEquals(1, $standaloneRow->delivered_quantity);
+
+        $bundleRow = $result->firstWhere('product_id', $component->id);
+        $this->assertNotNull($bundleRow);
+        $this->assertEquals($bundleDetail->id, $bundleRow->bundle_id);
+        $this->assertEquals(7, $bundleRow->tax_id);
+        $this->assertEquals(1, $bundleRow->delivered_quantity);
+        $this->assertEquals(1500, $bundleRow->delivered_amount);
+    }
+
+    /** @test */
     public function it_renders_livewire_component_and_displays_empty_state()
     {
         Livewire::test(SaleDeliveryReport::class)
