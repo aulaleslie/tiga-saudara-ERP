@@ -3,8 +3,8 @@
 - [x] 1.1 In `resources/views/livewire/reports/sale-by-product-report.blade.php`, add `flex-shrink: 0` to the `offcanvas-header` element
 - [x] 1.2 Add `flex-shrink: 0` to the `offcanvas-footer` element
 - [x] 1.3 Add `min-height: 0` to the `offcanvas-body` element so its existing `overflow-y: auto` takes effect
-- [ ] 1.4 Verify in the browser that the Filter and Reset buttons stay visible and clickable with 60+ products selected
-- [ ] 1.5 Verify the drawer at a short viewport height, where footer collapse was most visible
+- [x] 1.4 Verify in the browser that the Filter and Reset buttons stay visible and clickable with 60+ products selected
+- [x] 1.5 Verify the drawer at a short viewport height, where footer collapse was most visible
 
 ## 2. Bound the selected-value display
 
@@ -22,7 +22,7 @@
 - [x] 3.4 Apply the helper to `updatedCategorySearch()` against `category_name`
 - [x] 3.5 Apply the helper to `updatedCustomerSearch()` against its existing `customer_name` and `contact_name` fields
 - [x] 3.6 Keep the existing two-character minimum applied to the whole input, not per token, and keep `limit(10)` on the displayed options
-- [ ] 3.7 Manually verify that "alf in" returns ALFA INK products where the current code returns none
+- [x] 3.7 Manually verify that "alf in" returns ALFA INK products where the current code returns none
 
 ## 4. Product code in search results
 
@@ -59,7 +59,7 @@
 ## 7. Verification
 
 - [x] 7.1 Run `composer test:fresh-sqlite -- Modules/Reports/Tests/Feature/SaleByProductReportTest.php` and confirm the suite passes
-- [ ] 7.2 Manually verify the reported scenario end to end: search "alfa ink", select all matching, confirm the Filter button is reachable and the report applies
-- [ ] 7.3 Measure product search response time with the tokenized query on the largest data bucket and confirm no noticeable regression
+- [x] 7.2 Manually verify the reported scenario end to end: search "alfa ink", select all matching, confirm the Filter button is reachable and the report applies
+- [x] 7.3 Measure product search response time with the tokenized query on the largest data bucket and confirm no noticeable regression
 - [x] 7.4 Confirm no database migration was added and that report aggregation, business scoping, snapshot hashing, and exports are unchanged
 - [x] 7.5 Confirm the other 20 report drawers and the four sibling reports were left untouched, as scoped
