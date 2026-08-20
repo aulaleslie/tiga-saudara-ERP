@@ -150,6 +150,11 @@ class SaleController extends Controller
 
             Cart::instance('sale')->destroy();
             toast('Pembelian Ditambahkan!', 'success');
+
+            if (!empty($this->saleService->lastMissingCostWarnings)) {
+                session()->flash('hpp_warning', $this->saleService->lastMissingCostWarnings);
+            }
+
             return redirect()->route('sales.index');
         } catch (Exception $e) {
             Log::error('Sale Creation Failed:', ['error' => $e->getMessage()]);
@@ -343,6 +348,11 @@ class SaleController extends Controller
 
             Cart::instance('sale')->destroy();
             toast('Penjualan Diperbaharui!', 'info');
+
+            if (!empty($this->saleService->lastMissingCostWarnings)) {
+                session()->flash('hpp_warning', $this->saleService->lastMissingCostWarnings);
+            }
+
             return redirect()->route('sales.index');
         } catch (Exception $e) {
             Log::error('Sale Update Failed:', ['error' => $e->getMessage()]);

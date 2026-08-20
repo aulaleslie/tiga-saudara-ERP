@@ -1336,6 +1336,11 @@ class FinalizePosCheckoutService
                     $this->persistCheckoutSplitMappings($checkoutId, $splitGroups);
                 }
 
+                $hppWarnings = is_array($postingResult['hpp_warnings'] ?? null) ? $postingResult['hpp_warnings'] : [];
+                if ($hppWarnings !== []) {
+                    $responsePayload['hpp_warnings'] = $hppWarnings;
+                }
+
                 if ((bool) ($payment['is_multi_payment'] ?? false)) {
                     $this->persistPaymentAllocations($checkoutId, $payment, $splitGroups);
                 }

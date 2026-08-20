@@ -16,7 +16,8 @@ interface PosCheckoutPostingAdapter
      *     split_groups?:array<int, array<string, mixed>>,
      *     sales?:array<int, array<string, mixed>>,
      *     sale_payments?:array<int, array<string, mixed>>,
-     *     split_summary?:array<string, mixed>
+     *     split_summary?:array<string, mixed>,
+     *     hpp_warnings?:array<int, array<string, mixed>>
      * }
      */
     public function post(array $context): array;

@@ -325,6 +325,8 @@ class PosReturnLifecycleService
         ?int $actorId,
         \Illuminate\Support\Carbon $executedAt
     ): void {
+        $this->applyEffectiveCostReversals($posReturn, $executedAt);
+
         foreach ($posReturn->saleReturns as $saleReturn) {
             $details = $saleReturn->saleReturnDetails;
 
@@ -374,6 +376,104 @@ class PosReturnLifecycleService
                 }
             }
         }
+    }
+
+    /**
+     * Persist immutable HPP reversal effects for every physically effective return
+     * detail in this POS return, exactly once. Draft/rejected/cancelled/rolled-back
+     * work never reaches this method (executeResolvedLineEffects only runs from
+     * within the guarded final-approval transaction), and each detail is skipped
+     * once cost_effective_at is already set, so retries cannot double-apply.
+     *
+     * The reversal copies the ORIGINAL persisted unit cost snapshot (never a
+     * recomputed current average) multiplied by the received quantity, per
+     * openspec/changes/harden-product-bundle-hpp design.md decision #6.
+     */
+    protected function applyEffectiveCostReversals(
+        \Modules\Pos\Entities\PosReturn $posReturn,
+        \Illuminate\Support\Carbon $executedAt
+    ): void {
+        foreach ($posReturn->saleReturns as $saleReturn) {
+            foreach ($saleReturn->saleReturnDetails as $detail) {
+                if ($detail->cost_effective_at !== null) {
+                    continue;
+                }
+
+                $resolution = $this->resolveDetailResolution($detail);
+                $isEffectiveResolution = $resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
+                    || $resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT;
+
+                if (! $isEffectiveResolution) {
+                    continue;
+                }
+
+                if ($resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
+                    && $this->shouldSkipCommercialCashCorrection($detail)) {
+                    continue;
+                }
+
+                if ($resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                    && $this->isReplacementInformationalBundleComponentDetail($detail)) {
+                    continue;
+                }
+
+                // Cash returns and cross-owner replacements both route through
+                // applyCashReturnSaleDetailCorrections(), which proportionally
+                // reduces the underlying SaleDetails/SaleBundleItem quantity and
+                // sub_total by the returned amount. Same-owner replacements never
+                // do this. Recording it here lets report aggregation avoid
+                // double-subtracting: once implicitly (via the already-reduced
+                // live quantity) and once explicitly (via this reversal row).
+                $commercialQuantityAlsoReduced = $resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
+                    || ($resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                        && $this->isCrossOwnerReplacementDetail($detail));
+
+                $this->persistEffectiveCostReversal($detail, $executedAt, $commercialQuantityAlsoReduced);
+            }
+        }
+    }
+
+    protected function persistEffectiveCostReversal(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        \Illuminate\Support\Carbon $executedAt,
+        bool $commercialQuantityAlsoReduced
+    ): void {
+        $returnedQuantity = (float) ($detail->quantity ?? 0);
+        if ($returnedQuantity <= 0) {
+            return;
+        }
+
+        $isComponentOrigin = $detail->component_sale_bundle_item_id !== null
+            && $detail->cost_origin === \Modules\SalesReturn\Entities\SaleReturnDetail::COST_ORIGIN_BUNDLE_ITEM;
+
+        if ($isComponentOrigin) {
+            $origin = $detail->componentSaleBundleItem()->lockForUpdate()->first();
+        } else {
+            $origin = $detail->saleDetail()->lockForUpdate()->first();
+        }
+
+        if (! $origin) {
+            // No original snapshot to copy: nothing to reverse, nothing to warn about
+            // (mirrors the non-blocking-warning rule — this is not a missing-cost case).
+            return;
+        }
+
+        $unitCost = (float) ($origin->cost_unit_snapshot ?? 0);
+
+        $detail->forceFill([
+            'cost_origin' => $isComponentOrigin
+                ? \Modules\SalesReturn\Entities\SaleReturnDetail::COST_ORIGIN_BUNDLE_ITEM
+                : \Modules\SalesReturn\Entities\SaleReturnDetail::COST_ORIGIN_SALE_DETAIL,
+            'cost_unit_snapshot' => $unitCost,
+            'cost_quantity' => $returnedQuantity,
+            'cost_total_snapshot' => round($unitCost * $returnedQuantity, 2),
+            'cost_snapshot_source' => $origin->cost_snapshot_source,
+            'cost_snapshot_setting_id' => $isComponentOrigin ? $origin->cost_snapshot_setting_id : null,
+            'cost_snapshot_setting_is_pkp' => $isComponentOrigin ? $origin->cost_snapshot_setting_is_pkp : null,
+            'cost_snapshot_at' => $origin->cost_snapshot_at,
+            'cost_effective_at' => $executedAt,
+            'commercial_quantity_also_reduced' => $commercialQuantityAlsoReduced,
+        ])->save();
     }
 
     protected function assertBundleExecutionGuards(\Modules\Pos\Entities\PosReturn $posReturn): void
@@ -727,7 +827,46 @@ class PosReturnLifecycleService
             if ($this->shouldDispatchReplacementAffectStock($detail)) {
                 $this->adjustStockForReplacement($detail, $actorId ?? 0);
             }
+
+            $this->snapshotReplacementDispatchCost($dispatchDetail, (int) $saleReturn->setting_id, $settledAt);
         }
+    }
+
+    /**
+     * Outgoing replacement HPP is snapshotted independently from the replacement
+     * owner/current average resolver — never inherited from the reversed return.
+     */
+    protected function snapshotReplacementDispatchCost(
+        \Modules\Sale\Entities\DispatchDetail $dispatchDetail,
+        int $replacementOwnerSettingId,
+        \Illuminate\Support\Carbon $snapshotAt
+    ): void {
+        $product = \Modules\Product\Entities\Product::query()->find((int) $dispatchDetail->product_id);
+
+        if (! $product || ! $product->stock_managed) {
+            $dispatchDetail->forceFill([
+                'replacement_cost_unit_snapshot' => 0,
+                'replacement_cost_total_snapshot' => 0,
+                'replacement_cost_snapshot_source' => \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED,
+                'replacement_cost_snapshot_setting_id' => null,
+                'replacement_cost_snapshot_at' => $snapshotAt,
+            ])->save();
+
+            return;
+        }
+
+        $result = app(\Modules\Sale\Services\AverageCostResolver::class)->resolve($product, $replacementOwnerSettingId);
+        $qty = (float) ($dispatchDetail->dispatched_quantity ?? 0);
+
+        $dispatchDetail->forceFill([
+            'replacement_cost_unit_snapshot' => round($result['unit_cost'], 6),
+            'replacement_cost_total_snapshot' => round($result['unit_cost'] * $qty, 2),
+            'replacement_cost_snapshot_source' => $result['is_missing']
+                ? \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE
+                : \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
+            'replacement_cost_snapshot_setting_id' => $result['setting_id'],
+            'replacement_cost_snapshot_at' => $snapshotAt,
+        ])->save();
     }
 
     protected function encodeReplacementDispatchSerialNumbers(
@@ -902,7 +1041,7 @@ class PosReturnLifecycleService
 
         $product = \Modules\Product\Entities\Product::query()->find((int) $detail->product_id);
 
-        SaleDetails::query()->create([
+        $replacementSaleDetail = SaleDetails::query()->create([
             'sale_id' => $replacementSale->id,
             'product_id' => $detail->product_id,
             'product_name' => $product?->product_name ?? $detail->product_name ?? '',
@@ -916,6 +1055,15 @@ class PosReturnLifecycleService
             'product_tax_amount' => 0,
             'tax_id' => null,
         ]);
+
+        // Outgoing replacement HPP is snapshotted independently from the replacement
+        // owner/current average resolver, never inherited from the original return.
+        app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost(
+            $replacementSaleDetail,
+            $executedAt,
+            $replacementSettingId
+        );
+        $replacementSaleDetail->save();
 
         if ($paymentAmount > 0) {
             SalePayment::query()->create([

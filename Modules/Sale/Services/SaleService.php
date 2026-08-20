@@ -22,8 +22,18 @@ class SaleService
      * @return Sale
      * @throws Exception
      */
+    /**
+     * Non-blocking missing-HPP warnings surfaced by the most recent
+     * createSale()/updateSale() call, after successful persistence.
+     *
+     * @var array<int, array{level: string, message: string, product_id: int|null, sale_bundle_item_id: int|null}>
+     */
+    public array $lastMissingCostWarnings = [];
+
     public function createSale(array $data, iterable $cartItems): Sale
     {
+        $this->lastMissingCostWarnings = [];
+
         return DB::transaction(function () use ($data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $data['setting_id'])->value('is_pkp') ?? false);
@@ -101,8 +111,9 @@ class SaleService
                     }
                 }
                 
-                app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+                $warnings = app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
                 $saleDetail->save();
+                $this->lastMissingCostWarnings = array_merge($this->lastMissingCostWarnings, $warnings);
             }
 
             return $sale;
@@ -137,6 +148,8 @@ class SaleService
         // Potential stock restoration if switching between dispatched statuses in one update
         // However, standard flow is DRAFTED -> WAITING_APPROVAL -> APPROVED -> (Partially) DISPATCHED.
         // If the status in request is DISPATCHED, we might need to deduct stock.
+
+        $this->lastMissingCostWarnings = [];
 
         return DB::transaction(function () use ($sale, $data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
@@ -280,8 +293,9 @@ class SaleService
                     }
                 }
 
-                app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+                $warnings = app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
                 $saleDetail->save();
+                $this->lastMissingCostWarnings = array_merge($this->lastMissingCostWarnings, $warnings);
             }
 
             return $sale;

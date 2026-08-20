@@ -16,6 +16,13 @@ use Carbon\Carbon;
 
 class OperationalMovementEventService
 {
+    private SaleHppAggregateService $hppAggregate;
+
+    public function __construct(?SaleHppAggregateService $hppAggregate = null)
+    {
+        $this->hppAggregate = $hppAggregate ?? new SaleHppAggregateService();
+    }
+
     public function getOpeningBalances(int|array $settingScope, string $startDate): array
     {
         $settingIds = $this->normalizeSettingIds($settingScope);
@@ -37,16 +44,7 @@ class OperationalMovementEventService
             ->selectRaw('SUM(total_amount) as amount, SUM(discount_amount) as discount, SUM(tax_amount) as tax, SUM(shipping_amount) as shipping')
             ->first();
 
-        $salesDppHpp = DB::table('sale_details')
-            ->join('sales', 'sales.id', '=', 'sale_details.sale_id')
-            ->whereIn('sales.setting_id', $settingIds)
-            ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->whereDate('sales.date', '<', $startDate)
-            ->selectRaw('
-                SUM(sale_details.sub_total - sale_details.product_tax_amount) as dpp,
-                SUM(COALESCE(sale_details.cost_unit_snapshot, 0) * sale_details.quantity) as hpp
-            ')
-            ->first();
+        $salesDppHpp = $this->hppAggregate->totals($settingIds, $startDate, null, 'before');
 
         if ($salesTotals && $salesTotals->amount > 0) {
             $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, (float)$salesTotals->amount, 0);
@@ -176,21 +174,14 @@ class OperationalMovementEventService
         $endDateEndOfDay = $endDate . ' 23:59:59';
 
         // 1. Sales
-        $sales = Sale::leftJoinSub(
-                DB::table('sale_details')
-                    ->selectRaw('sale_id, SUM(sub_total - product_tax_amount) as dpp, SUM(COALESCE(cost_unit_snapshot, 0) * quantity) as hpp')
-                    ->groupBy('sale_id'),
-                'details',
-                'details.sale_id',
-                '=',
-                'sales.id'
-            )
-            ->whereIn('sales.setting_id', $settingIds)
+        $sales = Sale::whereIn('sales.setting_id', $settingIds)
             ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
             ->whereBetween('sales.date', [$startDate, $endDateEndOfDay])
             ->with('customer:id,customer_name')
-            ->select('sales.id', 'sales.date', 'sales.reference', 'sales.total_amount', 'sales.tax_amount', 'sales.discount_amount', 'sales.shipping_amount', 'sales.customer_id', 'sales.created_at', 'details.dpp', 'details.hpp')
+            ->select('sales.id', 'sales.date', 'sales.reference', 'sales.total_amount', 'sales.tax_amount', 'sales.discount_amount', 'sales.shipping_amount', 'sales.customer_id', 'sales.created_at')
             ->get();
+
+        $perSaleHpp = $this->hppAggregate->perSale($settingIds, $startDate, $endDate);
 
         foreach ($sales as $sale) {
             $date = Carbon::parse($sale->getRawOriginal('date'))->format('Y-m-d');
@@ -198,8 +189,9 @@ class OperationalMovementEventService
             $dt = $date . ' ' . $time;
             $tag = $sale->customer->customer_name ?? null;
 
-            $dpp = (float) $sale->dpp;
-            $hpp = (float) $sale->hpp;
+            $saleHpp = $perSaleHpp->get($sale->id);
+            $dpp = (float) ($saleHpp->dpp ?? 0);
+            $hpp = (float) ($saleHpp->net_hpp ?? 0);
             $taxAmount = (float) $sale->tax_amount;
             $discount = (float) $sale->discount_amount;
             $shipping = (float) $sale->shipping_amount;

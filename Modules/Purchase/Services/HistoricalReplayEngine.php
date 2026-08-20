@@ -14,6 +14,7 @@ use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Support\BackfillCostCalculator;
 use Modules\Setting\Entities\Setting;
@@ -50,6 +51,8 @@ class HistoricalReplayEngine
         int $productId,
         ?Carbon $untilDate = null,
         ?int $settingId = null,
+        bool $includeBundleItems = false,
+        ?Collection $bundleItemOwnerSettings = null,
     ): Collection {
         $events = collect();
 
@@ -241,11 +244,54 @@ class HistoricalReplayEngine
             ]);
         }
 
+        // 4. Bundle-component consumption events (opt-in), on the same physical
+        // product timeline as parent sales. The caller is responsible for
+        // resolving each bundle item's physical owner setting (via dispatch
+        // lineage) and passing it in $bundleItemOwnerSettings, keyed by
+        // sale_bundle_item id — rows without an unambiguous owner must never
+        // reach this method (design.md decision #7: skip, don't guess).
+        if ($includeBundleItems) {
+            $bundleItemOwnerSettings = $bundleItemOwnerSettings ?? collect();
+
+            $bundleQuery = SaleBundleItem::query()
+                ->with(['sale' => function ($q) {
+                    $q->select('id', 'date', 'status', 'setting_id');
+                }])
+                ->select('id', 'sale_id', 'product_id', 'quantity', 'cost_snapshot_source')
+                ->where('product_id', $productId)
+                ->whereIn('id', $bundleItemOwnerSettings->keys()->all())
+                ->whereHas('sale', function ($q) use ($untilDate) {
+                    $q->whereIn('status', ['Completed', 'COMPLETED', 'DISPATCHED', 'RETURNED PARTIALLY', 'RETURNED']);
+                    if ($untilDate) {
+                        $q->where('date', '<=', $untilDate);
+                    }
+                });
+
+            foreach ($bundleQuery->get() as $bi) {
+                $ownerSettingId = (int) $bundleItemOwnerSettings->get($bi->id);
+                $companyName = $this->getSettingCompanyName($ownerSettingId);
+                $bucket = BackfillCostCalculator::classifyBucket($companyName);
+
+                $eventDate = Carbon::parse($bi->sale->date)->format('Y-m-d H:i:s');
+                $events->push([
+                    'type' => 'sale',
+                    'order' => 3,
+                    'id' => 'bi_' . $bi->id,
+                    'date' => $eventDate,
+                    'quantity' => (float) $bi->quantity,
+                    'bucket' => $bucket,
+                    'setting_id' => $ownerSettingId,
+                    'model' => $bi,
+                    'origin' => 'sale_bundle_item',
+                ]);
+            }
+        }
+
         // Sort by date, then order, then ID for determinism
         return $events->sort(function ($a, $b) {
             if ($a['date'] === $b['date']) {
                 if ($a['order'] === $b['order']) {
-                    return $a['id'] <=> $b['id'];
+                    return (string) $a['id'] <=> (string) $b['id'];
                 }
                 return $a['order'] <=> $b['order'];
             }

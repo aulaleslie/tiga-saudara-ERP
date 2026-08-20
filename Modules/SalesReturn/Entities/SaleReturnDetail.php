@@ -34,7 +34,21 @@ class SaleReturnDetail extends BaseModel
         'bundle_group_key',
         'stock_behavior',
         'execution_context',
+        'component_sale_bundle_item_id',
+        'cost_origin',
+        'cost_unit_snapshot',
+        'cost_quantity',
+        'cost_total_snapshot',
+        'cost_snapshot_source',
+        'cost_snapshot_setting_id',
+        'cost_snapshot_setting_is_pkp',
+        'cost_snapshot_at',
+        'cost_effective_at',
+        'commercial_quantity_also_reduced',
     ];
+
+    const COST_ORIGIN_SALE_DETAIL = 'SALE_DETAIL';
+    const COST_ORIGIN_BUNDLE_ITEM = 'BUNDLE_ITEM';
 
     protected $with = ['product'];
 
@@ -47,6 +61,15 @@ class SaleReturnDetail extends BaseModel
         'product_tax_amount'      => 'decimal:2',
         'serial_number_ids'       => 'array',
         'execution_context'       => 'array',
+        'cost_unit_snapshot'      => 'decimal:6',
+        'cost_quantity'           => 'decimal:4',
+        'cost_total_snapshot'     => 'decimal:2',
+        'cost_snapshot_source'    => 'string',
+        'cost_origin'             => 'string',
+        'cost_snapshot_setting_is_pkp' => 'boolean',
+        'cost_snapshot_at'        => 'datetime',
+        'cost_effective_at'       => 'datetime',
+        'commercial_quantity_also_reduced' => 'boolean',
     ];
 
     public function posReturnLine(): BelongsTo
@@ -89,6 +112,16 @@ class SaleReturnDetail extends BaseModel
     public function dispatchDetail(): BelongsTo
     {
         return $this->belongsTo(DispatchDetail::class, 'dispatch_detail_id', 'id');
+    }
+
+    public function componentSaleBundleItem(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Sale\Entities\SaleBundleItem::class, 'component_sale_bundle_item_id', 'id');
+    }
+
+    public function costSnapshotSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'cost_snapshot_setting_id', 'id');
     }
 
     public function location(): BelongsTo

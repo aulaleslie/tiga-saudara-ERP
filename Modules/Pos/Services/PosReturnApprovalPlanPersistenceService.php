@@ -185,6 +185,9 @@ class PosReturnApprovalPlanPersistenceService
 
             foreach (($group['planned_details'] ?? []) as $plannedDetail) {
                 $line = $lines->get((int) ($plannedDetail['pos_return_line_id'] ?? 0));
+                $componentBundleItemId = $this->nullableInt($plannedDetail['component_sale_bundle_item_id'] ?? null);
+                $rowType = (string) ($plannedDetail['row_type'] ?? 'parent');
+
                 $saleReturnDetail = $saleReturn->saleReturnDetails()->create([
                     'pos_return_line_id' => $plannedDetail['pos_return_line_id'] ?? null,
                     'sale_detail_id' => $plannedDetail['sale_detail_id'] ?? null,
@@ -204,6 +207,10 @@ class PosReturnApprovalPlanPersistenceService
                     'serial_number_ids' => $this->resolveSerialNumberIds($line, $plannedDetail),
                     'bundle_group_key' => $this->resolveBundleGroupKey($plannedDetail, $line),
                     'stock_behavior' => $this->resolveStockBehavior($plannedDetail, $line),
+                    'component_sale_bundle_item_id' => $componentBundleItemId,
+                    'cost_origin' => $rowType === 'component' && $componentBundleItemId
+                        ? \Modules\SalesReturn\Entities\SaleReturnDetail::COST_ORIGIN_BUNDLE_ITEM
+                        : \Modules\SalesReturn\Entities\SaleReturnDetail::COST_ORIGIN_SALE_DETAIL,
                     'execution_context' => $this->buildExecutionContext(
                         $plannedDetail,
                         $saleReturn,

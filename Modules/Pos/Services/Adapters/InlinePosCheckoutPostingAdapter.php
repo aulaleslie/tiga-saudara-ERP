@@ -174,6 +174,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'rejection_reason' => null,
         ]);
 
+        $hppWarnings = [];
+
         foreach ($lines as $index => $line) {
             $productId = (int) ($line['product_id'] ?? 0);
             $qty = (int) ($line['qty'] ?? 0);
@@ -473,8 +475,14 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 }
             }
             
-            app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
+            $lineHppWarnings = app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost(
+                $saleDetail,
+                null,
+                $settingId,
+                $parentNotFulfilledByGroup
+            );
             $saleDetail->save();
+            $hppWarnings = array_merge($hppWarnings, $lineHppWarnings);
         }
 
         // Keep payable total aligned with gross cart totals; tax is extracted for reporting only.
@@ -564,6 +572,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'actual_tax_total' => (float) $totalPostedTaxTotal,
             'actual_grand_total' => (float) $totalPostedGrandTotal,
             'stage_mappings' => $stageMappings ?? [],
+            'hpp_warnings' => $hppWarnings,
         ];
     }
 

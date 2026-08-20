@@ -12,6 +12,13 @@ use Modules\Setting\Entities\Setting;
 
 class OperationalProfitLossReportService
 {
+    private SaleHppAggregateService $hppAggregate;
+
+    public function __construct(?SaleHppAggregateService $hppAggregate = null)
+    {
+        $this->hppAggregate = $hppAggregate ?? new SaleHppAggregateService();
+    }
+
     public function generate(array $settingIds, ?string $startDate, ?string $endDate): OperationalProfitLossReport
     {
         $normalizedSettingIds = $this->normalizeSettingIds($settingIds);
@@ -24,14 +31,7 @@ class OperationalProfitLossReportService
 
         // Sales (Completed: DISPATCHED, RETURNED_PARTIALLY, RETURNED)
         // Excludes DISPATCHED_PARTIALLY to avoid overstating revenue from incomplete shipments
-        $salesAggregates = \Modules\Sale\Entities\SaleDetails::join('sales', 'sale_details.sale_id', '=', 'sales.id')
-            ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->whereIn('sales.setting_id', $normalizedSettingIds)
-            ->when($startDate, fn($q) => $q->whereDate('sales.date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->whereDate('sales.date', '<=', $endDate))
-            ->selectRaw('SUM(sale_details.sub_total - COALESCE(sale_details.product_tax_amount, 0)) as dpp')
-            ->selectRaw('SUM(COALESCE(sale_details.cost_unit_snapshot, 0) * sale_details.quantity) as hpp')
-            ->first();
+        $salesAggregates = $this->hppAggregate->totals($normalizedSettingIds, $startDate, $endDate);
 
         $penjualan = $salesAggregates->dpp ?? 0;
         $bebanPokokPendapatan = $salesAggregates->hpp ?? 0;

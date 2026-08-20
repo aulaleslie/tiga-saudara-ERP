@@ -34,6 +34,7 @@ class SaleServiceProvider extends ServiceProvider
         $this->commands([
             \Modules\Sale\Console\ImportSalesCommand::class,
             \Modules\Sale\Console\BackfillSalesCostSnapshotsCommand::class,
+            \Modules\Sale\Console\BackfillSaleBundleItemCostSnapshotsCommand::class,
         ]);
     }
 

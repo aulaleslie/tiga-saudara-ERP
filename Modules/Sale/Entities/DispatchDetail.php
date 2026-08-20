@@ -25,10 +25,18 @@ class DispatchDetail extends BaseModel
         'pos_return_line_id',
         'replacement_of_dispatch_detail_id',
         'replacement_returned_serial_id',
+        'replacement_cost_unit_snapshot',
+        'replacement_cost_total_snapshot',
+        'replacement_cost_snapshot_source',
+        'replacement_cost_snapshot_setting_id',
+        'replacement_cost_snapshot_at',
     ];
 
     protected $casts = [
         'is_inventory_managed' => 'boolean',
+        'replacement_cost_unit_snapshot' => 'decimal:6',
+        'replacement_cost_total_snapshot' => 'decimal:2',
+        'replacement_cost_snapshot_at' => 'datetime',
     ];
 
     protected array $uppercaseExcept = [

@@ -30,6 +30,11 @@ class SaleBundleItem extends BaseModel
         'informational_item_price' => 'decimal:2',
         'sub_total' => 'decimal:2',
         'tax_amount' => 'decimal:2',
+        'cost_unit_snapshot' => 'decimal:6',
+        'cost_total_snapshot' => 'decimal:2',
+        'cost_snapshot_source' => 'string',
+        'cost_snapshot_setting_is_pkp' => 'boolean',
+        'cost_snapshot_at' => 'datetime',
     ];
 
     /**
@@ -62,6 +67,14 @@ class SaleBundleItem extends BaseModel
     public function tax(): BelongsTo
     {
         return $this->belongsTo(\Modules\Setting\Entities\Tax::class, 'tax_id', 'id');
+    }
+
+    /**
+     * Relationship to the setting the cost snapshot was resolved from.
+     */
+    public function costSnapshotSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'cost_snapshot_setting_id', 'id');
     }
 
     /**
