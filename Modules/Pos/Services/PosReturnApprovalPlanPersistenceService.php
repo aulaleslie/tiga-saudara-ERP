@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\Sale;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
@@ -30,6 +31,7 @@ class PosReturnApprovalPlanPersistenceService
         ]);
 
         if ($posReturn->saleReturns->isEmpty()) {
+            $this->assertPlanSerialsNotClaimedElsewhere($posReturn, $groups);
             $this->createSaleReturnsFromPlan($posReturn, $groups);
         } else {
             $this->assertExistingSaleReturnsMatchPlan($posReturn, $groups);
@@ -40,6 +42,104 @@ class PosReturnApprovalPlanPersistenceService
         $this->syncPosReturnLineLinks($posReturn);
 
         return $posReturn->saleReturns;
+    }
+
+    /**
+     * Enforce exclusive consumption of every serial this plan is about to
+     * claim — parent (`returned_serial_id`) and bundle-component
+     * (`component_serial_ids`, resolved by the planner from persisted
+     * DispatchDetail lineage) alike — under the row lock this method's
+     * caller already holds on `PosReturn` inside its enclosing transaction
+     * (see PosReturnLifecycleService::approve/executeApprovalFromPreview).
+     * This is the first point in the pipeline where a component's serial
+     * identity is known, so it is also the first point exclusivity can be
+     * enforced for it; a `PosReturnLine.returned_serial_id`-only check
+     * (as exists at draft submission) cannot see component serials at all.
+     *
+     * @param  Collection<int, array<string, mixed>>  $groups
+     */
+    private function assertPlanSerialsNotClaimedElsewhere(PosReturn $posReturn, Collection $groups): void
+    {
+        $serialIds = collect();
+
+        foreach ($groups as $group) {
+            foreach (($group['planned_details'] ?? []) as $plannedDetail) {
+                if (($plannedDetail['row_type'] ?? 'parent') === 'component') {
+                    foreach ((array) ($plannedDetail['component_serial_ids'] ?? []) as $id) {
+                        $serialIds->push((int) $id);
+                    }
+                    continue;
+                }
+
+                $line = $posReturn->lines->firstWhere('id', (int) ($plannedDetail['pos_return_line_id'] ?? 0));
+                if ($line && (int) ($line->returned_serial_id ?? 0) > 0) {
+                    $serialIds->push((int) $line->returned_serial_id);
+                }
+            }
+        }
+
+        $serialIds = $serialIds->filter(fn (int $id) => $id > 0)->unique()->sort()->values();
+
+        if ($serialIds->isEmpty()) {
+            return;
+        }
+
+        // Lock the candidate serial rows themselves (deterministic id order,
+        // matching the checkout posting lock convention) so a concurrent
+        // synchronize() call for a competing return targeting the same
+        // serial(s) serializes behind this one instead of racing past the
+        // exists() check below.
+        ProductSerialNumber::query()
+            ->whereIn('id', $serialIds->all())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        // A competing return's plan is committed to a serial from the moment
+        // synchronize() creates its SaleReturn/SaleReturnDetail rows onward —
+        // that persistence happens while the return is still PENDING_APPROVAL,
+        // before it ever reaches a `returnQuantityConsumingStatuses()` status,
+        // so gating this check on those statuses alone would miss exactly the
+        // race this guard exists to close (two pending-approval returns both
+        // synchronizing a plan for the same serial). Any other *active*
+        // return that has already synchronized a plan is therefore itself
+        // sufficient evidence of a claim, regardless of its current status;
+        // only a reversed/cancelled/rejected return releases its claim (see
+        // `active()` scope and the reject/cancel lifecycle, which detach or
+        // leave stale SaleReturn rows behind an inactive PosReturn).
+        $claimed = PosReturnLine::query()
+            ->where('pos_return_id', '!=', $posReturn->id)
+            ->whereIn('returned_serial_id', $serialIds->all())
+            ->whereHas('posReturn', function ($q) {
+                $q->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+            })
+            ->exists();
+
+        if ($claimed) {
+            throw new \RuntimeException('Satu atau lebih serial pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+        }
+
+        // Component serial ids are not stored on PosReturnLine (only the
+        // parent's returned_serial_id is), so their exclusivity is checked
+        // against persisted SaleReturnDetail.serial_number_ids from other
+        // POS Returns' already-synchronized plans instead.
+        $componentClaimed = SaleReturnDetail::query()
+            ->whereHas('saleReturn', function ($q) use ($posReturn) {
+                $q->where('pos_return_id', '!=', $posReturn->id)
+                    ->whereHas('posReturn', function ($qq) {
+                        $qq->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+                    });
+            })
+            ->get(['id', 'sale_return_id', 'serial_number_ids'])
+            ->contains(function (SaleReturnDetail $detail) use ($serialIds) {
+                $detailSerialIds = collect($detail->serial_number_ids ?? []);
+
+                return $detailSerialIds->intersect($serialIds)->isNotEmpty();
+            });
+
+        if ($componentClaimed) {
+            throw new \RuntimeException('Satu atau lebih serial komponen pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+        }
     }
 
     private function createSaleReturnsFromPlan(PosReturn $posReturn, Collection $groups): void
@@ -101,7 +201,7 @@ class PosReturnApprovalPlanPersistenceService
                     'product_tax_amount' => 0,
                     'location_id' => $plannedDetail['source_location_id'] ?? null,
                     'tax_id' => $plannedDetail['tax_id'] ?? null,
-                    'serial_number_ids' => $this->resolveSerialNumberIds($line),
+                    'serial_number_ids' => $this->resolveSerialNumberIds($line, $plannedDetail),
                     'bundle_group_key' => $this->resolveBundleGroupKey($plannedDetail, $line),
                     'stock_behavior' => $this->resolveStockBehavior($plannedDetail, $line),
                     'execution_context' => $this->buildExecutionContext(
@@ -251,8 +351,23 @@ class PosReturnApprovalPlanPersistenceService
         }
     }
 
-    private function resolveSerialNumberIds(?PosReturnLine $line): array
+    private function resolveSerialNumberIds(?PosReturnLine $line, array $plannedDetail = []): array
     {
+        // A component row's fulfilling serial is a distinct physical unit from
+        // the parent's returned_serial_id — resolved independently by the
+        // planner from the component's own DispatchDetail lineage (see
+        // PosReturnApprovalPreviewPlannerService::resolveComponentSerials).
+        // Falling through to the parent's serial here would restore the wrong
+        // unit at receiving time.
+        if (($plannedDetail['row_type'] ?? 'parent') === 'component') {
+            return collect($plannedDetail['component_serial_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->sort()
+                ->values()
+                ->all();
+        }
+
         if (! $line) {
             return [];
         }
@@ -364,6 +479,7 @@ class PosReturnApprovalPlanPersistenceService
             'component_line_group_key' => (string) ($plannedDetail['component_line_group_key'] ?? ''),
             'component_bundle_id' => $this->nullableInt($plannedDetail['component_bundle_id'] ?? null),
             'component_quantity_per_bundle' => $plannedDetail['component_quantity_per_bundle'] ?? null,
+            'component_serial_ids' => collect($plannedDetail['component_serial_ids'] ?? [])->map(fn ($id) => (int) $id)->values()->all(),
             'quantity_source' => $quantitySource,
             'commercial_value_source' => $commercialValueSource,
             'cash_return_amount' => (float) ($plannedDetail['cash_return_amount'] ?? 0),
@@ -391,6 +507,7 @@ class PosReturnApprovalPlanPersistenceService
             'component_line_group_key' => (string) ($context['component_line_group_key'] ?? ''),
             'component_bundle_id' => $this->nullableInt($context['component_bundle_id'] ?? null),
             'component_quantity_per_bundle' => $this->nullableInt($context['component_quantity_per_bundle'] ?? null),
+            'component_serial_ids' => collect($context['component_serial_ids'] ?? [])->map(fn ($id) => (int) $id)->values()->all(),
             'quantity_source' => (string) ($context['quantity_source'] ?? ''),
             'commercial_value_source' => (string) ($context['commercial_value_source'] ?? ''),
             'cash_return_amount' => $this->normalizeDecimal($context['cash_return_amount'] ?? 0),

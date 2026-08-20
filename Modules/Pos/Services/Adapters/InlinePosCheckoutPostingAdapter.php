@@ -20,6 +20,8 @@ use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Product\Entities\ProductSerialNumber;
 use App\Services\SerialNumberHistoryService;
+use App\Support\SalesLocationResolver;
+use Modules\Sale\Support\PendingDispatchSerialGuard;
 
 class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 {
@@ -205,9 +207,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memerlukan $qty seri, tetapi " . count($assignedSerials) . " yang diberikan.");
                 }
 
+                if (count($assignedSerials) !== count(array_unique($assignedSerials))) {
+                    throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memiliki nomor seri duplikat dalam satu baris.");
+                }
+
                 $serialRecords = ProductSerialNumber::query()
                     ->where('product_id', $productId)
                     ->whereIn('serial_number', $assignedSerials)
+                    ->orderBy('id')
+                    ->lockForUpdate()
                     ->get()
                     ->keyBy('serial_number');
 
@@ -215,6 +223,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     if (! isset($serialRecords[$sn])) {
                         throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk produk $productId.");
                     }
+                    $this->assertSerialCurrentlyPostable($serialRecords[$sn], $settingId);
                     $serialIds[] = (int) $serialRecords[$sn]->id;
                 }
             }
@@ -299,7 +308,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     $dispatch,
                     $taxId,
                     $bundleId,
-                    $serialRecords instanceof \Illuminate\Support\Collection ? $serialRecords->all() : $serialRecords
+                    $serialRecords instanceof \Illuminate\Support\Collection ? $serialRecords->all() : $serialRecords,
+                    (int) $saleDetail->id
                 );
             }
 
@@ -399,10 +409,32 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
                     $bundleItemId = (int) ($item['bundle_item_id'] ?? 0);
                     $bundleItemSerials = is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [];
-                    $compAssignedSerials = array_values(array_filter(
+                    $rawCompAssignedSerials = array_values(array_filter(
                         (array) ($bundleItemSerials[$bundleItemId] ?? ($item['assigned_serials'] ?? [])),
                         static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
                     ));
+
+                    if (count($rawCompAssignedSerials) !== count(array_unique($rawCompAssignedSerials))) {
+                        $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
+                        throw new PosCheckoutValidationException('SERIAL_INVALID', "Komponen $childProductLabel memiliki nomor seri duplikat dalam satu baris.");
+                    }
+
+                    $compAssignedSerials = $rawCompAssignedSerials;
+
+                    // During split posting, `bundle_item_serials` still carries every
+                    // component serial across all owner groups; only revalidate/lock
+                    // the subset the split planner actually allocated to this group's
+                    // chunks, or a sibling group's already-posted serial would appear
+                    // stale here even though it belongs to that other group.
+                    $chunkSerials = [];
+                    foreach ($childAllocations as $chunk) {
+                        foreach ((array) ($chunk['serial_numbers'] ?? []) as $sn) {
+                            $chunkSerials[] = $sn;
+                        }
+                    }
+                    if ($chunkSerials !== []) {
+                        $compAssignedSerials = array_values(array_intersect($compAssignedSerials, $chunkSerials));
+                    }
 
                     $childSerialRecords = [];
                     $compSerialRequired = (bool) ($item['serial_number_required'] ?? false);
@@ -410,8 +442,18 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         $childSerialRecords = ProductSerialNumber::query()
                             ->where('product_id', $childProductId)
                             ->whereIn('serial_number', $compAssignedSerials)
+                            ->orderBy('id')
+                            ->lockForUpdate()
                             ->get()
                             ->keyBy('serial_number');
+
+                        $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
+                        foreach ($compAssignedSerials as $sn) {
+                            if (! isset($childSerialRecords[$sn])) {
+                                throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk komponen $childProductLabel.");
+                            }
+                            $this->assertSerialCurrentlyPostable($childSerialRecords[$sn], $settingId);
+                        }
                     }
 
                     $this->recordStockMovement(
@@ -425,7 +467,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         $dispatch,
                         $childTaxId,
                         $bundleId,
-                        $childSerialRecords instanceof \Illuminate\Support\Collection ? $childSerialRecords->all() : $childSerialRecords
+                        $childSerialRecords instanceof \Illuminate\Support\Collection ? $childSerialRecords->all() : $childSerialRecords,
+                        (int) $saleDetail->id
                     );
                 }
             }
@@ -698,6 +741,37 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
     }
 
     /**
+     * Revalidate a serial's current, locked-row state immediately before it is
+     * committed to posting. Assignment during cart mutation only reflects the
+     * serial's state at that moment; other checkouts, transfers, returns, or
+     * dispatch activity can make it stale before this transaction locks it.
+     */
+    private function assertSerialCurrentlyPostable(ProductSerialNumber $record, int $settingId): void
+    {
+        if (strtoupper((string) $record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+            throw new PosCheckoutValidationException(
+                'SERIAL_INVALID',
+                "Seri {$record->serial_number} tidak lagi tersedia (status: {$record->status})."
+            );
+        }
+
+        if (PendingDispatchSerialGuard::isReserved((string) $record->serial_number)) {
+            throw new PosCheckoutValidationException(
+                'SERIAL_INVALID',
+                "Seri {$record->serial_number} sedang dalam proses pengiriman lain."
+            );
+        }
+
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+        if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
+            throw new PosCheckoutValidationException(
+                'SERIAL_INVALID',
+                "Seri {$record->serial_number} berada di lokasi yang tidak diizinkan."
+            );
+        }
+    }
+
+    /**
      * Record stock movement, transactions, and dispatch details for a product allocation chunk.
      */
     private function recordStockMovement(
@@ -711,7 +785,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         Dispatch $dispatch,
         ?int $lineTaxId,
         ?int $bundleId = null,
-        array $serialRecords = []
+        array $serialRecords = [],
+        ?int $saleDetailId = null
     ): void {
         // Preload product for better error messages
         $product = Product::query()->whereKey($productId)->first();
@@ -754,6 +829,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $dispatchDetail = DispatchDetail::query()->create([
                 'dispatch_id' => $dispatch->id,
                 'sale_id' => $sale->id,
+                'sale_detail_id' => $saleDetailId,
                 'tax_id' => $snapshotTaxId ?? $lineTaxId,
                 'product_id' => $productId,
                 'bundle_id' => $bundleId,

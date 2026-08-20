@@ -1205,8 +1205,12 @@ class PosCartService
                         $cSerialRequired = (bool) ($bItem['serial_number_required'] ?? false);
                         if ($cSerialRequired) {
                             $bItemId = (int) ($bItem['bundle_item_id'] ?? 0);
-                            $cQtyPerBundle = (float) ($bItem['quantity_per_bundle'] ?? ($bItem['quantity'] ?? 1));
-                            $cRequiredQty = (int) round($qty * $cQtyPerBundle);
+                            try {
+                                $cRequiredQty = $this->resolveRequiredComponentSerialQty($qty, $bItem);
+                            } catch (DomainException) {
+                                $componentsSerialOk = false;
+                                break;
+                            }
                             $cAssignedCount = count((array) ($line['bundle_item_serials'][$bItemId] ?? ($bItem['assigned_serials'] ?? [])));
                             if ($cAssignedCount < $cRequiredQty) {
                                 $componentsSerialOk = false;
@@ -1676,8 +1680,7 @@ class PosCartService
             }
 
             $parentQty = (int) ($line['qty'] ?? 0);
-            $qtyPerBundle = (float) ($targetItem['quantity_per_bundle'] ?? ($targetItem['quantity'] ?? 1));
-            $requiredComponentQty = (int) round($parentQty * $qtyPerBundle);
+            $requiredComponentQty = $this->resolveRequiredComponentSerialQty($parentQty, $targetItem);
 
             if (count($serialNumbers) > $requiredComponentQty) {
                 throw new DomainException('Serial count (' . count($serialNumbers) . ") exceeds component quantity ($requiredComponentQty).");
@@ -1689,17 +1692,8 @@ class PosCartService
 
             $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
-            // Check for duplicates across all cart lines and components (excluding current line's component)
-            $allAssignedSerials = [];
-            foreach ($cart['lines'] as $cLineId => $cartLine) {
-                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
-                foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
-                    if ((int) $cLineId === (int) $lineId && (int) $bId === $bundleItemId) {
-                        continue;
-                    }
-                    $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
-                }
-            }
+            // Check for duplicates across all cart lines and components (excluding this line's own component)
+            $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, $bundleItemId);
 
             foreach ($serialNumbers as $sn) {
                 $record = \Modules\Product\Entities\ProductSerialNumber::query()
@@ -1756,16 +1750,8 @@ class PosCartService
         $taxId = $line['tax_id'] ?? null;
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
-        // Check for duplicates across all cart lines and components (excluding current parent line)
-        $allAssignedSerials = [];
-        foreach ($cart['lines'] as $cLineId => $cartLine) {
-            if ((int) $cLineId !== (int) $lineId) {
-                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
-            }
-            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
-                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
-            }
-        }
+        // Check for duplicates across all cart lines and components (excluding this line's own parent assignment)
+        $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, null);
 
         foreach ($serialNumbers as $sn) {
             $record = \Modules\Product\Entities\ProductSerialNumber::query()
@@ -1799,6 +1785,59 @@ class PosCartService
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
         return $this->buildSnapshot($settingId, $sessionId, $cart);
+    }
+
+    /**
+     * Compute the required serial count for a bundle component, rejecting
+     * fractional physical demand instead of rounding it into an authorized
+     * serial count that would not equal actual component demand.
+     *
+     * @param  array<string, mixed>  $targetItem
+     */
+    private function resolveRequiredComponentSerialQty(int $parentQty, array $targetItem): int
+    {
+        $qtyPerBundle = (float) ($targetItem['quantity_per_bundle'] ?? ($targetItem['quantity'] ?? 1));
+        $rawRequiredQty = $parentQty * $qtyPerBundle;
+
+        if (abs($rawRequiredQty - round($rawRequiredQty)) > 1e-9 || $rawRequiredQty < 0) {
+            $componentLabel = (string) ($targetItem['product_name'] ?? $targetItem['name'] ?? 'komponen');
+            throw new DomainException(
+                "Kuantitas nomor seri untuk komponen \"$componentLabel\" tidak bulat ($rawRequiredQty). Sesuaikan kuantitas paket atau komponen."
+            );
+        }
+
+        return (int) round($rawRequiredQty);
+    }
+
+    /**
+     * Flatten every parent (`assigned_serials`) and bundle-component
+     * (`bundle_item_serials`) serial assignment across the whole cart into
+     * one normalized set, optionally excluding one line/component position
+     * so that position's own current assignment does not collide with itself.
+     *
+     * @param  array<string, mixed>  $cart
+     * @return array<int, string>
+     */
+    private function collectCartWideAssignedSerials(array $cart, ?int $excludeLineId = null, ?int $excludeBundleItemId = null): array
+    {
+        $allAssignedSerials = [];
+
+        foreach ($cart['lines'] as $cLineId => $cartLine) {
+            $isExcludedLine = $excludeLineId !== null && (int) $cLineId === (int) $excludeLineId;
+
+            if (! ($isExcludedLine && $excludeBundleItemId === null)) {
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
+            }
+
+            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
+                if ($isExcludedLine && $excludeBundleItemId !== null && (int) $bId === $excludeBundleItemId) {
+                    continue;
+                }
+                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
+            }
+        }
+
+        return $allAssignedSerials;
     }
 
     /**
@@ -2145,23 +2184,20 @@ class PosCartService
                 throw new DomainException("Serial number $serialNumber is located in a restricted location.");
             }
 
-            // Check for duplicate across all cart lines and components
-            $allAssignedSerials = [];
-            foreach ($cart['lines'] as $cartLine) {
-                $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
-                foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
-                    $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
-                }
-            }
+            $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
 
-            if (in_array($serialNumber, $allAssignedSerials, true)) {
+            // Check for duplicate across all cart lines and components (excluding this
+            // line's own component's already-assigned set, which is checked separately
+            // below) — the exclusion only covers the OTHER-position collision check, so
+            // a serial already present in this exact component's own set is still caught.
+            $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, $bundleItemId);
+
+            if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $assignedSerials, true)) {
                 throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
             }
 
-            $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
             $parentQty = (int) ($line['qty'] ?? 0);
-            $qtyPerBundle = (float) ($targetItem['quantity_per_bundle'] ?? ($targetItem['quantity'] ?? 1));
-            $requiredComponentQty = (int) round($parentQty * $qtyPerBundle);
+            $requiredComponentQty = $this->resolveRequiredComponentSerialQty($parentQty, $targetItem);
 
             if (count($assignedSerials) >= $requiredComponentQty) {
                 throw new PosCheckoutValidationException(
@@ -2212,20 +2248,17 @@ class PosCartService
             throw new DomainException("Serial number $serialNumber is located in a restricted location.");
         }
 
-        // Check for duplicate across all cart lines and components
-        $allAssignedSerials = [];
-        foreach ($cart['lines'] as $cartLine) {
-            $allAssignedSerials = array_merge($allAssignedSerials, (array) ($cartLine['assigned_serials'] ?? []));
-            foreach ((array) ($cartLine['bundle_item_serials'] ?? []) as $bId => $serials) {
-                $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
-            }
-        }
+        $assignedSerials = (array) ($line['assigned_serials'] ?? []);
 
-        if (in_array($serialNumber, $allAssignedSerials, true)) {
+        // Check for duplicate across all cart lines and components (excluding this
+        // line's own already-assigned set, which is checked separately below) — a
+        // serial already present in this exact parent line's own set is still caught.
+        $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, null);
+
+        if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $assignedSerials, true)) {
             throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
         }
 
-        $assignedSerials = (array) ($line['assigned_serials'] ?? []);
         $qty = (int) ($line['qty'] ?? 0);
 
         // Guard: prevent appending if serial count already matches qty.

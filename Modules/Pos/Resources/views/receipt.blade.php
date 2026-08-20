@@ -308,6 +308,9 @@
                             @if(!empty($line['bundle_composition']))
                                 @foreach($line['bundle_composition'] as $item)
                                     <div class="small" style="font-weight: 400;">&nbsp;&nbsp;- {{ $item['name'] }} x{{ (float)$item['qty'] }}</div>
+                                    @if(!empty($item['serials']))
+                                        <div class="small" style="font-weight: 400;">&nbsp;&nbsp;&nbsp;&nbsp;SN: {{ implode(', ', $item['serials']) }}</div>
+                                    @endif
                                 @endforeach
                             @endif
                             @if(!empty($line['assigned_serials']))

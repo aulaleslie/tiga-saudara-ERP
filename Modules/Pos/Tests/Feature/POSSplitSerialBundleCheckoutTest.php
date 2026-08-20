@@ -923,4 +923,256 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'status' => 'SOLD',
         ]);
     }
+
+    public function test_finalize_rejects_component_serial_dispatched_elsewhere_after_cart_assignment_with_no_partial_effects(): void
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product'];
+        $parent->update(['serial_number_required' => false]);
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $tax = Tax::query()->where('setting_id', $context['setting']->id)->first() ?? Tax::first();
+
+        $childSerial = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-STALE-1',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-STALE-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        // Simulate the serial being dispatched by another process after cart
+        // assignment but before this checkout finalizes.
+        $childSerial->update(['status' => 'SOLD', 'dispatch_detail_id' => 999999]);
+
+        $saleCountBefore = Sale::query()->count();
+        $stockBefore = ProductStock::query()
+            ->where('product_id', $child->id)
+            ->where('location_id', $context['source_location']->id)
+            ->value('quantity');
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-COMP-SERIAL-STALE-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        $this->assertEquals($saleCountBefore, Sale::query()->count());
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'quantity' => $stockBefore,
+        ]);
+        $this->assertDatabaseMissing('pos_checkouts', [
+            'idempotency_key' => 'k-comp-serial-stale-001',
+            'status' => 'POSTED',
+        ]);
+    }
+
+    public function test_split_owner_component_serial_produces_exactly_one_dispatch_and_history_entry(): void
+    {
+        $context = $this->createMultiSourceBundleSplitContext();
+        $product = $context['product'];
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $serials = $context['serials']; // 0 from Loc A, 1 from Loc B
+
+        // Parent qty 2 splits by its own serials across Loc A / Loc B owner
+        // groups; the bundle component is also serial-required, one serial
+        // stocked at each location, so each owner group must produce exactly
+        // one dispatch + one history entry for its own component serial.
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $childSerialA = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['loc_a']->id,
+            'serial_number' => 'SN-CHILD-A-' . $this->sequence++,
+            'status' => 'ACTIVE',
+            'tax_id' => $context['tax']->id,
+        ]);
+        $childSerialB = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['loc_b']->id,
+            'serial_number' => 'SN-CHILD-B-' . $this->sequence++,
+            'status' => 'ACTIVE',
+            'tax_id' => $context['tax']->id,
+        ]);
+        ProductStock::create([
+            'product_id' => $child->id,
+            'location_id' => $context['loc_b']->id,
+            'quantity' => 5,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'tax_id' => $context['tax']->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2, $bundle->id);
+        $this->assignSerials($context['cashier'], $context['setting'], $lineId, [
+            $serials[0]->serial_number,
+            $serials[1]->serial_number,
+        ]);
+
+        foreach ([$childSerialA, $childSerialB] as $childSerial) {
+            $this->actingAs($context['cashier'])
+                ->withSession(['setting_id' => $context['setting']->id])
+                ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                    'serial_number' => $childSerial->serial_number,
+                    'bundle_item_id' => $bundleItem->id,
+                ])
+                ->assertOk();
+        }
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-COMP-SERIAL-SPLIT-OWNER-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 1000000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        // Every dispatched component serial must end up with exactly one
+        // dispatch_detail_id and exactly one SOLD serial_number_histories row,
+        // scoped to the source location that actually fulfilled it.
+        $dispatchedSerials = ProductSerialNumber::query()
+            ->where('status', 'SOLD')
+            ->whereNotNull('dispatch_detail_id')
+            ->get();
+
+        $this->assertGreaterThan(0, $dispatchedSerials->count());
+
+        foreach ($dispatchedSerials as $serial) {
+            $historyCount = DB::table('serial_number_histories')
+                ->where('product_serial_number_id', $serial->id)
+                ->where('event_type', 'SOLD')
+                ->count();
+
+            $this->assertEquals(1, $historyCount, "Serial {$serial->serial_number} must have exactly one SOLD history entry.");
+
+            $dispatchDetail = DB::table('dispatch_details')->where('id', $serial->dispatch_detail_id)->first();
+            $this->assertNotNull($dispatchDetail);
+            $this->assertEquals($serial->location_id, $dispatchDetail->location_id);
+
+            $historyRow = DB::table('serial_number_histories')
+                ->where('product_serial_number_id', $serial->id)
+                ->where('event_type', 'SOLD')
+                ->first();
+            $this->assertEquals($dispatchDetail->location_id, $historyRow->location_id);
+        }
+    }
+
+    public function test_matching_idempotency_replay_does_not_duplicate_component_serial_effects(): void
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product'];
+        $parent->update(['serial_number_required' => false]);
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $tax = Tax::query()->where('setting_id', $context['setting']->id)->first() ?? Tax::first();
+
+        $childSerial = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-REPLAY-1',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-REPLAY-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $payload = [
+            'idempotency_key' => 'K-COMP-SERIAL-REPLAY-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ];
+
+        $first = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $first->assertStatus(201);
+
+        $saleCountAfterFirst = Sale::query()->count();
+        $stockAfterFirst = ProductStock::query()
+            ->where('product_id', $child->id)
+            ->where('location_id', $context['source_location']->id)
+            ->value('quantity');
+        $historyCountAfterFirst = DB::table('serial_number_histories')
+            ->where('product_serial_number_id', $childSerial->id)
+            ->count();
+
+        // A replay with the identical idempotency key and payload must return
+        // the stored result without re-running any posting/serial effects.
+        $replay = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $replay->assertStatus(200);
+
+        $this->assertEquals($saleCountAfterFirst, Sale::query()->count());
+        $this->assertEquals(
+            $stockAfterFirst,
+            ProductStock::query()
+                ->where('product_id', $child->id)
+                ->where('location_id', $context['source_location']->id)
+                ->value('quantity')
+        );
+        $this->assertEquals(
+            $historyCountAfterFirst,
+            DB::table('serial_number_histories')->where('product_serial_number_id', $childSerial->id)->count()
+        );
+        $this->assertEquals(1, DB::table('dispatch_details')
+            ->where('serial_numbers', 'like', '%SN-COMP-REPLAY-1%')
+            ->count());
+    }
 }

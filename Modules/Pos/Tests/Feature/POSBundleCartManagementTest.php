@@ -625,6 +625,301 @@ class POSBundleCartManagementTest extends TestCase
         $this->assertEquals('ok', $snapshot['lines'][0]['serial_status']);
     }
 
+    public function test_same_serialized_sku_used_standalone_and_as_bundle_component_stays_unique(): void
+    {
+        $context = $this->createCheckoutContext('SAME SKU STANDALONE AND COMPONENT');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_SHARE', 100000, false);
+        $shared = $this->createStockedProduct($context['setting'], $context['location'], 'SHARED_SERIAL', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle Sharing Serialized SKU',
+            'bundle_sale_price' => 120000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $shared->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        $this->createSerial($shared, $context['location'], 'SN-SHARED-001');
+        $this->createSerial($shared, $context['location'], 'SN-SHARED-002');
+
+        // Standalone line for the same serialized SKU
+        $this->addCartLine($context['cashier'], $context['setting'], $shared->id, 1);
+        // Bundle line whose component is the same serialized SKU
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $standaloneLineId = $snapshot['lines'][0]['line_id'];
+        $bundleLineId = $snapshot['lines'][1]['line_id'];
+
+        // Assign a serial to the standalone line first.
+        $this->appendSerial($context['cashier'], $context['setting'], $standaloneLineId, 'SN-SHARED-001');
+
+        // The same serial must be rejected when appended to the bundle component.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $bundleLineId]), [
+                'serial_number' => 'SN-SHARED-001',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertStatus(422);
+
+        // A distinct serial for the component succeeds.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $bundleLineId]), [
+                'serial_number' => 'SN-SHARED-002',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        // Reassigning the standalone line's own serial back to itself must not
+        // false-positive against its own prior assignment (self-exclusion).
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $standaloneLineId]), [
+                'serial_numbers' => ['SN-SHARED-001'],
+            ]);
+        $response->assertOk();
+    }
+
+    public function test_duplicate_serial_reuse_across_parent_and_component_positions_is_rejected(): void
+    {
+        $context = $this->createCheckoutContext('DUPLICATE PARENT COMPONENT REUSE');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_SERIAL_DUP', 100000, true);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_SERIAL_DUP', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle Serialized Parent And Component',
+            'bundle_sale_price' => 120000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+
+        // A serial record for the *parent* product with the same printed number
+        // as a component serial should not be confused with it: assignment is
+        // product-scoped, so this must not collide.
+        $this->createSerial($parent, $context['location'], 'SN-PARENT-001');
+        $this->createSerial($child, $context['location'], 'SN-CHILD-001');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign the parent serial.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-PARENT-001'],
+            ]);
+        $response->assertOk();
+
+        // Assign a distinct component serial; must succeed independently of the parent's.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-CHILD-001',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-PARENT-001'], $snapshot['lines'][0]['assigned_serials']);
+        $this->assertEquals(['SN-CHILD-001'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+        $this->assertEquals('ok', $snapshot['lines'][0]['serial_status']);
+    }
+
+    public function test_multiple_serialized_components_each_enforce_independent_uniqueness(): void
+    {
+        $context = $this->createCheckoutContext('MULTIPLE SERIALIZED COMPONENTS');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_MULTI', 100000, false);
+        $childA = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_MULTI_A', 10000, true);
+        $childB = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_MULTI_B', 15000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle With Two Serialized Components',
+            'bundle_sale_price' => 150000,
+        ]);
+        $itemA = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $childA->id,
+            'quantity' => 1,
+            'informational_item_price' => 20000,
+        ]);
+        $itemB = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $childB->id,
+            'quantity' => 1,
+            'informational_item_price' => 25000,
+        ]);
+
+        $this->createSerial($childA, $context['location'], 'SN-A-001');
+        $this->createSerial($childB, $context['location'], 'SN-B-001');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-A-001',
+                'bundle_item_id' => $itemA->id,
+            ]);
+        $response->assertOk();
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-B-001',
+                'bundle_item_id' => $itemB->id,
+            ]);
+        $response->assertOk();
+
+        // Cross-assigning component A's serial into component B must be rejected
+        // (product-scoped lookup already blocks it, and uniqueness reinforces it).
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-A-001',
+                'bundle_item_id' => $itemB->id,
+            ]);
+        $response->assertStatus(422);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-A-001'], $snapshot['lines'][0]['bundle_item_serials'][$itemA->id]);
+        $this->assertEquals(['SN-B-001'], $snapshot['lines'][0]['bundle_item_serials'][$itemB->id]);
+        $this->assertEquals('ok', $snapshot['lines'][0]['serial_status']);
+    }
+
+    public function test_fractional_required_component_serial_quantity_is_rejected(): void
+    {
+        $context = $this->createCheckoutContext('FRACTIONAL COMPONENT SERIAL QTY');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_FRACTIONAL', 100000, false);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_FRACTIONAL', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Bundle With Fractional Component Ratio',
+            'bundle_sale_price' => 130000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 0.5,
+            'informational_item_price' => 20000,
+        ]);
+
+        $this->createSerial($child, $context['location'], 'SN-FRAC-001');
+
+        // Parent qty 1 * component qty-per-bundle 0.5 = 0.5, a non-integer physical demand.
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-FRAC-001',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertStatus(422);
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-FRAC-001'],
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertStatus(422);
+    }
+
+    public function test_appending_the_same_serial_twice_to_the_same_component_is_rejected(): void
+    {
+        $context = $this->createCheckoutContext('APPEND DUPLICATE SAME COMPONENT');
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_APPEND_DUP', 100000, false);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'CHILD_APPEND_DUP', 10000, true);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $context['setting']->id,
+            'name' => 'Append Duplicate Bundle',
+            'bundle_sale_price' => 130000,
+        ]);
+        $bundleItem = ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 2,
+            'informational_item_price' => 20000,
+        ]);
+
+        $this->createSerial($child, $context['location'], 'SN-APPEND-DUP-1');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-APPEND-DUP-1',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertOk();
+
+        // Appending the SAME serial again to the SAME component (required qty 2,
+        // so capacity alone would not block it) must be rejected as a duplicate,
+        // not silently accepted as a second physical unit.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-APPEND-DUP-1',
+                'bundle_item_id' => $bundleItem->id,
+            ]);
+        $response->assertStatus(422);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-APPEND-DUP-1'], $snapshot['lines'][0]['bundle_item_serials'][$bundleItem->id]);
+    }
+
+    public function test_appending_the_same_serial_twice_to_the_same_parent_line_is_rejected(): void
+    {
+        $context = $this->createCheckoutContext('APPEND DUPLICATE SAME PARENT');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PARENT_APPEND_DUP_ONLY', 50000, true);
+        $this->createSerial($product, $context['location'], 'SN-PARENT-APPEND-DUP-1');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        $this->appendSerial($context['cashier'], $context['setting'], $lineId, 'SN-PARENT-APPEND-DUP-1');
+
+        // Appending the same serial again to the same parent line (qty 2, so
+        // capacity alone would not block a second slot) must be rejected.
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-PARENT-APPEND-DUP-1',
+            ]);
+        $response->assertStatus(422);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(['SN-PARENT-APPEND-DUP-1'], $snapshot['lines'][0]['assigned_serials']);
+    }
+
     public function test_draft_roundtrip_preserves_component_serials(): void
     {
         $context = $this->createCheckoutContext('DRAFT COMPONENT SERIAL ROUNDTRIP');

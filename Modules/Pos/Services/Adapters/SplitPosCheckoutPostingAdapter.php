@@ -43,6 +43,8 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             );
         }
 
+        $this->assertBundleComponentSerialsPartitionCleanly($cartSnapshot, $groups);
+
         // Determine payment allocation strategy: multi-payment ownership-priority or simple proportional
         $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
 
@@ -270,6 +272,85 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'groups' => $splitGroups,
             ],
         ];
+    }
+
+    /**
+     * Guard against the split planner silently dropping or duplicating a
+     * bundle-component serial across owner groups. The planner re-derives
+     * each group's `"{lineIndex}_C_{itemIndex}"` allocation chunks from the
+     * resolver's per-serial-location grouping, while every group line still
+     * carries the *original*, unfiltered `bundle_item_serials` map — nothing
+     * upstream asserts those two views stay reconciled, so verify it here
+     * before any group is posted.
+     *
+     * @param  array<string, mixed>  $cartSnapshot
+     * @param  array<int, array<string, mixed>>  $groups
+     */
+    private function assertBundleComponentSerialsPartitionCleanly(array $cartSnapshot, array $groups): void
+    {
+        $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+
+        foreach ($lines as $lineIndex => $line) {
+            $bundleItemSerials = is_array($line['bundle_item_serials'] ?? null) ? $line['bundle_item_serials'] : [];
+
+            foreach ($bundleItemSerials as $bundleItemId => $expectedSerials) {
+                $expectedSerials = array_values(array_filter(
+                    (array) $expectedSerials,
+                    static fn ($sn): bool => is_string($sn) && trim($sn) !== ''
+                ));
+
+                if ($expectedSerials === []) {
+                    continue;
+                }
+
+                $itemIndex = $this->resolveBundleItemIndex($line, (int) $bundleItemId);
+                if ($itemIndex === null) {
+                    continue;
+                }
+
+                $childKey = "{$lineIndex}_C_{$itemIndex}";
+                $seenSerials = [];
+
+                foreach ($groups as $group) {
+                    $groupAllocations = is_array($group['allocations'] ?? null) ? $group['allocations'] : [];
+                    $chunks = is_array($groupAllocations[$childKey] ?? null) ? $groupAllocations[$childKey] : [];
+
+                    foreach ($chunks as $chunk) {
+                        $chunkSerials = is_array($chunk['serial_numbers'] ?? null) ? $chunk['serial_numbers'] : [];
+                        foreach ($chunkSerials as $sn) {
+                            $seenSerials[] = $sn;
+                        }
+                    }
+                }
+
+                $expectedCounts = array_count_values($expectedSerials);
+                $seenCounts = array_count_values($seenSerials);
+
+                if ($expectedCounts != $seenCounts) {
+                    $productLabel = (string) (($line['product_name'] ?? null) ?: "#{$line['product_id']}");
+                    throw new PosCheckoutPostingException(
+                        'POSTING_RECONCILIATION_MISMATCH',
+                        "Alokasi seri komponen paket untuk produk $productLabel tidak sesuai antar grup pemilik."
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     */
+    private function resolveBundleItemIndex(array $line, int $bundleItemId): ?int
+    {
+        $bundleItems = is_array($line['bundle_items'] ?? null) ? $line['bundle_items'] : [];
+
+        foreach ($bundleItems as $idx => $item) {
+            if ((int) ($item['bundle_item_id'] ?? 0) === $bundleItemId) {
+                return (int) $idx;
+            }
+        }
+
+        return null;
     }
 
     /**

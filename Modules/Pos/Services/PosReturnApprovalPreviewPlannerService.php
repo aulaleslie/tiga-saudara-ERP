@@ -485,6 +485,47 @@ class PosReturnApprovalPreviewPlannerService
             $blockers = array_merge($blockers, $componentDispatchResolution['blockers']);
             $info = array_merge($info, $componentDispatchResolution['info']);
             $componentDispatchDetail = $componentDispatchResolution['dispatch_detail'];
+            $componentSerialRecords = $this->resolveComponentSerials($componentDispatchDetail);
+            $componentSerialIds = array_map(static fn (ProductSerialNumber $sn): int => (int) $sn->id, $componentSerialRecords);
+            $componentSerialNumbers = array_map(static fn (ProductSerialNumber $sn): string => (string) $sn->serial_number, $componentSerialRecords);
+
+            $compSerialRequired = (bool) ($componentItem->product?->serial_number_required ?? false);
+
+            // A component's DispatchDetail carries every serial fulfilled for the
+            // WHOLE bundled quantity in that dispatch, not just the physical unit(s)
+            // covered by this return line. Without a persisted parent-unit/component-serial
+            // pairing, a partial return (returned qty < total dispatched component
+            // qty) cannot determine which specific component serial(s) belong to the
+            // returned unit — restoring the full set would silently mark serials that
+            // were never returned as ACTIVE. Block as ambiguous rather than guess.
+            if ($compSerialRequired && $componentSerialIds !== [] && count($componentSerialIds) !== (int) round($componentQuantity)) {
+                $blockers[] = $this->message(
+                    'component_serial_partial_return_ambiguous',
+                    'Retur sebagian untuk komponen paket bernomor seri tidak dapat dipetakan secara unik ke seri yang dikembalikan.',
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'component_product_id' => $componentProductId,
+                        'dispatch_detail_id' => $componentDispatchDetail?->id,
+                        'returned_component_quantity' => $componentQuantity,
+                        'dispatch_component_serial_count' => count($componentSerialIds),
+                    ]
+                );
+
+                continue;
+            }
+
+            if ($compSerialRequired && $componentSerialIds === [] && $componentDispatchDetail) {
+                $blockers[] = $this->message(
+                    'component_serial_unresolved',
+                    'Nomor seri komponen paket tidak dapat ditentukan dari data dispatch yang tersimpan.',
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'component_product_id' => $componentProductId,
+                        'dispatch_detail_id' => $componentDispatchDetail->id,
+                    ]
+                );
+            }
+
             $linkedSaleReturnReferences = $posReturn->saleReturns
                 ->where('sale_id', $componentItem->sale_id)
                 ->pluck('reference')
@@ -512,7 +553,9 @@ class PosReturnApprovalPreviewPlannerService
                 'quantity' => $componentQuantity,
                 'amount' => $this->apportionedComponentAmount($componentItem, $componentQuantity),
                 'cash_return_amount' => 0.0,
-                'returned_serial' => $parentDetail['returned_serial'],
+                'returned_serial' => $componentSerialNumbers !== [] ? implode(', ', $componentSerialNumbers) : null,
+                'component_serial_ids' => $componentSerialIds,
+                'component_serial_numbers' => $componentSerialNumbers,
                 'replacement_serial' => $parentDetail['replacement_serial'],
                 'replacement_serial_owner_setting_id' => $parentDetail['replacement_serial_owner_setting_id'] ?? null,
                 'replacement_serial_owner_setting_name' => $parentDetail['replacement_serial_owner_setting_name'] ?? null,
@@ -658,6 +701,39 @@ class PosReturnApprovalPreviewPlannerService
                 ? 'sale_asal_dikoreksi_dan_sale_owner_pengganti_akan_dibuat_saat_approval'
                 : 'serial_pengganti_akan_dikirim_pada_fase_dispatch',
         ];
+    }
+
+    /**
+     * Resolve the current, still-fulfilling serials for a component's own
+     * DispatchDetail. There is no persisted pairing between a parent unit's
+     * serial and its component's serial, so the component's own resolved
+     * DispatchDetail (matched by sale_id+product_id, never the live bundle
+     * definition) is the sole source of truth: any serial still linked to it
+     * and still SOLD is eligible, independent of `PosReturnLine.returned_serial_id`
+     * (which always identifies the parent unit).
+     *
+     * @return array<int, ProductSerialNumber>
+     */
+    private function resolveComponentSerials(?DispatchDetail $dispatchDetail): array
+    {
+        if (! $dispatchDetail) {
+            return [];
+        }
+
+        $serialNumbers = is_array($dispatchDetail->serial_numbers)
+            ? $dispatchDetail->serial_numbers
+            : (json_decode((string) $dispatchDetail->serial_numbers, true) ?: []);
+
+        if ($serialNumbers === []) {
+            return [];
+        }
+
+        return ProductSerialNumber::query()
+            ->where('dispatch_detail_id', $dispatchDetail->id)
+            ->whereIn('serial_number', $serialNumbers)
+            ->orderBy('id')
+            ->get()
+            ->all();
     }
 
     private function resolveComponentDispatchDetail(SaleBundleItem $componentItem, int $sourceLocationId): array

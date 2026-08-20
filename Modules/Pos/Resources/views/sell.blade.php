@@ -442,19 +442,49 @@
                     .replace(/'/g, '&#039;');
             }
 
-            // Serial duplicate detection helper
-            function serialAlreadyInCart(serialNumber) {
+            // Serial duplicate detection helper.
+            // Mirrors the server's cart-wide uniqueness set: every line's parent
+            // `assigned_serials` plus every `bundle_item_serials` component
+            // assignment, so a component serial reused elsewhere is caught
+            // client-side instead of only failing after the round-trip.
+            function findSerialInCart(serialNumber) {
                 if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
-                    return false;
+                    return null;
                 }
                 const normalizedSerial = String(serialNumber ?? '').trim();
                 for (const line of currentSnapshot.lines) {
                     const assignedSerials = Array.isArray(line.assigned_serials) ? line.assigned_serials : [];
                     if (assignedSerials.includes(normalizedSerial)) {
-                        return true;
+                        return { line, bundleItemId: null };
+                    }
+
+                    const bundleItemSerials = line.bundle_item_serials && typeof line.bundle_item_serials === 'object'
+                        ? line.bundle_item_serials
+                        : {};
+                    for (const bundleItemId of Object.keys(bundleItemSerials)) {
+                        const componentSerials = Array.isArray(bundleItemSerials[bundleItemId]) ? bundleItemSerials[bundleItemId] : [];
+                        if (componentSerials.includes(normalizedSerial)) {
+                            return { line, bundleItemId: Number(bundleItemId) };
+                        }
                     }
                 }
-                return false;
+                return null;
+            }
+
+            function describeSerialCartLocation(match) {
+                if (!match || !match.line) return '';
+                const productName = match.line.product_name || match.line.name || '';
+                if (match.bundleItemId === null) {
+                    return productName;
+                }
+                const bundleItems = Array.isArray(match.line.bundle_items) ? match.line.bundle_items : [];
+                const component = bundleItems.find(item => Number(item.bundle_item_id) === match.bundleItemId);
+                const componentName = component ? (component.product_name || component.name || '') : '';
+                return componentName ? `${productName} → ${componentName}` : productName;
+            }
+
+            function serialAlreadyInCart(serialNumber) {
+                return findSerialInCart(serialNumber) !== null;
             }
 
             function findCartLine(snapshot, productId, bundleId = null) {
@@ -1618,8 +1648,11 @@
                 const serial = result.serial;
 
                 // Check if serial is already in cart (prevent duplicate scans)
-                if (serialAlreadyInCart(serial.serial_number)) {
-                    const message = 'Serial "' + escapeHtml(serial.serial_number) + '" sudah ditambahkan. Silakan pindai serial lainnya.';
+                const existingMatch = findSerialInCart(serial.serial_number);
+                if (existingMatch) {
+                    const location = describeSerialCartLocation(existingMatch);
+                    const message = 'Serial "' + escapeHtml(serial.serial_number) + '" sudah ditambahkan'
+                        + (location ? ' pada ' + escapeHtml(location) : '') + '. Silakan pindai serial lainnya.';
                     setSearchStatus(message, 'text-info');
                     if (searchInput) {
                         clearSearchInput();
@@ -1765,9 +1798,12 @@
                 }
 
                 // Check if serial is already in cart (prevent duplicate modal input)
-                if (serialAlreadyInCart(serialNumber)) {
+                const existingMatch = findSerialInCart(serialNumber);
+                if (existingMatch) {
+                    const location = describeSerialCartLocation(existingMatch);
                     if (serialModalStatus) {
-                        serialModalStatus.textContent = 'Serial "' + escapeHtml(serialNumber) + '" sudah ditambahkan. Silakan masukkan serial lainnya.';
+                        serialModalStatus.textContent = 'Serial "' + escapeHtml(serialNumber) + '" sudah ditambahkan'
+                            + (location ? ' pada ' + location : '') + '. Silakan masukkan serial lainnya.';
                         serialModalStatus.className = 'small mb-3 text-info';
                     }
                     serialModalInput.value = '';
@@ -1952,6 +1988,19 @@
                                 if (!input) return;
                                 const sn = input.value.trim();
                                 if (!sn) return;
+
+                                const existingMatch = findSerialInCart(sn);
+                                if (existingMatch) {
+                                    const location = describeSerialCartLocation(existingMatch);
+                                    if (statusEl) {
+                                        statusEl.textContent = 'Serial "' + escapeHtml(sn) + '" sudah ditambahkan'
+                                            + (location ? ' pada ' + location : '') + '. Silakan masukkan serial lainnya.';
+                                        statusEl.className = 'small mt-1 text-info js-bundle-comp-serial-status';
+                                    }
+                                    input.value = '';
+                                    input.focus();
+                                    return;
+                                }
 
                                 try {
                                     this.disabled = true;

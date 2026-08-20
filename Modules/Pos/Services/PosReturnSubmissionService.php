@@ -399,7 +399,9 @@ class PosReturnSubmissionService
                 })->all(),
                 $currentSnapshot,
                 $lockedReturn->source_snapshot_hash,
-                $lockedReturn->id
+                $lockedReturn->id,
+                null,
+                true
             );
 
             $lockedReturn->update([
@@ -419,7 +421,7 @@ class PosReturnSubmissionService
      * @param array<string, mixed> $currentSnapshot
      * @return array<int, array<string, mixed>>
      */
-    protected function validateDraftLines(array $lines, array $currentSnapshot, ?string $expectedSnapshotHash, ?int $ignorePosReturnId = null, ?string $defaultReturnOption = null): array
+    protected function validateDraftLines(array $lines, array $currentSnapshot, ?string $expectedSnapshotHash, ?int $ignorePosReturnId = null, ?string $defaultReturnOption = null, bool $enforceReturnedSerialExclusivity = false): array
     {
         if (($currentSnapshot['hash'] ?? null) !== $expectedSnapshotHash) {
             throw new \Exception('Source snapshot is stale. Please refresh the page.');
@@ -454,6 +456,10 @@ class PosReturnSubmissionService
 
             if ($isSerial && $quantity <= 0) {
                 $quantity = 1;
+            }
+
+            if ($enforceReturnedSerialExclusivity && $isSerial) {
+                $this->assertReturnedSerialNotClaimedElsewhere((int) $returnedSerialId, $ignorePosReturnId);
             }
 
             $saleDetail = SaleDetails::with(['bundleItems.product', 'product'])->findOrFail($lineData['sale_detail_id']);
@@ -504,6 +510,44 @@ class PosReturnSubmissionService
         }
 
         return $validatedLines;
+    }
+
+    /**
+     * A returned serial can be claimed by only one return in a consuming (or
+     * about-to-consume) lifecycle state at a time. Draft/pending-approval
+     * returns are non-consuming by design (`PosReturn::consumesReturnQuantity`),
+     * so this exclusivity check runs only when a draft is being submitted,
+     * mirroring PosReturnReplacementGuard's pattern for replacement_serial_id.
+     * Applies to both parent-line and bundle-component returned serials —
+     * component identity resolves to its own ProductSerialNumber row just
+     * like a parent's, so this single check by serial id covers both.
+     */
+    protected function assertReturnedSerialNotClaimedElsewhere(int $returnedSerialId, ?int $ignorePosReturnId = null): void
+    {
+        if ($returnedSerialId <= 0) {
+            return;
+        }
+
+        $query = PosReturnLine::where('returned_serial_id', $returnedSerialId)
+            ->whereHas('posReturn', function ($q) {
+                $q->active()->whereIn('status', [
+                    PosReturn::STATUS_PENDING_APPROVAL,
+                    PosReturn::STATUS_APPROVED,
+                    PosReturn::STATUS_AWAITING_RECEIVING,
+                    PosReturn::STATUS_AWAITING_SETTLEMENT,
+                    PosReturn::STATUS_AWAITING_DISPATCH,
+                    PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                    PosReturn::STATUS_COMPLETED,
+                ]);
+            });
+
+        if ($ignorePosReturnId) {
+            $query->where('pos_return_id', '!=', $ignorePosReturnId);
+        }
+
+        if ($query->exists()) {
+            throw new \Exception('Serial yang diretur sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+        }
     }
 
     protected function generatePosReturnReference($settingId)

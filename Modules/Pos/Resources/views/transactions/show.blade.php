@@ -171,6 +171,13 @@
                                         <div class="mt-1 pl-3 border-left">
                                             @foreach($bundleItems as $item)
                                                 <div class="small text-info">- {{ $item['name'] ?? $item['product_name'] ?? 'Unknown' }} x{{ (float)($item['qty'] ?? $item['quantity'] ?? 0) }}</div>
+                                                @if(!empty($item['serials']))
+                                                    <div class="small text-muted pl-2">
+                                                        @foreach($item['serials'] as $componentSerial)
+                                                            <span class="badge badge-light border">{{ $componentSerial }}</span>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
                                             @endforeach
                                         </div>
                                     @endif

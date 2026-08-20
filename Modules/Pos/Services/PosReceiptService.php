@@ -29,6 +29,7 @@ class PosReceiptService
             'transaction.lines.product.baseUnit',
             'payments.paymentMethod',
             'checkoutSales.sale.saleDetails.bundleItems.product', // Task 1.1: Load split bundle context
+            'checkoutSales.sale.dispatchDetails',
         ]);
 
         $setting = $checkout->setting;
@@ -297,6 +298,7 @@ class PosReceiptService
         $transaction->loadMissing([
             'lines',
             'completedCheckout.checkoutSales.sale.saleDetails.bundleItems.product',
+            'completedCheckout.checkoutSales.sale.dispatchDetails',
         ]);
 
         $saleCompositionGroups = $transaction->completedCheckout instanceof PosCheckout
@@ -330,7 +332,7 @@ class PosReceiptService
     }
 
     /**
-     * @return array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float}>}>>
+     * @return array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float, serials: array<int, string>}>}>>
      */
     private function bundleCompositionGroupsByProduct(PosCheckout $checkout): array
     {
@@ -341,7 +343,48 @@ class PosReceiptService
                 continue;
             }
 
-            foreach ($checkoutSale->sale->saleDetails as $detail) {
+            $sale = $checkoutSale->sale;
+
+            // Persisted lineage: DispatchDetail.sale_detail_id links a component's
+            // dispatch directly to the owning parent SaleDetails row, correctly
+            // disambiguating two occurrences of the same bundle within one Sale
+            // (each has its own SaleDetails.id, so their component DispatchDetail
+            // rows never collide). Older rows predating that column being
+            // populated fall back to the (product_id, bundle_id) composite match,
+            // which cannot distinguish repeated identical-bundle occurrences —
+            // documented limitation, no inferred backfill. Split-owner posting
+            // can create multiple DispatchDetail chunks per component within one
+            // Sale, so their serial_numbers are unioned within the same key.
+            $dispatchSerialsBySaleDetailAndProduct = [];
+            $dispatchSerialsByProductAndBundle = [];
+            foreach ($sale->dispatchDetails as $dispatchDetail) {
+                if ($dispatchDetail->bundle_id === null) {
+                    continue;
+                }
+                $serials = is_array($dispatchDetail->serial_numbers)
+                    ? $dispatchDetail->serial_numbers
+                    : (json_decode((string) $dispatchDetail->serial_numbers, true) ?: []);
+                $serials = array_values(array_filter(
+                    $serials,
+                    static fn ($sn): bool => is_string($sn) && trim($sn) !== ''
+                ));
+
+                if ($dispatchDetail->sale_detail_id !== null) {
+                    $key = $dispatchDetail->sale_detail_id . ':' . $dispatchDetail->product_id;
+                    $dispatchSerialsBySaleDetailAndProduct[$key] = array_merge(
+                        $dispatchSerialsBySaleDetailAndProduct[$key] ?? [],
+                        $serials
+                    );
+                }
+
+                $fallbackKey = $dispatchDetail->product_id . ':' . $dispatchDetail->bundle_id;
+                $dispatchSerialsByProductAndBundle[$fallbackKey] = array_merge(
+                    $dispatchSerialsByProductAndBundle[$fallbackKey] ?? [],
+                    $serials
+                );
+            }
+
+            foreach ($sale->saleDetails as $detail) {
                 if ($detail->bundleItems->isEmpty()) {
                     continue;
                 }
@@ -355,10 +398,24 @@ class PosReceiptService
                             'component_key' => $key,
                             'name' => $bundleItem->name ?? $bundleItem->product?->product_name ?? 'Unknown Component',
                             'qty' => 0.0,
+                            'serials' => [],
                         ];
                     }
 
                     $items[$key]['qty'] += (float) $bundleItem->quantity;
+
+                    $saleDetailKey = $detail->id . ':' . $bundleItem->product_id;
+                    $fallbackKey = $bundleItem->product_id . ':' . $bundleItem->bundle_id;
+                    $resolvedSerials = $dispatchSerialsBySaleDetailAndProduct[$saleDetailKey]
+                        ?? $dispatchSerialsByProductAndBundle[$fallbackKey]
+                        ?? null;
+
+                    if ($resolvedSerials !== null) {
+                        $items[$key]['serials'] = array_values(array_unique(array_merge(
+                            $items[$key]['serials'],
+                            $resolvedSerials
+                        )));
+                    }
                 }
 
                 $groups[(int) $detail->product_id][] = [
@@ -372,8 +429,8 @@ class PosReceiptService
     }
 
     /**
-     * @param  array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float}>}>>  $groups
-     * @return array<int, array{name: string, qty: float}>
+     * @param  array<int, array<int, array{parent_qty: float, items: array<int, array{name: string, qty: float, serials: array<int, string>}>}>>  $groups
+     * @return array<int, array{name: string, qty: float, serials: array<int, string>}>
      */
     private function consumeMatchingBundleComposition(array &$groups, int $productId, float $lineQty): array
     {
@@ -402,9 +459,14 @@ class PosReceiptService
                         'component_key' => $key,
                         'name' => $item['name'],
                         'qty' => 0.0,
+                        'serials' => [],
                     ];
                 }
                 $selectedItems[$key]['qty'] += (float) $item['qty'];
+                $selectedItems[$key]['serials'] = array_values(array_unique(array_merge(
+                    $selectedItems[$key]['serials'],
+                    (array) ($item['serials'] ?? [])
+                )));
             }
             $consumedIndices[] = $index;
         }
@@ -423,6 +485,7 @@ class PosReceiptService
             static fn (array $item): array => [
                 'name' => $item['name'],
                 'qty' => $item['qty'],
+                'serials' => $item['serials'],
             ],
             $selectedItems
         ));
@@ -437,8 +500,14 @@ class PosReceiptService
     }
 
     /**
+     * Fallback composition sourced from the cart-line snapshot rather than
+     * persisted Sale/DispatchDetail lineage. No serials are available here by
+     * design: this path only runs when persisted composition groups could not
+     * be matched (e.g. no PosTransaction/Sale, historical rows predating this
+     * lineage), so display falls back rather than fabricating serial data.
+     *
      * @param  array<string, mixed>  $meta
-     * @return array<int, array{name: string, qty: float}>
+     * @return array<int, array{name: string, qty: float, serials: array<int, string>}>
      */
     private function compositionFromLineMeta(array $meta): array
     {
@@ -448,6 +517,7 @@ class PosReceiptService
             $composition[] = [
                 'name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
                 'qty' => (float) ($item['quantity'] ?? $item['qty'] ?? 0),
+                'serials' => [],
             ];
         }
 

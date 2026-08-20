@@ -433,7 +433,12 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         $this->assertSame('component', $componentDetail['row_type']);
         $this->assertSame($componentProduct->id, $componentDetail['product_id']);
         $this->assertSame($parentProduct->id, $componentDetail['source_pos_product_id']);
-        $this->assertSame($returnedSerial->serial_number, $componentDetail['returned_serial']);
+        // The component here is not serial-required and has no DispatchDetail
+        // lineage of its own in this fixture, so its own serial identity is
+        // correctly unresolved rather than inheriting the parent's serial
+        // number as a misleading display value.
+        $this->assertNull($componentDetail['returned_serial']);
+        $this->assertSame([], $componentDetail['component_serial_ids']);
     }
 
     /** @test */
