@@ -44,6 +44,7 @@ This preserves the user's location-first idea and reuses the current stock engin
 - [06-decision-register.md](06-decision-register.md): decisions, assumptions, and questions to settle.
 - [07-confirmed-workflow.md](07-confirmed-workflow.md): the clarified receiving, allocation, billing, and PKP/non-PKP workflow.
 - [08-indonesian-taxation.md](08-indonesian-taxation.md): preliminary Indonesian VAT compliance assessment and mandatory tax controls.
+- [09-three-phase-immediate-delivery.md](09-three-phase-immediate-delivery.md): compact three-phase scope for the urgent first release.
 
 ## Suggested next session
 
