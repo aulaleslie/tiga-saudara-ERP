@@ -485,6 +485,10 @@ class PosReturnController extends Controller
                 'replacement_serial' => optional($line->replacementSerial)->serial_number,
                 'execution_label' => $execution['label'],
                 'execution_meta' => $execution['meta'],
+                // Corrections/4: surface replacement_reason and execution_mode
+                // from line_meta for preview/detail/audit readability.
+                'execution_mode' => data_get($line->line_meta, 'execution_mode'),
+                'replacement_reason' => data_get($line->line_meta, 'replacement_reason'),
             ];
 
             if ($isTracked) {

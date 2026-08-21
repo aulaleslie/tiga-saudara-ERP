@@ -96,6 +96,12 @@
                                     @if($row['execution_meta'])
                                         <div class="small text-muted">{{ $row['execution_meta'] }}</div>
                                     @endif
+                                    @if(! empty($row['execution_mode']))
+                                        <div class="small text-muted">Mode: {{ $row['execution_mode'] === 'serial_inventory_replacement' ? 'Penggantian Serial' : 'Catatan Non-Serial' }}</div>
+                                    @endif
+                                    @if(! empty($row['replacement_reason']))
+                                        <div class="small text-muted">Alasan: {{ $row['replacement_reason'] }}</div>
+                                    @endif
                                 </td>
                                 <td class="text-right">
                                     @if($row['cash_amount'] > 0)
@@ -129,6 +135,12 @@
                                     <div class="fw-semibold">{{ $row['execution_label'] }}</div>
                                     @if($row['execution_meta'])
                                         <div class="small text-muted">{{ $row['execution_meta'] }}</div>
+                                    @endif
+                                    @if(! empty($row['execution_mode']))
+                                        <div class="small text-muted">Mode: {{ $row['execution_mode'] === 'serial_inventory_replacement' ? 'Penggantian Serial' : 'Catatan Non-Serial' }}</div>
+                                    @endif
+                                    @if(! empty($row['replacement_reason']))
+                                        <div class="small text-muted">Alasan: {{ $row['replacement_reason'] }}</div>
                                     @endif
                                 </td>
                                 <td class="text-right">

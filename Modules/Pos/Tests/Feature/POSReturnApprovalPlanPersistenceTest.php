@@ -388,6 +388,7 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
             'sale_detail_id' => $saleDetail->id,
             'quantity' => 1,
             'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_reason' => 'Test replacement reason',
         ]]);
         $line = $posReturn->fresh('lines')->lines->firstOrFail();
 
@@ -464,6 +465,7 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
             'sale_detail_id' => $saleDetail->id,
             'quantity' => 1,
             'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_reason' => 'Test replacement reason',
         ]]);
         $line = $posReturn->fresh('lines')->lines->firstOrFail();
 
@@ -592,6 +594,7 @@ class POSReturnApprovalPlanPersistenceTest extends PosTransactionFeatureTestCase
             'sale_detail_id' => $saleDetail->id,
             'quantity' => 1,
             'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'replacement_reason' => 'Test replacement reason',
         ]]);
         $line = $posReturn->fresh('lines')->lines->firstOrFail();
 

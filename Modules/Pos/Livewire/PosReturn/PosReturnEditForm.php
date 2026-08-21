@@ -58,28 +58,53 @@ class PosReturnEditForm extends Component
 
         // Initialize source-line-keyed selections from snapshot + existing lines
         foreach ($this->snapshot['lines'] as $line) {
-            $key = PosReturnCreateForm::buildLineKey($line);
-            $existing = $existingLines->get($key);
+            $this->initializeLineSelectionFromExisting($line, $existingLines);
 
-            if ($line['is_tracked'] && !empty($line['serial_number_ids'])) {
-                $replacementLabel = '';
-                if ($existing && $existing->replacement_serial_id) {
-                    $replacementSerial = \Modules\Product\Entities\ProductSerialNumber::find($existing->replacement_serial_id);
-                    $replacementLabel = $replacementSerial ? $replacementSerial->serial_number : '';
+            // Corrections/2: also initialize independent selections for each
+            // bundle component row, hydrated from any existing persisted
+            // component line (e.g. a prior product_replacement on a component;
+            // synthesized cash_return component lines are intentionally NOT
+            // re-surfaced as editable component selections since cash_return
+            // is not a selectable component resolution).
+            foreach ($line['bundle_items'] ?? [] as $componentEntry) {
+                if (empty($componentEntry['sale_detail_id'])) continue;
+                foreach (PosReturnCreateForm::explodeComponentLines($componentEntry) as $componentLine) {
+                    $this->initializeLineSelectionFromExisting($componentLine, $existingLines);
                 }
-
-                $this->lineSelections[$key] = [
-                    'resolution' => $existing ? $existing->resolution : PosReturnLine::RESOLUTION_NONE,
-                    'replacement_serial_id' => $existing ? $existing->replacement_serial_id : null,
-                    'replacement_serial_input' => '',
-                    'replacement_serial_label' => $replacementLabel,
-                ];
-            } else {
-                $this->lineSelections[$key] = [
-                    'resolution' => $existing ? $existing->resolution : PosReturnLine::RESOLUTION_NONE,
-                    'quantity' => $existing ? (float) $existing->quantity : 0,
-                ];
             }
+        }
+    }
+
+    /**
+     * Initialize (or hydrate from an existing persisted line) a lineSelections
+     * entry for a snapshot-shaped line — top-level or bundle component (same
+     * shape, see PosReturnSnapshotService::buildComponentBundleItemEntry()).
+     */
+    protected function initializeLineSelectionFromExisting(array $line, $existingLines): void
+    {
+        $key = PosReturnCreateForm::buildLineKey($line);
+        $existing = $existingLines->get($key);
+
+        if (($line['is_tracked'] ?? false) && !empty($line['serial_number_ids'])) {
+            $replacementLabel = '';
+            if ($existing && $existing->replacement_serial_id) {
+                $replacementSerial = \Modules\Product\Entities\ProductSerialNumber::find($existing->replacement_serial_id);
+                $replacementLabel = $replacementSerial ? $replacementSerial->serial_number : '';
+            }
+
+            $this->lineSelections[$key] = [
+                'resolution' => $existing ? $existing->resolution : PosReturnLine::RESOLUTION_NONE,
+                'replacement_serial_id' => $existing ? $existing->replacement_serial_id : null,
+                'replacement_serial_input' => '',
+                'replacement_serial_label' => $replacementLabel,
+                'replacement_reason' => $existing ? (string) data_get($existing->line_meta, 'replacement_reason', '') : '',
+            ];
+        } else {
+            $this->lineSelections[$key] = [
+                'resolution' => $existing ? $existing->resolution : PosReturnLine::RESOLUTION_NONE,
+                'quantity' => $existing ? (float) $existing->quantity : 0,
+                'replacement_reason' => $existing ? (string) data_get($existing->line_meta, 'replacement_reason', '') : '',
+            ];
         }
     }
 
@@ -104,10 +129,19 @@ class PosReturnEditForm extends Component
 
     /**
      * Update the resolution for a source line.
+     *
+     * Corrections/2: component rows may never be set to cash_return — the
+     * whole-bundle refund is automatic (see PosReturnSubmissionService point
+     * 1). Defense in depth; the blade never renders a cash button for
+     * component rows.
      */
     public function updateResolution(string $lineKey, string $resolution)
     {
         if (!isset($this->lineSelections[$lineKey])) return;
+
+        if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && $this->isComponentLineKey($lineKey)) {
+            return;
+        }
 
         $this->lineSelections[$lineKey]['resolution'] = $resolution;
 
@@ -118,7 +152,33 @@ class PosReturnEditForm extends Component
                 $this->lineSelections[$lineKey]['replacement_serial_input'] = '';
                 $this->lineSelections[$lineKey]['replacement_serial_label'] = '';
             }
+            $this->lineSelections[$lineKey]['replacement_reason'] = '';
         }
+    }
+
+    /**
+     * True if $lineKey identifies a bundle component row rather than a
+     * top-level line.
+     */
+    protected function isComponentLineKey(string $lineKey): bool
+    {
+        if (!$this->snapshot) return false;
+
+        foreach ($this->snapshot['lines'] as $line) {
+            if (PosReturnCreateForm::buildLineKey($line) === $lineKey) {
+                return false;
+            }
+            foreach ($line['bundle_items'] ?? [] as $componentEntry) {
+                if (empty($componentEntry['sale_detail_id'])) continue;
+                foreach (PosReturnCreateForm::explodeComponentLines($componentEntry) as $componentLine) {
+                    if (PosReturnCreateForm::buildLineKey($componentLine) === $lineKey) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -186,6 +246,14 @@ class PosReturnEditForm extends Component
             if (PosReturnCreateForm::buildLineKey($line) === $lineKey) {
                 return $line;
             }
+            foreach ($line['bundle_items'] ?? [] as $componentEntry) {
+                if (empty($componentEntry['sale_detail_id'])) continue;
+                foreach (PosReturnCreateForm::explodeComponentLines($componentEntry) as $componentLine) {
+                    if (PosReturnCreateForm::buildLineKey($componentLine) === $lineKey) {
+                        return $componentLine;
+                    }
+                }
+            }
         }
         return null;
     }
@@ -206,7 +274,52 @@ class PosReturnEditForm extends Component
     }
 
     /**
+     * Build one submission line array from a snapshot-shaped line (top-level
+     * OR a bundle component entry) and its lineSelections entry.
+     */
+    protected function buildSubmissionLineFor(array $line, array $selection): ?array
+    {
+        $resolution = $selection['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
+        $isSerial = ($line['is_tracked'] ?? false) && !empty($line['serial_number_ids']);
+
+        if ($isSerial) {
+            // Serial lines are always emitted (even at 'none') so an explicit
+            // reversion back to 'none' on edit is persisted rather than
+            // silently dropped.
+            return [
+                'sale_detail_id' => $line['sale_detail_id'],
+                'sale_id' => $line['sale_id'] ?? null,
+                'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
+                'returned_serial_id' => $line['serial_number_ids'][0],
+                'resolution' => $resolution,
+                'quantity' => 1,
+                'replacement_serial_id' => $selection['replacement_serial_id'] ?? null,
+                'replacement_reason' => $selection['replacement_reason'] ?? null,
+            ];
+        }
+
+        $quantity = (float) ($selection['quantity'] ?? 0);
+        if ($resolution === PosReturnLine::RESOLUTION_NONE || $quantity <= 0) {
+            return null;
+        }
+
+        return [
+            'sale_detail_id' => $line['sale_detail_id'],
+            'sale_id' => $line['sale_id'] ?? null,
+            'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
+            'returned_serial_id' => null,
+            'resolution' => $resolution,
+            'quantity' => $quantity,
+            'replacement_serial_id' => null,
+            'replacement_reason' => $selection['replacement_reason'] ?? null,
+        ];
+    }
+
+    /**
      * Build submission lines from source-line-keyed selections.
+     *
+     * Corrections/2: also iterates each top-level line's bundle_items[] so
+     * independently-selected component product_replacement intent is emitted.
      */
     protected function buildSubmissionLines(): array
     {
@@ -214,38 +327,75 @@ class PosReturnEditForm extends Component
         foreach ($this->snapshot['lines'] as $line) {
             $key = PosReturnCreateForm::buildLineKey($line);
             $selection = $this->lineSelections[$key] ?? null;
-            if (!$selection) continue;
+            if ($selection) {
+                $built = $this->buildSubmissionLineFor($line, $selection);
+                if ($built) $lines[] = $built;
+            }
 
-            $resolution = $selection['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
-            $isSerial = $line['is_tracked'] && !empty($line['serial_number_ids']);
+            foreach ($line['bundle_items'] ?? [] as $componentEntry) {
+                if (empty($componentEntry['sale_detail_id'])) continue;
+                foreach (PosReturnCreateForm::explodeComponentLines($componentEntry) as $componentLine) {
+                    $componentKey = PosReturnCreateForm::buildLineKey($componentLine);
+                    $componentSelection = $this->lineSelections[$componentKey] ?? null;
+                    if (!$componentSelection) continue;
 
-            if ($isSerial) {
-                $lines[] = [
-                    'sale_detail_id' => $line['sale_detail_id'],
-                    'sale_id' => $line['sale_id'],
-                    'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
-                    'returned_serial_id' => $line['serial_number_ids'][0],
-                    'resolution' => $resolution,
-                    'quantity' => 1,
-                    'replacement_serial_id' => $selection['replacement_serial_id'] ?? null,
-                ];
-            } else {
-                $quantity = (float) ($selection['quantity'] ?? 0);
-                if ($resolution !== PosReturnLine::RESOLUTION_NONE && $quantity > 0) {
-                    $lines[] = [
-                        'sale_detail_id' => $line['sale_detail_id'],
-                        'sale_id' => $line['sale_id'],
-                        'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
-                        'returned_serial_id' => null,
-                        'resolution' => $resolution,
-                        'quantity' => $quantity,
-                        'replacement_serial_id' => null,
-                    ];
+                    $built = $this->buildSubmissionLineFor($componentLine, $componentSelection);
+                    if ($built) $lines[] = $built;
                 }
             }
         }
 
         return $lines;
+    }
+
+    /**
+     * Corrections/2: Flatten every candidate line (top-level + every exploded
+     * component/component-serial line) for a snapshot line into one array.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function candidateLinesFor(array $line): array
+    {
+        $candidates = [$line];
+        foreach ($line['bundle_items'] ?? [] as $componentEntry) {
+            if (empty($componentEntry['sale_detail_id'])) continue;
+            foreach (PosReturnCreateForm::explodeComponentLines($componentEntry) as $componentLine) {
+                $candidates[] = $componentLine;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Validate replacement_serial_id / replacement_reason for every
+     * product_replacement selection (top-level and component).
+     */
+    protected function validateReplacementSelections(): ?array
+    {
+        foreach ($this->snapshot['lines'] as $line) {
+            foreach ($this->candidateLinesFor($line) as $candidateLine) {
+                $key = PosReturnCreateForm::buildLineKey($candidateLine);
+                $selection = $this->lineSelections[$key] ?? null;
+                if (!$selection) continue;
+
+                if (($selection['resolution'] ?? '') !== PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+                    continue;
+                }
+
+                $isSerial = ($candidateLine['is_tracked'] ?? false) && !empty($candidateLine['serial_number_ids']);
+
+                if ($isSerial && empty($selection['replacement_serial_id'])) {
+                    return [$key . '.replacement_serial_input', 'Serial pengganti harus diisi untuk penggantian produk.'];
+                }
+
+                if (!$isSerial && trim((string) ($selection['replacement_reason'] ?? '')) === '') {
+                    return [$key . '.replacement_reason', 'Alasan penggantian wajib diisi untuk penggantian produk non-serial.'];
+                }
+            }
+        }
+
+        return null;
     }
 
     public function submit()
@@ -270,18 +420,12 @@ class PosReturnEditForm extends Component
             return;
         }
 
-        // Validate replacement serials for product_replacement lines
-        foreach ($this->snapshot['lines'] as $line) {
-            $key = PosReturnCreateForm::buildLineKey($line);
-            $selection = $this->lineSelections[$key] ?? null;
-            if (!$selection) continue;
-
-            if (($selection['resolution'] ?? '') === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
-                && $line['is_tracked']
-                && empty($selection['replacement_serial_id'])) {
-                $this->addError("lineSelections.{$key}.replacement_serial_input", 'Serial pengganti harus diisi untuk penggantian produk.');
-                return;
-            }
+        // Validate replacement serials/reasons for product_replacement lines
+        $replacementError = $this->validateReplacementSelections();
+        if ($replacementError) {
+            [$errorKey, $errorMessage] = $replacementError;
+            $this->addError("lineSelections.{$errorKey}", $errorMessage);
+            return;
         }
 
         try {

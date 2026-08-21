@@ -164,6 +164,202 @@ class POSReturnSharedFormSurfaceTest extends PosTransactionFeatureTestCase
             ->assertSet("lineSelections.{$lineKey}.quantity", 2.0);
     }
 
+    /**
+     * Corrections/1 (top-level non-serial replacement): an ordinary
+     * non-bundle, non-serial product must be able to author a note-only
+     * product_replacement through the shared form surface — "Ganti" must be
+     * offered alongside "Tidak"/"Tunai", and submission must persist the
+     * replacement_reason and non_serial_note_only execution mode, exactly
+     * like the pre-existing serial/bundle-component replacement paths.
+     *
+     * @test
+     */
+    public function create_authors_top_level_non_serial_product_replacement_with_reason(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Ordinary Non Serial Product',
+            'product_code' => 'ORD-NS-001',
+            'sale_price' => 100,
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-ORDINARY-REPLACEMENT',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 1000,
+            'receipt_number' => 'RCP-ORDINARY-REPLACEMENT',
+            'idempotency_key' => 'IDEM-ORDINARY-REPLACEMENT',
+            'payload_hash' => 'HASH-ORDINARY-REPLACEMENT',
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $customer = Customer::factory()->create(['setting_id' => $this->setting->id]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-ORDINARY-REPLACEMENT',
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'grand_total' => 1000,
+            'split_key' => 'SPLIT-ORDINARY-REPLACEMENT',
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        $saleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 1000,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $lineKey = (string) $saleDetail->id;
+
+        $component = Livewire::test(PosReturnCreateForm::class)
+            ->set('identifier', $transaction->code)
+            ->call('lookup')
+            ->assertHasNoErrors()
+            ->assertSee('Ganti')
+            ->call('updateResolution', $lineKey, PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ->set("lineSelections.{$lineKey}.quantity", 3)
+            ->set("lineSelections.{$lineKey}.replacement_reason", 'Warna salah dikirim')
+            ->call('submit')
+            ->assertHasNoErrors();
+
+        $posReturn = \Modules\Pos\Entities\PosReturn::where('pos_transaction_id', $transaction->id)->firstOrFail();
+        $line = $posReturn->lines()->where('sale_detail_id', $saleDetail->id)->firstOrFail();
+
+        $this->assertEquals(PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT, $line->resolution);
+        $this->assertEquals(3.0, (float) $line->quantity);
+        $this->assertEquals('non_serial_note_only', data_get($line->line_meta, 'execution_mode'));
+        $this->assertEquals('Warna salah dikirim', data_get($line->line_meta, 'replacement_reason'));
+    }
+
+    /**
+     * A non-serial top-level product_replacement without a reason must be
+     * rejected by the shared form surface, mirroring the service-layer
+     * validation already enforced for bundle components.
+     *
+     * @test
+     */
+    public function create_blocks_top_level_non_serial_product_replacement_without_a_reason(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Ordinary Non Serial Product No Reason',
+            'product_code' => 'ORD-NS-002',
+            'sale_price' => 100,
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-ORDINARY-NOREASON',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 1000,
+            'receipt_number' => 'RCP-ORDINARY-NOREASON',
+            'idempotency_key' => 'IDEM-ORDINARY-NOREASON',
+            'payload_hash' => 'HASH-ORDINARY-NOREASON',
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $customer = Customer::factory()->create(['setting_id' => $this->setting->id]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-ORDINARY-NOREASON',
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'grand_total' => 1000,
+            'split_key' => 'SPLIT-ORDINARY-NOREASON',
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        $saleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 1000,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $lineKey = (string) $saleDetail->id;
+
+        Livewire::test(PosReturnCreateForm::class)
+            ->set('identifier', $transaction->code)
+            ->call('lookup')
+            ->call('updateResolution', $lineKey, PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ->set("lineSelections.{$lineKey}.quantity", 3)
+            ->call('submit')
+            ->assertHasErrors(["lineSelections.{$lineKey}.replacement_reason"]);
+    }
+
     /** @test */
     public function rejected_returns_can_open_the_shared_edit_surface_with_existing_selections(): void
     {

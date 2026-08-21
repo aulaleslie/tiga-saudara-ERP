@@ -28,6 +28,7 @@ class PosReturnApprovalPreviewPlannerService
         private readonly PosReturnSnapshotService $snapshotService,
         private readonly PosReturnReplacementGuard $replacementGuard,
         private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver,
+        private readonly PosReturnSerialReplacementChainResolver $serialChainResolver,
     ) {
     }
 
@@ -192,7 +193,19 @@ class PosReturnApprovalPreviewPlannerService
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
         }
 
-        if ((int) $saleDetail->sale_id !== (int) $line->sale_id || (int) $saleDetail->product_id !== (int) $line->product_id) {
+        // Split-owner carrier-row correction: for a bundle COMPONENT line,
+        // sale_detail_id points at the CARRIER SaleDetails row (the only
+        // SaleDetails identity that exists for the component in a
+        // split-owner checkout — see InlinePosCheckoutPostingAdapter). That
+        // carrier row's own product_id is the PARENT's, not the component's,
+        // by design — so product_id is deliberately excluded from this
+        // identity check for component lines. sale_id must still match
+        // (the carrier row and the persisted line always share one Sale).
+        $isComponentLineForIdentityCheck = $this->isBundleComponentLine($line);
+        $identityMismatch = (int) $saleDetail->sale_id !== (int) $line->sale_id
+            || (! $isComponentLineForIdentityCheck && (int) $saleDetail->product_id !== (int) $line->product_id);
+
+        if ($identityMismatch) {
             $blockers[] = $this->message('source_identity_mismatch', 'Identitas sale detail sudah tidak cocok dengan baris retur tersimpan.', [
                 'pos_return_line_id' => $line->id,
                 'sale_detail_id' => $line->sale_detail_id,
@@ -201,7 +214,17 @@ class PosReturnApprovalPreviewPlannerService
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
         }
 
-        if ($this->isBundleComponentLine($line) && ! $this->hasBundleParentLine($posReturn, $line)) {
+        // Policy: refundability follows the customer-facing bundle, so a
+        // component cash_return line still requires its parent to be present
+        // in the same POS return — but Phase 2's synthesizeBundleCashReturnComponents()
+        // already guarantees this at draft-submission time for every
+        // synthesized component, so this is a defensive re-check, not a live
+        // blocker path for normal flows. Replaceability follows the physical
+        // product: a component product_replacement line is independently
+        // valid and must NOT require a parent line to exist.
+        if ($this->isBundleComponentLine($line)
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && ! $this->hasBundleParentLine($posReturn, $line)) {
             $blockers[] = $this->message(
                 'bundle_parent_missing',
                 'Komponen bundle tidak dapat dieksekusi tanpa baris parent bundle pada retur POS yang sama.',
@@ -225,7 +248,20 @@ class PosReturnApprovalPreviewPlannerService
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
         }
 
-        $dispatchResolution = $this->resolveDispatchDetail($line, $saleDetail);
+        // 3.1/3.3: a non-serial product_replacement line is note-only —
+        // nothing physical will ever move for it, so a missing/unresolved
+        // dispatch target must never block preview. Skip dispatch resolution
+        // entirely for note-only lines rather than resolving then discarding
+        // any blocker it would have produced.
+        $physicalExecutionMode = (string) data_get($line->line_meta, 'execution_mode', '');
+        $isNoteOnlyReplacement = $line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+            && $physicalExecutionMode === 'non_serial_note_only';
+
+        if ($isNoteOnlyReplacement) {
+            $dispatchResolution = ['dispatch_detail' => null, 'source' => 'not_applicable_note_only', 'blockers' => [], 'info' => []];
+        } else {
+            $dispatchResolution = $this->resolveDispatchDetail($line, $saleDetail);
+        }
         $blockers = array_merge($blockers, $dispatchResolution['blockers']);
         $info = array_merge($info, $dispatchResolution['info']);
         $dispatchDetail = $dispatchResolution['dispatch_detail'];
@@ -243,10 +279,34 @@ class PosReturnApprovalPreviewPlannerService
                     'pos_return_line_id' => $line->id,
                     'returned_serial_id' => $line->returned_serial_id,
                 ]);
+            } elseif ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                // 3.2: re-check at preview time whether the persisted
+                // returned_serial_id is still the current leaf — a
+                // replacement could have gone in-flight AFTER this whole-bundle
+                // return was already submitted/persisted (e.g. a separate
+                // PosReturn starts a component replacement on the same serial
+                // while this return sits in pending_approval). Phase 2 already
+                // enforced this at submission time using the identical
+                // PosReturnSerialReplacementChainResolver algorithm; this is a
+                // read-only re-run against fresh data, never a claim/lock.
+                if ($this->serialChainResolver->hasInFlightReplacement((int) $line->returned_serial_id)) {
+                    $blockers[] = $this->message(
+                        'component_replacement_in_flight',
+                        'Komponen bertipe serial memiliki penggantian yang belum selesai (belum dikirim ke pelanggan) — retur seluruh paket bundel tidak dapat diproses sampai penggantian tersebut selesai.',
+                        [
+                            'pos_return_line_id' => $line->id,
+                            'returned_serial_id' => $line->returned_serial_id,
+                        ]
+                    );
+                }
             }
         }
 
-        if ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+        // A non-serial (note-only) product_replacement never carries a
+        // replacement_serial_id by design (2.5) — it has no replacement
+        // inventory identity to validate, so this guard only applies to
+        // serial-tracked replacement lines.
+        if ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT && ! $isNoteOnlyReplacement) {
             if (! $line->replacementSerial) {
                 $blockers[] = $this->message('replacement_serial_missing', 'Serial pengganti belum tersedia untuk baris product replacement.', [
                     'pos_return_line_id' => $line->id,
@@ -287,8 +347,32 @@ class PosReturnApprovalPreviewPlannerService
             ? $this->resolveReplacementCommercialAmount($line, $saleDetail)
             : (float) $line->line_total;
 
+        // 3.1: a component line (real, persisted PosReturnLine created by
+        // Phase 2's synthesizeBundleCashReturnComponents()/
+        // synthesizeSerialComponentLines()) is now indistinguishable in shape
+        // from any other PosReturnLine — it flows through this SAME
+        // buildLinePlan() path, no separate re-derivation needed. Detect it
+        // purely from persisted identity columns.
+        $isComponentLine = $this->isBundleComponentLine($line);
+        $componentBundleItem = $isComponentLine
+            ? $this->resolveOwnBundleItem($line, $planningContext)
+            : null;
+
+        // 3.3/note-only zero-effects: for a non-serial replacement, nothing
+        // physical will ever move — override the otherwise dispatch/serial-
+        // oriented intents with explicit "no movement, note only" values, and
+        // force cash_return_amount to 0 (already true for replacement lines;
+        // asserted here defensively) so no HPP/refund/movement effect is ever
+        // implied for this row.
+        $stockMovementIntent = $isNoteOnlyReplacement
+            ? 'tidak_ada_mutasi_stok_catatan_saja'
+            : $replacementPreview['stock_movement_intent'];
+        $serialMovementIntent = $isNoteOnlyReplacement
+            ? 'tidak_ada_mutasi_serial_catatan_saja'
+            : $replacementPreview['serial_movement_intent'];
+
         $detail = [
-            'row_type' => 'parent',
+            'row_type' => $isComponentLine ? 'component' : 'parent',
             'pos_return_line_id' => (int) $line->id,
             'resolution' => (string) $line->resolution,
             'resolution_label' => $this->resolutionLabel((string) $line->resolution),
@@ -306,6 +390,11 @@ class PosReturnApprovalPreviewPlannerService
             'product_code' => (string) $line->product_code,
             'quantity' => (float) $line->quantity,
             'amount' => $detailAmount,
+            // 3.4: component allocations remain internal and never appear as
+            // a separate customer-facing refund — expected_cash_amount is
+            // already persisted as 0 for every synthesized component line
+            // (Phase 2), and 0 for every product_replacement line. Only a
+            // whole-bundle parent cash_return line carries the real amount.
             'cash_return_amount' => (float) ($line->expected_cash_amount ?? 0),
             'returned_serial' => $line->returnedSerial?->serial_number,
             'replacement_serial' => $line->replacementSerial?->serial_number,
@@ -313,23 +402,39 @@ class PosReturnApprovalPreviewPlannerService
             'replacement_serial_owner_setting_name' => $replacementPreview['replacement_serial_owner_setting_name'],
             'replacement_serial_location_id' => $replacementPreview['replacement_serial_location_id'],
             'replacement_serial_location_name' => $replacementPreview['replacement_serial_location_name'],
+            // Naming-conflict resolution (see design note in class docblock):
+            // `execution_mode` keeps its existing meaning of same-owner vs
+            // cross-owner SERIAL replacement routing (only ever set when
+            // resolution === product_replacement AND a replacement_serial_id
+            // is present). `replacement_kind` is a NEW field carrying Phase
+            // 2's line_meta.execution_mode verbatim
+            // (serial_inventory_replacement | non_serial_note_only), i.e.
+            // "what physically happens to this replacement line" — the two
+            // concepts are never conflated.
             'execution_mode' => $replacementPreview['execution_mode'],
             'execution_mode_label' => $replacementPreview['execution_mode_label'],
+            'replacement_kind' => $physicalExecutionMode !== '' ? $physicalExecutionMode : null,
             'original_sale_correction_quantity' => $replacementPreview['original_sale_correction_quantity'],
             'original_sale_correction_amount' => $replacementPreview['original_sale_correction_amount'],
             'generated_replacement_sale_effects' => $replacementPreview['generated_replacement_sale_effects'],
-            'stock_movement_intent' => $replacementPreview['stock_movement_intent'],
-            'serial_movement_intent' => $replacementPreview['serial_movement_intent'],
-            'replacement_effect' => $replacementPreview['replacement_effect'],
+            'stock_movement_intent' => $stockMovementIntent,
+            'serial_movement_intent' => $serialMovementIntent,
+            'replacement_effect' => $isNoteOnlyReplacement
+                ? 'catatan_audit_saja_tanpa_mutasi_fisik'
+                : $replacementPreview['replacement_effect'],
             'bundle_trace' => collect(data_get($line->line_meta, 'bundle_trace', []))->values()->all(),
             'source_pos_product_id' => (int) $line->product_id,
             'source_pos_product_name' => (string) $line->product_name,
             'source_pos_product_code' => (string) $line->product_code,
             'source_pos_sale_detail_id' => (int) $line->sale_detail_id,
-            'component_sale_bundle_item_id' => null,
-            'component_line_group_key' => null,
-            'component_bundle_id' => null,
-            'component_quantity_per_bundle' => null,
+            'component_sale_bundle_item_id' => $componentBundleItem?->id,
+            'component_line_group_key' => $componentBundleItem?->line_group_key,
+            'component_bundle_id' => $componentBundleItem ? (int) $componentBundleItem->bundle_id : null,
+            'component_quantity_per_bundle' => $line->component_quantity_per_bundle,
+            'component_serial_ids' => $line->returned_serial_id ? [(int) $line->returned_serial_id] : [],
+            'component_serial_numbers' => $line->returnedSerial?->serial_number
+                ? [(string) $line->returnedSerial->serial_number]
+                : [],
         ];
 
         $entries = [[
@@ -343,13 +448,20 @@ class PosReturnApprovalPreviewPlannerService
             'detail' => $detail,
         ]];
 
-        if ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
-            $componentExpansion = $this->buildComponentEntries($posReturn, $line, $saleDetail, $detail, $planningContext);
-            $blockers = array_merge($blockers, $componentExpansion['blockers']);
-            $warnings = array_merge($warnings, $componentExpansion['warnings']);
-            $info = array_merge($info, $componentExpansion['info']);
-            $entries = array_merge($entries, $componentExpansion['entries']);
+        // 3.3: surface a clear, once-per-note-only-line instruction that
+        // physical exchange/breakage handling is manual — nothing here is
+        // automated.
+        if ($isNoteOnlyReplacement) {
+            $info[] = $this->message(
+                'note_only_manual_exchange_required',
+                'Penggantian ini tercatat sebagai catatan audit saja; staf harus menangani pertukaran fisik dan pencatatan kerusakan secara manual.',
+                [
+                    'pos_return_line_id' => $line->id,
+                    'product_id' => $line->product_id,
+                ]
+            );
         } elseif ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+            && ! $isComponentLine
             && collect(data_get($line->line_meta, 'bundle_trace', []))->isNotEmpty()) {
             $info[] = $this->message(
                 'replacement_bundle_components_informational',
@@ -369,235 +481,36 @@ class PosReturnApprovalPreviewPlannerService
         ];
     }
 
-    private function buildComponentEntries(
-        PosReturn $posReturn,
-        PosReturnLine $line,
-        SaleDetails $saleDetail,
-        array $parentDetail,
-        array $planningContext,
-    ): array {
-        $bundleTrace = collect(data_get($line->line_meta, 'bundle_trace', []))
-            ->filter(fn ($trace) => (int) data_get($trace, 'product_id', 0) > 0)
-            ->values();
-
-        if ($bundleTrace->isEmpty()) {
-            return ['blockers' => [], 'warnings' => [], 'info' => [], 'entries' => []];
-        }
-
-        /** @var Collection<int, PosCheckoutSale> $checkoutSales */
-        $checkoutSales = $planningContext['checkout_sales'];
+    /**
+     * 3.2: resolve the component's OWN SaleBundleItem row (for display
+     * fields only — component_sale_bundle_item_id/line_group_key/bundle_id —
+     * never used to re-derive quantity/identity, which already lives on the
+     * persisted PosReturnLine itself). Matched by sale_id + product_id +
+     * sale_detail_id when available, mirroring the same convention Phase 2's
+     * synthesis and the snapshot service already use.
+     */
+    private function resolveOwnBundleItem(PosReturnLine $line, array $planningContext): ?SaleBundleItem
+    {
         /** @var Collection<int, SaleBundleItem> $componentBundleItems */
         $componentBundleItems = $planningContext['component_bundle_items'];
 
-        $bundleIds = $this->resolveParentBundleIds($posReturn, $line, $saleDetail);
-
-        $entries = [];
-        $blockers = [];
-        $warnings = [];
-        $info = [];
-        $parentLineShare = $this->resolveParentLineShare($line, $saleDetail);
-
-        foreach ($bundleTrace as $traceIndex => $trace) {
-            $componentProductId = (int) data_get($trace, 'product_id', 0);
-            $quantityPerBundle = (float) data_get($trace, 'quantity_per_bundle', 0);
-            $componentQuantity = $this->resolvePlannedComponentQuantity($line, $quantityPerBundle, $trace, $parentLineShare);
-
-            if ($componentProductId <= 0 || $componentQuantity <= 0) {
-                continue;
+        $matches = $componentBundleItems->filter(function (SaleBundleItem $item) use ($line) {
+            if ((int) $item->sale_id !== (int) $line->sale_id) {
+                return false;
             }
 
-            $candidates = $componentBundleItems
-                ->filter(function (SaleBundleItem $item) use ($bundleIds, $componentProductId, $componentQuantity, $line, $parentLineShare) {
-                    if ((int) $item->product_id !== $componentProductId) {
-                        return false;
-                    }
-
-                    if ($bundleIds->isNotEmpty() && ! $bundleIds->contains((int) $item->bundle_id)) {
-                        return false;
-                    }
-
-                    return $this->quantitiesMatch((float) $item->quantity, $componentQuantity)
-                        || $this->quantitiesMatch($this->apportionedComponentQuantity($item, $parentLineShare), $componentQuantity);
-                })
-                ->values();
-
-            $posAnchoredCandidates = $this->filterCandidatesByPosLineage($candidates, $line, (int) $traceIndex, $componentQuantity);
-            if ($posAnchoredCandidates->isNotEmpty()) {
-                $candidates = $posAnchoredCandidates->values();
-            } elseif ($checkoutSales->count() > 1) {
-                $candidates = $candidates
-                    ->reject(fn (SaleBundleItem $item) => (int) $item->sale_id === (int) $line->sale_id)
-                    ->values();
+            if ((int) $item->product_id !== (int) $line->product_id) {
+                return false;
             }
 
-            if ($candidates->count() === 0) {
-                if ($checkoutSales->count() > 1) {
-                    $blockers[] = $this->message(
-                        'component_target_missing',
-                        'Target komponen bundle tidak dapat dipetakan ke Sale sumber yang unik.',
-                        [
-                            'pos_return_line_id' => $line->id,
-                            'source_pos_product_id' => $line->product_id,
-                            'component_product_id' => $componentProductId,
-                        ]
-                    );
-                }
-
-                continue;
+            if ($item->sale_detail_id && (int) $item->sale_detail_id !== (int) $line->sale_detail_id) {
+                return false;
             }
 
-            if ($candidates->count() > 1) {
-                $blockers[] = $this->message(
-                    'component_target_ambiguous',
-                    'Terdapat lebih dari satu target komponen bundle yang cocok sehingga preview tidak aman disimpulkan.',
-                    [
-                        'pos_return_line_id' => $line->id,
-                        'source_pos_product_id' => $line->product_id,
-                        'component_product_id' => $componentProductId,
-                        'candidate_sale_ids' => $candidates->pluck('sale_id')->values()->all(),
-                    ]
-                );
+            return true;
+        });
 
-                continue;
-            }
-
-            /** @var SaleBundleItem $componentItem */
-            $componentItem = $candidates->first();
-            $componentCheckoutSale = $checkoutSales->get((int) $componentItem->sale_id);
-            if (! $componentCheckoutSale || ! $componentItem->sale) {
-                $blockers[] = $this->message(
-                    'component_target_missing_context',
-                    'Konteks Sale sumber untuk komponen bundle tidak lengkap.',
-                    [
-                        'pos_return_line_id' => $line->id,
-                        'component_product_id' => $componentProductId,
-                        'sale_id' => $componentItem->sale_id,
-                    ]
-                );
-
-                continue;
-            }
-
-            $sourceSettingId = (int) $componentCheckoutSale->source_setting_id;
-            $sourceLocationId = (int) $componentCheckoutSale->source_location_id;
-            $taxId = $componentItem->tax_id ? (int) $componentItem->tax_id : null;
-            $componentDispatchResolution = $this->resolveComponentDispatchDetail($componentItem, $sourceLocationId);
-            $blockers = array_merge($blockers, $componentDispatchResolution['blockers']);
-            $info = array_merge($info, $componentDispatchResolution['info']);
-            $componentDispatchDetail = $componentDispatchResolution['dispatch_detail'];
-            $componentSerialRecords = $this->resolveComponentSerials($componentDispatchDetail);
-            $componentSerialIds = array_map(static fn (ProductSerialNumber $sn): int => (int) $sn->id, $componentSerialRecords);
-            $componentSerialNumbers = array_map(static fn (ProductSerialNumber $sn): string => (string) $sn->serial_number, $componentSerialRecords);
-
-            $compSerialRequired = (bool) ($componentItem->product?->serial_number_required ?? false);
-
-            // A component's DispatchDetail carries every serial fulfilled for the
-            // WHOLE bundled quantity in that dispatch, not just the physical unit(s)
-            // covered by this return line. Without a persisted parent-unit/component-serial
-            // pairing, a partial return (returned qty < total dispatched component
-            // qty) cannot determine which specific component serial(s) belong to the
-            // returned unit — restoring the full set would silently mark serials that
-            // were never returned as ACTIVE. Block as ambiguous rather than guess.
-            if ($compSerialRequired && $componentSerialIds !== [] && count($componentSerialIds) !== (int) round($componentQuantity)) {
-                $blockers[] = $this->message(
-                    'component_serial_partial_return_ambiguous',
-                    'Retur sebagian untuk komponen paket bernomor seri tidak dapat dipetakan secara unik ke seri yang dikembalikan.',
-                    [
-                        'pos_return_line_id' => $line->id,
-                        'component_product_id' => $componentProductId,
-                        'dispatch_detail_id' => $componentDispatchDetail?->id,
-                        'returned_component_quantity' => $componentQuantity,
-                        'dispatch_component_serial_count' => count($componentSerialIds),
-                    ]
-                );
-
-                continue;
-            }
-
-            if ($compSerialRequired && $componentSerialIds === [] && $componentDispatchDetail) {
-                $blockers[] = $this->message(
-                    'component_serial_unresolved',
-                    'Nomor seri komponen paket tidak dapat ditentukan dari data dispatch yang tersimpan.',
-                    [
-                        'pos_return_line_id' => $line->id,
-                        'component_product_id' => $componentProductId,
-                        'dispatch_detail_id' => $componentDispatchDetail->id,
-                    ]
-                );
-            }
-
-            $linkedSaleReturnReferences = $posReturn->saleReturns
-                ->where('sale_id', $componentItem->sale_id)
-                ->pluck('reference')
-                ->filter()
-                ->values()
-                ->all();
-
-            $componentDetail = [
-                'row_type' => 'component',
-                'pos_return_line_id' => (int) $line->id,
-                'resolution' => (string) $line->resolution,
-                'resolution_label' => $this->resolutionLabel((string) $line->resolution),
-                'sale_detail_id' => $componentItem->sale_detail_id ? (int) $componentItem->sale_detail_id : null,
-                'dispatch_detail_id' => $componentDispatchDetail?->id,
-                'dispatch_resolution' => $componentDispatchResolution['source'],
-                'source_setting_id' => $sourceSettingId,
-                'source_setting_name' => $this->settingName($sourceSettingId),
-                'source_location_id' => $sourceLocationId,
-                'source_location_name' => $this->locationName($sourceLocationId),
-                'tax_id' => $taxId,
-                'tax_name' => $this->taxName($taxId),
-                'product_id' => (int) $componentItem->product_id,
-                'product_name' => (string) ($componentItem->product?->product_name ?? $componentItem->name),
-                'product_code' => (string) ($componentItem->product?->product_code ?? ''),
-                'quantity' => $componentQuantity,
-                'amount' => $this->apportionedComponentAmount($componentItem, $componentQuantity),
-                'cash_return_amount' => 0.0,
-                'returned_serial' => $componentSerialNumbers !== [] ? implode(', ', $componentSerialNumbers) : null,
-                'component_serial_ids' => $componentSerialIds,
-                'component_serial_numbers' => $componentSerialNumbers,
-                'replacement_serial' => $parentDetail['replacement_serial'],
-                'replacement_serial_owner_setting_id' => $parentDetail['replacement_serial_owner_setting_id'] ?? null,
-                'replacement_serial_owner_setting_name' => $parentDetail['replacement_serial_owner_setting_name'] ?? null,
-                'replacement_serial_location_id' => $parentDetail['replacement_serial_location_id'] ?? null,
-                'replacement_serial_location_name' => $parentDetail['replacement_serial_location_name'] ?? null,
-                'execution_mode' => $parentDetail['execution_mode'] ?? null,
-                'execution_mode_label' => $parentDetail['execution_mode_label'] ?? null,
-                'original_sale_correction_quantity' => $parentDetail['original_sale_correction_quantity'] ?? null,
-                'original_sale_correction_amount' => $parentDetail['original_sale_correction_amount'] ?? null,
-                'generated_replacement_sale_effects' => $parentDetail['generated_replacement_sale_effects'] ?? null,
-                'stock_movement_intent' => $this->componentStockMovementIntent($componentItem),
-                'serial_movement_intent' => $this->componentSerialMovementIntent($componentItem, $line),
-                'replacement_effect' => $parentDetail['replacement_effect'],
-                'bundle_trace' => $parentDetail['bundle_trace'],
-                'source_pos_product_id' => $parentDetail['source_pos_product_id'],
-                'source_pos_product_name' => $parentDetail['source_pos_product_name'],
-                'source_pos_product_code' => $parentDetail['source_pos_product_code'],
-                'source_pos_sale_detail_id' => $parentDetail['source_pos_sale_detail_id'],
-                'component_sale_bundle_item_id' => (int) $componentItem->id,
-                'component_line_group_key' => $componentItem->line_group_key,
-                'component_bundle_id' => (int) $componentItem->bundle_id,
-                'component_quantity_per_bundle' => $quantityPerBundle,
-            ];
-
-            $entries[] = [
-                'group' => $this->makePlannedGroup(
-                    $componentItem->sale,
-                    $sourceSettingId,
-                    $sourceLocationId,
-                    $taxId,
-                    $linkedSaleReturnReferences
-                ),
-                'detail' => $componentDetail,
-            ];
-        }
-
-        return [
-            'blockers' => $blockers,
-            'warnings' => $warnings,
-            'info' => $info,
-            'entries' => $entries,
-        ];
+        return $matches->count() === 1 ? $matches->first() : null;
     }
 
     private function buildReplacementPreviewContext(
@@ -700,110 +613,6 @@ class PosReturnApprovalPreviewPlannerService
             'replacement_effect' => $executionMode === 'cross_owner_replacement'
                 ? 'sale_asal_dikoreksi_dan_sale_owner_pengganti_akan_dibuat_saat_approval'
                 : 'serial_pengganti_akan_dikirim_pada_fase_dispatch',
-        ];
-    }
-
-    /**
-     * Resolve the current, still-fulfilling serials for a component's own
-     * DispatchDetail. There is no persisted pairing between a parent unit's
-     * serial and its component's serial, so the component's own resolved
-     * DispatchDetail (matched by sale_id+product_id, never the live bundle
-     * definition) is the sole source of truth: any serial still linked to it
-     * and still SOLD is eligible, independent of `PosReturnLine.returned_serial_id`
-     * (which always identifies the parent unit).
-     *
-     * @return array<int, ProductSerialNumber>
-     */
-    private function resolveComponentSerials(?DispatchDetail $dispatchDetail): array
-    {
-        if (! $dispatchDetail) {
-            return [];
-        }
-
-        $serialNumbers = is_array($dispatchDetail->serial_numbers)
-            ? $dispatchDetail->serial_numbers
-            : (json_decode((string) $dispatchDetail->serial_numbers, true) ?: []);
-
-        if ($serialNumbers === []) {
-            return [];
-        }
-
-        return ProductSerialNumber::query()
-            ->where('dispatch_detail_id', $dispatchDetail->id)
-            ->whereIn('serial_number', $serialNumbers)
-            ->orderBy('id')
-            ->get()
-            ->all();
-    }
-
-    private function resolveComponentDispatchDetail(SaleBundleItem $componentItem, int $sourceLocationId): array
-    {
-        $blockers = [];
-        $info = [];
-
-        if (! ($componentItem->product?->stock_managed ?? false)) {
-            return [
-                'dispatch_detail' => null,
-                'source' => 'stockless',
-                'blockers' => [],
-                'info' => [],
-            ];
-        }
-
-        $query = DispatchDetail::query()
-            ->where('sale_id', (int) $componentItem->sale_id)
-            ->where('product_id', (int) $componentItem->product_id)
-            ->where('location_id', $sourceLocationId);
-
-        if ($componentItem->sale_detail_id && Schema::hasColumn('dispatch_details', 'sale_detail_id')) {
-            $saleDetailMatches = (clone $query)
-                ->where('sale_detail_id', (int) $componentItem->sale_detail_id)
-                ->get();
-
-            if ($saleDetailMatches->count() === 1) {
-                return [
-                    'dispatch_detail' => $saleDetailMatches->first(),
-                    'source' => 'component.sale_detail_id',
-                    'blockers' => $blockers,
-                    'info' => $info,
-                ];
-            }
-
-            if ($saleDetailMatches->count() > 1) {
-                return [
-                    'dispatch_detail' => null,
-                    'source' => 'component.sale_detail_id',
-                    'blockers' => [],
-                    'info' => $info,
-                ];
-            }
-        }
-
-        $productMatches = $query->get();
-
-        if ($productMatches->count() === 1) {
-            return [
-                'dispatch_detail' => $productMatches->first(),
-                'source' => 'component.sale_id+product_id',
-                'blockers' => $blockers,
-                'info' => $info,
-            ];
-        }
-
-        if ($productMatches->count() > 1) {
-            return [
-                'dispatch_detail' => null,
-                'source' => 'component.sale_id+product_id',
-                'blockers' => [],
-                'info' => $info,
-            ];
-        }
-
-        return [
-            'dispatch_detail' => null,
-            'source' => 'unresolved',
-            'blockers' => [],
-            'info' => $info,
         ];
     }
 
@@ -1069,138 +878,38 @@ class PosReturnApprovalPreviewPlannerService
         return true;
     }
 
-    private function resolveParentBundleIds(PosReturn $posReturn, PosReturnLine $line, SaleDetails $saleDetail): Collection
-    {
-        $bundleIds = $saleDetail->bundleItems
-            ->pluck('bundle_id')
-            ->filter(fn ($bundleId) => (int) $bundleId > 0)
-            ->map(fn ($bundleId) => (int) $bundleId)
-            ->unique()
-            ->values();
-
-        if ($bundleIds->isNotEmpty()) {
-            return $bundleIds;
-        }
-
-        $lineMetaBundleId = (int) data_get($line->line_meta, 'bundle_id', 0);
-        if ($lineMetaBundleId > 0) {
-            return collect([$lineMetaBundleId]);
-        }
-
-        $ptlBundleId = (int) data_get($line->posTransactionLine?->line_meta, 'bundle_id', 0);
-        if ($ptlBundleId > 0) {
-            return collect([$ptlBundleId]);
-        }
-
-        return collect(data_get($posReturn->source_snapshot, 'lines', []))
-            ->filter(function (array $snapshotLine) use ($line) {
-                if ((int) data_get($snapshotLine, 'sale_detail_id', 0) !== (int) $line->sale_detail_id) {
-                    return false;
-                }
-
-                if ($line->returned_serial_id) {
-                    return in_array((int) $line->returned_serial_id, array_map('intval', data_get($snapshotLine, 'serial_number_ids', [])), true);
-                }
-
-                if ($line->pos_transaction_line_id) {
-                    return (int) data_get($snapshotLine, 'pos_transaction_line_id', 0) === (int) $line->pos_transaction_line_id;
-                }
-
-                return true;
-            })
-            ->pluck('bundle_id')
-            ->filter(fn ($bundleId) => (int) $bundleId > 0)
-            ->map(fn ($bundleId) => (int) $bundleId)
-            ->unique()
-            ->values();
-    }
-
-    private function filterCandidatesByPosLineage(Collection $candidates, PosReturnLine $line, int $traceIndex, float $componentQuantity): Collection
-    {
-        $bundleItems = collect(data_get($line->posTransactionLine?->line_meta, 'bundle_items', []))->values();
-        $posBundleItem = $bundleItems->get($traceIndex);
-
-        if (! is_array($posBundleItem)) {
-            return collect();
-        }
-
-        $expectedProductId = (int) ($posBundleItem['product_id'] ?? 0);
-        if ($expectedProductId <= 0) {
-            return collect();
-        }
-
-        $filtered = $candidates->filter(function (SaleBundleItem $candidate) use ($traceIndex, $expectedProductId, $componentQuantity, $posBundleItem) {
-            if ((int) $candidate->product_id !== $expectedProductId) {
-                return false;
-            }
-
-            if (! preg_match('/-' . preg_quote((string) $traceIndex, '/') . '$/', (string) ($candidate->line_group_key ?? ''))) {
-                return false;
-            }
-
-            $informationalPrice = (float) ($posBundleItem['informational_item_price'] ?? 0);
-            if ($informationalPrice > 0) {
-                return $this->quantitiesMatch(
-                    $this->apportionedComponentAmount($candidate, $componentQuantity),
-                    round($informationalPrice * $componentQuantity, 2)
-                );
-            }
-
-            return true;
-        });
-
-        return $filtered->values();
-    }
-
-    private function resolveParentLineShare(PosReturnLine $line, SaleDetails $saleDetail): float
-    {
-        $parentQuantity = (float) $saleDetail->quantity;
-        $returnedQuantity = (float) $line->quantity;
-
-        if ($parentQuantity <= 0 || $returnedQuantity <= 0) {
-            return 1.0;
-        }
-
-        return min(1.0, $returnedQuantity / $parentQuantity);
-    }
-
-    private function resolvePlannedComponentQuantity(
-        PosReturnLine $line,
-        float $quantityPerBundle,
-        array $trace,
-        float $parentLineShare,
-    ): float {
-        if ($quantityPerBundle > 0 && (float) $line->quantity > 0) {
-            return round($quantityPerBundle * (float) $line->quantity, 4);
-        }
-
-        $traceQuantity = (float) data_get($trace, 'total_component_quantity', 0);
-        if ($traceQuantity > 0) {
-            return $traceQuantity;
-        }
-
-        $fallbackQuantity = (float) data_get($trace, 'quantity', 0);
-        if ($fallbackQuantity > 0 && $parentLineShare > 0) {
-            return round($fallbackQuantity * $parentLineShare, 4);
-        }
-
-        return 0.0;
-    }
-
     private function isBundleComponentLine(PosReturnLine $line): bool
     {
         $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
         $saleDetailId = (int) ($line->sale_detail_id ?? 0);
 
-        if ($parentSaleDetailId <= 0 || $saleDetailId <= 0) {
+        if ($saleDetailId <= 0) {
             return false;
         }
 
-        if ($parentSaleDetailId === $saleDetailId) {
-            return false;
+        if ($parentSaleDetailId > 0 && $parentSaleDetailId !== $saleDetailId) {
+            return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
         }
 
-        return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
+        // Sequence 10 correction: an INDEPENDENT component product_replacement
+        // (never synthesized from a whole-bundle cash return, so it carries
+        // no distinct bundle_parent_sale_detail_id — see store(), which
+        // self-references bundle_parent_sale_detail_id = sale_detail_id for
+        // any line whose sale_detail_id resolves to a row with bundleItems,
+        // including a carrier row acting as its OWN component identity) is
+        // still a genuine bundle-component line: its persisted product_id
+        // (the component's own, resolved and pinned at submission time) will
+        // differ from the CARRIER row's own product_id (the bundle
+        // PARENT's). component_quantity_per_bundle being set confirms this
+        // was resolved through synthesis/submission identity, not a
+        // coincidental self-reference on an ordinary parent line.
+        if ((float) ($line->component_quantity_per_bundle ?? 0) > 0) {
+            $saleDetail = SaleDetails::find($saleDetailId);
+
+            return $saleDetail && (int) $saleDetail->product_id !== (int) $line->product_id;
+        }
+
+        return false;
     }
 
     private function hasBundleParentLine(PosReturn $posReturn, PosReturnLine $line): bool
@@ -1232,29 +941,6 @@ class PosReturnApprovalPreviewPlannerService
 
             return $lineGroupKey === '' || $candidateGroupKey === '' || $lineGroupKey === $candidateGroupKey;
         });
-    }
-
-    private function apportionedComponentQuantity(SaleBundleItem $componentItem, float $parentLineShare): float
-    {
-        return (float) $componentItem->quantity * $parentLineShare;
-    }
-
-    private function apportionedComponentAmount(SaleBundleItem $componentItem, float $componentQuantity): float
-    {
-        $storedQuantity = (float) $componentItem->quantity;
-
-        // When components are non-billable, informational_item_price holds the captured snapshot value.
-        // Fallback to sub_total for legacy records where informational_item_price was not populated.
-        $unitAmount = $componentItem->informational_item_price !== null
-            ? (float) $componentItem->informational_item_price
-            : ($storedQuantity > 0 ? ((float) $componentItem->sub_total / $storedQuantity) : (float) $componentItem->sub_total);
-
-        return round($unitAmount * $componentQuantity, 2);
-    }
-
-    private function quantitiesMatch(float $left, float $right): bool
-    {
-        return abs($left - $right) < 0.0001;
     }
 
     private function message(string $code, string $message, array $extra = []): array
@@ -1292,15 +978,6 @@ class PosReturnApprovalPreviewPlannerService
         return 'stok_sumber_akan_bertambah_saat_receiving';
     }
 
-    private function componentStockMovementIntent(SaleBundleItem $componentItem): string
-    {
-        if (! ($componentItem->product?->stock_managed ?? false)) {
-            return 'tidak_ada_mutasi_stok';
-        }
-
-        return 'stok_sumber_akan_bertambah_saat_receiving';
-    }
-
     private function serialMovementIntent(PosReturnLine $line): string
     {
         if (! $line->returned_serial_id) {
@@ -1310,15 +987,6 @@ class PosReturnApprovalPreviewPlannerService
         return $line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
             ? 'serial_retur_dilepas_dari_dispatch_dan_serial_pengganti_dikirim_pada_fase_dispatch'
             : 'serial_retur_dilepas_dari_dispatch_saat_receiving';
-    }
-
-    private function componentSerialMovementIntent(SaleBundleItem $componentItem, PosReturnLine $line): string
-    {
-        if (! ($componentItem->product?->serial_number_required ?? false)) {
-            return 'tidak_ada_mutasi_serial';
-        }
-
-        return $this->serialMovementIntent($line);
     }
 
     private function settingName(?int $settingId): ?string

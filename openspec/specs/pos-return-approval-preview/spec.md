@@ -1,5 +1,9 @@
-## MODIFIED Requirements
+# POS Return Approval Preview Specification
 
+## Purpose
+
+The POS Return approval preview workflow provides visibility into planned execution effects before final approval submission. This specification defines requirements for rendering read-only preview data that shows execution blockers, warnings, informational notes, planned return effects, split-owner Sales Returns, dispatch anchors, serial lineage, and explicit execution modes (serial physical replacement vs. note-only replacement) without mutating data until explicit final approval confirmation.
+## Requirements
 ### Requirement: Approval Preview Separates Warnings From Blockers
 The system SHALL distinguish approval blockers from warnings and informational notes. Warnings or informational notes MUST NOT change lifecycle state and MUST NOT prevent read-only preview rendering when all required execution identities are resolved. Final approval execution from the preview page MUST require zero blockers and zero warnings; informational notes alone MUST NOT block final approval.
 
@@ -32,6 +36,24 @@ The system SHALL keep approval preview read-only until the user explicitly confi
 #### Scenario: Opening preview remains non-mutating
 - **WHEN** an authorized user opens or refreshes approval preview for a pending POS Return
 - **THEN** the system does not mutate POS Return lifecycle fields, linked Sales Return records, stock, serials, dispatches, payments, source sales, or audit approval fields
+
+### Requirement: Approval Preview SHALL Disclose Replacement Execution Mode
+The approval preview SHALL distinguish serial inventory replacement from non-serial note-only replacement before final confirmation and SHALL show enough persisted lineage for the approver to verify the affected bundle parent or component.
+
+#### Scenario: Serial component replacement preview
+- **WHEN** a pending return replaces a serial-tracked bundle component
+- **THEN** preview SHALL show the bundle and component identity, original Sale and dispatch lineage, returned serial, replacement serial, source owner/location, replacement owner/location, and planned serial movements
+- **AND** it SHALL show zero customer refund and no original Sale commercial correction
+
+#### Scenario: Non-serial replacement preview
+- **WHEN** a pending return replaces a non-serial product
+- **THEN** preview SHALL label the action as note-only
+- **AND** it SHALL state that approval creates no receiving, dispatch, inventory, or HPP movement and that physical exchange or breakage is handled separately
+
+#### Scenario: Whole-bundle refund preview
+- **WHEN** a pending return cash-refunds a bundled quantity
+- **THEN** preview SHALL show the complete persisted parent/component composition, original owner/location lineage, and the single customer-facing refund amount
+- **AND** it SHALL not present component allocations as separate customer refunds
 
 ## ADDED Requirements
 

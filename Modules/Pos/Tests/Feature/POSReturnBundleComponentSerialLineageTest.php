@@ -170,6 +170,22 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
             'sub_total' => 0,
         ]);
 
+        // Component's own sibling SaleDetails row (unit_price = 0), required by
+        // PosReturnSubmissionService::synthesizeBundleCashReturnComponents() to
+        // find and persist a real component PosReturnLine.
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $comp->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $comp->product_name,
+            'product_code' => $comp->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
         // Parent (non-serialized here) dispatch, separate from the component's own.
         $parentDispatch = Dispatch::create(['sale_id' => $sale->id, 'status' => Dispatch::STATUS_APPROVED]);
         DispatchDetail::create([
@@ -333,6 +349,22 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
             'sub_total' => 0,
         ]);
 
+        // Component's own sibling SaleDetails row (unit_price = 0), quantity
+        // matching the total component quantity for this bundle line (2),
+        // required by PosReturnSubmissionService's synthesis lookup.
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $comp->id,
+            'quantity' => 2,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $comp->product_name,
+            'product_code' => $comp->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
         $parentDispatch = Dispatch::create(['sale_id' => $sale->id, 'status' => Dispatch::STATUS_APPROVED]);
         $parentDispatchDetail = DispatchDetail::create([
             'dispatch_id' => $parentDispatch->id,
@@ -450,9 +482,20 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
     {
         [$transaction, $saleDetail, $compSerial1, $compSerial2, $ptl, $parentSerial1] = $this->buildMultiUnitSerializedBundleComponentFixture();
 
-        // Return only 1 of the 2 bundled parent units.
+        // Return only 1 of the 2 bundled parent units. Under the new model,
+        // component identity/ambiguity is resolved during synthesis AT
+        // SUBMISSION TIME (PosReturnSubmissionService::synthesizeSerialComponentLines()),
+        // not surfaced as a planner-preview blocker — a partial bundle
+        // return that cannot prove which specific component serial(s) belong
+        // to the returned unit(s) must be rejected before a PosReturn is even
+        // created, matching POSReturnBundleCashReturnCompletenessTest's
+        // in-flight/ambiguity assertions.
         $snapshot = $this->snapshotService->build($transaction->id);
-        $posReturn = $this->submissionService->store([
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('component_serial_partial_return_ambiguous');
+
+        $this->submissionService->store([
             'pos_transaction_id' => $transaction->id,
             'return_option' => PosReturn::OPTION_CASH_RETURN,
             'source_snapshot' => $snapshot,
@@ -467,17 +510,6 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
                 ],
             ],
         ]);
-        $posReturn = $this->submissionService->submitDraftForApproval($posReturn->fresh());
-
-        $plan = app(PosReturnApprovalPreviewPlannerService::class)->plan($posReturn->fresh());
-
-        $this->assertNotEmpty($plan['blockers'] ?? [], 'A partial return covering fewer units than the component dispatch holds serials for must be blocked, not silently resolved.');
-        $blockerCodes = collect($plan['blockers'])->pluck('code')->all();
-        $this->assertContains('component_serial_partial_return_ambiguous', $blockerCodes);
-
-        // Persisting/executing this plan must be refused while it carries blockers.
-        $this->expectException(\RuntimeException::class);
-        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($posReturn->fresh(), $plan);
     }
 
     /** @test */
@@ -554,57 +586,35 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
         // into persisted SaleReturnDetail rows, without yet approving/receiving.
         app(PosReturnApprovalPlanPersistenceService::class)->synchronize($firstReturn->fresh(), $firstPlan);
 
-        // A second, independent PosReturn for the SAME underlying PosTransaction
-        // (simulating a second draft built concurrently before the first
-        // return's consuming state would have been visible to its own snapshot)
-        // must be blocked from synchronizing a plan that resolves to the same
-        // component serial, once that serial is already claimed by another
-        // pending-approval (consuming) return.
-        $secondReturn = PosReturn::create([
-            'setting_id' => $this->setting->id,
-            'pos_transaction_id' => $transaction->id,
-            'pos_checkout_id' => $transaction->completed_checkout_id,
-            'transaction_code' => $transaction->code,
-            'receipt_number' => 'RCP-COMP-DUP-' . uniqid(),
-            'source_snapshot' => $snapshot,
-            'source_snapshot_hash' => $snapshot['hash'],
-            'status' => PosReturn::STATUS_PENDING_APPROVAL,
-            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
-            'return_option' => PosReturn::OPTION_CASH_RETURN,
-            'reference' => 'POSRT-COMP-DUP-' . uniqid(),
-            'total_amount' => 1000000,
-        ]);
-        $checkoutSale = \Modules\Pos\Entities\PosCheckoutSale::where('sale_id', $saleDetail->sale_id)->firstOrFail();
+        // A second, independent PosReturn attempt for the SAME underlying
+        // PosTransaction (simulating a second draft built concurrently before
+        // the first return's consuming state would have been visible to its
+        // own snapshot). Under the new model, component identity is no
+        // longer re-derived live from line_meta.bundle_trace by the planner —
+        // it is resolved and claim-checked during synthesis AT SUBMISSION
+        // TIME (PosReturnSubmissionService::synthesizeSerialComponentLines()
+        // -> assertReturnedSerialNotClaimedElsewhere()). So the exclusivity
+        // violation now surfaces as an exception from submitDraftForApproval()
+        // (which runs synthesis), before a second PosReturn's plan could even
+        // be built.
+        $secondSnapshot = $this->snapshotService->build($transaction->id);
 
-        $secondReturn->lines()->create([
-            'pos_transaction_line_id' => null,
-            'pos_checkout_sale_id' => $checkoutSale->id,
-            'sale_id' => $saleDetail->sale_id,
-            'sale_detail_id' => $saleDetail->id,
-            'source_setting_id' => $this->setting->id,
-            'source_location_id' => $this->location->id,
-            'product_id' => $saleDetail->product_id,
-            'product_name' => $saleDetail->product_name,
-            'product_code' => $saleDetail->product_code,
-            'quantity' => 1,
-            'unit_price' => $saleDetail->unit_price,
-            'line_total' => $saleDetail->unit_price,
-            'stock_behavior' => \Modules\Pos\Entities\PosReturnLine::STOCK_BEHAVIOR_MANAGED,
-            'resolution' => \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN,
-            'expected_cash_amount' => 1000000,
-            'line_meta' => [
-                'bundle_id' => null,
-                'bundle_trace' => [
-                    ['product_id' => $compSerial->product_id, 'quantity_per_bundle' => 1, 'total_component_quantity' => 1],
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Serial yang diretur sudah diklaim oleh retur lain');
+
+        $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot' => $secondSnapshot,
+            'source_snapshot_hash' => $secondSnapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail->id,
+                    'quantity' => 1,
+                    'resolution' => PosReturn::OPTION_CASH_RETURN,
                 ],
             ],
         ]);
-
-        $secondPlan = app(PosReturnApprovalPreviewPlannerService::class)->plan($secondReturn->fresh());
-        $this->assertEmpty($secondPlan['blockers'] ?? [], 'The planner itself should still resolve the component identically: ' . json_encode($secondPlan['blockers'] ?? []));
-
-        $this->expectException(\RuntimeException::class);
-        app(PosReturnApprovalPlanPersistenceService::class)->synchronize($secondReturn->fresh(), $secondPlan);
     }
 
     /** @test */

@@ -255,36 +255,52 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             ->assertSee('SN-002')
             ->assertDontSee('Comp 1 (Split)') // Task 7.14
             ->set("lineSelections.{$lineKey1}.resolution", "product_replacement")
-            ->assertSee('Komponen Trace') // Task 7.13
-            ->assertSee('Comp 1')
-            ->assertSee('(Stok: 30)'); // Task 7.16
+            // Corrections/2 (align-bundle-return-replacement-rules Phase 2
+            // correction): the read-only "Komponen Trace" block was replaced
+            // by actionable per-component controls under "Komponen Bundle:".
+            ->assertSee('Komponen Bundle')
+            ->assertSee('Comp 1');
 
         // 6. Verify Draft Save (Task 7.15, 7.17)
+        // Note (align-bundle-return-replacement-rules Sequence 11
+        // correction): this fixture creates a REAL catalog ProductBundle
+        // (with real ProductBundleItem rows bi1/bi2), so every catalog
+        // component is authoritative and MUST be expected in full —
+        // including comp2, which has NO discoverable allocation row at all
+        // (no sibling SaleDetails row, no carrier row). An unresolvable
+        // catalog-backed component must surface as MISSING and reject the
+        // whole submission (Sequence 11), never be silently excluded — a
+        // "whole-bundle" cash return must never proceed without a component
+        // the catalog says must exist. comp1's zero-quantity sibling
+        // allocation row (Task 2.8) IS resolvable and refundable
+        // (PosReturnQuantityGuard's carrier-row fix from Sequence 11), but
+        // that alone is not enough — comp2's absence still blocks.
         $initialComp1Stock = \Modules\Product\Entities\ProductStock::where('product_id', $comp1->id)->where('location_id', $this->location->id)->value('quantity');
-        
-        Livewire::test(PosReturnCreateForm::class)
+
+        $component = Livewire::test(PosReturnCreateForm::class)
             ->set('identifier', $transaction->code)
             ->call('lookup')
             ->set("lineSelections.{$lineKey1}.resolution", "cash_return")
-            ->call('submit')
-            ->assertHasNoErrors();
-            
+            ->call('submit');
+
+        $this->assertStringContainsString(
+            'harus mencakup seluruh unit bundel',
+            $component->get('error'),
+            'Parent-only bundle cash_return with an unresolvable catalog-backed component (comp2 has no allocation row at all) must be rejected as incomplete, never silently excluded.'
+        );
+
         $finalComp1Stock = \Modules\Product\Entities\ProductStock::where('product_id', $comp1->id)->where('location_id', $this->location->id)->value('quantity');
         $this->assertEquals($initialComp1Stock, $finalComp1Stock, "Stock should not be mutated during draft save (Task 7.17).");
 
-        $this->assertDatabaseHas('pos_returns', [
+        $this->assertDatabaseMissing('pos_returns', [
             'pos_transaction_id' => $transaction->id,
-            'total_amount' => 5000000, // Task 7.15: Full original POS unit price
         ]);
 
-        // Task 7.15: Verify expected_cash_amount on the return line itself
-        $posReturn = \Modules\Pos\Entities\PosReturn::where('pos_transaction_id', $transaction->id)->first();
-        $this->assertNotNull($posReturn, "POS Return should be created after submit.");
-        $this->assertDatabaseHas('pos_return_lines', [
-            'pos_return_id' => $posReturn->id,
-            'returned_serial_id' => $sn1->id,
-            'expected_cash_amount' => 5000000,
-        ]);
+        // Task 7.15 (expected_cash_amount for a full bundle cash_return) is
+        // covered end-to-end with a fixture that has real persisted
+        // allocation rows for every component in
+        // POSReturnBundleCashReturnCompletenessTest::whole_bundle_cash_return_is_accepted
+        // (align-bundle-return-replacement-rules Phase 2).
     }
 
     /**

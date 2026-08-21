@@ -494,6 +494,15 @@ class PosReturnApprovalPlanPersistenceService
             'replacement_serial_owner_setting_id' => $this->nullableInt($plannedDetail['replacement_serial_owner_setting_id'] ?? null),
             'replacement_serial_location_id' => $this->nullableInt($plannedDetail['replacement_serial_location_id'] ?? null),
             'execution_mode' => $this->nullableString($plannedDetail['execution_mode'] ?? null),
+            // `replacement_kind` is a DISTINCT field from `execution_mode` above:
+            // `execution_mode` carries same_owner_replacement/cross_owner_replacement
+            // (serial ownership routing), while `replacement_kind` carries the
+            // planner's physical-execution classification
+            // (serial_inventory_replacement | non_serial_note_only), sourced verbatim
+            // from Phase 2's PosReturnLine.line_meta.execution_mode. Persisting both
+            // under their own distinct keys avoids collapsing two different concepts
+            // into one column.
+            'replacement_kind' => $this->nullableString($plannedDetail['replacement_kind'] ?? null),
             'original_sale_correction_quantity' => $this->nullableDecimal($plannedDetail['original_sale_correction_quantity'] ?? null),
             'original_sale_correction_amount' => $this->nullableDecimal($plannedDetail['original_sale_correction_amount'] ?? null),
             'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($plannedDetail['generated_replacement_sale_effects'] ?? null),
@@ -522,6 +531,7 @@ class PosReturnApprovalPlanPersistenceService
             'replacement_serial_owner_setting_id' => $this->nullableInt($context['replacement_serial_owner_setting_id'] ?? null),
             'replacement_serial_location_id' => $this->nullableInt($context['replacement_serial_location_id'] ?? null),
             'execution_mode' => $this->nullableString($context['execution_mode'] ?? null),
+            'replacement_kind' => $this->nullableString($context['replacement_kind'] ?? null),
             'original_sale_correction_quantity' => $this->nullableDecimal($context['original_sale_correction_quantity'] ?? null),
             'original_sale_correction_amount' => $this->nullableDecimal($context['original_sale_correction_amount'] ?? null),
             'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($context['generated_replacement_sale_effects'] ?? null),

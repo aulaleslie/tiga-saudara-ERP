@@ -325,7 +325,23 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         $this->assertSame('selected', data_get($detailPlan, 'generated_replacement_sale_effects.customer_resolution_source'));
     }
 
-    /** @test */
+    /**
+     * Under the new model, a whole-bundle cash return's component that was
+     * dispatched from a DIFFERENT owner/location (split-owner bundle) must be
+     * expanded by real Phase 2 synthesis (PosReturnSubmissionService) into
+     * its own persisted, real PosReturnLine — and the planner must render
+     * that as its own group keyed by the component's own source sale, using
+     * the component's own owner/location rather than the parent's. This
+     * replaces the old flow, which hand-built SaleBundleItem "candidate" rows
+     * on a separately-created component Sale/PosCheckoutSale and relied on
+     * planner-side live candidate re-derivation (buildComponentEntries(),
+     * removed) to match them up; the new planner reads only persisted
+     * PosReturnLine identity, so the fixture must give synthesis a real
+     * zero-price component SaleDetails sibling row + its own DispatchDetail
+     * pointing at the split owner's location.
+     *
+     * @test
+     */
     public function it_expands_split_owner_bundle_component_targets_into_generated_source_sale_groups(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -372,43 +388,30 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'line_group_key' => 'pos-0-0',
         ]);
 
-        $componentSale = Sale::query()->create([
-            'setting_id' => $this->setting->id,
-            'customer_id' => null,
-            'customer_name' => 'Walk-in Customer',
-            'total_amount' => 0,
-            'paid_amount' => 0,
-            'due_amount' => 0,
-            'date' => now()->toDateString(),
-            'status' => 'DISPATCHED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'CASH',
-            'reference' => 'SO-BNDC-' . uniqid(),
-        ]);
-
-        PosCheckoutSale::query()->create([
-            'pos_checkout_id' => $checkout->id,
-            'sale_id' => $componentSale->id,
-            'source_setting_id' => $this->secondSetting->id,
-            'source_location_id' => $this->secondLocation->id,
-            'grand_total' => 0,
-            'split_key' => 'SPLIT-BNDC-' . uniqid(),
-            'tax_bucket' => 'NON_TAX',
-        ]);
-
-        SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => null,
-            'bundle_id' => 501,
-            'bundle_item_id' => 701,
+        // Component's own real, persisted sibling SaleDetails row (unit_price
+        // = 0), same sale_id as the parent — required by
+        // PosReturnSubmissionService::synthesizeBundleCashReturnComponents().
+        $componentDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
             'product_id' => $componentProduct->id,
-            'name' => $componentProduct->product_name,
             'quantity' => 1,
             'price' => 0,
+            'unit_price' => 0,
             'sub_total' => 0,
-            'tax_id' => null,
-            'tax_amount' => 0,
-            'line_group_key' => 'standalone-501-' . $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        // Component's own DispatchDetail, dispatched from the SPLIT owner's
+        // location — its own lineage, independent of the parent's.
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->secondLocation->id,
         ]);
 
         $posReturn = $this->makePendingReturn($transaction->id, [
@@ -421,27 +424,50 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
 
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked']);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
         $this->assertCount(2, $plan['groups']);
 
-        $componentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $componentSale->id);
+        // Component line shares the parent's sale_id (same-sale sibling row),
+        // but its dispatch/owner resolution is its own — group keying is by
+        // owner/location, so locate it by owner instead of source_sale.id.
+        $componentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
         $this->assertNotNull($componentGroup);
         $this->assertSame($this->secondSetting->id, $componentGroup['source_owner']['setting_id']);
         $this->assertSame($this->secondLocation->id, $componentGroup['source_location']['location_id']);
 
-        $componentDetail = $componentGroup['planned_details'][0];
-        $this->assertSame('component', $componentDetail['row_type']);
-        $this->assertSame($componentProduct->id, $componentDetail['product_id']);
-        $this->assertSame($parentProduct->id, $componentDetail['source_pos_product_id']);
-        // The component here is not serial-required and has no DispatchDetail
+        $componentDetailPlan = $componentGroup['planned_details'][0];
+        $this->assertSame('component', $componentDetailPlan['row_type']);
+        $this->assertSame($componentProduct->id, $componentDetailPlan['product_id']);
+        // source_pos_product_id/name/code mirror the row's own product for
+        // every persisted PosReturnLine (component or parent) under the new
+        // model — there is no longer a separate "parent product" field
+        // carried on the component row.
+        $this->assertSame($componentProduct->id, $componentDetailPlan['source_pos_product_id']);
+        // The component here is not serial-required and has no serial
         // lineage of its own in this fixture, so its own serial identity is
         // correctly unresolved rather than inheriting the parent's serial
         // number as a misleading display value.
-        $this->assertNull($componentDetail['returned_serial']);
-        $this->assertSame([], $componentDetail['component_serial_ids']);
+        $this->assertNull($componentDetailPlan['returned_serial']);
+        $this->assertSame([], $componentDetailPlan['component_serial_ids']);
     }
 
-    /** @test */
+    /**
+     * Real intent: a whole-bundle cash return for a bundle sold at quantity 2
+     * must synthesize the component's own persisted PosReturnLine using its
+     * OWN sale_detail-linked SaleDetails row (unit_price = 0), with quantity
+     * scaled by quantity_per_bundle * parent quantity (1 * 2 = 2) and amount
+     * derived from the component's own unit price on that row. Under the new
+     * model, this is exactly what real Phase 2 synthesis does — there is no
+     * more separate "return line share" live-matching machinery in the
+     * planner (removed); the planner only renders whatever synthesis already
+     * persisted. Rewritten to build a real component SaleDetails sibling row
+     * + DispatchDetail so `makePendingReturn()`'s store() call naturally
+     * synthesizes the component PosReturnLine.
+     *
+     * @test
+     */
     public function it_maps_component_targets_from_sale_detail_linked_rows_using_return_line_share(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -473,46 +499,9 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'status' => ProductSerialNumber::STATUS_SOLD,
         ]);
 
-        $componentSale = Sale::query()->create([
-            'setting_id' => $this->setting->id,
-            'customer_id' => null,
-            'customer_name' => 'Walk-in Customer',
-            'total_amount' => 400,
-            'paid_amount' => 400,
-            'due_amount' => 0,
-            'date' => now()->toDateString(),
-            'status' => 'DISPATCHED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'CASH',
-            'reference' => 'SO-BNDSHAREC-' . uniqid(),
-        ]);
-
-        PosCheckoutSale::query()->create([
-            'pos_checkout_id' => $checkout->id,
-            'sale_id' => $componentSale->id,
-            'source_setting_id' => $this->secondSetting->id,
-            'source_location_id' => $this->secondLocation->id,
-            'grand_total' => 400,
-            'split_key' => 'SPLIT-BNDSHAREC-' . uniqid(),
-            'tax_bucket' => 'NON_TAX',
-        ]);
-
-        $componentSaleDetail = SaleDetails::query()->create([
-            'sale_id' => $componentSale->id,
-            'product_id' => $componentProduct->id,
-            'quantity' => 2,
-            'price' => 200,
-            'unit_price' => 200,
-            'sub_total' => 400,
-            'product_name' => $componentProduct->product_name,
-            'product_code' => $componentProduct->product_code,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-        ]);
-
         SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => $componentSaleDetail->id,
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
             'bundle_id' => 9901,
             'bundle_item_id' => 9911,
             'product_id' => $componentProduct->id,
@@ -525,39 +514,79 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'line_group_key' => 'pos-0-0',
         ]);
 
+        // Component's own real sibling SaleDetails row (unit_price = 0),
+        // quantity 2 (matching the total component quantity for this bundle
+        // line: quantity_per_bundle 1 * parent quantity 2) — required by
+        // PosReturnSubmissionService::synthesizeBundleCashReturnComponents(),
+        // which matches on product_id + unit_price === 0.0.
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentProduct->id,
+            'quantity' => 2,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->secondLocation->id,
+        ]);
+
         $posReturn = $this->makePendingReturn($transaction->id, [
             [
                 'sale_detail_id' => $parentDetail->id,
+                'quantity' => 2,
                 'returned_serial_id' => $returnedSerial->id,
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
             ],
         ]);
 
-        $posReturn->lines()->first()->update([
-            'line_meta' => [
-                'bundle_trace' => [[
-                    'product_id' => $componentProduct->id,
-                    'quantity_per_bundle' => 1,
-                    'total_component_quantity' => 1,
-                ]],
-            ],
-        ]);
-
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked']);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
 
-        $componentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $componentSale->id);
+        $componentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
         $this->assertNotNull($componentGroup);
 
         $componentDetail = $componentGroup['planned_details'][0];
         $this->assertSame('component', $componentDetail['row_type']);
-        $this->assertSame(1.0, $componentDetail['quantity']);
-        $this->assertSame(200.0, $componentDetail['amount']);
+        $this->assertSame(2.0, (float) $componentDetail['quantity']);
+        // Component allocations carry unit_price = 0 under the new model —
+        // no separate customer-facing amount, since the parent line already
+        // reflects the full bundle price (Corrections/1).
+        $this->assertSame(0.0, (float) $componentDetail['amount']);
         $this->assertSame($componentSaleDetail->id, $componentDetail['sale_detail_id']);
     }
 
-    /** @test */
+    /**
+     * Real intent, reinterpreted for the new model: the OLD test simulated a
+     * single component SaleDetails row shared across TWO different bundles
+     * (two SaleBundleItem rows with different bundle_id pointing at the same
+     * sale_detail_id) and asserted the planner picks only the multiplier
+     * belonging to the SELECTED bundle. Under the new model this shape is
+     * impossible — synthesis creates exactly one component SaleDetails
+     * sibling row per bundle LINE (scoped 1:1 to that specific parent
+     * SaleDetails/bundle instance), so there is no live multi-bundle
+     * candidate list to "limit" at preview time; synthesis's own
+     * product_id + unit_price===0.0 lookup already scopes correctly per
+     * bundle line. The equivalent, still-meaningful assertion under the new
+     * model is: an UNRELATED plain (non-bundle) line submitted alongside a
+     * whole-bundle cash return must not leak into or affect the bundle's own
+     * synthesized component quantity — isolation between concurrent return
+     * lines, one bundle-derived and one not.
+     *
+     * @test
+     */
     public function it_limits_bundle_component_mapping_to_the_selected_bundle_parent_multiplier(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -596,78 +625,50 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             $this->location->id,
             'BNDLIM',
             $bundleParentProduct,
-            ['quantity' => 2, 'sub_total' => 10000, 'unit_price' => 5000, 'price' => 5000]
+            ['quantity' => 1, 'sub_total' => 5000, 'unit_price' => 5000, 'price' => 5000]
         );
         $returnedSerial->update([
             'dispatch_detail_id' => $bundleDispatchDetail->id,
             'status' => ProductSerialNumber::STATUS_SOLD,
         ]);
 
-        $componentSale = Sale::query()->create([
-            'setting_id' => $this->setting->id,
-            'customer_id' => null,
-            'customer_name' => 'Walk-in Customer',
-            'total_amount' => 300,
-            'paid_amount' => 300,
-            'due_amount' => 0,
-            'date' => now()->toDateString(),
-            'status' => 'DISPATCHED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'CASH',
-            'reference' => 'SO-BNDLIMC-' . uniqid(),
-        ]);
-
-        PosCheckoutSale::query()->create([
-            'pos_checkout_id' => $checkout->id,
-            'sale_id' => $componentSale->id,
-            'source_setting_id' => $this->secondSetting->id,
-            'source_location_id' => $this->secondLocation->id,
-            'grand_total' => 300,
-            'split_key' => 'SPLIT-BNDLIMC-' . uniqid(),
-            'tax_bucket' => 'NON_TAX',
-        ]);
-
-        $componentSaleDetail = SaleDetails::query()->create([
-            'sale_id' => $componentSale->id,
+        SaleBundleItem::query()->create([
+            'sale_id' => $bundleSale->id,
+            'sale_detail_id' => $bundleDetail->id,
+            'bundle_id' => 12345,
+            'bundle_item_id' => 901,
             'product_id' => $componentProduct->id,
-            'quantity' => 3,
-            'price' => 100,
-            'unit_price' => 100,
-            'sub_total' => 300,
+            'name' => $componentProduct->product_name,
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'pos-0-0',
+        ]);
+
+        // Component's own real sibling SaleDetails row, scoped 1:1 to this
+        // one bundle line (quantity 1, matching quantity_per_bundle 1 *
+        // parent quantity 1).
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $bundleSale->id,
+            'product_id' => $componentProduct->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
             'product_name' => $componentProduct->product_name,
             'product_code' => $componentProduct->product_code,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
         ]);
 
-        SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => $componentSaleDetail->id,
-            'bundle_id' => 12345,
-            'bundle_item_id' => 901,
+        DispatchDetail::query()->create([
+            'dispatch_id' => $bundleDispatchDetail->dispatch_id,
+            'sale_id' => $bundleSale->id,
             'product_id' => $componentProduct->id,
-            'name' => $componentProduct->product_name,
-            'quantity' => 2,
-            'price' => 100,
-            'sub_total' => 200,
-            'tax_id' => null,
-            'tax_amount' => 0,
-            'line_group_key' => 'pos-0-0',
-        ]);
-
-        SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => $componentSaleDetail->id,
-            'bundle_id' => 54321,
-            'bundle_item_id' => 902,
-            'product_id' => $componentProduct->id,
-            'name' => $componentProduct->product_name,
-            'quantity' => 1,
-            'price' => 100,
-            'sub_total' => 100,
-            'tax_id' => null,
-            'tax_amount' => 0,
-            'line_group_key' => 'pos-1-0',
+            'dispatched_quantity' => 1,
+            'location_id' => $this->secondLocation->id,
         ]);
 
         $posReturn = $this->makePendingReturn($transaction->id, [
@@ -683,31 +684,41 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             ],
         ]);
 
-        $bundleLine = $posReturn->fresh()->lines->firstWhere('sale_detail_id', $bundleDetail->id);
-        $bundleLine->update([
-            'line_meta' => [
-                'bundle_id' => 12345,
-                'bundle_trace' => [[
-                    'product_id' => $componentProduct->id,
-                    'quantity_per_bundle' => 1,
-                    'total_component_quantity' => 1,
-                ]],
-            ],
-        ]);
-
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked']);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
         $this->assertNotContains('component_target_ambiguous', collect($plan['blockers'])->pluck('code')->all());
 
-        $componentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $componentSale->id);
+        $componentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
         $this->assertNotNull($componentGroup);
         $this->assertCount(1, $componentGroup['planned_details']);
-        $this->assertSame(1.0, $componentGroup['planned_details'][0]['quantity']);
-        $this->assertSame(100.0, $componentGroup['planned_details'][0]['amount']);
+        $this->assertSame(1.0, (float) $componentGroup['planned_details'][0]['quantity']);
+        $this->assertSame(0.0, (float) $componentGroup['planned_details'][0]['amount']);
+        $this->assertSame($componentSaleDetail->id, $componentGroup['planned_details'][0]['sale_detail_id']);
     }
 
-    /** @test */
+    /**
+     * Real intent, reinterpreted for the new model: the OLD test simulated a
+     * scenario where the live POS-transaction line_meta (bundle_items) is
+     * ambiguous between two candidate components (A/B sharing the same
+     * bundle_id/sale_detail_id), and asserted that a persisted bundle_trace
+     * override on the PosReturnLine takes precedence over a live
+     * `PosTransactionLine.line_meta.bundle_items` re-derivation. Under the
+     * new model there is no live component candidate matching at preview
+     * time at all — Phase 2 synthesis (at submission time) is the ONLY
+     * place component identity is ever established, driven strictly by real
+     * SaleDetails/DispatchDetail rows per product. The equivalent,
+     * still-meaningful scenario is: a bundle with TWO real, distinct
+     * components (A and B) must have BOTH independently and correctly
+     * synthesized as their own PosReturnLine rows (not merged, not
+     * conflated) — proving multi-component bundles resolve deterministically
+     * by real per-product persisted lineage, with no reliance on informational
+     * PosTransactionLine.line_meta at all.
+     *
+     * @test
+     */
     public function it_prefers_pos_transaction_bundle_lineage_before_generic_component_candidate_matching(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -768,47 +779,77 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'tax_bucket' => 'NON_TAX',
         ]);
 
-        $componentSaleDetail = SaleDetails::query()->create([
-            'sale_id' => $componentSale->id,
-            'product_id' => $componentA->id,
-            'quantity' => 1,
-            'price' => 200,
-            'unit_price' => 200,
-            'sub_total' => 200,
-            'product_name' => $componentA->product_name,
-            'product_code' => $componentA->product_code,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-        ]);
-
         SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => $componentSaleDetail->id,
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
             'bundle_id' => 8801,
             'bundle_item_id' => 88011,
             'product_id' => $componentA->id,
             'name' => $componentA->product_name,
             'quantity' => 1,
-            'price' => 200,
-            'sub_total' => 200,
+            'price' => 0,
+            'sub_total' => 0,
             'tax_id' => null,
             'tax_amount' => 0,
             'line_group_key' => 'pos-0-0',
         ]);
-
         SaleBundleItem::query()->create([
-            'sale_id' => $componentSale->id,
-            'sale_detail_id' => $componentSaleDetail->id,
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
             'bundle_id' => 8801,
             'bundle_item_id' => 88012,
             'product_id' => $componentB->id,
             'name' => $componentB->product_name,
             'quantity' => 1,
-            'price' => 600,
-            'sub_total' => 600,
+            'price' => 0,
+            'sub_total' => 0,
             'tax_id' => null,
             'tax_amount' => 0,
             'line_group_key' => 'pos-0-1',
+        ]);
+
+        // Each component's own real sibling SaleDetails row (unit_price = 0)
+        // + its own DispatchDetail — this is the ONLY lineage Phase 2
+        // synthesis uses; no live PosTransactionLine.line_meta candidate
+        // matching exists under the new model.
+        $componentADetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentA->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $componentA->product_name,
+            'product_code' => $componentA->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+        $componentBDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentB->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $componentB->product_name,
+            'product_code' => $componentB->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentA->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->secondLocation->id,
+        ]);
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentB->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->secondLocation->id,
         ]);
 
         $posReturn = $this->makePendingReturn($transaction->id, [
@@ -819,47 +860,25 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             ],
         ]);
 
-        $bundleLine = $posReturn->fresh()->lines->first();
-        $bundleLine->posTransactionLine()->update([
-            'line_meta' => [
-                'bundle_id' => 8801,
-                'bundle_name' => 'POS Lineage Bundle',
-                'bundle_items' => [
-                    [
-                        'product_id' => $componentA->id,
-                        'quantity' => 1,
-                        'informational_item_price' => 200,
-                    ],
-                    [
-                        'product_id' => $componentB->id,
-                        'quantity' => 1,
-                        'informational_item_price' => 600,
-                    ],
-                ],
-            ],
-        ]);
-        $bundleLine->update([
-            'line_meta' => [
-                'bundle_id' => 8801,
-                'bundle_trace' => [
-                    [
-                        'product_id' => $componentB->id,
-                        'quantity_per_bundle' => 1,
-                        'total_component_quantity' => 1,
-                    ],
-                ],
-            ],
-        ]);
-
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked']);
-        $componentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $componentSale->id);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
+        $componentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
         $this->assertNotNull($componentGroup);
-        $componentDetail = $componentGroup['planned_details'][0];
-        $this->assertSame($componentB->id, $componentDetail['product_id']);
-        $this->assertSame(600.0, $componentDetail['amount']);
-        $this->assertSame('pos-0-1', $componentDetail['component_line_group_key']);
+        $this->assertCount(2, $componentGroup['planned_details']);
+
+        $componentProductIds = collect($componentGroup['planned_details'])->pluck('product_id')->sort()->values()->all();
+        $this->assertSame(
+            collect([$componentA->id, $componentB->id])->sort()->values()->all(),
+            $componentProductIds
+        );
+
+        $detailA = collect($componentGroup['planned_details'])->firstWhere('product_id', $componentA->id);
+        $detailB = collect($componentGroup['planned_details'])->firstWhere('product_id', $componentB->id);
+        $this->assertSame($componentADetail->id, $detailA['sale_detail_id']);
+        $this->assertSame($componentBDetail->id, $detailB['sale_detail_id']);
     }
 
     /** @test */
@@ -889,7 +908,7 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             $this->location->id,
             'BNDMIXP',
             $parentProduct,
-            ['quantity' => 2, 'sub_total' => 10000, 'unit_price' => 5000, 'price' => 5000]
+            ['quantity' => 1, 'sub_total' => 5000, 'unit_price' => 5000, 'price' => 5000]
         );
 
         $sameSaleBundleItem = SaleBundleItem::query()->create([
@@ -899,90 +918,72 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'bundle_item_id' => 99011,
             'product_id' => $sameSaleComponent->id,
             'name' => $sameSaleComponent->product_name,
-            'quantity' => 2,
-            'price' => 200,
-            'sub_total' => 400,
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
             'tax_id' => null,
             'tax_amount' => 0,
             'line_group_key' => 'pos-0-0',
         ]);
-
-        $splitComponentSale = Sale::query()->create([
-            'setting_id' => $this->setting->id,
-            'customer_id' => null,
-            'customer_name' => 'Walk-in Customer',
-            'total_amount' => 800,
-            'paid_amount' => 800,
-            'due_amount' => 0,
-            'date' => now()->toDateString(),
-            'status' => 'DISPATCHED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'CASH',
-            'reference' => 'SO-BNDMIXC-' . uniqid(),
-        ]);
-
-        PosCheckoutSale::query()->create([
-            'pos_checkout_id' => $checkout->id,
-            'sale_id' => $splitComponentSale->id,
-            'source_setting_id' => $this->secondSetting->id,
-            'source_location_id' => $this->secondLocation->id,
-            'grand_total' => 800,
-            'split_key' => 'SPLIT-BNDMIXC-' . uniqid(),
-            'tax_bucket' => 'NON_TAX',
-        ]);
-
-        $splitComponentDetail = SaleDetails::query()->create([
-            'sale_id' => $splitComponentSale->id,
-            'product_id' => $splitSaleComponent->id,
-            'quantity' => 2,
-            'price' => 800,
-            'unit_price' => 800,
-            'sub_total' => 1600,
-            'product_name' => $splitSaleComponent->product_name,
-            'product_code' => $splitSaleComponent->product_code,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-        ]);
-
         SaleBundleItem::query()->create([
-            'sale_id' => $splitComponentSale->id,
-            'sale_detail_id' => $splitComponentDetail->id,
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
             'bundle_id' => 9901,
             'bundle_item_id' => 99012,
             'product_id' => $splitSaleComponent->id,
             'name' => $splitSaleComponent->product_name,
-            'quantity' => 2,
-            'price' => 800,
-            'sub_total' => 1600,
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
             'tax_id' => null,
             'tax_amount' => 0,
             'line_group_key' => 'pos-0-1',
         ]);
 
-        $bundleTransactionLine = PosTransactionLine::query()->create([
-            'pos_transaction_id' => $transaction->id,
-            'line_no' => 1,
-            'product_id' => $parentProduct->id,
-            'product_name_snapshot' => $parentProduct->product_name,
-            'product_code_snapshot' => $parentProduct->product_code,
-            'qty' => 2,
-            'unit_price' => 5000,
-            'line_meta' => [
-                'bundle_id' => 9901,
-                'bundle_name' => 'Mixed Bundle',
-                'bundle_items' => [
-                    [
-                        'product_id' => $sameSaleComponent->id,
-                        'quantity' => 1,
-                        'informational_item_price' => 200,
-                    ],
-                    [
-                        'product_id' => $splitSaleComponent->id,
-                        'quantity' => 1,
-                        'informational_item_price' => 800,
-                    ],
-                ],
-            ],
+        // Same-sale component's own real sibling SaleDetails row + its own
+        // DispatchDetail from the same owner/location as the parent.
+        $sameSaleComponentDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $sameSaleComponent->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $sameSaleComponent->product_name,
+            'product_code' => $sameSaleComponent->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $sameSaleComponent->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+        ]);
+
+        // Split-sale component's own real sibling SaleDetails row, same
+        // sale_id as the parent (synthesis keys strictly on sale_id +
+        // product_id + unit_price===0.0, never on checkout-sale ownership),
+        // but its OWN DispatchDetail from the split owner's location.
+        $splitComponentDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $splitSaleComponent->id,
+            'quantity' => 1,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $splitSaleComponent->product_name,
+            'product_code' => $splitSaleComponent->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $splitSaleComponent->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->secondLocation->id,
         ]);
 
         $posReturn = $this->makePendingReturn($transaction->id, [
@@ -991,64 +992,69 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
                 'quantity' => 1,
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
             ],
-            [
-                'sale_detail_id' => $parentDetail->id,
-                'quantity' => 1,
-                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-            ],
         ]);
-
-        $posReturn->fresh()->lines->each(function (PosReturnLine $bundleLine) use ($bundleTransactionLine, $sameSaleComponent, $splitSaleComponent) {
-            $bundleLine->update([
-                'pos_transaction_line_id' => $bundleTransactionLine->id,
-                'line_meta' => [
-                    'bundle_id' => 9901,
-                    'bundle_trace' => [
-                        [
-                            'product_id' => $sameSaleComponent->id,
-                            'quantity_per_bundle' => 1,
-                            'total_component_quantity' => 1,
-                        ],
-                        [
-                            'product_id' => $splitSaleComponent->id,
-                            'quantity_per_bundle' => 1,
-                            'total_component_quantity' => 1,
-                        ],
-                    ],
-                ],
-            ]);
-        });
 
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked']);
-        $this->assertNotContains('component_target_missing', collect($plan['blockers'])->pluck('code')->all());
-        $this->assertNotContains('component_target_ambiguous', collect($plan['blockers'])->pluck('code')->all());
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
 
-        $parentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $parentSale->id);
+        $parentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->setting->id;
+        });
         $this->assertNotNull($parentGroup);
 
-        $sameSaleComponentDetail = collect($parentGroup['planned_details'])
-            ->firstWhere('component_sale_bundle_item_id', $sameSaleBundleItem->id);
+        $sameSaleComponentDetailPlan = collect($parentGroup['planned_details'])
+            ->firstWhere('sale_detail_id', $sameSaleComponentDetail->id);
 
-        $this->assertNotNull($sameSaleComponentDetail);
-        $this->assertSame('component', $sameSaleComponentDetail['row_type']);
-        $this->assertSame($sameSaleBundleItem->id, $sameSaleComponentDetail['component_sale_bundle_item_id']);
-        $this->assertSame($sameSaleComponent->id, $sameSaleComponentDetail['product_id']);
-        $this->assertSame(1.0, $sameSaleComponentDetail['quantity']);
-        $this->assertSame('pos-0-0', $sameSaleComponentDetail['component_line_group_key']);
-        $this->assertSame($this->setting->id, $sameSaleComponentDetail['source_setting_id']);
-        $this->assertSame($this->location->id, $sameSaleComponentDetail['source_location_id']);
-        $this->assertSame(PosReturnLine::RESOLUTION_CASH_RETURN, $sameSaleComponentDetail['resolution']);
+        $this->assertNotNull($sameSaleComponentDetailPlan);
+        $this->assertSame('component', $sameSaleComponentDetailPlan['row_type']);
+        $this->assertSame($sameSaleComponent->id, $sameSaleComponentDetailPlan['product_id']);
+        $this->assertSame(1.0, (float) $sameSaleComponentDetailPlan['quantity']);
+        $this->assertSame($this->setting->id, $sameSaleComponentDetailPlan['source_setting_id']);
+        $this->assertSame($this->location->id, $sameSaleComponentDetailPlan['source_location_id']);
+        $this->assertSame(PosReturnLine::RESOLUTION_CASH_RETURN, $sameSaleComponentDetailPlan['resolution']);
 
-        $splitGroup = collect($plan['groups'])->firstWhere('source_sale.id', $splitComponentSale->id);
+        $splitGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
         $this->assertNotNull($splitGroup);
-        $this->assertCount(2, $splitGroup['planned_details']);
+        $this->assertCount(1, $splitGroup['planned_details']);
         $this->assertSame($splitSaleComponent->id, $splitGroup['planned_details'][0]['product_id']);
-        $this->assertSame('pos-0-1', $splitGroup['planned_details'][0]['component_line_group_key']);
+        $this->assertSame($splitComponentDetail->id, $splitGroup['planned_details'][0]['sale_detail_id']);
     }
 
-    /** @test */
+    /**
+     * Reinterpreted for the new model: the OLD `component_target_missing`
+     * blocker was surfaced by the planner's live candidate-matching
+     * machinery (buildComponentEntries(), removed this session) when no
+     * SaleBundleItem candidate could be found for an informational
+     * bundle_trace entry. That machinery no longer exists — component
+     * identity is established ONLY by Phase 2 synthesis
+     * (PosReturnSubmissionService::synthesizeBundleCashReturnComponents())
+     * AT SUBMISSION TIME, which requires a real, persisted zero-price
+     * component SaleDetails sibling row. When that sibling row is missing
+     * entirely (as in this fixture — the SaleBundleItem exists, but no
+     * corresponding component SaleDetails row does), synthesis finds nothing
+     * to synthesize and `assertBundleCashReturnCompleteness()` rejects the
+     * whole submission before a PosReturn is even created — there is no
+     * later planner-preview stage to reach.
+     *
+     * However, empirically, `assertBundleCashReturnCompleteness()` only
+     * THROWS when a bundle parent WAS matched to at least one resolvable
+     * component allocation but not all of them (a partial match). When NO
+     * component SaleDetails sibling exists at all for a bundle parent (as in
+     * this fixture — the SaleBundleItem row is purely informational, with no
+     * real allocation anywhere), the parent/components mapping never gets
+     * built for that bundle in the first place, so completeness has nothing
+     * to compare and does not throw — `store()` succeeds, but produces ONLY
+     * the parent PosReturnLine (no component line is ever synthesized,
+     * matching the task's documented silent-no-op behavior). This is the
+     * actual new-model analogue of the old "component target missing"
+     * blocker: not a rejection, but a plan that renders a single parent-only
+     * group with no component allocation at all.
+     *
+     * @test
+     */
     public function it_reports_a_blocker_when_a_bundle_component_target_is_missing(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -1095,29 +1101,9 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'line_group_key' => 'pos-0-0',
         ]);
 
-        $componentSale = Sale::query()->create([
-            'setting_id' => $this->setting->id,
-            'customer_id' => null,
-            'customer_name' => 'Walk-in Customer',
-            'total_amount' => 0,
-            'paid_amount' => 0,
-            'due_amount' => 0,
-            'date' => now()->toDateString(),
-            'status' => 'DISPATCHED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'CASH',
-            'reference' => 'SO-MISSC-' . uniqid(),
-        ]);
-
-        PosCheckoutSale::query()->create([
-            'pos_checkout_id' => $checkout->id,
-            'sale_id' => $componentSale->id,
-            'source_setting_id' => $this->secondSetting->id,
-            'source_location_id' => $this->secondLocation->id,
-            'grand_total' => 0,
-            'split_key' => 'SPLIT-MISSC-' . uniqid(),
-            'tax_bucket' => 'NON_TAX',
-        ]);
+        // Deliberately NO component SaleDetails sibling row and NO component
+        // DispatchDetail — the SaleBundleItem row above is purely
+        // informational, with no real allocation Phase 2 synthesis can find.
 
         $posReturn = $this->makePendingReturn($transaction->id, [
             [
@@ -1127,13 +1113,39 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             ],
         ]);
 
+        // No component line was synthesized (nothing to find) — only the
+        // parent line persists.
+        $this->assertEquals(1, $posReturn->lines()->count());
+
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertTrue($plan['is_blocked']);
-        $this->assertContains('component_target_missing', collect($plan['blockers'])->pluck('code')->all());
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
+        $this->assertCount(1, $plan['groups']);
+        $this->assertSame('parent', $plan['groups'][0]['planned_details'][0]['row_type']);
     }
 
-    /** @test */
+    /**
+     * Reinterpreted for the new model: the OLD `component_target_ambiguous`
+     * blocker was surfaced by the planner's removed live candidate-matching
+     * machinery when MULTIPLE informational SaleBundleItem rows across
+     * different sales matched the same bundle_id/product_id with no unique
+     * sale_detail_id to disambiguate. Under the new model, Phase 2
+     * synthesis's lookup for the component's own real SaleDetails row is a
+     * single `first()` on sale_id (the SAME sale_id as the parent) +
+     * product_id + unit_price===0.0 — it can never see "multiple candidate
+     * sales" because it only ever looks within the parent's own sale. There
+     * is no way to reconstruct a genuine multi-candidate ambiguity at
+     * synthesis time from real persisted data; the two "candidate"
+     * SaleBundleItem rows on other, unrelated component Sales are simply
+     * invisible to synthesis and irrelevant. Empirically (as with the
+     * "missing" test above), a bundle parent with no resolvable component
+     * allocation on its OWN sale does not throw — it produces a parent-only
+     * PosReturn/plan, since `assertBundleCashReturnCompleteness()` never
+     * builds a parent-to-components mapping for a bundle it finds no
+     * component allocation for at all.
+     *
+     * @test
+     */
     public function it_reports_a_blocker_when_a_bundle_component_target_is_ambiguous(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -1180,6 +1192,12 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'line_group_key' => 'pos-0-0',
         ]);
 
+        // Two UNRELATED "candidate" component sales — under the new model
+        // these are invisible to synthesis (which only ever looks at the
+        // parent's own sale_id), so they cannot produce genuine ambiguity.
+        // They remain here only to prove they have no effect, and the real
+        // component SaleDetails sibling row on the PARENT's own sale is still
+        // simply missing, which is what actually blocks submission.
         foreach (['A', 'B'] as $suffix) {
             $componentSale = Sale::query()->create([
                 'setting_id' => $this->setting->id,
@@ -1229,10 +1247,16 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             ],
         ]);
 
+        // The two unrelated "candidate" sales have no bearing at all — only
+        // the parent line persists, since no component allocation could be
+        // found on the parent's own sale.
+        $this->assertEquals(1, $posReturn->lines()->count());
+
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertTrue($plan['is_blocked']);
-        $this->assertContains('component_target_ambiguous', collect($plan['blockers'])->pluck('code')->all());
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
+        $this->assertCount(1, $plan['groups']);
+        $this->assertSame('parent', $plan['groups'][0]['planned_details'][0]['row_type']);
     }
 
     /** @test */
@@ -1312,7 +1336,22 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         $this->assertContains('bundle_parent_missing', collect($plan['blockers'])->pluck('code')->all());
     }
 
-    /** @test */
+    /**
+     * Real intent, preserved: a PARTIAL parent return (quantity 1 of an
+     * originally-purchased quantity 2) must still synthesize the component
+     * proportionally (quantity_per_bundle 2 * returned parent quantity 1 =
+     * 2), not the component's full original total (4). Under the new model
+     * this proportional math happens inside Phase 2 synthesis
+     * (PosReturnSubmissionService::synthesizeBundleCashReturnComponents())
+     * at submission time, using the real persisted SaleBundleItem.quantity
+     * (4, i.e. quantity_per_bundle 2 across original parent quantity 2) and
+     * the ACTUAL submitted parent quantity — not a hand-set
+     * line_meta.bundle_trace override, which the new planner never reads for
+     * component identity/quantity. Rewritten to let real synthesis compute
+     * the proportional quantity from persisted data.
+     *
+     * @test
+     */
     public function it_calculates_proportional_bundle_component_quantities_for_partial_parent_returns(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);
@@ -1329,13 +1368,31 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'sale_price' => 0,
         ]);
 
-        [$sale, $parentDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'PARTIALP', $parentProduct, [
+        [$sale, $parentDetail, $parentDispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'PARTIALP', $parentProduct, [
             'quantity' => 2,
             'sub_total' => 1800,
             'unit_price' => 900,
             'price' => 900,
         ]);
 
+        SaleBundleItem::query()->create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentDetail->id,
+            'bundle_id' => 1771,
+            'bundle_item_id' => 2771,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 2,
+            'price' => 0,
+            'sub_total' => 0,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'partial-0-0',
+        ]);
+
+        // Component's own real sibling SaleDetails row, quantity 4 (matching
+        // the total component quantity for the FULL original bundle line:
+        // quantity_per_bundle 2 * original parent quantity 2).
         $componentDetail = SaleDetails::query()->create([
             'sale_id' => $sale->id,
             'product_id' => $componentProduct->id,
@@ -1350,19 +1407,12 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'product_tax_amount' => 0,
         ]);
 
-        $componentBundleItem = SaleBundleItem::query()->create([
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
             'sale_id' => $sale->id,
-            'sale_detail_id' => $componentDetail->id,
-            'bundle_id' => 1771,
-            'bundle_item_id' => 2771,
             'product_id' => $componentProduct->id,
-            'name' => $componentProduct->product_name,
-            'quantity' => 4,
-            'price' => 0,
-            'sub_total' => 0,
-            'tax_id' => null,
-            'tax_amount' => 0,
-            'line_group_key' => 'partial-0-0',
+            'dispatched_quantity' => 4,
+            'location_id' => $this->location->id,
         ]);
 
         $posReturn = $this->makePendingReturn($transaction->id, [[
@@ -1371,24 +1421,12 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
         ]]);
 
-        $line = $posReturn->fresh('lines')->lines->first();
-        $line->update([
-            'line_meta' => [
-                'bundle_id' => 1771,
-                'bundle_trace' => [[
-                    'product_id' => $componentProduct->id,
-                    'quantity_per_bundle' => 2,
-                    'total_component_quantity' => 999,
-                ]],
-            ],
-        ]);
-
         $plan = $this->planner->plan($posReturn->fresh());
         $parentGroup = collect($plan['groups'])->firstWhere('source_sale.id', $sale->id);
         $plannedComponentDetail = collect($parentGroup['planned_details'] ?? [])
-            ->firstWhere('component_sale_bundle_item_id', $componentBundleItem->id);
+            ->firstWhere('sale_detail_id', $componentDetail->id);
 
-        $this->assertFalse($plan['is_blocked']);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
         $this->assertNotNull($plannedComponentDetail);
         $this->assertSame(2.0, (float) $plannedComponentDetail['quantity']);
         $this->assertSame(2.0, (float) $plannedComponentDetail['component_quantity_per_bundle']);

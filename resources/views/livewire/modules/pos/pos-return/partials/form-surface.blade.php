@@ -66,26 +66,6 @@
                             <tr wire:key="serial-row-{{ $lineKey }}">
                                 <td>
                                     <code class="font-weight-bold">{{ $serialNumber }}</code>
-
-                                    @if($group['is_bundle'] && !empty($group['bundle_items']) && $resolution !== 'none')
-                                        <div class="mt-2 pl-2">
-                                            <div class="text-muted small font-weight-bold mb-1">Komponen Trace:</div>
-                                            @foreach($group['bundle_items'] as $bi)
-                                                <div class="small text-muted mb-1 d-flex justify-content-between">
-                                                    <span>- {{ $bi['product_name'] }}</span>
-                                                    <span class="ml-2">
-                                                        {{ $bi['quantity'] }} unit
-                                                        @if($resolution === 'product_replacement')
-                                                            @php $avail = $this->getComponentAvailability($bi['product_id'], $serialLine['checkout_sale_id']); @endphp
-                                                            <span class="badge {{ $avail >= $bi['quantity'] ? 'badge-light text-success' : 'badge-light text-danger' }} ml-1">
-                                                                (Stok: {{ $avail }})
-                                                            </span>
-                                                        @endif
-                                                    </span>
-                                                </div>
-                                            @endforeach
-                                        </div>
-                                    @endif
                                 </td>
                                 <td class="text-center">
                                     @if($isReturnable)
@@ -153,6 +133,13 @@
                                                 <div class="text-danger small mt-1">{{ $message }}</div>
                                             @enderror
                                         @endif
+                                        <input type="text"
+                                               wire:model.defer="lineSelections.{{ $lineKey }}.replacement_reason"
+                                               class="form-control form-control-sm mt-1 @error('lineSelections.'.$lineKey.'.replacement_reason') is-invalid @enderror"
+                                               placeholder="Alasan penggantian (opsional)">
+                                        @error("lineSelections.{$lineKey}.replacement_reason")
+                                            <div class="text-danger small mt-1">{{ $message }}</div>
+                                        @enderror
                                     @endif
 
                                     @if($resolution === 'none')
@@ -163,6 +150,10 @@
                         @endforeach
                     </tbody>
                 </table>
+
+                @if($group['is_bundle'] && !empty($group['bundle_items']))
+                    @include('livewire.modules.pos.pos-return.partials.bundle-component-controls', ['components' => $group['bundle_items']])
+                @endif
 
             @elseif($group['non_serial_line'])
                 @php
@@ -200,6 +191,11 @@
                                             class="btn {{ $nsResolution === 'cash_return' ? 'btn-success' : 'btn-outline-success' }}">
                                         Tunai
                                     </button>
+                                    <button type="button"
+                                            wire:click="updateResolution('{{ $nsKey }}', 'product_replacement')"
+                                            class="btn {{ $nsResolution === 'product_replacement' ? 'btn-info' : 'btn-outline-info' }}">
+                                        Ganti
+                                    </button>
                                 </div>
                             @else
                                 <span class="badge badge-secondary">Habis</span>
@@ -226,18 +222,24 @@
                         </div>
                     </div>
 
-                    @if($group['is_bundle'] && !empty($group['bundle_items']) && $nsResolution !== 'none' && $nsQuantity > 0)
-                        <div class="mt-2 pl-3 border-left border-info">
-                            <small class="text-muted font-weight-bold"><i class="fas fa-sitemap mr-1"></i> Komponen Bundle:</small>
-                            @foreach($group['bundle_items'] as $bi)
-                                <div class="small text-muted pl-2">
-                                    {{ $bi['product_name'] ?? $bi['product_code'] ?? '?' }}
-                                    — {{ ($bi['quantity'] ?? $bi['quantity_per_bundle'] ?? 0) * $nsQuantity }} unit
-                                </div>
-                            @endforeach
+                    @if($nsResolution === 'product_replacement')
+                        <div class="row mt-2">
+                            <div class="col-sm-12">
+                                <input type="text"
+                                       wire:model.defer="lineSelections.{{ $nsKey }}.replacement_reason"
+                                       class="form-control form-control-sm @error('lineSelections.'.$nsKey.'.replacement_reason') is-invalid @enderror"
+                                       placeholder="Alasan penggantian">
+                                @error("lineSelections.{$nsKey}.replacement_reason")
+                                    <div class="text-danger small mt-1">{{ $message }}</div>
+                                @enderror
+                            </div>
                         </div>
                     @endif
                 </div>
+
+                @if($group['is_bundle'] && !empty($group['bundle_items']))
+                    @include('livewire.modules.pos.pos-return.partials.bundle-component-controls', ['components' => $group['bundle_items']])
+                @endif
             @endif
         </div>
     </div>

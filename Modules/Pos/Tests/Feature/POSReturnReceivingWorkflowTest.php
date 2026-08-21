@@ -167,6 +167,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
                 [
                     'sale_detail_id' => $saleDetail->id,
                     'quantity' => 1,
+                    'replacement_reason' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? 'Test replacement reason' : null,
                 ]
             ]
         ];
@@ -184,6 +185,7 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
                 : PosReturnLine::RESOLUTION_CASH_RETURN,
             'replacement_product_id' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? $product->id : null,
             'replacement_quantity' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? 1 : null,
+            'line_meta' => $returnOption === PosReturn::OPTION_PRODUCT_REPLACEMENT ? ['replacement_reason' => 'Test replacement reason'] : null,
         ]);
         $posReturn = $this->submissionService->submitDraftForApproval($posReturn);
 
@@ -369,10 +371,10 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
     {
         // 1. Create an approved replacement return
         $posReturn = $this->createApprovedReturn(PosReturn::OPTION_PRODUCT_REPLACEMENT);
-        
+
         $this->actingAsInSetting($this->receiver, $this->setting);
         $this->lifecycleService->receive($posReturn->id);
-        
+
         $posReturn->refresh();
         $this->assertEquals(PosReturn::STATUS_AWAITING_DISPATCH, $posReturn->status);
 
@@ -388,14 +390,14 @@ class POSReturnReceivingWorkflowTest extends PosTransactionFeatureTestCase
         foreach ($posReturn->saleReturns as $saleReturn) {
             $this->assertEquals('COMPLETED', $saleReturn->status);
             $this->assertNotNull($saleReturn->settled_at);
-            
+
             // Check Dispatch Record
             $this->assertTrue(
                 Dispatch::where('sale_id', $saleReturn->sale_id)
                     ->where('status', Dispatch::STATUS_APPROVED)
                     ->exists()
             );
-            
+
             // Check Stock Adjustment (Initial 10, Returned 1 => 11, Replaced 1 => 10)
             $saleReturn->load('saleReturnDetails.product');
             foreach ($saleReturn->saleReturnDetails as $detail) {

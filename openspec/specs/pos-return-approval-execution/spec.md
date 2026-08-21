@@ -1,5 +1,9 @@
-## ADDED Requirements
+# POS Return Approval Execution Specification
 
+## Purpose
+
+The POS Return approval workflow provides an authorized user interface to execute final approval of pending POS Returns from a preview page, applying all transactional effects to Sales, dispatch, inventory, payments, serials, and related documents. This specification defines the approval execution requirements for complete bundle cash refunds, independent bundle parent/component replacements, serial-tracked physical effects, and auditable note-only replacement completion, including atomicity and idempotency guarantees.
+## Requirements
 ### Requirement: Final Approval Executes Ready Preview Atomically
 The system SHALL allow an authorized approver to execute final POS Return approval from the approval preview page only when the latest preview has zero blockers and zero warnings. Execution MUST use the persisted POS Return line intent and a freshly rebuilt approval preview plan. Execution MUST run in one database transaction and MUST rollback all POS Return, Sales Return, Sale, dispatch, stock, serial, payment, and audit mutations when any step fails.
 
@@ -84,3 +88,16 @@ The system SHALL allow POS bundle returns only through the parent bundle line. C
 - **WHEN** a POS Return attempts to execute a bundle component without its parent bundle return line
 - **THEN** final approval is blocked
 - **AND** no mutation occurs
+
+### Requirement: Replacement Execution SHALL Remain Atomic And Idempotent
+Serial and note-only replacement execution SHALL participate in the existing final-approval transaction and idempotency guards. A retry MUST NOT duplicate notes, serial histories, receiving, dispatch, inventory, Sales Return, or HPP effects, and a failure MUST leave no partial execution.
+
+#### Scenario: Serial component replacement retry
+- **WHEN** an approved serial component replacement is retried after successful completion
+- **THEN** no duplicate serial history, stock movement, dispatch, inventory transaction, Sales Return detail, or HPP effect SHALL be created
+
+#### Scenario: Mixed execution failure rolls back
+- **WHEN** one approval contains executable bundle refund, serial replacement, or note-only replacement lines and a later line fails
+- **THEN** every mutation from that approval attempt SHALL roll back
+- **AND** the POS Return SHALL remain in its pre-execution state
+

@@ -46,6 +46,62 @@ class PosReturnQuantityGuard
     }
 
     /**
+     * Get still-refundable (cash_return) quantity for a sale detail.
+     *
+     * Unlike getReturnableQuantity() (which counts every resolution — a
+     * product_replacement still consumes a finite physical unit that can't
+     * also be cash-returned, or dispatched again, twice), this variant only
+     * counts quantity already consumed by an active cash_return line.
+     * product_replacement never reduces refundable commercial quantity: the
+     * customer is left holding an equivalent replacement unit, so a later
+     * whole-bundle cash return remains eligible for that same logical
+     * quantity. Only an actual cash refund (or a rejected/cancelled return,
+     * which consumes nothing per PosReturn::consumesReturnQuantity()) can
+     * exhaust what's still refundable.
+     *
+     * A bundle component attached to a split-owner "carrier" SaleDetails row
+     * (a zero-quantity row keyed by the PARENT's product_id, holding the
+     * component only via SaleBundleItem/DispatchDetail) has no usable own
+     * SaleDetails.quantity — that column is always 0 by construction. Pass
+     * $componentOriginalQuantity (the component's true original quantity,
+     * e.g. quantity_per_bundle × fully-refundable parent quantity) to use
+     * that instead of reading SaleDetails.quantity. Already-cash-returned
+     * consumption is still scoped to $saleDetailId, which remains a valid,
+     * consistent accounting key: synthesized component cash_return lines are
+     * always persisted against the same carrier sale_detail_id.
+     *
+     * @param int|null $saleDetailId
+     * @param int|null $excludeReturnId
+     * @param float|null $componentOriginalQuantity
+     * @return float
+     */
+    public function getRefundableQuantity(?int $saleDetailId, ?int $excludeReturnId = null, ?float $componentOriginalQuantity = null): float
+    {
+        if (!$saleDetailId) {
+            return 0.0;
+        }
+
+        if ($componentOriginalQuantity !== null) {
+            $originalQty = (float) $componentOriginalQuantity;
+        } else {
+            $saleDetail = SaleDetails::find($saleDetailId);
+            $originalQty = (float) ($saleDetail->quantity ?? 0);
+        }
+
+        $alreadyCashReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
+                $q->consumesReturnQuantity();
+                if ($excludeReturnId) {
+                    $q->where('id', '!=', $excludeReturnId);
+                }
+            })
+            ->where('sale_detail_id', $saleDetailId)
+            ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->sum('quantity');
+
+        return max(0, $originalQty - $alreadyCashReturned);
+    }
+
+    /**
      * Check if the requested return quantity is valid.
      *
      * @param int|null $dispatchDetailId

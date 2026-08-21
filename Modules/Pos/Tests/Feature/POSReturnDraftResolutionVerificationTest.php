@@ -715,6 +715,7 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
                     'sale_detail_id' => $snapshot['lines'][0]['sale_detail_id'],
                     'quantity' => 1,
                     'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                    'replacement_reason' => 'Test replacement reason',
                 ]
             ]
         ]);

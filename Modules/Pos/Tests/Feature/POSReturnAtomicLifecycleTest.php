@@ -466,8 +466,23 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         );
     }
 
-    /** @test */
-    public function it_dispatches_only_bundle_parent_during_final_approval_replacement(): void
+    /**
+     * Policy update (align-bundle-return-replacement-rules, decision #1):
+     * this fixture's parent and component replacement lines carry no
+     * replacement_kind/execution_mode tag at all (legacy fixture predating
+     * that concept), so the note-only gate's fallback preserves prior
+     * physical behavior for it rather than guessing from the absence of a
+     * replacement serial. Both lines therefore continue to dispatch
+     * physically exactly as before — the change under this policy is that
+     * the COMPONENT line is no longer treated as merely "informational
+     * bundle trace" for a standalone parent replacement (that concept now
+     * only applies when a detail's product differs from its own line's
+     * product); here each line has its own matching product and both are
+     * independent replacement targets, so BOTH dispatch.
+     *
+     * @test
+     */
+    public function it_dispatches_both_bundle_parent_and_component_as_independent_replacement_targets(): void
     {
         $this->actingAsInSetting($this->actor, $this->setting);
 
@@ -475,21 +490,23 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
 
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $posReturn->fresh()->status);
+
         $replacementDetails = DispatchDetail::query()
             ->whereIn('pos_return_line_id', [$parentLine->id, $componentLine->id])
             ->orderBy('id')
             ->get();
 
-        $this->assertCount(1, $replacementDetails);
+        $this->assertCount(2, $replacementDetails);
         $this->assertTrue($replacementDetails->every(fn (DispatchDetail $detail) => (int) $detail->bundle_id === $bundleId));
         $this->assertTrue($replacementDetails->contains(fn (DispatchDetail $detail) => (int) $detail->pos_return_line_id === (int) $parentLine->id && (int) $detail->dispatched_quantity === 1));
-        $this->assertFalse($replacementDetails->contains(fn (DispatchDetail $detail) => (int) $detail->pos_return_line_id === (int) $componentLine->id));
+        $this->assertTrue($replacementDetails->contains(fn (DispatchDetail $detail) => (int) $detail->pos_return_line_id === (int) $componentLine->id && (int) $detail->dispatched_quantity === 2));
 
-        $this->assertCount(1, Transaction::query()
+        $this->assertTrue(Transaction::query()
             ->where('product_id', $parentProduct->id)
             ->where('type', 'DISPATCH_RETURN')
-            ->get());
-        $this->assertFalse(Transaction::query()
+            ->exists());
+        $this->assertTrue(Transaction::query()
             ->where('product_id', $componentProduct->id)
             ->where('type', 'DISPATCH_RETURN')
             ->exists());
@@ -686,18 +703,28 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         $this->assertTrue($replacementBadges->contains(fn (array $badge) => $badge['serial_number'] === $replacementSerial->serial_number && $badge['state'] === 'replacement'));
     }
 
-    /** @test */
-    public function it_blocks_final_approval_execution_when_a_bundle_component_line_has_no_parent_line(): void
+    /**
+     * Policy update (align-bundle-return-replacement-rules, decision #1):
+     * replaceability follows the physical product, so an independent
+     * bundle-component product_replacement line must NOT require its parent
+     * bundle return line to exist — only a cash_return component still
+     * requires its parent (see the sibling cash_return coverage in
+     * POSReturnBundleCashReturnCompletenessTest). This test previously
+     * asserted the OLD, now-incorrect behavior of blocking every bundle
+     * component (cash or replacement alike) without a parent line.
+     *
+     * @test
+     */
+    public function it_allows_final_approval_execution_of_an_independent_bundle_component_replacement_without_its_parent_line(): void
     {
         $this->actingAsInSetting($this->actor, $this->setting);
 
         [$posReturn, $parentLine, $componentLine] = $this->createPendingApprovalBundleReplacementReturn();
         $parentLine->delete();
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Bundle component lines require their parent bundle return line before final approval can execute.');
-
         app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $posReturn->fresh()->status);
     }
 
     /** @test */

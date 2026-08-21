@@ -353,6 +353,7 @@ class PosReturnLifecycleService
             $replacementDetails = $details
                 ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
                 ->reject(fn ($detail) => $this->isReplacementInformationalBundleComponentDetail($detail))
+                ->reject(fn ($detail) => $this->isNoteOnlyReplacementDetail($detail))
                 ->values();
 
             $sameOwnerReplacementDetails = $replacementDetails
@@ -417,6 +418,14 @@ class PosReturnLifecycleService
                     continue;
                 }
 
+                // Task 4.5: non-serial (note-only) replacement never gets a
+                // cost reversal — no physical movement means no HPP effect,
+                // and cost_effective_at must stay null on this detail.
+                if ($resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                    && $this->isNoteOnlyReplacementDetail($detail)) {
+                    continue;
+                }
+
                 // Cash returns and cross-owner replacements both route through
                 // applyCashReturnSaleDetailCorrections(), which proportionally
                 // reduces the underlying SaleDetails/SaleBundleItem quantity and
@@ -476,10 +485,25 @@ class PosReturnLifecycleService
         ])->save();
     }
 
+    /**
+     * Policy (design.md decision #1): refundability follows the
+     * customer-facing bundle, replaceability follows the physical product.
+     * Only a `cash_return` bundle-component line still requires its parent
+     * line to be present in the same PosReturn — a `product_replacement`
+     * component line is independently valid and must NEVER be blocked here
+     * for lacking a parent line. Phase 2's synthesizeBundleCashReturnComponents()
+     * already guarantees a parent is present for every synthesized cash_return
+     * component at draft-submission time, so this check is a defensive
+     * consistency re-check for cash_return, not a live blocker for normal flows.
+     */
     protected function assertBundleExecutionGuards(\Modules\Pos\Entities\PosReturn $posReturn): void
     {
         foreach ($posReturn->lines as $line) {
             if (! $this->isBundleComponentLine($line)) {
+                continue;
+            }
+
+            if ((string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN) {
                 continue;
             }
 
@@ -807,6 +831,7 @@ class PosReturnLifecycleService
 
         foreach ($details as $detail) {
             $this->assertReplacementDispatchEligibility($detail);
+            $this->assertReturnedSerialNotInFlightUnderLock($detail);
 
             $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
                 'dispatch_id' => $dispatch->id,
@@ -972,6 +997,8 @@ class PosReturnLifecycleService
         ?int $actorId,
         \Illuminate\Support\Carbon $executedAt
     ): void {
+        $this->assertReturnedSerialNotInFlightUnderLock($detail);
+
         $executionContext = $this->detailExecutionContext($detail);
         $replacementSettingId = (int) ($executionContext['replacement_serial_owner_setting_id'] ?? 0);
         $replacementLocationId = (int) ($executionContext['replacement_serial_location_id'] ?? 0);
@@ -1286,6 +1313,18 @@ class PosReturnLifecycleService
         return false;
     }
 
+    /**
+     * A detail is INFORMATIONAL (never physically effective, regardless of
+     * serial/note-only classification) only when it represents bundle
+     * component context nested under a STANDALONE PARENT product_replacement
+     * line — i.e. the detail's own product differs from its line's product,
+     * meaning this detail is not itself the thing being replaced, just
+     * informational trace. This must NOT fire for a genuine component-targeted
+     * replacement line (design.md decision: replaceability follows the
+     * physical product — an independent bundle-component replacement line IS
+     * a real replacement target and must execute like any other, subject only
+     * to the serial vs. note-only gate in isNoteOnlyReplacementDetail()).
+     */
     protected function isReplacementInformationalBundleComponentDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
     {
         $line = $detail->posReturnLine;
@@ -1294,14 +1333,61 @@ class PosReturnLifecycleService
             return false;
         }
 
-        if ($this->isBundleComponentLine($line)) {
-            return true;
-        }
-
         $bundleTrace = collect(data_get($line->line_meta, 'bundle_trace', []));
 
         return $bundleTrace->isNotEmpty()
             && (int) ($detail->product_id ?? 0) !== (int) ($line->product_id ?? 0);
+    }
+
+    /**
+     * Task 4.5: a non-serial replacement — ordinary product, bundle parent,
+     * or bundle component alike — is note-only: it must create no receiving,
+     * dispatch, stock, inventory-transaction, cost reversal, or outgoing
+     * replacement HPP. Sourced from SaleReturnDetail.execution_context.replacement_kind,
+     * which Phase 3's planner persists verbatim from Phase 2's
+     * PosReturnLine.line_meta.execution_mode (serial_inventory_replacement |
+     * non_serial_note_only) — never re-derived here.
+     */
+    protected function isNoteOnlyReplacementDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): bool
+    {
+        $line = $detail->posReturnLine;
+
+        if (! $line || (string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+            return false;
+        }
+
+        if ($this->isReplacementInformationalBundleComponentDetail($detail)) {
+            // Already fully suppressed as informational trace; not itself a
+            // note-only *target* determination, but downstream callers only
+            // ever combine this with the informational check via OR, so
+            // returning false here is safe and keeps this predicate strictly
+            // about the detail's OWN replacement_kind classification.
+            return false;
+        }
+
+        $replacementKind = (string) data_get($detail->execution_context, 'replacement_kind', '');
+
+        if ($replacementKind !== '') {
+            return $replacementKind === 'non_serial_note_only';
+        }
+
+        // Fall back to Phase 2's own line-level tag (Phase 3's planner reads
+        // this same value into replacement_kind above; a detail may lack the
+        // persisted execution_context field on legacy rows while the line
+        // itself still carries it).
+        $lineExecutionMode = (string) data_get($line->line_meta, 'execution_mode', '');
+
+        if ($lineExecutionMode !== '') {
+            return $lineExecutionMode === 'non_serial_note_only';
+        }
+
+        // Neither field is present: this detail predates the note-only policy
+        // entirely (e.g. a hand-built legacy test fixture exercising the
+        // pre-existing dispatch/receive machinery directly). Preserve prior
+        // physical behavior rather than reinterpreting it — never guess
+        // note-only from the absence of a replacement_serial_id alone, since
+        // that would silently reclassify out-of-scope legacy flows.
+        return false;
     }
 
     protected function detailExecutionContext(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): array
@@ -1448,6 +1534,16 @@ class PosReturnLifecycleService
 
         foreach ($details as $detail) {
             if ($this->isReplacementInformationalBundleComponentDetail($detail)) {
+                continue;
+            }
+
+            // Task 4.5: a non-serial (note-only) replacement must create no
+            // receiving/stock/inventory-transaction effect at all — it is an
+            // audit note only, regardless of whether it carries a dispatch
+            // target. A missing dispatch_detail_id on this row must never
+            // block the rest of receiving (design.md: "missing physical
+            // targets are acceptable only for note-only rows").
+            if ($this->isNoteOnlyReplacementDetail($detail)) {
                 continue;
             }
 
@@ -1785,6 +1881,44 @@ class PosReturnLifecycleService
             : max(0, $totalAmount - $paidAmount);
 
         return max(0, min($dueAmount, $totalAmount - $paidAmount));
+    }
+
+    /**
+     * Re-validate in-flight serial state UNDER THE ROW LOCK immediately
+     * before mutating a serial-tracked replacement's receiving/dispatch.
+     * Phase 3's preview-time check
+     * (PosReturnSerialReplacementChainResolver::hasInFlightReplacement())
+     * is read-only and not itself under a lock, and time has passed between
+     * preview and this execution — another return's replacement could have
+     * gone in-flight for this exact serial in the interim. This method
+     * reuses the SAME resolver method (never duplicates its query) and is
+     * called only after lockApprovalExecutionDependencies() has already
+     * locked the serial rows involved (see the ProductSerialNumber lock
+     * there), so this is a consistency re-check under lock, not a new lock
+     * acquisition of its own.
+     *
+     * Throws \RuntimeException on detected race, matching the exception type
+     * every other lock-time consistency violation in this pipeline already
+     * uses (see assertReplacementDispatchEligibility, applyCashReturnSaleDetailCorrections,
+     * executeCrossOwnerReplacementForDetail) so it surfaces through the same
+     * runLifecycleMutation() manual-correction-required handling.
+     */
+    private function assertReturnedSerialNotInFlightUnderLock(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): void
+    {
+        $line = $detail->posReturnLine;
+        $returnedSerialId = (int) ($line->returned_serial_id ?? 0);
+
+        if ($returnedSerialId <= 0) {
+            return;
+        }
+
+        $ownPosReturnId = (int) ($line->pos_return_id ?? 0) ?: null;
+
+        if (app(PosReturnSerialReplacementChainResolver::class)->hasInFlightReplacement($returnedSerialId, $ownPosReturnId)) {
+            throw new \RuntimeException(
+                'Serial yang diretur pada baris ini memiliki penggantian lain yang sedang berjalan (in-flight) sejak preview approval dibuat — eksekusi tidak dapat dilanjutkan.'
+            );
+        }
     }
 
     private function assertReplacementDispatchEligibility(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): void
