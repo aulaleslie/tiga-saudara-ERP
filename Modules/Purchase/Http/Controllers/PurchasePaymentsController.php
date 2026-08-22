@@ -89,11 +89,15 @@ class PurchasePaymentsController extends Controller
 
 
     public function edit($purchase_id, PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('purchasePayments.edit'), 403);
+        abort_if(Gate::denies('purchasePayments.access'), 403);
 
         $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+
+        if ((int) $purchasePayment->purchase_id !== (int) $purchase->id) {
+            abort(404);
+        }
 
         return view('purchase::payments.edit', compact('purchasePayment', 'purchase'));
     }
@@ -102,71 +106,74 @@ class PurchasePaymentsController extends Controller
     public function update(Request $request, PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.edit'), 403);
 
-        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        $request->validate([
-            'date' => 'required|date',
-            'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric',
+        if ($purchase->isArchived()) {
+            abort(403, 'Tidak dapat memperbarui catatan pembayaran untuk pembelian yang diarsipkan.');
+        }
+
+        if (! $purchasePayment->isActive()) {
+            abort(403, 'Hanya pembayaran aktif yang catatannya dapat diperbarui.');
+        }
+
+        $validated = $request->validate([
             'note' => 'nullable|string|max:1000',
-            'purchase_id' => 'required',
-            'payment_method' => 'required|string|max:255'
         ]);
 
-        DB::transaction(function () use ($request, $purchasePayment) {
-            $purchase = $purchasePayment->purchase;
+        $normalizedNote = isset($validated['note']) && trim($validated['note']) !== ''
+            ? trim($validated['note'])
+            : null;
 
-            $purchasePayment->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'purchase_id' => $request->purchase_id,
-                'payment_method' => $request->payment_method
-            ]);
+        $purchasePayment->update([
+            'note' => $normalizedNote,
+        ]);
 
-            // After updating payment, recalculate from active payments
-            $effectivePaid = $purchase->getEffectivePaidAmount();
-            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
+        toast('Catatan pembayaran pembelian berhasil diperbarui!', 'info');
 
-            $purchase->update([
-                'paid_amount' => $effectivePaid,
-                'due_amount' => $dueAmount,
-                'payment_status' => $paymentStatus
-            ]);
-        });
-
-        toast('Purchase Payment Updated!', 'info');
-
-        return redirect()->route('purchases.index');
+        return redirect()->route('purchases.show', $purchase);
     }
 
 
     public function destroy(PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.delete'), 403);
 
-        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        // Per TODO 5: Only allow delete for invalidated payments
-        if ($purchasePayment->status !== PurchasePayment::STATUS_INVALIDATED) {
-            abort(403, 'Hanya pembayaran yang sudah dibatalkan (invalidated) yang dapat dihapus.');
+        if ($purchase->isArchived()) {
+            abort(403, 'Tidak dapat menghapus pembayaran untuk pembelian yang diarsipkan.');
         }
 
-        DB::transaction(function () use ($purchasePayment) {
-            $purchase = $purchasePayment->purchase;
-            $purchasePayment->delete();
+        if (! $purchasePayment->isEligibleForDeletion()) {
+            abort(403, 'Pembayaran dengan riwayat sistem tidak dapat dihapus.');
+        }
 
-            // After deleting, recalculate totals
-            $effectivePaid = $purchase->getEffectivePaidAmount();
-            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
+        DB::transaction(function () use ($purchasePayment, $purchase) {
+            // Lock parent purchase row
+            $lockedPurchase = Purchase::where('id', $purchase->id)->lockForUpdate()->firstOrFail();
 
-            $purchase->update([
-                'paid_amount' => $effectivePaid,
-                'due_amount' => $dueAmount,
-                'payment_status' => $paymentStatus,
-            ]);
+            if ($lockedPurchase->isArchived()) {
+                abort(403, 'Tidak dapat menghapus pembayaran untuk pembelian yang diarsipkan.');
+            }
+
+            // Lock and reload payment row
+            $lockedPayment = PurchasePayment::where('id', $purchasePayment->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedPayment->isEligibleForDeletion()) {
+                abort(403, 'Pembayaran dengan riwayat sistem tidak dapat dihapus.');
+            }
+
+            $lockedPayment->delete();
+
+            // Reconcile parent purchase totals atomically
+            $lockedPurchase->reconcileFromActivePayments();
         });
 
         toast('Pembayaran Pembelian Berhasil Dihapus!', 'warning');
@@ -177,31 +184,26 @@ class PurchasePaymentsController extends Controller
     public function invalidate(PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.delete'), 403);
 
-        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         if ($purchasePayment->status !== PurchasePayment::STATUS_ACTIVE) {
             abort(403, 'Hanya pembayaran aktif yang dapat dibatalkan.');
         }
 
-        DB::transaction(function () use ($purchasePayment) {
-            $purchase = $purchasePayment->purchase;
-            
+        DB::transaction(function () use ($purchasePayment, $purchase) {
+            $lockedPurchase = Purchase::where('id', $purchase->id)->lockForUpdate()->firstOrFail();
+
             $purchasePayment->update([
                 'status' => PurchasePayment::STATUS_INVALIDATED,
                 'invalidated_at' => now(),
                 'invalidated_by' => auth()->id(),
             ]);
 
-            // After invalidating, recalculate totals
-            $effectivePaid = $purchase->getEffectivePaidAmount();
-            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
-
-            $purchase->update([
-                'paid_amount' => $effectivePaid,
-                'due_amount' => $dueAmount,
-                'payment_status' => $paymentStatus,
-            ]);
+            $lockedPurchase->reconcileFromActivePayments();
         });
 
         toast('Pembayaran Pembelian Berhasil Dibatalkan!', 'info');
@@ -211,10 +213,12 @@ class PurchasePaymentsController extends Controller
 
     public function datatable($purchase_id, PurchasePaymentsDataTable $dataTable)
     {
+        abort_if(Gate::denies('purchasePayments.access'), 403);
+
         $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        return $dataTable->render('purchase::payments.index', compact('purchase'));
+        return $dataTable->with(['purchase_id' => $purchase_id])->render('purchase::payments.index', compact('purchase'));
     }
 
     private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void

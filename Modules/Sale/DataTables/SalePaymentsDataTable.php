@@ -42,6 +42,11 @@ class SalePaymentsDataTable extends DataTable
 
                 return $totalCredit > 0 ? format_currency($totalCredit) : '-';
             })
+            ->addColumn('note', function ($data) {
+                return $data->note !== null && trim($data->note) !== ''
+                    ? (string) $data->note
+                    : '-';
+            })
             ->addColumn('attachment', function ($data) {
                 // Check if there is a file attached
                 if ($data->getMedia('attachments')->isNotEmpty()) {
@@ -82,7 +87,7 @@ class SalePaymentsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(5)
+            ->orderBy(6)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -117,6 +122,10 @@ class SalePaymentsDataTable extends DataTable
             Column::computed('credit_usage')
                 ->title('Kredit Terpakai')
                 ->className('align-middle text-center'),
+
+            Column::computed('note')
+                ->title('Catatan')
+                ->className('align-middle payment-note'),
 
             Column::computed('attachment')
                 ->title('Lampiran')

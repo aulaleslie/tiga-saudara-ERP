@@ -472,6 +472,7 @@
                                                     <th>Referensi</th>
                                                     <th>Jumlah Pembayaran</th>
                                                     <th>Metode Pembayaran</th>
+                                                    <th>Catatan</th>
                                                     <th>Lampiran</th>
                                                     <th>Status</th>
                                                     <th>Aksi</th>
@@ -904,6 +905,7 @@
                     { data: 'reference', name: 'reference', title: 'Referensi' },
                     { data: 'amount', name: 'amount', title: 'Jumlah Pembayaran' },
                     { data: 'payment_method', name: 'payment_method', title: 'Metode Pembayaran' },
+                    { data: 'note', name: 'note', title: 'Catatan', className: 'payment-note' },
                     {
                         data: 'attachment',
                         name: 'attachment',

@@ -22,6 +22,10 @@ class PurchasePayment extends BaseModel implements HasMedia
         'status' => self::STATUS_ACTIVE,
     ];
 
+    protected array $uppercaseExcept = [
+        'note',
+    ];
+
     protected $casts = [
         'invalidated_at' => 'datetime',
         'date' => 'date',
@@ -29,7 +33,7 @@ class PurchasePayment extends BaseModel implements HasMedia
 
     public function purchase(): BelongsTo
     {
-        return $this->belongsTo(Purchase::class, 'purchase_id', 'id');
+        return $this->belongsTo(Purchase::class, 'purchase_id', 'id')->withArchived();
     }
 
     public function invalidatedBy(): BelongsTo
@@ -104,5 +108,18 @@ class PurchasePayment extends BaseModel implements HasMedia
      */
     public function paymentMethod() {
         return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'id');
+    }
+
+    /**
+     * Check if payment is eligible for physical deletion.
+     * Payments with automated invalidation lineage cannot be deleted.
+     */
+    public function isEligibleForDeletion(): bool
+    {
+        if (! empty($this->invalidation_source)) {
+            return false;
+        }
+
+        return true;
     }
 }

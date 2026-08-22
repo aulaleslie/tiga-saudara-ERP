@@ -25,6 +25,10 @@ class SalePayment extends BaseModel implements HasMedia
         'status' => self::STATUS_ACTIVE,
     ];
 
+    protected array $uppercaseExcept = [
+        'note',
+    ];
+
     protected $fillable = [
         'sale_id',
         'payment_method_id',
@@ -52,7 +56,7 @@ class SalePayment extends BaseModel implements HasMedia
 
     public function sale(): BelongsTo
     {
-        return $this->belongsTo(Sale::class, 'sale_id', 'id');
+        return $this->belongsTo(Sale::class, 'sale_id', 'id')->withArchived();
     }
 
     public function getDateAttribute($value): string
@@ -208,5 +212,26 @@ class SalePayment extends BaseModel implements HasMedia
     public function creditApplications(): HasMany
     {
         return $this->hasMany(SalePaymentCreditApplication::class, 'sale_payment_id', 'id');
+    }
+
+    /**
+     * Check if payment is eligible for physical deletion.
+     * Payments with credit applications or automated invalidation lineage cannot be deleted.
+     */
+    public function isEligibleForDeletion(): bool
+    {
+        if (! empty($this->invalidation_source)) {
+            return false;
+        }
+
+        if (isset($this->credit_applications_count)) {
+            return (int) $this->credit_applications_count === 0;
+        }
+
+        if ($this->relationLoaded('creditApplications')) {
+            return $this->creditApplications->isEmpty();
+        }
+
+        return ! $this->creditApplications()->exists();
     }
 }

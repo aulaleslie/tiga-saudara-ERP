@@ -49,4 +49,10 @@
     .text-uppercase {
         text-transform: uppercase;
     }
+
+    .payment-note {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        text-align: left;
+    }
 </style>

@@ -10,6 +10,20 @@ use Yajra\DataTables\Services\DataTable;
 
 class PurchasePaymentsDataTable extends DataTable
 {
+    protected $globalMode = false;
+
+    public function with(array|string $key, mixed $value = null): static
+    {
+        if (is_array($key)) {
+            if (isset($key['globalMode'])) {
+                $this->globalMode = $key['globalMode'];
+                unset($key['globalMode']);
+            }
+            return parent::with($key);
+        }
+        return parent::with($key, $value);
+    }
+
     public function dataTable($query)
     {
         return datatables()
@@ -23,6 +37,11 @@ class PurchasePaymentsDataTable extends DataTable
             ->addColumn('payment_method', function ($data) {
                 // Display the payment method name
                 return $data->paymentMethod ? $data->paymentMethod->name : 'N/A';
+            })
+            ->addColumn('note', function ($data) {
+                return $data->note !== null && trim($data->note) !== ''
+                    ? (string) $data->note
+                    : '-';
             })
             ->addColumn('attachment', function ($data) {
                 // Check if there is a file attached
@@ -40,7 +59,7 @@ class PurchasePaymentsDataTable extends DataTable
                 return 'No Attachment';
             })
             ->addColumn('action', function ($data) {
-                $globalMode = request()->routeIs('datatable.global_purchase_payments');
+                $globalMode = $this->globalMode ?: request()->routeIs('datatable.global_purchase_payments');
                 return view('purchase::payments.partials.actions', compact('data', 'globalMode'));
             })
             ->addColumn('status', function ($data) {
@@ -51,7 +70,11 @@ class PurchasePaymentsDataTable extends DataTable
     }
 
     public function query(PurchasePayment $model) {
-        return $model->newQuery()->byPurchase()->with(['purchase', 'paymentMethod']);
+        $purchaseId = $this->purchase_id ?? request()->route('purchase_id');
+
+        return $model->newQuery()
+            ->when($purchaseId, fn($q) => $q->where('purchase_id', $purchaseId))
+            ->with(['purchase', 'paymentMethod']);
     }
 
     public function html() {
@@ -62,7 +85,7 @@ class PurchasePaymentsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(5)
+            ->orderBy(6)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -93,6 +116,10 @@ class PurchasePaymentsDataTable extends DataTable
                 ->data('payment_method')
                 ->title('Metode Pembayaran')
                 ->className('align-middle text-center'),
+
+            Column::computed('note')
+                ->title('Catatan')
+                ->className('align-middle payment-note'),
 
             Column::computed('attachment')
                 ->title('Lampiran')

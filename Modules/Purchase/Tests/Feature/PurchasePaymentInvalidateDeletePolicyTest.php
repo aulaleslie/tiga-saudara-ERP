@@ -86,7 +86,7 @@ class PurchasePaymentInvalidateDeletePolicyTest extends TestCase
     }
 
     /** @test */
-    public function it_rejects_deleting_active_payment()
+    public function it_allows_deleting_active_payment_directly()
     {
         $payment = PurchasePayment::create([
             'purchase_id' => $this->purchase->id,
@@ -98,9 +98,9 @@ class PurchasePaymentInvalidateDeletePolicyTest extends TestCase
         ]);
 
         $this->delete(route('purchase-payments.destroy', $payment->id))
-            ->assertStatus(403);
+            ->assertRedirect(route('purchases.index'));
             
-        $this->assertDatabaseHas('purchase_payments', ['id' => $payment->id]);
+        $this->assertDatabaseMissing('purchase_payments', ['id' => $payment->id]);
     }
 
     /** @test */

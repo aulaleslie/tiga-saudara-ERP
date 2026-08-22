@@ -328,6 +328,24 @@ class Purchase extends BaseModel implements HasMedia
     }
 
     /**
+     * Reconcile purchase header from canonical settlement totals.
+     * Updates paid_amount, due_amount, and payment_status from active payments.
+     */
+    public function reconcileFromActivePayments(): void
+    {
+        $paidAmount = $this->getEffectivePaidAmount();
+        $dueAmount = max(0, round($this->total_amount - $paidAmount, 2));
+
+        $status = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+
+        $this->update([
+            'paid_amount' => $paidAmount,
+            'due_amount' => $dueAmount,
+            'payment_status' => $status,
+        ]);
+    }
+
+    /**
      * Retrieve the model for a bound value.
      *
      * @param  mixed  $value

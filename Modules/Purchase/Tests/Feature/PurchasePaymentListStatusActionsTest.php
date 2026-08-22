@@ -104,7 +104,9 @@ class PurchasePaymentListStatusActionsTest extends TestCase
         $ajaxUrl = route('datatable.purchase_payments', $this->purchase->id);
         
         $response = $this->withSession(['setting_id' => $this->setting->id])
-            ->getJson($ajaxUrl);
+            ->getJson($ajaxUrl, [
+                'HTTP_X-Requested-With' => 'XMLHttpRequest',
+            ]);
             
         $response->assertStatus(200);
         
@@ -129,7 +131,9 @@ class PurchasePaymentListStatusActionsTest extends TestCase
         $ajaxUrl = route('datatable.purchase_payments', $this->purchase->id);
         
         $response = $this->withSession(['setting_id' => $this->setting->id])
-            ->getJson($ajaxUrl);
+            ->getJson($ajaxUrl, [
+                'HTTP_X-Requested-With' => 'XMLHttpRequest',
+            ]);
             
         $response->assertStatus(200);
         
@@ -163,21 +167,23 @@ class PurchasePaymentListStatusActionsTest extends TestCase
         $ajaxUrl = route('datatable.purchase_payments', $this->purchase->id);
         
         $response = $this->withSession(['setting_id' => $this->setting->id])
-            ->getJson($ajaxUrl);
+            ->getJson($ajaxUrl, [
+                'HTTP_X-Requested-With' => 'XMLHttpRequest',
+            ]);
             
         $response->assertStatus(200);
         $data = $response->json('data');
 
-        // Check active payment (should be index 0 or 1 depending on sort)
+        // Check active payment
         $activeData = collect($data)->where('reference', 'PAY-ACT')->first();
-        $this->assertStringContainsString('bi-pencil', $activeData['action']);
-        $this->assertStringContainsString('bi-x-circle', $activeData['action']); // Invalidate button
-        $this->assertStringNotContainsString('bi-trash', $activeData['action']); // Delete button
+        $this->assertStringContainsString('bi-eye', $activeData['action']);
+        $this->assertStringNotContainsString('bi-pencil', $activeData['action']);
+        $this->assertStringContainsString('bi-trash', $activeData['action']); // Direct delete button
 
         // Check invalidated payment
         $invalidData = collect($data)->where('reference', 'PAY-INV')->first();
+        $this->assertStringContainsString('bi-eye', $invalidData['action']);
         $this->assertStringNotContainsString('bi-pencil', $invalidData['action']);
-        $this->assertStringNotContainsString('bi-x-circle', $invalidData['action']);
         $this->assertStringContainsString('bi-trash', $invalidData['action']); // Delete button
     }
 }

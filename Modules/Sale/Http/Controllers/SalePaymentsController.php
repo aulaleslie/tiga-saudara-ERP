@@ -87,123 +87,103 @@ class SalePaymentsController extends Controller
     }
 
     public function edit($sale_id, SalePayment $salePayment) {
-        abort_if(Gate::denies('salePayments.edit'), 403);
+        abort_if(Gate::denies('salePayments.access'), 403);
 
         $sale = Sale::findOrFail($sale_id);
-        $payment_methods = PaymentMethod::all();
+        $this->ensureSaleBelongsToCurrentSetting($sale);
 
-        if ($salePayment->creditApplications()->exists()) {
-            toast('Pembayaran dengan kredit tidak dapat diedit. Batalkan pembayaran dan buat baru jika diperlukan.', 'warning');
-            return redirect()->route('sale-payments.index', $sale_id);
+        if ((int) $salePayment->sale_id !== (int) $sale->id) {
+            abort(404);
         }
 
-        return view('sale::payments.edit', compact('salePayment', 'sale', 'payment_methods'));
+        return view('sale::payments.edit', compact('salePayment', 'sale'));
     }
 
     public function update(Request $request, SalePayment $salePayment) {
         abort_if(Gate::denies('salePayments.edit'), 403);
 
-        // Retrieve sale to check due amount.
+        // Retrieve actual sale from relationship
         $sale = $salePayment->sale;
+        if (! $sale) {
+            abort(404);
+        }
+        $this->ensureSaleBelongsToCurrentSetting($sale);
 
-        if ($salePayment->creditApplications()->exists()) {
-            toast('Pembayaran dengan kredit tidak dapat diperbarui.', 'warning');
-            return redirect()->route('sale-payments.index', $sale->id);
+        if ($sale->isArchived()) {
+            abort(403, 'Tidak dapat memperbarui catatan pembayaran untuk penjualan yang diarsipkan.');
         }
 
-        $request->validate([
-            'date'               => 'required|date',
-            'reference'          => 'required|string|max:255',
-            'amount'             => 'required|numeric|max:' . ((float) $sale->due_amount + (float) $salePayment->amount),
-            'note'               => 'nullable|string|max:1000',
-            'sale_id'            => 'required|integer|exists:sales,id',
-            'payment_method_id'  => 'required|integer|exists:payment_methods,id',
-            // Attachment is optional on update.
-            'attachment'         => 'nullable|string',
-        ], [
-            'amount.max' => 'The payment amount cannot be greater than the due amount.'
+        if (! $salePayment->isActive()) {
+            abort(403, 'Hanya pembayaran aktif yang catatannya dapat diperbarui.');
+        }
+
+        $validated = $request->validate([
+            'note' => 'nullable|string|max:1000',
         ]);
 
-        DB::transaction(function () use ($request, $salePayment, $sale) {
-            $due_amount = round((float) $sale->due_amount + (float) $salePayment->amount - (float) $request->amount, 2);
-            $due_amount = max($due_amount, 0);
-            $total_amount = round((float) $sale->total_amount, 2);
+        $normalizedNote = isset($validated['note']) && trim($validated['note']) !== ''
+            ? trim($validated['note'])
+            : null;
 
-            if (round($due_amount, 2) >= $total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
+        $salePayment->update([
+            'note' => $normalizedNote,
+        ]);
 
-            $sale->update([
-                'paid_amount'    => round(((float) $sale->paid_amount - (float) $salePayment->amount) + (float) $request->amount, 2),
-                'due_amount'     => $due_amount,
-                'payment_status' => $payment_status,
-            ]);
+        toast('Catatan pembayaran berhasil diperbarui!', 'info');
 
-            $salePayment->update([
-                'date'              => $request->date,
-                'reference'         => $request->reference,
-                'amount'            => $request->amount,
-                'note'              => $request->note,
-                'sale_id'           => $request->sale_id,
-                'payment_method_id' => $request->payment_method_id,
-                'payment_method'    => '', // Optionally update based on PaymentMethod
-            ]);
-
-            // (Optional) Handle attachment update if needed.
-            // For example, you might add a new attachment if one is provided.
-            if ($request->attachment) {
-                $salePayment->addMedia(Storage::path('temp/dropzone/' . $request->attachment))
-                    ->toMediaCollection('attachments');
-            }
-        });
-
-        toast('Sale Payment Updated!', 'info');
-
-        return redirect()->route('sales.index');
+        return redirect()->route('sales.show', $sale);
     }
 
     public function destroy(SalePayment $salePayment) {
         abort_if(Gate::denies('salePayments.delete'), 403);
 
-        if ($salePayment->creditApplications()->exists()) {
-            toast('Pembayaran dengan kredit tidak dapat dihapus.', 'warning');
-            return redirect()->route('sale-payments.index', $salePayment->sale_id);
+        $sale = $salePayment->sale;
+        if (! $sale) {
+            abort(404);
+        }
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
+        if ($sale->isArchived()) {
+            abort(403, 'Tidak dapat menghapus pembayaran untuk penjualan yang diarsipkan.');
         }
 
-        DB::transaction(function () use ($salePayment) {
-            $sale = $salePayment->sale;
-            $deletedAmount = round((float) $salePayment->amount, 2);
+        if (! $salePayment->isEligibleForDeletion()) {
+            toast('Pembayaran dengan kredit atau riwayat sistem tidak dapat dihapus.', 'warning');
+            return redirect()->route('sale-payments.index', $sale->id);
+        }
 
-            $salePayment->delete();
+        DB::transaction(function () use ($salePayment, $sale) {
+            // Lock parent sale row
+            $lockedSale = Sale::where('id', $sale->id)->lockForUpdate()->firstOrFail();
 
-            // Recalculate sale balances
-            $paid_amount = round((float) $sale->paid_amount - $deletedAmount, 2);
-            $paid_amount = max($paid_amount, 0);
-            $due_amount = round((float) $sale->total_amount - $paid_amount, 2);
-            $due_amount = max($due_amount, 0);
-            $total_amount = round((float) $sale->total_amount, 2);
-
-            if ($paid_amount <= 0) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
+            if ($lockedSale->isArchived()) {
+                abort(403, 'Tidak dapat menghapus pembayaran untuk penjualan yang diarsipkan.');
             }
 
-            $sale->update([
-                'paid_amount' => $paid_amount,
-                'due_amount' => $due_amount,
-                'payment_status' => $payment_status,
-            ]);
+            // Lock and reload payment row
+            $lockedPayment = SalePayment::where('id', $salePayment->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedPayment->isEligibleForDeletion()) {
+                abort(403, 'Pembayaran dengan kredit atau riwayat sistem tidak dapat dihapus.');
+            }
+
+            $lockedPayment->delete();
+
+            // Reconcile parent sale atomically from active payments
+            $lockedSale->reconcileFromActivePayments();
         });
 
         toast('Sale Payment Deleted!', 'warning');
 
         return redirect()->route('sales.index');
+    }
+
+    private function ensureSaleBelongsToCurrentSetting(Sale $sale): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $sale->setting_id !== (int) $currentSettingId) {
+            abort(404);
+        }
     }
 }
