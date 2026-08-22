@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\Transaction;
+use Modules\Setting\Entities\Location;
 
 class InventoryValuationReportQueryService
 {
@@ -21,6 +22,8 @@ class InventoryValuationReportQueryService
         'ADJ' => 'Penyesuaian',
         'TRF' => 'Transfer',
         'OPENING' => 'Saldo Awal',
+        'CONSIGNMENT_RECEIPT' => 'Penerimaan Titipan Konsinyasi',
+        'CONSIGNMENT_RECEIPT_REVERSAL' => 'Pembatalan Titipan Konsinyasi',
     ];
 
     public function getSummary(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
@@ -128,6 +131,11 @@ class InventoryValuationReportQueryService
             $transferMeta
         );
 
+        $locationIds = $transactions->pluck('location_id')->filter()->unique();
+        $consignmentLocationMap = Location::whereIn('id', $locationIds)
+            ->pluck('is_consignment', 'id')
+            ->toArray();
+
         $transactionsByProduct = $transactions->groupBy('product_id')->toBase()
             ->map(function (Collection $group) use ($transactionMeta) {
                 return $group->sort(function (Transaction $left, Transaction $right) use ($transactionMeta) {
@@ -175,6 +183,7 @@ class InventoryValuationReportQueryService
                 }
 
                 $type = strtoupper((string) $transaction->type);
+                $isConsignmentLocation = !empty($consignmentLocationMap[$transaction->location_id]);
                 $reference = $meta['reference'] ?? $this->extractReference($transaction->reason);
                 
                 $unitPrice = $this->resolveUnitPrice(
@@ -187,17 +196,20 @@ class InventoryValuationReportQueryService
                     $fallbackSale
                 );
 
-                $this->applyTransaction($type, $delta, $unitPrice, $runningStock, $runningAvg);
+                $this->applyTransaction($type, $delta, $unitPrice, $runningStock, $runningAvg, $isConsignmentLocation);
 
                 if ($transactionDate->lt($tanggalAwal)) {
                     // This is before the start date, just accumulate the running totals
                     $openingStock = $runningStock;
                     $openingAvg = $runningAvg;
                 } else {
-                    if ($delta > 0) {
-                        $periodStockIn += $delta;
-                    } else {
-                        $periodStockOut += abs($delta);
+                    // Only count toward company-owned period stock movement if not non-owned consignment custody
+                    if (!$isConsignmentLocation && !in_array($type, ['CONSIGNMENT_RECEIPT', 'CONSIGNMENT_RECEIPT_REVERSAL'], true)) {
+                        if ($delta > 0) {
+                            $periodStockIn += $delta;
+                        } else {
+                            $periodStockOut += abs($delta);
+                        }
                     }
                     
                     if ($shouldLoadDetailForThisProduct) {

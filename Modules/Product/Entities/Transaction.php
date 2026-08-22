@@ -37,6 +37,7 @@ class Transaction extends BaseModel
         'broken_quantity_tax',
         'broken_quantity_non_tax',
         'received_note_detail_id',
+        'consignment_receiving_detail_id',
     ];
 
     /**
@@ -98,6 +99,14 @@ class Transaction extends BaseModel
     public function receivedNoteDetail(): BelongsTo
     {
         return $this->belongsTo(ReceivedNoteDetail::class);
+    }
+
+    /**
+     * The consignment receiving detail that created this CONSIGNMENT_RECEIPT transaction.
+     */
+    public function consignmentReceivingDetail(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Consignment\Entities\ConsignmentReceivingDetail::class);
     }
 
     /**

@@ -42,6 +42,18 @@
                                         @enderror
                                     </div>
 
+                                    <div class="form-group">
+                                        <div class="custom-control custom-checkbox">
+                                            <input type="checkbox" class="custom-control-input" id="is_consignment" name="is_consignment" value="1" {{ old('is_consignment', $location->is_consignment) ? 'checked' : '' }}>
+                                            <label class="custom-control-label font-weight-bold" for="is_consignment">
+                                                Lokasi Konsinyasi (Titipan Supplier)
+                                            </label>
+                                        </div>
+                                        <small class="form-text text-muted">
+                                            Lokasi ini khusus untuk menampung barang konsinyasi fisik milik supplier dan tidak dapat menerima Pembelian biasa.
+                                        </small>
+                                    </div>
+
                                 </div>
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">

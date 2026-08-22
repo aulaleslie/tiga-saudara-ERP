@@ -1,0 +1,13 @@
+{
+    "name": "Consignment",
+    "alias": "consignment",
+    "description": "Consignment custody receiving module",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Consignment\\Providers\\ConsignmentServiceProvider"
+    ],
+    "aliases": {},
+    "files": [],
+    "requires": []
+}

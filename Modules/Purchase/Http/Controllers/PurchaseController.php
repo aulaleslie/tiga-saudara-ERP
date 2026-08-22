@@ -689,7 +689,17 @@ class PurchaseController extends Controller
                     }
                 }
             ],
-            'location_id' => 'required|integer|exists:locations,id',
+            'location_id' => [
+                'required',
+                'integer',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) use ($purchase) {
+                    $loc = Location::find($value);
+                    if ($loc && ($loc->setting_id !== $purchase->setting_id || $loc->is_consignment)) {
+                        $fail('Lokasi yang dipilih tidak valid atau merupakan lokasi konsinyasi.');
+                    }
+                }
+            ],
         ], [
             'location_id.required' => 'Lokasi wajib dipilih.',
         ], [
@@ -973,6 +983,11 @@ class PurchaseController extends Controller
 
                     if ($purchase->status === Purchase::STATUS_RECEIVED) {
                         throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
+                    }
+
+                    $receivingLocation = Location::query()->find($receivedNote->location_id);
+                    if (!$receivingLocation || $receivingLocation->setting_id !== $purchase->setting_id || $receivingLocation->is_consignment) {
+                        throw new \Exception('Lokasi penerimaan tidak valid atau merupakan lokasi konsinyasi.');
                     }
 
                     $settingLocationIds = Location::where('setting_id', $purchase->setting_id)->pluck('id');

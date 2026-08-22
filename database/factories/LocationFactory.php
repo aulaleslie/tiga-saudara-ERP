@@ -14,6 +14,14 @@ class LocationFactory extends Factory
         return [
             'name' => $this->faker->city,
             'setting_id' => \Modules\Setting\Entities\Setting::factory(),
+            'is_consignment' => false,
         ];
+    }
+
+    public function consignment(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_consignment' => true,
+        ]);
     }
 }

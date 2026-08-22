@@ -22,6 +22,7 @@ class ProductSerialNumber extends BaseModel
         'serial_number',
         'tax_id',
         'received_note_detail_id',
+        'consignment_receiving_detail_id',
         'dispatch_detail_id',
         'status',
         'is_broken',
@@ -90,12 +91,30 @@ class ProductSerialNumber extends BaseModel
     }
 
     /**
+     * Get the consignment receiving detail associated with the serial number.
+     */
+    public function consignmentReceivingDetail(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Consignment\Entities\ConsignmentReceivingDetail::class, 'consignment_receiving_detail_id');
+    }
+
+    /**
      * Get the received note details (Many-to-Many).
      */
     public function receivedNoteDetails(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(\Modules\Purchase\Entities\ReceivedNoteDetail::class, 'received_note_detail_serial_numbers', 'product_serial_number_id', 'received_note_detail_id')
             ->withPivot(['id', 'source_history_id', 'linked_at'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Get the consignment receiving details (Many-to-Many).
+     */
+    public function consignmentReceivingDetails(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\Modules\Consignment\Entities\ConsignmentReceivingDetail::class, 'consignment_receiving_detail_serial_numbers', 'product_serial_number_id', 'consignment_receiving_detail_id')
+            ->withPivot(['id', 'source_history_id', 'reversal_history_id', 'linked_at'])
             ->withTimestamps();
     }
 
@@ -149,6 +168,38 @@ class ProductSerialNumber extends BaseModel
             $legacy = \Modules\Purchase\Entities\ReceivedNoteDetail::with('purchaseDetail')->find($this->received_note_detail_id);
             if ($legacy && $legacy->purchaseDetail) {
                 return $legacy->purchaseDetail->purchase_id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the current source consignment receival ID for this serial number.
+     */
+    public function resolveCurrentConsignmentReceivalId(): ?int
+    {
+        $latestReceive = $this->histories
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->where('reference_type', \Modules\Consignment\Entities\ConsignmentReceivingDetail::class)
+            ->sortByDesc('id')
+            ->first();
+
+        if ($latestReceive) {
+            if ($latestReceive->relationLoaded('reference') && $latestReceive->reference && $latestReceive->reference->relationLoaded('consignmentReceiving')) {
+                return $latestReceive->reference->consignmentReceiving->consignment_receival_id;
+            }
+
+            $crd = \Modules\Consignment\Entities\ConsignmentReceivingDetail::with('consignmentReceiving')->find($latestReceive->reference_id);
+            if ($crd && $crd->consignmentReceiving) {
+                return $crd->consignmentReceiving->consignment_receival_id;
+            }
+        }
+
+        if ($this->consignment_receiving_detail_id) {
+            $crd = \Modules\Consignment\Entities\ConsignmentReceivingDetail::with('consignmentReceiving')->find($this->consignment_receiving_detail_id);
+            if ($crd && $crd->consignmentReceiving) {
+                return $crd->consignmentReceiving->consignment_receival_id;
             }
         }
 

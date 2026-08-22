@@ -48,8 +48,9 @@
                                     @livewire('modules.setting.location-search-dropdown', [
                                         'selected' => old('location_id'),
                                         'name' => 'location_id',
-                                        'placeholder' => 'Pilih lokasi...',
+                                        'placeholder' => 'Pilih lokasi standar...',
                                         'allowCreate' => true,
+                                        'consignmentFilter' => 'standard',
                                         'error' => $errors->first('location_id')
                                     ])
                                     @livewire('modules.setting.modals.location-quick-add-modal')

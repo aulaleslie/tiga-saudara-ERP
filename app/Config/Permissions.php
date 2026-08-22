@@ -418,6 +418,20 @@ return [
         'documents.business.override' => 'Ubah Bisnis Dokumen',
     ],
 
+    'Konsinyasi' => [
+        'consignments.access' => 'Hak Akses Konsinyasi',
+        'consignments.create' => 'Buat Penerimaan Konsinyasi',
+        'consignments.edit' => 'Ubah Penerimaan Konsinyasi',
+        'consignments.delete' => 'Hapus Penerimaan Konsinyasi',
+        'consignments.submit' => 'Ajukan Penerimaan Konsinyasi',
+        'consignments.approve' => 'Setujui Dokumen Konsinyasi',
+        'consignments.reject' => 'Tolak Dokumen Konsinyasi',
+        'consignments.receive' => 'Catat Fisik Penerimaan Konsinyasi',
+        'consignments.receive.approve' => 'Setujui Fisik Penerimaan Konsinyasi',
+        'consignments.receive.reject' => 'Tolak Fisik Penerimaan Konsinyasi',
+        'consignments.reverse' => 'Batalkan (Reversal) Penerimaan Konsinyasi',
+    ],
+
     'Notifications' => [
         'notifications.access' => 'Tampilkan Notifikasi',
         'notifications.lowStock' => 'Notifikasi Stok Rendah',

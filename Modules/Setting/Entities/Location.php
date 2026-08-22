@@ -28,6 +28,20 @@ class Location extends BaseModel
     
     protected $guarded = [];
 
+    protected $casts = [
+        'is_consignment' => 'boolean',
+    ];
+
+    public function scopeConsignment($query)
+    {
+        return $query->where('is_consignment', true);
+    }
+
+    public function scopeStandard($query)
+    {
+        return $query->where('is_consignment', false);
+    }
+
     protected static function booted(): void
     {
         static::created(function (Location $location) {

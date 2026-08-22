@@ -35,6 +35,28 @@ class StockTransferRequest extends FormRequest
         ];
     }
 
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $originId = $this->input('origin_location');
+            $destId = $this->input('destination_location');
+
+            if ($originId && $destId) {
+                $origin = \Modules\Setting\Entities\Location::find($originId);
+                $dest = \Modules\Setting\Entities\Location::find($destId);
+
+                if ($origin && $dest) {
+                    if ((bool)$origin->is_consignment !== (bool)$dest->is_consignment) {
+                        $validator->errors()->add(
+                            'destination_location',
+                            'Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.'
+                        );
+                    }
+                }
+            }
+        });
+    }
+
     /**
      * Customize the error messages.
      *

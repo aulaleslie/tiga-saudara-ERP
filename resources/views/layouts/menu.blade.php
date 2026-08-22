@@ -300,6 +300,51 @@
     </li>
 @endcanany
 
+@canany(['consignments.access', 'consignments.create', 'consignments.receive'])
+        <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('consignments.*') ? 'c-show' : '' }}">
+            <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+                <i class="c-sidebar-nav-icon bi bi-box-arrow-in-down-right" style="line-height: 1;"></i> Konsinyasi
+            </a>
+            <ul class="c-sidebar-nav-dropdown-items">
+                @can('consignments.create')
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.receivals.create') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.receivals.create') }}">
+                            <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Penerimaan Konsinyasi
+                        </a>
+                    </li>
+                @endcan
+
+                @can('consignments.access')
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.receivals.index') || request()->routeIs('consignments.receivals.show') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.receivals.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Dokumen Konsinyasi
+                        </a>
+                    </li>
+                @endcan
+
+                @canany(['consignments.receive', 'consignments.access'])
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.receivings.*') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.receivings.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Penerimaan Fisik
+                        </a>
+                    </li>
+                @endcanany
+
+                @can('consignments.access')
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.reconciliation.*') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.reconciliation.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-journal-text" style="line-height: 1;"></i> Rekonsiliasi Titipan
+                        </a>
+                    </li>
+                @endcan
+            </ul>
+        </li>
+@endcanany
+
 @canany(['expenses.access', 'expenseCategories.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('expenses.*') || request()->routeIs('expense-categories.*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
@@ -621,4 +666,3 @@
         </ul>
     </li>
 @endcanany
-

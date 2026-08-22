@@ -48,14 +48,16 @@ class LocationController extends Controller
 
         $request->validate([
             'name' => 'required|string|max:255|unique:locations,name,NULL,id,setting_id,' . session('setting_id'),
+            'is_consignment' => 'nullable|boolean',
         ]);
 
         $settingId = session('setting_id');
 
         $location = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $settingId) {
             return Location::create([
-                'name'       => $request->name,
-                'setting_id' => $settingId,
+                'name'           => $request->name,
+                'setting_id'     => $settingId,
+                'is_consignment' => $request->boolean('is_consignment'),
             ]);
         });
 
@@ -70,6 +72,8 @@ class LocationController extends Controller
     public function edit(Location $location): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('locations.edit'), 403);
+        abort_if($location->setting_id !== session('setting_id'), 403);
+
         return view('setting::locations.edit', [
             'location' => $location,
         ]);
@@ -81,13 +85,38 @@ class LocationController extends Controller
     public function update(Request $request, Location $location): RedirectResponse
     {
         abort_if(Gate::denies('locations.edit'), 403);
+        abort_if($location->setting_id !== session('setting_id'), 403);
 
         $request->validate([
             'name' => 'required|string|max:255|unique:locations,name,' . $location->id . ',id,setting_id,' . session('setting_id'),
+            'is_consignment' => 'nullable|boolean',
         ]);
+
+        $newIsConsignment = $request->boolean('is_consignment');
+
+        if ($location->is_consignment !== $newIsConsignment) {
+            // Guard: check for any active stock in location
+            $hasStock = ProductStock::where('location_id', $location->id)
+                ->where(function ($q) {
+                    $q->where('quantity', '>', 0)
+                        ->orWhere('broken_quantity', '>', 0)
+                        ->orWhere('quantity_tax', '>', 0)
+                        ->orWhere('quantity_non_tax', '>', 0)
+                        ->orWhere('broken_quantity_tax', '>', 0)
+                        ->orWhere('broken_quantity_non_tax', '>', 0);
+                })
+                ->exists();
+
+            if ($hasStock) {
+                return redirect()->back()
+                    ->withInput()
+                    ->withErrors(['is_consignment' => 'Klasifikasi lokasi tidak dapat diubah karena lokasi masih memiliki stok aktif.']);
+            }
+        }
 
         $location->update([
             'name' => $request->name,
+            'is_consignment' => $newIsConsignment,
         ]);
 
         toast('Lokasi diperbaharui!', 'info');
@@ -101,6 +130,7 @@ class LocationController extends Controller
     public function destroy(Location $location): RedirectResponse
     {
         abort_if(Gate::denies('locations.edit'), 403);
+        abort_if($location->setting_id !== session('setting_id'), 403);
 
         $hasStock = ProductStock::where('location_id', $location->id)
             ->where(function ($q) {

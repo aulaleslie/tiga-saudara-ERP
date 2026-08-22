@@ -47,8 +47,10 @@ class AdjustmentController extends Controller
 
         $currentSettingId = session('setting_id');
 
-        // Fetch locations based on the current setting_id
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        // Fetch locations based on the current setting_id excluding consignment locations
+        $locations = Location::where('setting_id', $currentSettingId)
+            ->where('is_consignment', false)
+            ->get();
 
         $idempotencyToken = IdempotencyService::tokenFromRequest($request);
 
@@ -60,9 +62,9 @@ class AdjustmentController extends Controller
         abort_if(Gate::denies('adjustments.breakage.create'), 403);
 
         $currentSettingId = session('setting_id');
-
-        // Fetch locations based on the current setting_id
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $locations = Location::where('setting_id', $currentSettingId)
+            ->where('is_consignment', false)
+            ->get();
 
         $idempotencyToken = IdempotencyService::tokenFromRequest($request);
 
@@ -77,7 +79,16 @@ class AdjustmentController extends Controller
         $validated = $request->validate([
             'reference' => 'required|string',
             'date' => 'required|date',
-            'location_id' => 'required|exists:locations,id',
+            'location_id' => [
+                'required',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) {
+                    $location = \Modules\Setting\Entities\Location::find($value);
+                    if ($location && $location->is_consignment) {
+                        $fail('Penyesuaian stok tidak dapat dilakukan pada lokasi konsinyasi.');
+                    }
+                },
+            ],
             'product_ids' => 'required|array',
             'quantities_tax' => 'required|array',
             'quantities_tax.*' => 'nullable|integer|min:0',
@@ -168,7 +179,16 @@ class AdjustmentController extends Controller
             'serial_numbers' => 'nullable|array',
             'serial_numbers.*' => 'array',
             'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id',
-            'location_id' => 'required|exists:locations,id',
+            'location_id' => [
+                'required',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) {
+                    $location = \Modules\Setting\Entities\Location::find($value);
+                    if ($location && $location->is_consignment) {
+                        $fail('Penyesuaian stok rusak tidak dapat dilakukan pada lokasi konsinyasi.');
+                    }
+                },
+            ],
         ], [
             'location_id.required' => 'Lokasi wajib diisi.',
         ]);
@@ -370,7 +390,16 @@ class AdjustmentController extends Controller
         $validated = $request->validate([
             'reference' => 'required|string|max:255',
             'date' => 'required|date',
-            'location_id' => 'required|exists:locations,id',
+            'location_id' => [
+                'required',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) {
+                    $location = \Modules\Setting\Entities\Location::find($value);
+                    if ($location && $location->is_consignment) {
+                        $fail('Penyesuaian stok tidak dapat dilakukan pada lokasi konsinyasi.');
+                    }
+                },
+            ],
             'product_ids' => 'required|array',
             'quantities_tax' => 'required|array',
             'quantities_tax.*' => 'nullable|integer|min:0',
@@ -468,7 +497,16 @@ class AdjustmentController extends Controller
             'serial_numbers' => 'nullable|array',
             'serial_numbers.*' => 'array',
             'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id',
-            'location_id' => 'required|exists:locations,id',
+            'location_id' => [
+                'required',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) {
+                    $location = \Modules\Setting\Entities\Location::find($value);
+                    if ($location && $location->is_consignment) {
+                        $fail('Penyesuaian stok rusak tidak dapat dilakukan pada lokasi konsinyasi.');
+                    }
+                },
+            ],
         ]);
 
         foreach ($request->product_ids as $key => $id) {

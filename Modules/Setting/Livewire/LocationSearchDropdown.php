@@ -20,6 +20,7 @@ class LocationSearchDropdown extends Component
     public ?string $error = null;
     public int $zIndex = 1050;
     public ?int $selectedSettingId = null;
+    public ?string $consignmentFilter = null; // null | 'consignment' | 'standard'
 
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
@@ -42,7 +43,8 @@ class LocationSearchDropdown extends Component
         ?string $dispatchTo = null,
         ?string $formName = null,
         int $zIndex = 1050,
-        ?int $selectedSettingId = null
+        ?int $selectedSettingId = null,
+        ?string $consignmentFilter = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -52,6 +54,7 @@ class LocationSearchDropdown extends Component
         $this->formName = $formName;
         $this->zIndex = $zIndex;
         $this->selectedSettingId = $selectedSettingId;
+        $this->consignmentFilter = $consignmentFilter;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
@@ -174,6 +177,8 @@ class LocationSearchDropdown extends Component
 
         return Location::query()
             ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
+            ->when($this->consignmentFilter === 'consignment', fn ($q) => $q->where('is_consignment', true))
+            ->when($this->consignmentFilter === 'standard', fn ($q) => $q->where('is_consignment', false))
             ->orderBy('name')
             ->get()
             ->map(fn (Location $location) => [

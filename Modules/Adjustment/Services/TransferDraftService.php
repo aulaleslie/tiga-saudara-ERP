@@ -53,6 +53,10 @@ class TransferDraftService
             throw new InvalidArgumentException("Origin and destination cannot be the same.");
         }
 
+        if ((bool) $origin->is_consignment !== (bool) $destination->is_consignment) {
+            throw new InvalidArgumentException("Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.");
+        }
+
         if ($transfer) {
             $transferOriginSettingId = $transfer->relationLoaded('originLocation')
                 ? $transfer->originLocation?->setting_id

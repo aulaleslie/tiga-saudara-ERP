@@ -13,8 +13,14 @@ use Modules\Sale\Entities\SaleDetails;
 
 trait InventoryReplaySupport
 {
-    protected function applyTransaction(string $type, float $delta, float $unitPrice, float &$stock, float &$avg): void
+    protected function applyTransaction(string $type, float $delta, float $unitPrice, float &$stock, float &$avg, bool $isConsignmentLocation = false): void
     {
+        // Consignment transactions and transactions occurring at consignment locations represent non-owned custody;
+        // they do not alter company-owned inventory stock or average cost in valuation
+        if ($isConsignmentLocation || in_array($type, ['CONSIGNMENT_RECEIPT', 'CONSIGNMENT_RECEIPT_REVERSAL'], true)) {
+            return;
+        }
+
         if ($type === 'BUY' && $delta > 0) {
             $newStock = $stock + $delta;
             if ($newStock > 0) {
@@ -359,6 +365,10 @@ trait InventoryReplaySupport
         $type = strtoupper((string) $transaction->type);
         $quantity = (float) ($transaction->quantity ?? 0);
         $diff = (float) ($transaction->after_quantity ?? 0) - (float) ($transaction->previous_quantity ?? 0);
+
+        if ($type === 'CONSIGNMENT_RECEIPT_REVERSAL') {
+            return -abs($quantity != 0.0 ? $quantity : $diff);
+        }
 
         if ($type === 'ADJ' && $diff != 0.0) {
             return $diff;

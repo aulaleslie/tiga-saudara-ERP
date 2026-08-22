@@ -60,6 +60,18 @@ class DocumentNotificationService
                 'title_prefix' => 'Retur Pembelian',
                 'route_prefix' => 'purchase-returns',
             ],
+            \Modules\Consignment\Entities\ConsignmentReceival::class => [
+                'approval_permission' => 'consignments.approve',
+                'edit_permission' => 'consignments.edit',
+                'title_prefix' => 'Dokumen Konsinyasi',
+                'route_prefix' => 'consignments.receivals',
+            ],
+            \Modules\Consignment\Entities\ConsignmentReceiving::class => [
+                'approval_permission' => 'consignments.receive.approve',
+                'edit_permission' => 'consignments.receive',
+                'title_prefix' => 'Penerimaan Fisik Konsinyasi',
+                'route_prefix' => 'consignments.receivings',
+            ],
             \Modules\PurchasesReturn\Entities\PurchaseReturn::class . ':dispatch' => [
                 'approval_permission' => 'purchaseReturns.dispatchApproval',
                 'edit_permission' => 'purchaseReturns.dispatchRequest',

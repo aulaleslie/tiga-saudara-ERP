@@ -31,6 +31,7 @@
                                 <tr>
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
+                                    <th class="align-middle">Tipe</th>
                                     <th class="align-middle">Bisnis</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
@@ -39,7 +40,14 @@
                                 @foreach($locations as $key => $location)
                                     <tr>
                                         <td class="align-middle">{{ $key + 1 }}</td>
-                                        <td class="align-middle">{{ $location->name }}</td>
+                                        <td class="align-middle font-weight-bold">{{ $location->name }}</td>
+                                        <td class="align-middle">
+                                            @if($location->is_consignment)
+                                                <span class="badge badge-warning text-dark"><i class="bi bi-box-seam"></i> Konsinyasi</span>
+                                            @else
+                                                <span class="badge badge-secondary">Standar</span>
+                                            @endif
+                                        </td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
                                         <td class="align-middle">
                                             <a href="{{ route('locations.edit', $location) }}" class="btn btn-info btn-sm">

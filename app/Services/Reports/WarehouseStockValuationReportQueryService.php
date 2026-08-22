@@ -108,7 +108,12 @@ class WarehouseStockValuationReportQueryService
         $results = [];
 
         foreach ($warehouseIds as $warehouseId) {
-            $warehouseName = $warehouses->get($warehouseId)?->name ?? 'Unknown';
+            $locationObj = $warehouses->get($warehouseId);
+            $isConsignment = (bool) ($locationObj?->is_consignment ?? false);
+            $warehouseName = $locationObj?->name ?? 'Unknown';
+            if ($isConsignment) {
+                $warehouseName .= ' (Konsinyasi)';
+            }
 
             foreach ($products as $product) {
                 $locationTransactions = $transactionsByProductAndLocation->get($product->id, collect())->get($warehouseId, collect());
@@ -148,6 +153,7 @@ class WarehouseStockValuationReportQueryService
                 $row = new \stdClass();
                 $row->warehouse_id = $warehouseId;
                 $row->warehouse_name = $warehouseName;
+                $row->is_consignment = $isConsignment;
                 $row->product_id = $product->id;
                 $row->product_code = $product->product_code ?? '';
                 $row->product_name = $product->product_name;
@@ -155,7 +161,8 @@ class WarehouseStockValuationReportQueryService
                 $row->minimum_qty = $minQty;
                 $row->average_cost = $averageCost;
                 $row->qty = $locationQty;
-                $row->stock_value = $locationQty * $averageCost;
+                // Supplier-owned consignment stock has 0 company-owned inventory value in company valuation
+                $row->stock_value = $isConsignment ? 0.0 : ($locationQty * $averageCost);
 
                 $results[] = $row;
             }
@@ -208,7 +215,10 @@ class WarehouseStockValuationReportQueryService
         $totalValue = 0.0;
 
         foreach ($settingIds as $settingId) {
-            $warehouseIds = Location::where('setting_id', $settingId)->pluck('id')->toArray();
+            $warehouseIds = Location::where('setting_id', $settingId)
+                ->where('is_consignment', false)
+                ->pluck('id')
+                ->toArray();
             if (empty($warehouseIds)) {
                 continue;
             }
