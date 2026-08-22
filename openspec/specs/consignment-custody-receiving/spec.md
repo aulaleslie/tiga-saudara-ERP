@@ -1,5 +1,8 @@
-## ADDED Requirements
+# consignment-custody-receiving Specification
 
+## Purpose
+TBD - created by archiving change add-consignment-custody-receiving. Update Purpose after archive.
+## Requirements
 ### Requirement: Locations explicitly govern consignment custody
 The system SHALL add a default-false `is_consignment` classification to locations. Consignment receiving SHALL target only an active location owned by the Consignment Receival's setting with `is_consignment = true`, and ordinary Purchase receiving SHALL NOT add stock to such a location.
 
@@ -178,3 +181,4 @@ Phase 1 SHALL support only inbound custody for existing stock-managed non-bundle
 #### Scenario: Unsupported operation is attempted
 - **WHEN** a request attempts a Phase 1-excluded operation against consignment records or locations
 - **THEN** the system SHALL reject it without mutation
+

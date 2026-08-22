@@ -1,3 +1,6 @@
+## Purpose
+Ordinary Purchase Receiving Notes must exclude consignment locations to prevent accidental stock mutations on supplier-owned custody.
+
 ## ADDED Requirements
 
 ### Requirement: Ordinary Purchase receiving excludes consignment locations
