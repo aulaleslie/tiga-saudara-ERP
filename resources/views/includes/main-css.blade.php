@@ -55,4 +55,25 @@
         overflow-wrap: anywhere;
         text-align: left;
     }
+
+    [data-sale-table-root],
+    [data-purchase-table-root] {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .global-payment-table-scroll {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .global-payment-table-scroll > table {
+        width: max-content;
+        min-width: 100%;
+        white-space: nowrap;
+    }
 </style>

@@ -91,5 +91,21 @@
                 </div>
             </div>
         </div>
+
+        @can('salePayments.global.access')
+        <div class="row mt-4">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3">Pembayaran Penjualan Global</h4>
+                        @include('sale::global-payments.partials.workspace', [
+                            'customerId' => $customer->id,
+                            'keyPrefix' => "customer-{$customer->id}",
+                        ])
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endcan
     </div>
 @endsection

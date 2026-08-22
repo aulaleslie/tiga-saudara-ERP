@@ -17,19 +17,10 @@
                     <div class="card-body">
                         {{-- No create or import buttons for global payment view --}}
 
-                        <livewire:purchase.purchase-summary-cards
-                            :globalMode="true"
-                            :globalBusinessFilters="request()->query('globalBusinessFilters', []) ? (is_array(request()->query('globalBusinessFilters')) ? request()->query('globalBusinessFilters') : array_filter([request()->query('globalBusinessFilters')])) : []"
-                            :documentDateFrom="request('documentDateFrom')"
-                            :documentDateTo="request('documentDateTo')"
-                            :dueDateFrom="request('dueDateFrom')"
-                            :dueDateTo="request('dueDateTo')"
-                            :selectedCardFilter="request('selectedCardFilter')"
-                        />
-
-                        <div class="table-responsive" style="min-height: 300px;">
-                            <livewire:purchase.purchase-table :globalMode="true" />
-                        </div>
+                        @include('purchase::payments.partials.workspace', [
+                            'supplierId' => null,
+                            'keyPrefix' => 'standalone',
+                        ])
                     </div>
                 </div>
             </div>

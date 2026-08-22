@@ -18,6 +18,9 @@ class SaleSummaryCards extends Component
     #[Locked]
     public bool $globalMode = false;
 
+    #[Locked]
+    public ?int $customerId = null;
+
     // Global mode filters
     /** @var array<int>|null */
     public ?array $globalBusinessFilters = null;
@@ -29,11 +32,12 @@ class SaleSummaryCards extends Component
     // Durable summary card selection (stored server-side, restored across refreshes)
     public ?string $selectedCardFilter = null;
 
-    public function mount(bool $globalMode = false, ?array $globalBusinessFilters = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $dueDateFrom = null, ?string $dueDateTo = null, ?string $selectedCardFilter = null)
+    public function mount(bool $globalMode = false, ?array $globalBusinessFilters = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $dueDateFrom = null, ?string $dueDateTo = null, ?string $selectedCardFilter = null, ?int $customerId = null)
     {
         abort_if($globalMode && !\auth()->user()->can('salePayments.global.access'), 403);
 
         $this->globalMode = $globalMode;
+        $this->customerId = $customerId;
         $this->settingId = $globalMode ? null : session('setting_id');
         $this->globalBusinessFilters = $globalBusinessFilters ?? [];
         $this->documentDateFrom = $documentDateFrom;
@@ -81,6 +85,10 @@ class SaleSummaryCards extends Component
                 ->globalPaymentEligible()
                 ->whereLiveDueAmountGreaterThan(0)
                 ->whereNull('archived_at');
+
+            if (!empty($this->customerId)) {
+                $query->where('customer_id', $this->customerId);
+            }
 
             // Apply business filter if set (empty array means all businesses)
             if (!empty($this->globalBusinessFilters)) {
@@ -136,6 +144,10 @@ class SaleSummaryCards extends Component
                 ->where('due_date', '<', Carbon::today())
                 ->whereLiveDueAmountGreaterThan(0)
                 ->whereNull('archived_at');
+
+            if (!empty($this->customerId)) {
+                $query->where('customer_id', $this->customerId);
+            }
 
             // Apply business filter if set (empty array means all businesses)
             if (!empty($this->globalBusinessFilters)) {
@@ -199,6 +211,10 @@ class SaleSummaryCards extends Component
                     $sq->whereNull('archived_at')
                        ->globalPaymentEligible()
                        ->whereLiveDueAmountLessThanOrEqual(0);
+
+                    if (!empty($this->customerId)) {
+                        $sq->where('customer_id', $this->customerId);
+                    }
                 });
 
             // Apply business filter if set (empty array means all businesses)

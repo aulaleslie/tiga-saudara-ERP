@@ -22,6 +22,7 @@ class GlobalPurchasePaymentAuthTest extends TestCase
         Permission::findOrCreate('purchasePayments.global.access', 'web');
         Permission::findOrCreate('purchasePayments.create', 'web');
         Permission::findOrCreate('purchases.access', 'web');
+        Permission::findOrCreate('purchases.reporting-date.override', 'web');
         
         $this->user = \App\Models\User::factory()->create(['is_active' => 1]);
         

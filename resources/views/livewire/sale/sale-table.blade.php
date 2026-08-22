@@ -118,136 +118,138 @@
         </form>
     </div>
 
-    <table class="table table-bordered table-hover align-middle">
-        <thead>
-        <tr>
-            <th wire:click="sortBy('reference')" style="cursor:pointer">
-                Ref {!! $this->sortIcon('reference') !!}
-            </th>
-            <th>POS</th>
-            <th wire:click="sortBy('date')" style="cursor:pointer">
-                Tanggal {!! $this->sortIcon('date') !!}
-            </th>
-            @if ($globalMode)
-            <th>Bisnis</th>
-            @endif
-            <th wire:click="sortBy('customer_id')" style="cursor:pointer">
-                Pelanggan {!! $this->sortIcon('customer_id') !!}
-            </th>
-            <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
-                No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
-            </th>
-            <th>Tags</th>
-            <th>Total</th>
-            <th>Dibayar</th>
-            <th>Sisa Tagihan</th>
-            <th>Tanggal Jatuh Tempo</th>
-            <th>Status</th>
-            <th>Status Pembayaran</th>
-            <th>Aksi</th>
-        </tr>
-        </thead>
-        <tbody>
-        @forelse ($sales as $sale)
+    <div class="table-responsive global-payment-table-scroll">
+        <table class="table table-bordered table-hover align-middle">
+            <thead>
             <tr>
-                <td>
-                    @php
-                        $productsTooltip = $sale->saleDetails->map(function($detail) {
-                            return ($detail->product_name ?? '-') . ' (Qty: ' . $detail->quantity . ')';
-                        })->implode("\n");
-                    @endphp
-                    @if($globalMode || auth()->user()->can('sales.show'))
-                        <a href="{{ $globalMode
-                            ? route('sales.global-payments.show', $sale->id)
-                            : route('sales.show', $sale->id) }}"
-                           class="text-primary font-weight-bold sale-ref-tooltip"
-                           data-toggle="tooltip"
-                           data-placement="top"
-                           title="{{ $productsTooltip }}">
-                            {{ $sale->reference }}
-                        </a>
-                    @else
-                        <span class="font-weight-bold sale-ref-tooltip"
-                              data-toggle="tooltip"
-                              data-placement="top"
-                              title="{{ $productsTooltip }}">
-                            {{ $sale->reference }}
-                        </span>
-                    @endif
-                    @if (!empty($sale->imported_sales_reference_number))
-                        <br>
-                        <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
-                    @endif
-                </td>
-                <td>
-                    @php
-                        $posCode = '-';
-                        if ($sale->posCheckout && $sale->posCheckout->transaction) {
-                            $posCode = $sale->posCheckout->transaction->code;
-                        } elseif ($sale->checkoutSale && $sale->checkoutSale->checkout && $sale->checkoutSale->checkout->transaction) {
-                            $posCode = $sale->checkoutSale->checkout->transaction->code;
-                        }
-                    @endphp
-                    @if ($posCode !== '-')
-                        <span class="badge bg-info text-dark">{{ $posCode }}</span>
-                    @else
-                        <span class="text-muted">-</span>
-                    @endif
-                </td>
-                <td>
-                    {{ Carbon::parse($sale->effective_date)->format('d M Y') }}
-                </td>
+                <th wire:click="sortBy('reference')" style="cursor:pointer">
+                    Ref {!! $this->sortIcon('reference') !!}
+                </th>
+                <th>POS</th>
+                <th wire:click="sortBy('date')" style="cursor:pointer">
+                    Tanggal {!! $this->sortIcon('date') !!}
+                </th>
                 @if ($globalMode)
-                <td>
-                    {{ $sale->tenantSetting->company_name ?? '-' }}
-                </td>
+                <th>Bisnis</th>
                 @endif
-                <td>
-                    @php
-                        $customerName = $sale->customer->canonical_name;
-                    @endphp
-                    {{ $customerName }}
-                </td>
-                <td>{{ $sale->tax_ref_no ?? '-' }}</td>
-                <td>
-                    @foreach ($sale->tags as $tag)
-                        <span class="badge badge-secondary">
-                        {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
-                        </span>
-                    @endforeach
-                    @if ($sale->tags->isEmpty())
-                        -
-                    @endif
-                </td>
-                <td>{{ format_currency($sale->total_amount) }}</td>
-                <td>
-                    @if ($globalMode)
-                        {{ format_currency($sale->live_paid_amount) }}
-                    @else
-                        {{ format_currency($sale->paid_amount) }}
-                    @endif
-                </td>
-                <td>
-                    @if ($globalMode)
-                        {{ format_currency($sale->live_due_amount) }}
-                    @else
-                        {{ format_currency($sale->due_amount) }}
-                    @endif
-                </td>
-                <td>
-                    {{ $sale->payment_due_date ? \Carbon\Carbon::parse($sale->payment_due_date)->format('d M Y') : '-' }}
-                </td>
-                <td>@include('sale::partials.status', ['data' => $sale])</td>
-                <td>@include('sale::partials.payment-status', ['data' => $sale])</td>
-                <td>@include('sale::partials.actions', ['data' => $sale, 'showArchived' => $showArchived, 'globalMode' => $this->globalMode])</td>
+                <th wire:click="sortBy('customer_id')" style="cursor:pointer">
+                    Pelanggan {!! $this->sortIcon('customer_id') !!}
+                </th>
+                <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
+                    No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
+                </th>
+                <th>Tags</th>
+                <th>Total</th>
+                <th>Dibayar</th>
+                <th>Sisa Tagihan</th>
+                <th>Tanggal Jatuh Tempo</th>
+                <th>Status</th>
+                <th>Status Pembayaran</th>
+                <th>Aksi</th>
             </tr>
-        @empty
-            <tr>
-                <td colspan="12">Tidak ada data yang ditemukan.</td>
-            </tr>
-        @endforelse
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+            @forelse ($sales as $sale)
+                <tr>
+                    <td>
+                        @php
+                            $productsTooltip = $sale->saleDetails->map(function($detail) {
+                                return ($detail->product_name ?? '-') . ' (Qty: ' . $detail->quantity . ')';
+                            })->implode("\n");
+                        @endphp
+                        @if($globalMode || auth()->user()->can('sales.show'))
+                            <a href="{{ $globalMode
+                                ? route('sales.global-payments.show', $sale->id)
+                                : route('sales.show', $sale->id) }}"
+                               class="text-primary font-weight-bold sale-ref-tooltip"
+                               data-toggle="tooltip"
+                               data-placement="top"
+                               title="{{ $productsTooltip }}">
+                                {{ $sale->reference }}
+                            </a>
+                        @else
+                            <span class="font-weight-bold sale-ref-tooltip"
+                                  data-toggle="tooltip"
+                                  data-placement="top"
+                                  title="{{ $productsTooltip }}">
+                                {{ $sale->reference }}
+                            </span>
+                        @endif
+                        @if (!empty($sale->imported_sales_reference_number))
+                            <br>
+                            <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
+                        @endif
+                    </td>
+                    <td>
+                        @php
+                            $posCode = '-';
+                            if ($sale->posCheckout && $sale->posCheckout->transaction) {
+                                $posCode = $sale->posCheckout->transaction->code;
+                            } elseif ($sale->checkoutSale && $sale->checkoutSale->checkout && $sale->checkoutSale->checkout->transaction) {
+                                $posCode = $sale->checkoutSale->checkout->transaction->code;
+                            }
+                        @endphp
+                        @if ($posCode !== '-')
+                            <span class="badge bg-info text-dark">{{ $posCode }}</span>
+                        @else
+                            <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        {{ Carbon::parse($sale->effective_date)->format('d M Y') }}
+                    </td>
+                    @if ($globalMode)
+                    <td>
+                        {{ $sale->tenantSetting->company_name ?? '-' }}
+                    </td>
+                    @endif
+                    <td>
+                        @php
+                            $customerName = $sale->customer->canonical_name;
+                        @endphp
+                        {{ $customerName }}
+                    </td>
+                    <td>{{ $sale->tax_ref_no ?? '-' }}</td>
+                    <td>
+                        @foreach ($sale->tags as $tag)
+                            <span class="badge badge-secondary">
+                            {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
+                            </span>
+                        @endforeach
+                        @if ($sale->tags->isEmpty())
+                            -
+                        @endif
+                    </td>
+                    <td>{{ format_currency($sale->total_amount) }}</td>
+                    <td>
+                        @if ($globalMode)
+                            {{ format_currency($sale->live_paid_amount) }}
+                        @else
+                            {{ format_currency($sale->paid_amount) }}
+                        @endif
+                    </td>
+                    <td>
+                        @if ($globalMode)
+                            {{ format_currency($sale->live_due_amount) }}
+                        @else
+                            {{ format_currency($sale->due_amount) }}
+                        @endif
+                    </td>
+                    <td>
+                        {{ $sale->payment_due_date ? \Carbon\Carbon::parse($sale->payment_due_date)->format('d M Y') : '-' }}
+                    </td>
+                    <td>@include('sale::partials.status', ['data' => $sale])</td>
+                    <td>@include('sale::partials.payment-status', ['data' => $sale])</td>
+                    <td>@include('sale::partials.actions', ['data' => $sale, 'showArchived' => $showArchived, 'globalMode' => $this->globalMode])</td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="12">Tidak ada data yang ditemukan.</td>
+                </tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
 
     <!-- Pagination controls -->
     <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">

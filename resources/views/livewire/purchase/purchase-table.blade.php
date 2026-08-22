@@ -120,101 +120,103 @@
         </form>
     </div>
 
-    <table class="table table-bordered table-hover align-middle">
-        <thead>
-        <tr>
-            <th wire:click="sortBy('reference')" style="cursor:pointer">
-                Ref {!! $this->sortIcon('reference') !!}
-            </th>
-            <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">
-                Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}
-            </th>
-            <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
-                No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
-            </th>
-            <th wire:click="sortBy('date')" style="cursor:pointer">
-                Tanggal {!! $this->sortIcon('date') !!}
-            </th>
-            <th wire:click="sortBy('due_date')" style="cursor:pointer">
-                Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}
-            </th>
-            @if ($globalMode)
-            <th>Bisnis</th>
-            @endif
-            @if (!$supplierId)
-                <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
-                    Supplier {!! $this->sortIcon('supplier_id') !!}
+    <div class="table-responsive global-payment-table-scroll">
+        <table class="table table-bordered table-hover align-middle">
+            <thead>
+            <tr>
+                <th wire:click="sortBy('reference')" style="cursor:pointer">
+                    Ref {!! $this->sortIcon('reference') !!}
                 </th>
-            @endif
-            <th>Total</th>
-            <th wire:click="sortBy('due_amount')" style="cursor:pointer">
-                Sisa Pembayaran {!! $this->sortIcon('due_amount') !!}
-            </th>
-            <th>Tags</th>
-            <th>Status</th>
-            <th>Payment</th>
-            <th>Action</th>
-        </tr>
-        </thead>
-        <tbody>
-        @forelse ($purchases as $purchase)
-            <tr wire:key="{{ $purchase->id }}">
-                <td>
-                    @php
-                        $productsTooltip = $purchase->purchaseDetails->map(function($detail) {
-                            return ($detail->product->product_name ?? $detail->product_name) . ' (Qty: ' . $detail->quantity . ')';
-                        })->implode("\n");
-                    @endphp
-                    <a href="{{ $globalMode ? route('purchases.global-payments.show', $purchase->id) : route('purchases.show', $purchase->id) }}"
-                       class="text-primary font-weight-bold purchase-ref-tooltip"
-                       data-toggle="tooltip"
-                       data-placement="top"
-                       title="{{ $productsTooltip }}">
-                        {{ $purchase->reference }}
-                    </a>
-                </td>
-                <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
-                <td>{{ $purchase->tax_ref_no ?? '-' }}</td>
-                <td>
-                    {{ $this->formatDate($purchase->effective_date) }}
-                </td>
-                <td>
-                    {{ $this->formatDate($purchase->due_date) }}
-                </td>
+                <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">
+                    Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}
+                </th>
+                <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
+                    No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
+                </th>
+                <th wire:click="sortBy('date')" style="cursor:pointer">
+                    Tanggal {!! $this->sortIcon('date') !!}
+                </th>
+                <th wire:click="sortBy('due_date')" style="cursor:pointer">
+                    Tanggal Jatuh Tempo {!! $this->sortIcon('due_date') !!}
+                </th>
                 @if ($globalMode)
-                <td>
-                    {{ $purchase->tenantSetting->company_name ?? '-' }}
-                </td>
+                <th>Bisnis</th>
                 @endif
                 @if (!$supplierId)
-                    <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
+                    <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
+                        Supplier {!! $this->sortIcon('supplier_id') !!}
+                    </th>
                 @endif
-                <td>{{ format_currency($purchase->total_amount) }}</td>
-                <td>{{ format_currency($globalMode ? $purchase->live_due_amount : $purchase->due_amount) }}</td>
-                <td>
-                    @foreach ($purchase->tags as $tag)
-                        <span class="badge badge-info me-1">
-                    {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
-                </span>
-                    @endforeach
-                </td>
-                <td>@include('purchase::partials.status', ['data' => $purchase])</td>
-                <td>@include('purchase::partials.payment-status', ['data' => $purchase])</td>
-                <td>
-                    @if($globalMode)
-                        @include('purchase::partials.global-payment-actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
-                    @else
-                        @include('purchase::partials.actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
+                <th>Total</th>
+                <th wire:click="sortBy('due_amount')" style="cursor:pointer">
+                    Sisa Pembayaran {!! $this->sortIcon('due_amount') !!}
+                </th>
+                <th>Tags</th>
+                <th>Status</th>
+                <th>Payment</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+            <tbody>
+            @forelse ($purchases as $purchase)
+                <tr wire:key="{{ $purchase->id }}">
+                    <td>
+                        @php
+                            $productsTooltip = $purchase->purchaseDetails->map(function($detail) {
+                                return ($detail->product->product_name ?? $detail->product_name) . ' (Qty: ' . $detail->quantity . ')';
+                            })->implode("\n");
+                        @endphp
+                        <a href="{{ $globalMode ? route('purchases.global-payments.show', $purchase->id) : route('purchases.show', $purchase->id) }}"
+                           class="text-primary font-weight-bold purchase-ref-tooltip"
+                           data-toggle="tooltip"
+                           data-placement="top"
+                           title="{{ $productsTooltip }}">
+                            {{ $purchase->reference }}
+                        </a>
+                    </td>
+                    <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
+                    <td>{{ $purchase->tax_ref_no ?? '-' }}</td>
+                    <td>
+                        {{ $this->formatDate($purchase->effective_date) }}
+                    </td>
+                    <td>
+                        {{ $this->formatDate($purchase->due_date) }}
+                    </td>
+                    @if ($globalMode)
+                    <td>
+                        {{ $purchase->tenantSetting->company_name ?? '-' }}
+                    </td>
                     @endif
-                </td>
-            </tr>
-        @empty
-            <tr>
-                <td colspan="{{ $globalMode ? ($supplierId ? 12 : 13) : ($supplierId ? 11 : 12) }}">Tidak ada data yang ditemukan.</td>
-            </tr>
-        @endforelse
-        </tbody>
-    </table>
+                    @if (!$supplierId)
+                        <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
+                    @endif
+                    <td>{{ format_currency($purchase->total_amount) }}</td>
+                    <td>{{ format_currency($globalMode ? $purchase->live_due_amount : $purchase->due_amount) }}</td>
+                    <td>
+                        @foreach ($purchase->tags as $tag)
+                            <span class="badge badge-info me-1">
+                        {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
+                    </span>
+                        @endforeach
+                    </td>
+                    <td>@include('purchase::partials.status', ['data' => $purchase])</td>
+                    <td>@include('purchase::partials.payment-status', ['data' => $purchase])</td>
+                    <td>
+                        @if($globalMode)
+                            @include('purchase::partials.global-payment-actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
+                        @else
+                            @include('purchase::partials.actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
+                        @endif
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="{{ $globalMode ? ($supplierId ? 12 : 13) : ($supplierId ? 11 : 12) }}">Tidak ada data yang ditemukan.</td>
+                </tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
 
     <!-- Pagination controls -->
     <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">

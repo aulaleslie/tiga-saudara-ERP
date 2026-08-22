@@ -50,18 +50,21 @@
             </div>
         </div>
 
-        <!-- Purchases Table -->
+        @can('purchasePayments.global.access')
+        <!-- Global Purchase Payments Workspace -->
         <div class="row mt-4">
             <div class="col-lg-12">
                 <div class="card">
                     <div class="card-body">
-                        <h4 class="mb-3">Pembelian</h4>
-                        <div class="table-responsive" style="min-height: 300px;">
-                            <livewire:purchase.purchase-table :supplier-id="$supplier->id" />
-                        </div>
+                        <h4 class="mb-3">Pembayaran Pembelian Global</h4>
+                        @include('purchase::payments.partials.workspace', [
+                            'supplierId' => $supplier->id,
+                            'keyPrefix' => "supplier-{$supplier->id}",
+                        ])
                     </div>
                 </div>
             </div>
         </div>
+        @endcan
     </div>
 @endsection

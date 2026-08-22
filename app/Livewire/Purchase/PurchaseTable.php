@@ -28,7 +28,8 @@ class PurchaseTable extends Component
     public $settingId;
     public $statusFilter = null;
     public $purchaseId = null;
-    public $supplierId = null;
+    #[Locked]
+    public ?int $supplierId = null;
     #[Url]
     public $showArchived = false;
 

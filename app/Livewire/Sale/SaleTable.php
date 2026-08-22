@@ -25,6 +25,8 @@ class SaleTable extends Component
     public $settingId;
     public $statusFilter = null;
     public $saleId = null;
+    #[Locked]
+    public ?int $customerId = null;
     #[Url]
     public $showArchived = false;
 
@@ -68,11 +70,12 @@ class SaleTable extends Component
     #[Url]
     public ?string $selectedCardFilter = null;
 
-    public function mount($settingId = null, $statusFilter = null, $saleId = null, bool $globalMode = false)
+    public function mount($settingId = null, $statusFilter = null, $saleId = null, bool $globalMode = false, ?int $customerId = null)
     {
         abort_if($globalMode && !\auth()->user()->can('salePayments.global.access'), 403);
 
         $this->globalMode = $globalMode;
+        $this->customerId = $customerId;
         $this->settingId = $globalMode ? null : ($settingId ?? session('setting_id'));
         $this->statusFilter = $statusFilter;
         $this->saleId = $saleId;
@@ -331,6 +334,9 @@ class SaleTable extends Component
             })
             ->when(! empty($this->saleId), function ($q) {
                 $q->where('id', $this->saleId);
+            })
+            ->when(! empty($this->customerId), function ($q) {
+                $q->where('customer_id', $this->customerId);
             })
             ->when(! empty($this->paymentStatusFilter), function ($q) {
                 $q->where('payment_status', $this->paymentStatusFilter);
