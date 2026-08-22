@@ -1006,101 +1006,165 @@ class FinalizePosCheckoutService
         bool $isDebt = false,
         ?int $paymentTermId = null
     ): array {
-        for ($attempt = 0; $attempt < 2; $attempt++) {
-            try {
-                return DB::transaction(function () use (
-                    $settingId,
-                    $sessionId,
-                    $terminalId,
-                    $cashierUserId,
-                    $customerId,
-                    $idempotencyKey,
-                    $payloadHash,
-                    $totals,
-                    $payment,
-                    $paidTotal,
-                    $changeTotal,
-                    $clientContext,
-                    $cartSnapshot,
-                    $isDebt,
-                    $paymentTermId
-                ) {
-                    $existing = PosCheckout::query()
-                        ->where('setting_id', $settingId)
-                        ->where('idempotency_key', $idempotencyKey)
-                        ->lockForUpdate()
-                        ->first();
+        $resolutionCallback = function () use (
+            $settingId,
+            $sessionId,
+            $terminalId,
+            $cashierUserId,
+            $customerId,
+            $idempotencyKey,
+            $payloadHash,
+            $totals,
+            $payment,
+            $paidTotal,
+            $changeTotal,
+            $clientContext,
+            $cartSnapshot,
+            $isDebt,
+            $paymentTermId
+        ): array {
+            $existing = PosCheckout::query()
+                ->where('setting_id', $settingId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->lockForUpdate()
+                ->first();
 
-                    if ($existing) {
-                        return [
-                            'checkout' => null,
-                            'replay_payload' => $this->resolveExistingCheckout($existing, $payloadHash),
-                        ];
-                    }
-
-                    $checkoutMetadata = [
-                        'client_context' => $clientContext,
-                        'cart_meta' => $cartSnapshot['meta'] ?? null,
-                        'is_debt' => $isDebt,
-                        'payment_term_id' => $paymentTermId,
-                    ];
-
-                    // Persist image token for single-payment fingerprint verification
-                    if (isset($payment['payment_image_token'])) {
-                        $checkoutMetadata['payment_image_token'] = $payment['payment_image_token'];
-                    }
-
-                    // Persist multi-payment composition and image tokens for fingerprint verification
-                    if ((bool) ($payment['is_multi_payment'] ?? false)) {
-                        $checkoutMetadata['canonical_payment_hash'] = $payment['canonical_payment_hash'] ?? null;
-                        if (isset($payment['image_tokens']) && !empty($payment['image_tokens'])) {
-                            $checkoutMetadata['image_tokens'] = array_values($payment['image_tokens']);
-                        }
-                    }
-
-                    $checkout = PosCheckout::query()->create([
-                        'setting_id' => $settingId,
-                        'pos_session_id' => $sessionId,
-                        'terminal_id' => $terminalId,
-                        'cashier_user_id' => $cashierUserId,
-                        'customer_id' => $customerId,
-                        'status' => PosCheckout::STATUS_FINALIZING,
-                        'idempotency_key' => $idempotencyKey,
-                        'payload_hash' => $payloadHash,
-                        'original_cart_snapshot' => [
-                            'lines' => $cartSnapshot['lines'] ?? [],
-                            'totals' => $cartSnapshot['totals'] ?? [],
-                            'bill_discount' => $cartSnapshot['bill_discount'] ?? [],
-                            'note' => $cartSnapshot['note'] ?? null,
-                            'customer' => $cartSnapshot['customer'] ?? [],
-                        ],
-                        'subtotal' => $totals['subtotal'],
-                        'discount_total' => $totals['discount_total'],
-                        'tax_total' => $totals['tax_total'],
-                        'grand_total' => $totals['grand_total'],
-                        'paid_total' => $paidTotal,
-                        'change_total' => $changeTotal,
-                        'payment_method_id' => $payment['payment_method_id'],
-                        'payment_reference' => $payment['reference'],
-                        'note' => $cartSnapshot['note'] ?? null,
-                        'metadata' => $checkoutMetadata,
-                    ]);
-
-                    return [
-                        'checkout' => $checkout,
-                        'replay_payload' => null,
-                    ];
-                });
-            } catch (QueryException $exception) {
-                if ($attempt === 0 && $this->isUniqueConstraintViolation($exception)) {
-                    continue;
-                }
-
-                throw $exception;
+            if ($existing) {
+                return [
+                    'checkout' => null,
+                    'replay_payload' => $this->resolveExistingCheckout($existing, $payloadHash),
+                ];
             }
+
+            $checkoutMetadata = [
+                'client_context' => $clientContext,
+                'cart_meta' => $cartSnapshot['meta'] ?? null,
+                'is_debt' => $isDebt,
+                'payment_term_id' => $paymentTermId,
+            ];
+
+            // Persist image token for single-payment fingerprint verification
+            if (isset($payment['payment_image_token'])) {
+                $checkoutMetadata['payment_image_token'] = $payment['payment_image_token'];
+            }
+
+            // Persist multi-payment composition and image tokens for fingerprint verification
+            if ((bool) ($payment['is_multi_payment'] ?? false)) {
+                $checkoutMetadata['canonical_payment_hash'] = $payment['canonical_payment_hash'] ?? null;
+                if (isset($payment['image_tokens']) && !empty($payment['image_tokens'])) {
+                    $checkoutMetadata['image_tokens'] = array_values($payment['image_tokens']);
+                }
+            }
+
+            $checkout = PosCheckout::query()->create([
+                'setting_id' => $settingId,
+                'pos_session_id' => $sessionId,
+                'terminal_id' => $terminalId,
+                'cashier_user_id' => $cashierUserId,
+                'customer_id' => $customerId,
+                'status' => PosCheckout::STATUS_FINALIZING,
+                'idempotency_key' => $idempotencyKey,
+                'payload_hash' => $payloadHash,
+                'original_cart_snapshot' => [
+                    'lines' => $cartSnapshot['lines'] ?? [],
+                    'totals' => $cartSnapshot['totals'] ?? [],
+                    'bill_discount' => $cartSnapshot['bill_discount'] ?? [],
+                    'note' => $cartSnapshot['note'] ?? null,
+                    'customer' => $cartSnapshot['customer'] ?? [],
+                ],
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_total' => $totals['tax_total'],
+                'grand_total' => $totals['grand_total'],
+                'paid_total' => $paidTotal,
+                'change_total' => $changeTotal,
+                'payment_method_id' => $payment['payment_method_id'],
+                'payment_reference' => $payment['reference'],
+                'note' => $cartSnapshot['note'] ?? null,
+                'metadata' => $checkoutMetadata,
+            ]);
+
+            return [
+                'checkout' => $checkout,
+                'replay_payload' => null,
+            ];
+        };
+
+        return $this->executeLedgerResolutionWithConflictRetry($resolutionCallback, [
+            'setting_id' => $settingId,
+            'pos_session_id' => $sessionId,
+            'terminal_id' => $terminalId,
+        ]);
+    }
+
+    /**
+     * Runs a checkout-ledger resolution callback inside a transaction, retrying the
+     * complete transaction (not just a failed insert) on a bounded budget for MySQL
+     * deadlocks (1213 / SQLSTATE 40001) and, separately, the exact checkout
+     * idempotency-key unique race. Any other exception propagates immediately.
+     *
+     * If a caller already owns an active transaction, this resolution cannot safely
+     * own retry: opening a nested transaction/savepoint here would let a deadlock
+     * "succeed" locally only to be rolled back later by the real outer owner.
+     * The callback then executes exactly once and any conflict propagates to
+     * whichever caller owns the outermost transaction.
+     *
+     * @param  Closure(): array<string, mixed>  $resolutionCallback
+     * @param  array<string, mixed>  $logContext
+     * @return array<string, mixed>
+     */
+    public function executeLedgerResolutionWithConflictRetry(\Closure $resolutionCallback, array $logContext = []): array
+    {
+        if (DB::transactionLevel() > 0) {
+            return $resolutionCallback();
         }
 
-        throw new PosCheckoutPostingException('POSTING_FAILURE', 'Checkout ledger could not be initialized.');
+        $maxDeadlockAttempts = 3;
+        $maxUniqueRaceAttempts = 2;
+        $deadlockAttempt = 0;
+        $uniqueRaceAttempt = 0;
+
+        while (true) {
+            try {
+                return DB::transaction($resolutionCallback);
+            } catch (QueryException $exception) {
+                $isDeadlock = $this->isDeadlockConflict($exception);
+                $isUniqueRace = !$isDeadlock && $this->isCheckoutIdempotencyUniqueConflict($exception);
+
+                if (!$isDeadlock && !$isUniqueRace) {
+                    throw $exception;
+                }
+
+                if ($isDeadlock) {
+                    $deadlockAttempt++;
+                } else {
+                    $uniqueRaceAttempt++;
+                }
+
+                $budgetExhausted = $isDeadlock
+                    ? $deadlockAttempt >= $maxDeadlockAttempts
+                    : $uniqueRaceAttempt >= $maxUniqueRaceAttempts;
+
+                $logPayload = array_merge($logContext, [
+                    'deadlock_attempt' => $deadlockAttempt,
+                    'unique_race_attempt' => $uniqueRaceAttempt,
+                    'is_deadlock' => $isDeadlock,
+                    'is_unique_race' => $isUniqueRace,
+                ]);
+
+                if ($budgetExhausted) {
+                    Log::error('pos_checkout.ledger_resolution_terminal_conflict', $logPayload);
+
+                    throw $exception;
+                }
+
+                Log::warning('pos_checkout.ledger_resolution_conflict_retrying', $logPayload);
+
+                if ($isDeadlock) {
+                    usleep(random_int(10000, 50000)); // 10ms - 50ms jitter
+                }
+            }
+        }
     }
 
     /**
@@ -2265,15 +2329,47 @@ class FinalizePosCheckoutService
         }
     }
 
-    private function isUniqueConstraintViolation(QueryException $exception): bool
+    /**
+     * Determines whether a QueryException represents a MySQL deadlock (1213) or
+     * serialization failure (SQLSTATE 40001). These are transient and safe to retry
+     * by rerunning the entire failed transaction from scratch.
+     */
+    public function isDeadlockConflict(QueryException $exception): bool
     {
-        $sqlState = (string) ($exception->errorInfo[0] ?? '');
-        $message = strtolower($exception->getMessage());
+        $errorInfo = $exception->errorInfo ?? [];
+        $sqlState = (string) ($errorInfo[0] ?? '');
+        $driverCode = (int) ($errorInfo[1] ?? 0);
 
-        return in_array($sqlState, ['23000', '23505'], true)
-            || str_contains($message, 'unique')
-            || str_contains($message, 'duplicate');
+        return $sqlState === '40001' || $driverCode === 1213;
     }
 
+    /**
+     * Determines whether a QueryException represents exactly the checkout idempotency
+     * unique-key race on `pos_checkouts (setting_id, idempotency_key)` — the
+     * `pos_checkouts_setting_idempotency_unique` index (MySQL) — never any other
+     * PosCheckout unique constraint or unrelated integrity violation.
+     */
+    public function isCheckoutIdempotencyUniqueConflict(QueryException $exception): bool
+    {
+        $errorInfo = $exception->errorInfo ?? [];
+        $sqlState = (string) ($errorInfo[0] ?? '');
+        $driverCode = (int) ($errorInfo[1] ?? 0);
+        $message = strtolower($exception->getMessage());
 
+        $isMysqlUniqueViolation = $sqlState === '23000' && $driverCode === 1062;
+        if ($isMysqlUniqueViolation && str_contains($message, 'pos_checkouts_setting_idempotency_unique')) {
+            return true;
+        }
+
+        $isSqliteUniqueViolation = $driverCode === 19;
+        if ($isSqliteUniqueViolation
+            && str_contains($message, 'unique constraint failed')
+            && str_contains($message, 'pos_checkouts.setting_id')
+            && str_contains($message, 'pos_checkouts.idempotency_key')
+        ) {
+            return true;
+        }
+
+        return false;
+    }
 }

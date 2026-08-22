@@ -109,18 +109,12 @@ class PosProductionCheckoutConcurrencyTest extends TestCase
 
         $tax = Tax::create(['name' => 'VAT 11 PROD', 'value' => 11, 'is_default' => true]);
 
-        // NOTE: $numWorkers is intentionally kept at the level that reliably
-        // exercises the sequence allocator's retry budget (the subject of
-        // this test) without also tripping a SEPARATE, pre-existing gap in
-        // FinalizePosCheckoutService::resolveCheckoutLedger()'s own PosCheckout
-        // insert retry loop (Modules/Pos/Services/FinalizePosCheckoutService.php:1094-1100
-        // — its retry only classifies unique-constraint violations via
-        // isUniqueConstraintViolation(), not deadlocks via isDeadlockConflict(),
-        // so a genuine MySQL deadlock on that INSERT under heavy concurrent
-        // load propagates uncaught). That gap is unrelated to the sequence
-        // allocator hardening this test suite covers and is out of scope
-        // for this change; higher worker counts reproduce it reliably and
-        // should be revisited separately.
+        // $numWorkers exercises both the sequence allocator's retry budget
+        // and FinalizePosCheckoutService::resolveCheckoutLedger()'s own
+        // outer-transaction deadlock retry (see
+        // Modules/Pos/Services/FinalizePosCheckoutService.php,
+        // isDeadlockConflict()/isCheckoutIdempotencyUniqueConflict()) under
+        // real MySQL contention on the checkout-ledger insert.
         $numWorkers = 4;
         $iterationsPerWorker = 2;
 
