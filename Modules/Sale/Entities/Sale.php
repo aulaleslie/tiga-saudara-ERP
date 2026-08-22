@@ -175,31 +175,32 @@ class Sale extends BaseModel implements HasMedia
                 return;
             }
 
+            // If created raw without an existing reference, require an active database transaction to guarantee atomic persistence
+            if (DB::transactionLevel() === 0) {
+                throw new \LogicException('Creating a Sale without an explicit reference requires an active database transaction to ensure sequence atomicity.');
+            }
+
             // Fallback allocation via authoritative sequence allocator
             $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
             $saleDate = $model->date ? Carbon::parse($model->date) : now();
             $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, (int) $model->setting_id, $saleDate);
 
-            if (DB::transactionLevel() > 0) {
-                $allocation = $allocator->allocate($namespace);
-                $model->reference = $allocation->reference;
-            } else {
-                $model->reference = DB::transaction(function () use ($allocator, $namespace) {
-                    return $allocator->allocate($namespace)->reference;
-                });
-            }
+            $allocation = $allocator->allocate($namespace);
+            $model->reference = $allocation->reference;
         });
     }
 
     public static function generateReference(int $settingId, ?Carbon $date = null): string
     {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Sale::generateReference() requires an active database transaction to guarantee atomic persistence and prevent counter gaps.');
+        }
+
         $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
         $saleDate = $date ?? now();
         $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, $settingId, $saleDate);
 
-        return DB::transaction(function () use ($allocator, $namespace) {
-            return $allocator->allocate($namespace)->reference;
-        });
+        return $allocator->allocate($namespace)->reference;
     }
 
     public function scopeCompleted($query) {

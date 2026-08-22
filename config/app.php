@@ -56,6 +56,9 @@ return [
 
     'asset_url' => env('ASSET_URL', null),
 
+    'sequence_purchase_enabled' => env('SEQUENCE_PURCHASE_ENABLED', false),
+    'sequence_sale_enabled' => env('SEQUENCE_SALE_ENABLED', false),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

@@ -10,6 +10,8 @@ use Livewire\Livewire;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -149,5 +151,56 @@ class PurchaseCreateGlobalDiscountTest extends TestCase
             'discount_amount' => 5000,
             'total_amount' => 95000, // 100000 - 5000
         ]);
+    }
+
+    public function test_purchase_creation_persists_drafted_status_correct_totals_and_details_atomically()
+    {
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'token-7']);
+
+        Cart::instance('purchase')->add([
+            'id' => $this->product->id,
+            'name' => $this->product->product_name,
+            'qty' => 2,
+            'price' => 100000,
+            'weight' => 1,
+            'options' => [
+                'sub_total' => 200000,
+                'sub_total_before_tax' => 200000,
+                'code' => $this->product->product_code,
+                'product_tax' => null,
+                'unit_price' => 100000,
+                'product_discount_type' => 'fixed',
+                'product_discount' => 0,
+            ],
+        ]);
+
+        $component->set('supplier_id', $this->supplier->id)
+            ->set('payment_term', $this->codTerm->id)
+            ->dispatch('globalDiscountUpdated', 10)
+            ->dispatch('globalDiscountTypeUpdated', 'percentage')
+            ->call('submit');
+
+        $purchase = Purchase::where('setting_id', $this->setting->id)->latest('id')->first();
+
+        $this->assertNotNull($purchase);
+        $this->assertSame(Purchase::STATUS_DRAFTED, $purchase->status);
+        $this->assertEquals(10, $purchase->discount_percentage);
+        $this->assertEquals(0, $purchase->discount_amount);
+        $this->assertEquals(180000, $purchase->total_amount); // 200000 - 10%
+        $this->assertEquals(180000, $purchase->due_amount);
+        $this->assertNotEmpty($purchase->reference);
+
+        $details = PurchaseDetail::where('purchase_id', $purchase->id)->get();
+        $this->assertCount(1, $details);
+        $this->assertEquals(2, $details->first()->quantity);
+        $this->assertEquals($this->product->id, $details->first()->product_id);
+
+        // Reference and counter commit atomically: the sequence row must reflect the same allocation.
+        $seqRow = \App\Services\Sequence\DocumentSequence::query()
+            ->where('setting_id', $this->setting->id)
+            ->where('document_type', 'purchase')
+            ->first();
+        $this->assertNotNull($seqRow);
+        $this->assertStringEndsWith(sprintf('%05d', $seqRow->last_number), $purchase->reference);
     }
 }

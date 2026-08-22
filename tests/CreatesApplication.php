@@ -47,6 +47,16 @@ trait CreatesApplication
         $dbConnection = $app['config']['database.default'];
         $dbConfig = $app['config']["database.connections.{$dbConnection}"];
 
+        if ($dbConnection === 'mysql_test') {
+            $database = $dbConfig['database'] ?? '';
+            if (!str_ends_with($database, '_test')) {
+                throw new \RuntimeException(
+                    "Testing MySQL environment database must end in '_test', got: '{$database}'. Aborting."
+                );
+            }
+            return;
+        }
+
         if ($dbConnection !== 'sqlite') {
             throw new \RuntimeException(
                 "Testing environment resolved to non-SQLite connection: {$dbConnection}. " .

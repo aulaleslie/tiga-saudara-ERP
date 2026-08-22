@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mysql_test:
     image: mysql:8.0.44
@@ -17,10 +15,11 @@ services:
       --transaction-isolation=REPEATABLE-READ
       --sql-mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
       --default-time-zone=+08:00
+      --bind-address=0.0.0.0
     ports:
       - "33066:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "test_user", "-ptest_password"]
+      test: ["CMD-SHELL", "mysqladmin ping -u root -proot_test_password || exit 1"]
       interval: 2s
       timeout: 2s
       retries: 20

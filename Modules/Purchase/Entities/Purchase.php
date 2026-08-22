@@ -147,13 +147,15 @@ class Purchase extends BaseModel implements HasMedia
 
     public static function generateReference(int $settingId, ?Carbon $date = null): string
     {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Purchase::generateReference() requires an active database transaction to guarantee atomic persistence and prevent counter gaps.');
+        }
+
         $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
         $purchaseDate = $date ?? now();
         $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::PURCHASE, $settingId, $purchaseDate);
 
-        return DB::transaction(function () use ($allocator, $namespace) {
-            return $allocator->allocate($namespace)->reference;
-        });
+        return $allocator->allocate($namespace)->reference;
     }
 
     public function tags(): MorphToMany
@@ -224,19 +226,18 @@ class Purchase extends BaseModel implements HasMedia
                 return;
             }
 
+            // If created raw without an existing reference, require an active database transaction to guarantee atomic persistence
+            if (DB::transactionLevel() === 0) {
+                throw new \LogicException('Creating a Purchase without an explicit reference requires an active database transaction to ensure sequence atomicity.');
+            }
+
             // Fallback allocation via authoritative sequence allocator
             $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
             $purchaseDate = $model->date ? Carbon::parse($model->date) : now();
             $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::PURCHASE, (int) $model->setting_id, $purchaseDate);
 
-            if (DB::transactionLevel() > 0) {
-                $allocation = $allocator->allocate($namespace);
-                $model->reference = $allocation->reference;
-            } else {
-                $model->reference = DB::transaction(function () use ($allocator, $namespace) {
-                    return $allocator->allocate($namespace)->reference;
-                });
-            }
+            $allocation = $allocator->allocate($namespace);
+            $model->reference = $allocation->reference;
         });
     }
 

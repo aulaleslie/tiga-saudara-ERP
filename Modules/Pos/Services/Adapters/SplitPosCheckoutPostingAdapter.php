@@ -138,6 +138,11 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             }
         }
 
+        $namespaceCollector = $context['sequence_namespace_collector'] ?? null;
+        if (is_callable($namespaceCollector)) {
+            $namespaceCollector(array_values($namespacesToLock));
+        }
+
         if (!empty($namespacesToLock) && \Illuminate\Support\Facades\DB::transactionLevel() > 0) {
             $allocator->lockNamespacesCanonically(array_values($namespacesToLock));
         }

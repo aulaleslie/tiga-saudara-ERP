@@ -5,6 +5,8 @@ namespace Modules\Pos\Services;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\Sequence\DocumentSequenceAllocator;
+use App\Services\Sequence\SequenceNamespace;
 use App\Models\User;
 use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Services\PosCartActionAuthorizationService;
@@ -1169,9 +1171,11 @@ class FinalizePosCheckoutService
     ): array {
         $checkoutId = (int) $checkout->id;
         $idempotencyKey = (string) $checkout->idempotency_key;
+        $sequenceNamespaces = [];
+        $sequenceAllocator = app(DocumentSequenceAllocator::class);
 
         try {
-            return DB::transaction(function () use (
+            return $sequenceAllocator->executeWholeOperationWithConflictRetry(function () use (
                 $checkout,
                 $settingId,
                 $sessionId,
@@ -1184,8 +1188,10 @@ class FinalizePosCheckoutService
                 $changeTotal,
                 $grandTotal,
                 $checkoutId,
-                $clientContext
+                $clientContext,
+                &$sequenceNamespaces
             ) {
+                $sequenceNamespaces = [];
                 $session = PosSession::query()
                     ->where('id', $sessionId)
                     ->where('setting_id', $settingId)
@@ -1267,6 +1273,13 @@ class FinalizePosCheckoutService
                     'checkout_date' => $checkoutDate,
                     'due_date' => $dueDate,
                     'pos_transaction_code' => $posTransactionCode,
+                    'sequence_namespace_collector' => static function (array $namespaces) use (&$sequenceNamespaces): void {
+                        foreach ($namespaces as $namespace) {
+                            if ($namespace instanceof SequenceNamespace) {
+                                $sequenceNamespaces[$namespace->canonicalKey()] = $namespace;
+                            }
+                        }
+                    },
                 ]);
 
                 $dispatchIds = array_values(array_map(
@@ -1403,16 +1416,18 @@ class FinalizePosCheckoutService
 
                     $session->save();
 
-                    $this->cashDrawerService->triggerDrawerOpen(
-                        PosCashDrawerService::TRIGGER_CASH_SALE,
-                        $terminalId,
-                        $settingId,
-                        [
-                            'pos_checkout_id' => $checkoutId,
-                            'cash_event_id' => $cashEvent->id,
-                        ],
-                        $terminal
-                    );
+                    DB::afterCommit(function () use ($terminalId, $settingId, $checkoutId, $cashEvent, $terminal) {
+                        $this->cashDrawerService->triggerDrawerOpen(
+                            PosCashDrawerService::TRIGGER_CASH_SALE,
+                            $terminalId,
+                            $settingId,
+                            [
+                                'pos_checkout_id' => $checkoutId,
+                                'cash_event_id' => $cashEvent->id,
+                            ],
+                            $terminal
+                        );
+                    });
                 }
 
                 $lockedCheckout->status = PosCheckout::STATUS_POSTED;
@@ -1456,7 +1471,9 @@ class FinalizePosCheckoutService
                 $lockedCheckout->save();
 
                 return $responsePayload;
-            });
+            }, static function () use (&$sequenceNamespaces): array {
+                return array_values($sequenceNamespaces);
+            }, 3);
         } catch (PosCheckoutConflictException $exception) {
             throw $exception;
         } catch (PosCheckoutValidationException $exception) {

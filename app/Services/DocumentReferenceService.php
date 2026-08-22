@@ -13,14 +13,26 @@ use Modules\Setting\Entities\Setting;
 class DocumentReferenceService
 {
     /**
-     * Determine if the sequence allocator is enabled for a given document type.
+     * Determine if the sequence allocator is enabled and schema is ready for a given document type.
+     * Evaluates the family rollout flag and confirms document_sequences table readiness.
      */
     public static function isSequenceEnabled(DocumentType $documentType): bool
     {
-        return match ($documentType) {
-            DocumentType::PURCHASE => (bool) config('app.sequence_purchase_enabled', env('SEQUENCE_PURCHASE_ENABLED', true)),
-            DocumentType::SALE => (bool) config('app.sequence_sale_enabled', env('SEQUENCE_SALE_ENABLED', true)),
+        $enabled = match ($documentType) {
+            DocumentType::PURCHASE => (bool) config('app.sequence_purchase_enabled', env('SEQUENCE_PURCHASE_ENABLED', false)),
+            DocumentType::SALE => (bool) config('app.sequence_sale_enabled', env('SEQUENCE_SALE_ENABLED', false)),
         };
+
+        if (!$enabled) {
+            return false;
+        }
+
+        // Verify schema readiness (document_sequences table exists)
+        if (!\Illuminate\Support\Facades\Schema::hasTable('document_sequences')) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -31,13 +43,17 @@ class DocumentReferenceService
      */
     public static function createPurchaseWithReference(array $data): Purchase
     {
+        if (!self::isSequenceEnabled(DocumentType::PURCHASE)) {
+            throw new \RuntimeException("Sequence allocation for Purchase is disabled or schema unavailable.");
+        }
+
         $allocator = app(DocumentSequenceAllocator::class);
         $settingId = (int) $data['setting_id'];
         $purchaseDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
 
         $namespace = $allocator->buildNamespace(DocumentType::PURCHASE, $settingId, $purchaseDate);
 
-        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $data) {
+        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, &$data) {
             $allocation = $allocator->allocate($namespace);
             $data['reference'] = $allocation->reference;
 
@@ -53,13 +69,17 @@ class DocumentReferenceService
      */
     public static function createSaleWithReference(array $data): Sale
     {
+        if (!self::isSequenceEnabled(DocumentType::SALE)) {
+            throw new \RuntimeException("Sequence allocation for Sale is disabled or schema unavailable.");
+        }
+
         $allocator = app(DocumentSequenceAllocator::class);
         $settingId = (int) $data['setting_id'];
         $saleDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
 
         $namespace = $allocator->buildNamespace(DocumentType::SALE, $settingId, $saleDate);
 
-        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $data) {
+        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, &$data) {
             $allocation = $allocator->allocate($namespace);
             $data['reference'] = $allocation->reference;
 

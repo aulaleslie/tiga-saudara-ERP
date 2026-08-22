@@ -67,11 +67,11 @@ return [
 
         'mysql_test' => [
             'driver' => 'mysql',
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '33066'),
-            'database' => env('DB_DATABASE', 'tiga_saudara_test'),
-            'username' => env('DB_USERNAME', 'test_user'),
-            'password' => env('DB_PASSWORD', 'test_password'),
+            'host' => env('MYSQL_TEST_HOST', '127.0.0.1'),
+            'port' => env('MYSQL_TEST_PORT', '33066'),
+            'database' => env('MYSQL_TEST_DATABASE', 'tiga_saudara_test'),
+            'username' => env('MYSQL_TEST_USERNAME', 'test_user'),
+            'password' => env('MYSQL_TEST_PASSWORD', 'test_password'),
             'charset' => 'utf8mb4',
             'collation' => 'utf8mb4_0900_ai_ci',
             'prefix' => '',

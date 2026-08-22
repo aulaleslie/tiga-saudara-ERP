@@ -174,7 +174,7 @@ class DocumentSequenceAllocatorTest extends TestCase
         $this->assertEquals('PD-BL-PR-2026-08-00182', $alloc->reference);
     }
 
-    public function test_execute_with_conflict_retry_recovers_from_stale_counter(): void
+    public function test_whole_operation_retry_recovers_from_stale_counter_inside_document_transaction(): void
     {
         $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
 
@@ -201,6 +201,7 @@ class DocumentSequenceAllocatorTest extends TestCase
             'supplier_id' => Supplier::first()->id,
             'status' => Purchase::STATUS_DRAFTED,
             'payment_status' => 'Unpaid',
+            'payment_term_id' => PaymentTerm::first()->id,
             'total_amount' => 100,
             'paid_amount' => 0,
             'due_amount' => 100,
@@ -210,30 +211,437 @@ class DocumentSequenceAllocatorTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        // We run executeWithConflictRetry.
-        // First attempt allocates 00001, attempts insert, hits unique constraint violation,
-        // reconciles to 1, retries and allocates 00002, and succeeds!
-        $purchase = $this->allocator->executeWithConflictRetry($ns, function () use ($ns) {
-            $alloc = $this->allocator->allocate($ns);
+        // Temporarily commit the test-level transaction so executeWholeOperationWithConflictRetry runs as the outermost boundary
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
 
-            return Purchase::create([
-                'date' => '2026-08-15',
-                'due_date' => '2026-08-15',
-                'reference' => $alloc->reference,
-                'supplier_id' => Supplier::first()->id,
-                'status' => Purchase::STATUS_DRAFTED,
-                'payment_status' => 'Unpaid',
-                'payment_term_id' => PaymentTerm::first()->id,
-                'setting_id' => $this->settingA->id,
-                'is_tax_included' => false,
-                'total_amount' => 100,
-                'paid_amount' => 0,
-                'due_amount' => 100,
-                'payment_method' => 'Cash',
-            ]);
-        });
+        try {
+            // The whole-operation owner opens the transaction. DocumentReferenceService
+            // therefore allocates without a nested savepoint. The first insert collides,
+            // the owner rolls back, reconciles to 1, and restarts the complete operation.
+            $purchase = $this->allocator->executeWholeOperationWithConflictRetry(
+                fn () => \App\Services\DocumentReferenceService::createPurchaseWithReference([
+                    'date' => '2026-08-15',
+                    'due_date' => '2026-08-15',
+                    'supplier_id' => Supplier::first()->id,
+                    'status' => Purchase::STATUS_DRAFTED,
+                    'payment_status' => 'Unpaid',
+                    'payment_term_id' => PaymentTerm::first()->id,
+                    'setting_id' => $this->settingA->id,
+                    'is_tax_included' => false,
+                    'total_amount' => 100,
+                    'paid_amount' => 0,
+                    'due_amount' => 100,
+                    'payment_method' => 'Cash',
+                ]),
+                static fn (): array => [$ns]
+            );
 
-        $this->assertEquals('PD-BL-PR-2026-08-00002', $purchase->reference);
+            $this->assertEquals('PD-BL-PR-2026-08-00002', $purchase->reference);
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_whole_operation_retry_without_active_transaction_owns_outermost_boundary(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        try {
+            $result = $this->allocator->executeWholeOperationWithConflictRetry(
+                fn () => DB::transaction(fn () => $this->allocator->allocate($ns)),
+                static fn (): array => [$ns]
+            );
+
+            $this->assertEquals(1, $result->number);
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_whole_operation_retry_inside_existing_transaction_executes_once_without_savepoint(): void
+    {
+        // We are already inside RefreshDatabase's outer transaction here.
+        $this->assertGreaterThan(0, DB::transactionLevel());
+        $levelBefore = DB::transactionLevel();
+
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $result = $this->allocator->executeWholeOperationWithConflictRetry(
+            fn () => $this->allocator->allocate($ns),
+            static fn (): array => [$ns]
+        );
+
+        $this->assertEquals(1, $result->number);
+        // No nested transaction/savepoint was opened or closed.
+        $this->assertEquals($levelBefore, DB::transactionLevel());
+    }
+
+    public function test_nested_conflicts_bubble_to_outer_owner_without_reconciliation_or_savepoint_retry(): void
+    {
+        $this->assertGreaterThan(0, DB::transactionLevel());
+
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $callCount = 0;
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('boom-inside-nested');
+
+        try {
+            $this->allocator->executeWholeOperationWithConflictRetry(
+                function () use (&$callCount) {
+                    $callCount++;
+                    throw new \RuntimeException('boom-inside-nested');
+                },
+                static fn (): array => []
+            );
+        } finally {
+            // Operation must have executed exactly once: no whole-operation retry loop
+            // runs while nested inside an existing transaction.
+            $this->assertEquals(1, $callCount);
+        }
+    }
+
+    public function test_non_conflict_exceptions_are_never_retried(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            try {
+                $this->allocator->executeWholeOperationWithConflictRetry(
+                    function () use (&$attempts) {
+                        $attempts++;
+                        throw new \RuntimeException('unrelated failure');
+                    },
+                    static fn (): array => [$ns]
+                );
+                $this->fail('Expected exception was not thrown.');
+            } catch (\RuntimeException $e) {
+                $this->assertEquals('unrelated failure', $e->getMessage());
+            }
+
+            $this->assertEquals(1, $attempts, 'Non-conflict exceptions must not be retried.');
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_reference_collision_succeeds_on_single_retry(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $result = $this->allocator->executeWholeOperationWithConflictRetry(
+                function () use (&$attempts) {
+                    $attempts++;
+                    if ($attempts === 1) {
+                        throw $this->makeQueryException(
+                            "SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: purchases.setting_id, purchases.reference"
+                        );
+                    }
+
+                    return 'ok';
+                },
+                static fn (): array => [$ns]
+            );
+
+            $this->assertEquals('ok', $result);
+            $this->assertEquals(2, $attempts);
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_second_reference_collision_is_terminal(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $this->expectException(QueryException::class);
+
+            try {
+                $this->allocator->executeWholeOperationWithConflictRetry(
+                    function () use (&$attempts) {
+                        $attempts++;
+                        throw $this->makeQueryException(
+                            "SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: purchases.setting_id, purchases.reference"
+                        );
+                    },
+                    static fn (): array => [$ns]
+                );
+            } finally {
+                $this->assertEquals(2, $attempts, 'Reference collision must receive exactly one retry (2 attempts total).');
+            }
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_deadlock_succeeds_within_three_attempts(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $result = $this->allocator->executeWholeOperationWithConflictRetry(
+                function () use (&$attempts) {
+                    $attempts++;
+                    if ($attempts < 3) {
+                        throw $this->makeQueryException(
+                            "SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock"
+                        );
+                    }
+
+                    return 'ok';
+                },
+                static fn (): array => [$ns],
+                3
+            );
+
+            $this->assertEquals('ok', $result);
+            $this->assertEquals(3, $attempts);
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_fourth_deadlock_is_never_attempted(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $this->expectException(QueryException::class);
+
+            try {
+                $this->allocator->executeWholeOperationWithConflictRetry(
+                    function () use (&$attempts) {
+                        $attempts++;
+                        throw $this->makeQueryException(
+                            "SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock"
+                        );
+                    },
+                    static fn (): array => [$ns],
+                    3
+                );
+            } finally {
+                $this->assertEquals(3, $attempts, 'Deadlock must receive at most 3 total attempts.');
+            }
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_reconciliation_is_not_performed_for_deadlocks(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            // Sequence row absent beforehand; if reconciliation were mistakenly triggered
+            // for a deadlock, findMaxHistoricalSuffix() would run a purchases scan and
+            // lockOrCreateSequenceRow() would create a row before the real allocation does.
+            $this->assertNull(
+                DocumentSequence::where('setting_id', $this->settingA->id)->where('document_type', 'purchase')->first()
+            );
+
+            $result = $this->allocator->executeWholeOperationWithConflictRetry(
+                function () use (&$attempts) {
+                    $attempts++;
+                    if ($attempts === 1) {
+                        throw $this->makeQueryException(
+                            "SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock"
+                        );
+                    }
+
+                    return 'ok';
+                },
+                static fn (): array => [$ns],
+                3
+            );
+
+            $this->assertEquals('ok', $result);
+            $this->assertNull(
+                DocumentSequence::where('setting_id', $this->settingA->id)->where('document_type', 'purchase')->first(),
+                'A deadlock retry must not create/reconcile a sequence row; only the real allocation should.'
+            );
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_execute_with_conflict_retry_reference_collision_succeeds_on_single_retry(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $result = $this->allocator->executeWithConflictRetry($ns, function () use (&$attempts) {
+                $attempts++;
+                if ($attempts === 1) {
+                    throw $this->makeQueryException(
+                        "SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: purchases.setting_id, purchases.reference"
+                    );
+                }
+
+                return 'ok';
+            });
+
+            $this->assertEquals('ok', $result);
+            $this->assertEquals(2, $attempts, 'Reference collision must receive exactly one retry (2 attempts total).');
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_execute_with_conflict_retry_second_reference_collision_is_terminal(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $this->expectException(QueryException::class);
+
+            try {
+                $this->allocator->executeWithConflictRetry($ns, function () use (&$attempts) {
+                    $attempts++;
+                    throw $this->makeQueryException(
+                        "SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: purchases.setting_id, purchases.reference"
+                    );
+                });
+            } finally {
+                $this->assertEquals(2, $attempts, 'Reference collision must receive at most 2 total attempts.');
+            }
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_execute_with_conflict_retry_deadlock_succeeds_within_three_attempts(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $result = $this->allocator->executeWithConflictRetry($ns, function () use (&$attempts) {
+                $attempts++;
+                if ($attempts < 3) {
+                    throw $this->makeQueryException(
+                        "SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock"
+                    );
+                }
+
+                return 'ok';
+            }, 3);
+
+            $this->assertEquals('ok', $result);
+            $this->assertEquals(3, $attempts);
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    public function test_execute_with_conflict_retry_fourth_deadlock_is_never_attempted(): void
+    {
+        $ns = $this->allocator->buildNamespace(DocumentType::PURCHASE, $this->settingA->id, '2026-08-15');
+
+        $initialLevel = $this->breakOuterTransactionForOutermostTest();
+
+        $attempts = 0;
+
+        try {
+            $this->expectException(QueryException::class);
+
+            try {
+                $this->allocator->executeWithConflictRetry($ns, function () use (&$attempts) {
+                    $attempts++;
+                    throw $this->makeQueryException(
+                        "SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock"
+                    );
+                }, 3);
+            } finally {
+                $this->assertEquals(3, $attempts, 'Deadlock must receive at most 3 total attempts.');
+            }
+        } finally {
+            $this->restoreOuterTransaction($initialLevel);
+        }
+    }
+
+    private function makeQueryException(string $message): QueryException
+    {
+        $sqlState = '23000';
+        if (preg_match('/SQLSTATE\[(\w+)\]/', $message, $m)) {
+            $sqlState = $m[1];
+        }
+
+        $previous = new \PDOException($message);
+        $previous->errorInfo = [$sqlState, str_contains($message, '1213') ? 1213 : 19];
+
+        return new QueryException('mysql_test', 'select 1', [], $previous);
+    }
+
+    /**
+     * Commits the RefreshDatabase outer transaction so a method under test can act as the
+     * true outermost boundary, returning the level to restore to in the matching restore call.
+     */
+    private function breakOuterTransactionForOutermostTest(): int
+    {
+        $initialLevel = DB::transactionLevel();
+        while (DB::transactionLevel() > 0) {
+            DB::commit();
+        }
+
+        return $initialLevel;
+    }
+
+    /**
+     * Cleans up rows committed to the real sqlite database by a test that broke the outer
+     * transaction, then restores the transaction level for RefreshDatabase teardown.
+     */
+    private function restoreOuterTransaction(int $initialLevel): void
+    {
+        DB::table('document_sequences')->where('setting_id', $this->settingA->id)->delete();
+        DB::table('document_sequences')->where('setting_id', $this->settingB->id)->delete();
+        DB::table('purchases')->whereIn('setting_id', [$this->settingA->id, $this->settingB->id])->delete();
+        DB::table('payment_terms')->whereIn('setting_id', [$this->settingA->id, $this->settingB->id])->delete();
+        DB::table('suppliers')->whereIn('setting_id', [$this->settingA->id, $this->settingB->id])->delete();
+        DB::table('settings')->whereIn('id', [$this->settingA->id, $this->settingB->id])->delete();
+        DB::table('currencies')->truncate();
+
+        while (DB::transactionLevel() < $initialLevel) {
+            DB::beginTransaction();
+        }
     }
 
     public function test_canonical_multi_namespace_locking(): void

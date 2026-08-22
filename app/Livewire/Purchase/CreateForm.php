@@ -827,6 +827,8 @@ class CreateForm extends Component
         $purchase = null;
         $failureStage = 'before_validation';
         $transactionStarted = false;
+        $transactionCommitted = false;
+        $idempotencyClaimed = false;
 
         try {
             $this->purchaseSubmitDebug('purchase.submit.before_validation', [
@@ -889,112 +891,132 @@ class CreateForm extends Component
                 session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');
                 return;
             }
+            $idempotencyClaimed = true;
 
-            $failureStage = 'db_transaction_begin';
-            DB::beginTransaction();
-            $transactionStarted = true;
-            $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
+            $failureStage = 'db_transaction';
+            $sequenceAllocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+            $sequenceNamespace = $sequenceAllocator->buildNamespace(
+                \App\Services\Sequence\DocumentType::PURCHASE,
+                (int) $resolvedBusiness['setting_id'],
+                Carbon::parse($this->date)
+            );
 
-            // Use the already-resolved business from authorization check
-            $setting_id = $resolvedBusiness['setting_id'];
+            $purchase = $sequenceAllocator->executeWholeOperationWithConflictRetry(
+                function () use ($cart, $resolvedBusiness, &$failureStage, &$detailCount, &$detailQuantityTotal, &$detailTaxTotal) {
+                // Use the already-resolved business from authorization check
+                $setting_id = $resolvedBusiness['setting_id'];
 
-            $failureStage = 'calculating_totals';
-            $cartItems = $cart->content();
-            $resolvedTaxIncluded = $this->isPkp ? (bool) $this->is_tax_included : false;
-            $resolvedTaxRefNo = $this->isPkp ? ($this->tax_ref_no ?: null) : null;
-            $discount_amount = $this->global_discount_type === 'fixed' ? (float) $this->global_discount : 0.0;
-            $discount_percentage = $this->global_discount_type === 'percentage' ? (float) $this->global_discount : 0.0;
-            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
-                'discount_percentage' => $discount_percentage,
-                'discount_amount' => $discount_amount,
-                'shipping_amount' => $this->shipping,
-                'paid_amount' => 0,
-                'tax_id' => null,
-                'tax_percentage' => 0,
-            ], $cartItems, $this->isPkpEnabled());
-            $header = $normalizedPurchase['header'];
+                $failureStage = 'calculating_totals';
+                $cartItems = $cart->content();
+                $resolvedTaxIncluded = $this->isPkp ? (bool) $this->is_tax_included : false;
+                $resolvedTaxRefNo = $this->isPkp ? ($this->tax_ref_no ?: null) : null;
+                $discount_amount = $this->global_discount_type === 'fixed' ? (float) $this->global_discount : 0.0;
+                $discount_percentage = $this->global_discount_type === 'percentage' ? (float) $this->global_discount : 0.0;
+                $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                    'discount_percentage' => $discount_percentage,
+                    'discount_amount' => $discount_amount,
+                    'shipping_amount' => $this->shipping,
+                    'total_amount' => 0,
+                    'paid_amount' => 0,
+                    'due_amount' => 0,
+                    'status' => Purchase::STATUS_DRAFTED,
+                    'payment_status' => 'Unpaid',
+                    'payment_method' => '',
+                    'note' => $this->note,
+                    'tax_percentage' => 0,
+                    'tax_amount' => 0,
+                    'setting_id' => $setting_id,
+                    'is_tax_included' => $resolvedTaxIncluded,
+                    'tax_ref_no' => $resolvedTaxRefNo,
+                ], $cartItems, $this->isPkp);
 
-            $failureStage = 'purchase_create';
-            $purchase = DocumentReferenceService::createPurchaseWithReference([
-                'date' => $this->date,
-                'due_date' => $this->due_date,
-                'supplier_id' => $this->supplier_id,
-                'supplier_purchase_number' => $this->supplier_purchase_number ?: null,
-                'tax_ref_no' => $resolvedTaxRefNo,
-                'discount_percentage' => $header['discount_percentage'],
-                'discount_amount' => $header['discount_amount'],
-                'shipping_amount' => $header['shipping_amount'],
-                'tax_id' => $header['tax_id'],
-                'tax_percentage' => $header['tax_percentage'],
-                'tax_amount' => $header['tax_amount'],
-                'total_amount' => $header['total_amount'],
-                'due_amount' => $header['due_amount'],
-                'status' => Purchase::STATUS_DRAFTED,
-                'payment_status' => 'Unpaid',
-                'payment_term_id' => $this->payment_term,
-                'note' => $this->note,
-                'setting_id' => $setting_id,
-                'paid_amount' => 0.0,
-                'is_tax_included' => $resolvedTaxIncluded,
-                'payment_method' => '',
-            ]);
-
-            $this->purchaseSubmitInfo('purchase.submit.purchase_created', [
-                'purchase_id' => $purchase->id,
-                'supplier_id' => $purchase->supplier_id,
-                'payment_term_id' => $purchase->payment_term_id,
-                'status' => $purchase->status,
-                'total_amount' => (float) $purchase->total_amount,
-                'tax_amount' => (float) $purchase->tax_amount,
-            ]);
-
-            $failureStage = 'tags_sync';
-            $purchase->syncTags($this->tags);
-            $this->purchaseSubmitDebug('purchase.submit.tags_synced', [
-                'purchase_id' => $purchase->id,
-                'tag_count' => count($this->tags),
-            ]);
-
-            $failureStage = 'details_create';
-            $detailCount = 0;
-            $detailQuantityTotal = 0;
-            $detailTaxTotal = 0.0;
-            foreach ($normalizedPurchase['details'] as $item) {
-                PurchaseDetail::create([
-                    'purchase_id' => $purchase->id,
-                    'product_id' => $item['product_id'],
-                    'product_name' => $item['product_name'],
-                    'product_code' => $item['product_code'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'price' => $item['price'],
-                    'product_discount_type' => $item['product_discount_type'],
-                    'product_discount_amount' => $item['product_discount_amount'],
-                    'sub_total' => $item['sub_total'],
-                    'product_tax_amount' => $item['product_tax_amount'],
-                    'tax_id' => $item['tax_id'],
+                $failureStage = 'purchase_create';
+                $createdPurchase = DocumentReferenceService::createPurchaseWithReference([
+                    'date' => $this->date,
+                    'due_date' => $this->due_date,
+                    'supplier_id' => $this->supplier_id,
+                    'supplier_name' => '',
+                    'tax_percentage' => 0,
+                    'tax_amount' => $normalizedPurchase['header']['tax_amount'],
+                    'discount_percentage' => $discount_percentage,
+                    'discount_amount' => $discount_amount,
+                    'shipping_amount' => $this->shipping,
+                    'total_amount' => $normalizedPurchase['header']['total_amount'],
+                    'paid_amount' => 0,
+                    'due_amount' => $normalizedPurchase['header']['due_amount'],
+                    'status' => Purchase::STATUS_DRAFTED,
+                    'payment_status' => 'Unpaid',
+                    'payment_method' => '',
+                    'note' => $this->note,
+                    'setting_id' => $setting_id,
+                    'supplier_purchase_number' => $this->supplier_purchase_number ?: null,
+                    'tax_ref_no' => $resolvedTaxRefNo,
+                    'is_tax_included' => $resolvedTaxIncluded,
+                    'payment_term_id' => $this->payment_term,
                 ]);
 
-                $detailCount++;
-                $detailQuantityTotal += (int) $item['quantity'];
-                $detailTaxTotal += (float) $item['product_tax_amount'];
-            }
+                $this->purchaseSubmitInfo('purchase.submit.purchase_created', [
+                    'purchase_id' => $createdPurchase->id,
+                    'supplier_id' => $createdPurchase->supplier_id,
+                    'payment_term_id' => $createdPurchase->payment_term_id,
+                    'status' => $createdPurchase->status,
+                    'total_amount' => (float) $createdPurchase->total_amount,
+                    'tax_amount' => (float) $createdPurchase->tax_amount,
+                ]);
 
-            $this->purchaseSubmitDebug('purchase.submit.details_created', [
-                'purchase_id' => $purchase->id,
-                'detail_count' => $detailCount,
-                'detail_quantity_total' => $detailQuantityTotal,
-                'detail_tax_total' => $detailTaxTotal,
-            ]);
+                $failureStage = 'tags_sync';
+                $createdPurchase->syncTags($this->tags);
+                $this->purchaseSubmitDebug('purchase.submit.tags_synced', [
+                    'purchase_id' => $createdPurchase->id,
+                    'tag_count' => count($this->tags),
+                ]);
 
-            $failureStage = 'commit';
-            DB::commit();
+                $failureStage = 'details_create';
+                $detailCount = 0;
+                $detailQuantityTotal = 0;
+                $detailTaxTotal = 0.0;
+                foreach ($normalizedPurchase['details'] as $item) {
+                    PurchaseDetail::create([
+                        'purchase_id' => $createdPurchase->id,
+                        'product_id' => $item['product_id'],
+                        'product_name' => $item['product_name'],
+                        'product_code' => $item['product_code'],
+                        'quantity' => $item['quantity'],
+                        'unit_price' => $item['unit_price'],
+                        'price' => $item['price'],
+                        'product_discount_type' => $item['product_discount_type'],
+                        'product_discount_amount' => $item['product_discount_amount'],
+                        'sub_total' => $item['sub_total'],
+                        'product_tax_amount' => $item['product_tax_amount'],
+                        'tax_id' => $item['tax_id'],
+                    ]);
+
+                    $detailCount++;
+                    $detailQuantityTotal += (int) $item['quantity'];
+                    $detailTaxTotal += (float) $item['product_tax_amount'];
+                }
+
+                $this->purchaseSubmitDebug('purchase.submit.details_created', [
+                    'purchase_id' => $createdPurchase->id,
+                    'detail_count' => $detailCount,
+                    'detail_quantity_total' => $detailQuantityTotal,
+                    'detail_tax_total' => $detailTaxTotal,
+                ]);
+
+                    return $createdPurchase;
+                },
+                static fn (): array => [$sequenceNamespace],
+                3
+            );
+
+            $transactionCommitted = true;
             IdempotencyService::complete($this->idempotencyToken, 'purchases.store', auth()->id());
             $this->purchaseSubmitInfo('purchase.submit.committed', [
                 'purchase_id' => $purchase->id,
             ]);
             $cart->destroy();
 
+            $setting_id = $resolvedBusiness['setting_id'];
             $successMessage = 'Pembelian Ditambahkan!';
             if ((int) $setting_id !== (int) session('setting_id')) {
                 $targetBusiness = Setting::find($setting_id);
@@ -1009,7 +1031,9 @@ class CreateForm extends Component
             if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
-            IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
+            if ($idempotencyClaimed && !$transactionCommitted) {
+                IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
+            }
 
             $this->purchaseSubmitWarning('purchase.submit.validation_failed', [
                 'failure_stage' => $failureStage,
@@ -1023,7 +1047,9 @@ class CreateForm extends Component
             if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
-            IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
+            if ($idempotencyClaimed && !$transactionCommitted) {
+                IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
+            }
 
             Log::error('purchase.submit.exception', $this->purchaseSubmitBaseContext([
                 'failure_stage' => $failureStage,

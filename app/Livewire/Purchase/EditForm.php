@@ -679,12 +679,26 @@ class EditForm extends Component
             $cartItems = $cart->content();
             $this->ensureCartTaxesForPkp($cartItems);
 
-            $failureStage = 'db_transaction_begin';
-            DB::beginTransaction();
-            $transactionStarted = true;
-            $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
+            $failureStage = 'db_transaction';
+            $sequenceAllocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+            $sequenceNamespace = $businessChanged
+                ? $sequenceAllocator->buildNamespace(
+                    \App\Services\Sequence\DocumentType::PURCHASE,
+                    (int) $resolvedBusiness['setting_id'],
+                    Carbon::parse($this->date)
+                )
+                : null;
 
-            $purchase = $this->purchase; // already loaded in mount()
+            $operation = function () use (
+                $businessChanged,
+                $resolvedBusiness,
+                $cartItems,
+                &$failureStage,
+                &$detailCount,
+                &$detailQuantityTotal,
+                &$detailTaxTotal
+            ): Purchase {
+                $purchase = $this->purchase; // already loaded in mount()
 
             $failureStage = 'calculating_totals';
             $globalDiscount = is_numeric($this->global_discount) ? (float) $this->global_discount : 0;
@@ -788,15 +802,24 @@ class EditForm extends Component
                 $detailTaxTotal += (float) $item['product_tax_amount'];
             }
 
-            $this->purchaseSubmitDebug('purchase.submit.details_recreated', [
-                'purchase_id' => $purchase->id,
-                'detail_count' => $detailCount,
-                'detail_quantity_total' => $detailQuantityTotal,
-                'detail_tax_total' => $detailTaxTotal,
-            ]);
+                $this->purchaseSubmitDebug('purchase.submit.details_recreated', [
+                    'purchase_id' => $purchase->id,
+                    'detail_count' => $detailCount,
+                    'detail_quantity_total' => $detailQuantityTotal,
+                    'detail_tax_total' => $detailTaxTotal,
+                ]);
 
-            $failureStage = 'commit';
-            DB::commit();
+                return $purchase;
+            };
+
+            $purchase = $sequenceNamespace !== null
+                ? $sequenceAllocator->executeWholeOperationWithConflictRetry(
+                    $operation,
+                    static fn (): array => [$sequenceNamespace],
+                    3
+                )
+                : DB::transaction($operation, 3);
+
             $this->purchaseSubmitInfo('purchase.submit.committed', [
                 'purchase_id' => $purchase->id,
             ]);

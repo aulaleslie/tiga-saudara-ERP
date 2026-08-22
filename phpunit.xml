@@ -48,5 +48,7 @@
         <server name="SCOUT_DRIVER" value="null"/>
         <server name="algolia_app_id" value="null"/>
         <server name="algolia_secret" value="null"/>
+        <server name="SEQUENCE_PURCHASE_ENABLED" value="true"/>
+        <server name="SEQUENCE_SALE_ENABLED" value="true"/>
     </php>
 </phpunit>

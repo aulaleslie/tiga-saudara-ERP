@@ -362,6 +362,8 @@ class CreateForm extends Component
 
         $failureStage = 'before_validation';
         $sale = null;
+        $transactionCommitted = false;
+        $idempotencyClaimed = false;
 
         try {
             Log::info('Sale create validating', [
@@ -427,6 +429,7 @@ class CreateForm extends Component
                 session()->flash('error', 'Permintaan penjualan sudah diproses. Silakan tunggu sebelum mencoba lagi.');
                 return;
             }
+            $idempotencyClaimed = true;
 
             $failureStage = 'calculating_totals';
             $shipping = (float) $this->shipping;
@@ -461,6 +464,7 @@ class CreateForm extends Component
             $failureStage = 'sale_create';
             $saleService = app(SaleService::class);
             $sale = $saleService->createSale($data, $cartItems);
+            $transactionCommitted = true;
 
             $failureStage = 'commit';
             IdempotencyService::complete($this->idempotencyToken, 'sales.store', auth()->id());
@@ -471,14 +475,18 @@ class CreateForm extends Component
             Log::info('Sale create completed', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
             return redirect()->route('sales.index');
         } catch (\Illuminate\Validation\ValidationException $e) {
-            IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
+            if ($idempotencyClaimed && !$transactionCommitted) {
+                IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
+            }
             Log::warning('Sale create validation failed', [
                 'failure_stage' => $failureStage,
                 'errors' => $e->errors(),
             ]);
             throw $e;
         } catch (Exception $e) {
-            IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
+            if ($idempotencyClaimed && !$transactionCommitted) {
+                IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
+            }
             Log::error('Livewire Sale Create Failed: ' . $e->getMessage(), [
                 'failure_stage' => $failureStage,
                 'exception' => $e,

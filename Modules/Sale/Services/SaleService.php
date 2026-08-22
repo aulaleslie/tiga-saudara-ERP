@@ -3,6 +3,9 @@
 namespace Modules\Sale\Services;
 
 use App\Services\DocumentReferenceService;
+use App\Services\Sequence\DocumentSequenceAllocator;
+use App\Services\Sequence\DocumentType;
+use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,7 +37,15 @@ class SaleService
     {
         $this->lastMissingCostWarnings = [];
 
-        return DB::transaction(function () use ($data, $cartItems) {
+        $allocator = app(DocumentSequenceAllocator::class);
+        $namespace = $allocator->buildNamespace(
+            DocumentType::SALE,
+            (int) $data['setting_id'],
+            Carbon::parse($data['date'])
+        );
+
+        return $allocator->executeWholeOperationWithConflictRetry(function () use ($data, $cartItems) {
+            $attemptWarnings = [];
             $customer = Customer::findOrFail($data['customer_id']);
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $data['setting_id'])->value('is_pkp') ?? false);
             $normalizedSale = app(SaleNormalizer::class)->normalize([
@@ -113,11 +124,13 @@ class SaleService
                 
                 $warnings = app(\Modules\Sale\Services\SalesCostSnapshotService::class)->snapshotSaleDetailCost($saleDetail);
                 $saleDetail->save();
-                $this->lastMissingCostWarnings = array_merge($this->lastMissingCostWarnings, $warnings);
+                $attemptWarnings = array_merge($attemptWarnings, $warnings);
             }
 
+            $this->lastMissingCostWarnings = $attemptWarnings;
+
             return $sale;
-        });
+        }, static fn (): array => [$namespace], 3);
     }
 
     /**
@@ -151,44 +164,28 @@ class SaleService
 
         $this->lastMissingCostWarnings = [];
 
-        return DB::transaction(function () use ($sale, $data, $cartItems) {
+        $targetSettingId = (int) ($data['setting_id'] ?? $sale->setting_id);
+        $businessChanged = $targetSettingId !== (int) $sale->setting_id;
+        $allocator = app(DocumentSequenceAllocator::class);
+        $namespace = $businessChanged
+            ? $allocator->buildNamespace(DocumentType::SALE, $targetSettingId, Carbon::parse($data['date'] ?? $sale->date))
+            : null;
+
+        $operation = function () use ($sale, $data, $cartItems, $businessChanged, $namespace, $allocator) {
             $customer = Customer::findOrFail($data['customer_id']);
             // Determine the normalization PKP setting: use data['setting_id'] if provided, else use sale->setting_id
             $targetSettingId = $data['setting_id'] ?? $sale->setting_id;
             $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $targetSettingId)->value('is_pkp') ?? false);
 
-            // If changing to a different business, atomically allocate and move reference
+            // If changing to a different business, atomically allocate and move reference via shared allocator
             $newReference = null;
-            if (isset($data['setting_id']) && $data['setting_id'] !== $sale->setting_id) {
-                $saleDate = \Carbon\Carbon::parse($data['date'] ?? $sale->date);
-                $year = $saleDate->year;
-                $month = $saleDate->month;
-
-                // Lock the target Setting row for the entire transaction
-                $targetSetting = \Modules\Setting\Entities\Setting::whereKey($targetSettingId)->lockForUpdate()->firstOrFail();
-
-                // Fetch the latest reference for the target setting, year, and month
-                $latestReference = Sale::withArchived()
-                    ->where('setting_id', $targetSettingId)
-                    ->whereYear('date', $year)
-                    ->whereMonth('date', $month)
-                    ->latest('id')
-                    ->value('reference');
-
-                // Calculate next number
-                $nextNumber = 1;
-                if ($latestReference) {
-                    $parts = explode('-', $latestReference);
-                    $lastNumber = (int) end($parts);
-                    $nextNumber = $lastNumber + 1;
+            if ($businessChanged) {
+                if ($sale->status !== Sale::STATUS_DRAFTED) {
+                    throw new Exception('Hanya penjualan berstatus drafted yang dapat dipindahkan ke bisnis lain.');
                 }
 
-                // Build prefix
-                $prefix = (optional($targetSetting)->document_prefix ?: '') . '-'
-                    . (optional($targetSetting)->sale_prefix_document ?: 'SL');
-
-                // Generate reference
-                $newReference = make_reference_id($prefix, $year, $month, $nextNumber);
+                $allocation = $allocator->allocate($namespace);
+                $newReference = $allocation->reference;
             }
 
             $normalizedSale = app(SaleNormalizer::class)->normalize([
@@ -247,7 +244,7 @@ class SaleService
             ];
 
             // If changing to a different business, persist the new setting_id
-            if (isset($data['setting_id']) && $data['setting_id'] !== $sale->setting_id) {
+            if ($businessChanged) {
                 $updateData['setting_id'] = $data['setting_id'];
             }
 
@@ -299,6 +296,16 @@ class SaleService
             }
 
             return $sale;
-        });
+        };
+
+        if ($namespace !== null) {
+            return $allocator->executeWholeOperationWithConflictRetry(
+                $operation,
+                static fn (): array => [$namespace],
+                3
+            );
+        }
+
+        return DB::transaction($operation, 3);
     }
 }

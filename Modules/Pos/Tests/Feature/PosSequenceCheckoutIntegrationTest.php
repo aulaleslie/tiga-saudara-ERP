@@ -6,7 +6,7 @@ use App\Services\Sequence\DocumentSequence;
 use App\Services\Sequence\DocumentSequenceAllocator;
 use App\Services\Sequence\DocumentType;
 use Carbon\Carbon;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
@@ -30,9 +30,18 @@ use Tests\TestCase;
 
 class PosSequenceCheckoutIntegrationTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTruncation;
 
     private int $sequence = 1;
+
+    protected function tearDown(): void
+    {
+        try {
+            $this->truncateDatabaseTables();
+        } finally {
+            parent::tearDown();
+        }
+    }
 
     protected function setUp(): void
     {

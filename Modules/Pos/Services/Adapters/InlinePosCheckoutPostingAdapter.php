@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services\Adapters;
 
+use Carbon\Carbon;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -139,6 +140,17 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $saleSettingId = $settingId;
         if ($this->cartIsEntirelyNonStock($lines)) {
             $saleSettingId = $this->requireNonStockSource($settingId)['setting_id'];
+        }
+
+        $sequenceAllocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+        $sequenceNamespace = $sequenceAllocator->buildNamespace(
+            \App\Services\Sequence\DocumentType::SALE,
+            $saleSettingId,
+            Carbon::parse($checkoutDate)
+        );
+        $namespaceCollector = $context['sequence_namespace_collector'] ?? null;
+        if (is_callable($namespaceCollector)) {
+            $namespaceCollector([$sequenceNamespace]);
         }
 
         $sale = Sale::query()->create([
