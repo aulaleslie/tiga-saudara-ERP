@@ -463,6 +463,7 @@ class CreateForm extends Component
             $sale = $saleService->createSale($data, $cartItems);
 
             $failureStage = 'commit';
+            IdempotencyService::complete($this->idempotencyToken, 'sales.store', auth()->id());
             Cart::instance('sale')->destroy();
             $targetBusiness = Setting::find($setting_id);
             $targetBusinessName = $targetBusiness?->company_name ?? 'Unknown';
@@ -470,12 +471,14 @@ class CreateForm extends Component
             Log::info('Sale create completed', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
             return redirect()->route('sales.index');
         } catch (\Illuminate\Validation\ValidationException $e) {
+            IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
             Log::warning('Sale create validation failed', [
                 'failure_stage' => $failureStage,
                 'errors' => $e->errors(),
             ]);
             throw $e;
         } catch (Exception $e) {
+            IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());
             Log::error('Livewire Sale Create Failed: ' . $e->getMessage(), [
                 'failure_stage' => $failureStage,
                 'exception' => $e,

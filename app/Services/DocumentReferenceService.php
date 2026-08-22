@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Services\Sequence\DocumentSequenceAllocator;
+use App\Services\Sequence\DocumentType;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
@@ -11,51 +13,34 @@ use Modules\Setting\Entities\Setting;
 class DocumentReferenceService
 {
     /**
+     * Determine if the sequence allocator is enabled for a given document type.
+     */
+    public static function isSequenceEnabled(DocumentType $documentType): bool
+    {
+        return match ($documentType) {
+            DocumentType::PURCHASE => (bool) config('app.sequence_purchase_enabled', env('SEQUENCE_PURCHASE_ENABLED', true)),
+            DocumentType::SALE => (bool) config('app.sequence_sale_enabled', env('SEQUENCE_SALE_ENABLED', true)),
+        };
+    }
+
+    /**
      * Atomically allocate a reference and create a Purchase document.
-     *
-     * The Setting row lock is held from allocation through INSERT, ensuring
-     * sequential numbering even under concurrent load.
      *
      * @param array $data Purchase attributes (must include 'date' and 'setting_id')
      * @return Purchase The newly created purchase with allocated reference
      */
     public static function createPurchaseWithReference(array $data): Purchase
     {
-        return DB::transaction(function () use ($data) {
-            $purchaseDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
-            $year = $purchaseDate->year;
-            $month = $purchaseDate->month;
-            $settingId = (int) $data['setting_id'];
+        $allocator = app(DocumentSequenceAllocator::class);
+        $settingId = (int) $data['setting_id'];
+        $purchaseDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
 
-            // Lock the Setting row for the entire transaction
-            $setting = Setting::whereKey($settingId)->lockForUpdate()->firstOrFail();
+        $namespace = $allocator->buildNamespace(DocumentType::PURCHASE, $settingId, $purchaseDate);
 
-            // Fetch the latest reference for this setting, year, and month
-            $latestReference = Purchase::withArchived()
-                ->where('setting_id', $settingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
+        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $data) {
+            $allocation = $allocator->allocate($namespace);
+            $data['reference'] = $allocation->reference;
 
-            // Calculate next number
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Build prefix
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->purchase_prefix_document ?: 'PR');
-
-            // Generate reference
-            $reference = make_reference_id($prefix, $year, $month, $nextNumber);
-
-            // Set the reference in data and create the purchase
-            // This INSERT happens while the Setting lock is still held
-            $data['reference'] = $reference;
             return Purchase::create($data);
         });
     }
@@ -63,58 +48,27 @@ class DocumentReferenceService
     /**
      * Atomically allocate a reference and create a Sale document.
      *
-     * The Setting row lock is held from allocation through INSERT, ensuring
-     * sequential numbering even under concurrent load.
-     *
      * @param array $data Sale attributes (must include 'date' and 'setting_id')
      * @return Sale The newly created sale with allocated reference
      */
     public static function createSaleWithReference(array $data): Sale
     {
-        return DB::transaction(function () use ($data) {
-            $saleDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
-            $year = $saleDate->year;
-            $month = $saleDate->month;
-            $settingId = (int) $data['setting_id'];
+        $allocator = app(DocumentSequenceAllocator::class);
+        $settingId = (int) $data['setting_id'];
+        $saleDate = isset($data['date']) ? Carbon::parse($data['date']) : now();
 
-            // Lock the Setting row for the entire transaction
-            $setting = Setting::whereKey($settingId)->lockForUpdate()->firstOrFail();
+        $namespace = $allocator->buildNamespace(DocumentType::SALE, $settingId, $saleDate);
 
-            // Fetch the latest reference for this setting, year, and month
-            $latestReference = Sale::withArchived()
-                ->where('setting_id', $settingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
+        return $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $data) {
+            $allocation = $allocator->allocate($namespace);
+            $data['reference'] = $allocation->reference;
 
-            // Calculate next number
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Build prefix
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->sale_prefix_document ?: 'SL');
-
-            // Generate reference
-            $reference = make_reference_id($prefix, $year, $month, $nextNumber);
-
-            // Set the reference in data and create the sale
-            // This INSERT happens while the Setting lock is still held
-            $data['reference'] = $reference;
             return Sale::create($data);
         });
     }
 
     /**
      * Atomically move a Purchase to a new Setting and assign it a new reference.
-     *
-     * The target Setting row lock is held from allocation through UPDATE, ensuring
-     * sequential numbering even under concurrent load.
      *
      * @param Purchase $purchase The purchase to move (must be in DRAFTED status)
      * @param int $targetSettingId The target setting ID
@@ -123,49 +77,25 @@ class DocumentReferenceService
      */
     public static function movePurchaseToSetting(Purchase $purchase, int $targetSettingId, Carbon $purchaseDate): void
     {
-        DB::transaction(function () use ($purchase, $targetSettingId, $purchaseDate) {
-            $year = $purchaseDate->year;
-            $month = $purchaseDate->month;
+        if ($purchase->status !== Purchase::STATUS_DRAFTED) {
+            throw new \InvalidArgumentException("Only drafted purchases can be moved to another setting.");
+        }
 
-            // Lock the target Setting row for the entire transaction
-            $setting = Setting::whereKey($targetSettingId)->lockForUpdate()->firstOrFail();
+        $allocator = app(DocumentSequenceAllocator::class);
+        $namespace = $allocator->buildNamespace(DocumentType::PURCHASE, $targetSettingId, $purchaseDate);
 
-            // Fetch the latest reference for the target setting, year, and month
-            $latestReference = Purchase::withArchived()
-                ->where('setting_id', $targetSettingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
+        $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $purchase, $targetSettingId) {
+            $allocation = $allocator->allocate($namespace);
 
-            // Calculate next number
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Build prefix
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->purchase_prefix_document ?: 'PR');
-
-            // Generate reference
-            $reference = make_reference_id($prefix, $year, $month, $nextNumber);
-
-            // Update the purchase with new setting and reference while lock is held
             $purchase->update([
                 'setting_id' => $targetSettingId,
-                'reference' => $reference,
+                'reference' => $allocation->reference,
             ]);
         });
     }
 
     /**
      * Atomically move a Sale to a new Setting and assign it a new reference.
-     *
-     * The target Setting row lock is held from allocation through UPDATE, ensuring
-     * sequential numbering even under concurrent load.
      *
      * @param Sale $sale The sale to move (must be in DRAFTED status)
      * @param int $targetSettingId The target setting ID
@@ -174,40 +104,19 @@ class DocumentReferenceService
      */
     public static function moveSaleToSetting(Sale $sale, int $targetSettingId, Carbon $saleDate): void
     {
-        DB::transaction(function () use ($sale, $targetSettingId, $saleDate) {
-            $year = $saleDate->year;
-            $month = $saleDate->month;
+        if ($sale->status !== Sale::STATUS_DRAFTED) {
+            throw new \InvalidArgumentException("Only drafted sales can be moved to another setting.");
+        }
 
-            // Lock the target Setting row for the entire transaction
-            $setting = Setting::whereKey($targetSettingId)->lockForUpdate()->firstOrFail();
+        $allocator = app(DocumentSequenceAllocator::class);
+        $namespace = $allocator->buildNamespace(DocumentType::SALE, $targetSettingId, $saleDate);
 
-            // Fetch the latest reference for the target setting, year, and month
-            $latestReference = Sale::withArchived()
-                ->where('setting_id', $targetSettingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
+        $allocator->executeWithConflictRetry($namespace, function () use ($allocator, $namespace, $sale, $targetSettingId) {
+            $allocation = $allocator->allocate($namespace);
 
-            // Calculate next number
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Build prefix
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->sale_prefix_document ?: 'SL');
-
-            // Generate reference
-            $reference = make_reference_id($prefix, $year, $month, $nextNumber);
-
-            // Update the sale with new setting and reference while lock is held
             $sale->update([
                 'setting_id' => $targetSettingId,
-                'reference' => $reference,
+                'reference' => $allocation->reference,
             ]);
         });
     }

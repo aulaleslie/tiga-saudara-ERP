@@ -989,6 +989,7 @@ class CreateForm extends Component
 
             $failureStage = 'commit';
             DB::commit();
+            IdempotencyService::complete($this->idempotencyToken, 'purchases.store', auth()->id());
             $this->purchaseSubmitInfo('purchase.submit.committed', [
                 'purchase_id' => $purchase->id,
             ]);
@@ -1008,6 +1009,7 @@ class CreateForm extends Component
             if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
+            IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
 
             $this->purchaseSubmitWarning('purchase.submit.validation_failed', [
                 'failure_stage' => $failureStage,
@@ -1021,6 +1023,7 @@ class CreateForm extends Component
             if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
+            IdempotencyService::release($this->idempotencyToken, 'purchases.store', auth()->id());
 
             Log::error('purchase.submit.exception', $this->purchaseSubmitBaseContext([
                 'failure_stage' => $failureStage,

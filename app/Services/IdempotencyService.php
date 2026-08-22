@@ -24,6 +24,33 @@ class IdempotencyService
 
         $key = sprintf('%s:%s:%s:%s', self::CACHE_PREFIX, $userId ?? 'guest', $routeName, $token);
 
-        return Cache::add($key, now()->toIso8601String(), now()->addMinutes(self::TTL_MINUTES));
+        // Store with in-progress marker
+        return Cache::add($key, 'IN_PROGRESS', now()->addMinutes(self::TTL_MINUTES));
+    }
+
+    /**
+     * Completes an in-progress idempotency claim after successful database commit.
+     */
+    public static function complete(?string $token, string $routeName, $userId = null, mixed $result = 'COMPLETED'): void
+    {
+        if (empty($token)) {
+            return;
+        }
+
+        $key = sprintf('%s:%s:%s:%s', self::CACHE_PREFIX, $userId ?? 'guest', $routeName, $token);
+        Cache::put($key, $result, now()->addMinutes(self::TTL_MINUTES));
+    }
+
+    /**
+     * Releases an in-progress idempotency claim when an operation fails before commit or on rollback.
+     */
+    public static function release(?string $token, string $routeName, $userId = null): void
+    {
+        if (empty($token)) {
+            return;
+        }
+
+        $key = sprintf('%s:%s:%s:%s', self::CACHE_PREFIX, $userId ?? 'guest', $routeName, $token);
+        Cache::forget($key);
     }
 }

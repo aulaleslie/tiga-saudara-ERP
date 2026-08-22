@@ -1490,30 +1490,19 @@ class PurchaseImportService
     }
 
     /**
-     * Generate reference number based on purchase date.
+     * Generate reference number based on purchase date using authoritative sequence allocator.
      */
     protected function generateReference(Setting $setting, Carbon $date): string
     {
-        $year = $date->year;
-        $month = $date->month;
+        $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+        $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::PURCHASE, (int) $setting->id, $date);
 
-        // Get latest reference for this setting, year, month
-        $latestRef = Purchase::where('setting_id', $setting->id)
-            ->whereYear('date', $year)
-            ->whereMonth('date', $month)
-            ->latest('id')
-            ->value('reference');
-
-        $nextNumber = 1;
-        if ($latestRef) {
-            $parts = explode('-', $latestRef);
-            $lastNumber = (int) end($parts);
-            $nextNumber = $lastNumber + 1;
+        if (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+            return $allocator->allocate($namespace)->reference;
         }
 
-        $prefix = ($setting->document_prefix ?? '') . '-'
-            . ($setting->purchase_prefix_document ?? 'PR');
-
-        return make_reference_id($prefix, $year, $month, $nextNumber);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($allocator, $namespace) {
+            return $allocator->allocate($namespace)->reference;
+        });
     }
 }

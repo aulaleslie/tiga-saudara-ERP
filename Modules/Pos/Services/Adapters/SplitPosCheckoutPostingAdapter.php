@@ -2,6 +2,8 @@
 
 namespace Modules\Pos\Services\Adapters;
 
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -123,9 +125,22 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $paymentSlices = [];
         }
 
-        $splitGroups = [];
-        $sales = [];
-        $salePayments = [];
+        // Pre-resolve and acquire sequence locks canonically across all split groups to avoid deadlocks
+        $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+        $namespacesToLock = [];
+        $checkoutDate = Carbon::parse($context['checkout_date'] ?? now());
+
+        foreach ($groups as $group) {
+            $sourceSettingId = (int) ($group['source_setting_id'] ?? 0);
+            if ($sourceSettingId > 0) {
+                $ns = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, $sourceSettingId, $checkoutDate);
+                $namespacesToLock[$ns->canonicalKey()] = $ns;
+            }
+        }
+
+        if (!empty($namespacesToLock) && \Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+            $allocator->lockNamespacesCanonically(array_values($namespacesToLock));
+        }
 
         $actualTaxMinor = 0;
         $actualGrandMinor = 0;

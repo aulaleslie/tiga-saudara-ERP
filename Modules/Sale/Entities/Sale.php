@@ -175,78 +175,30 @@ class Sale extends BaseModel implements HasMedia
                 return;
             }
 
-            // Fallback reference allocation when not using DocumentReferenceService.
-            // WARNING: This hook provides basic concurrency safety via Setting row locking,
-            // but it is NOT suitable for high-concurrency scenarios. Prefer using
-            // DocumentReferenceService::createSaleWithReference() which holds the lock
-            // from allocation through INSERT for stronger atomicity guarantees.
-            // Raw Sale::create() calls bypass the dedicated service and should only be used
-            // in tests or when providing an explicit reference.
-            $model->reference = DB::transaction(function () use ($model) {
-                $saleDate = $model->date ? Carbon::parse($model->date) : now();
-                $year = $saleDate->year;
-                $month = $saleDate->month;
+            // Fallback allocation via authoritative sequence allocator
+            $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+            $saleDate = $model->date ? Carbon::parse($model->date) : now();
+            $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, (int) $model->setting_id, $saleDate);
 
-                // Lock the target setting row to serialize reference allocation
-                $setting = Setting::whereKey($model->setting_id)->lockForUpdate()->firstOrFail();
-
-                // Fetch the latest reference for this setting, year, and month
-                $latestReference = Sale::withArchived()
-                    ->where('setting_id', $model->setting_id)
-                    ->whereYear('date', $year)
-                    ->whereMonth('date', $month)
-                    ->latest('id')
-                    ->value('reference');
-
-                // Extract the number from the latest reference
-                $nextNumber = 1; // Default to 1 if no reference exists
-                if ($latestReference) {
-                    $parts = explode('-', $latestReference);
-                    $lastNumber = (int) end($parts);
-                    $nextNumber = $lastNumber + 1;
-                }
-
-                // Build prefix:
-                // 1) take document_prefix if truthy, else empty string
-                // 2) then take sale_prefix_document if truthy, else fallback to 'SL'
-                $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                    . (optional($setting)->sale_prefix_document ?: 'SL');
-
-                // Generate and return the new reference ID
-                return make_reference_id($prefix, $year, $month, $nextNumber);
-            });
+            if (DB::transactionLevel() > 0) {
+                $allocation = $allocator->allocate($namespace);
+                $model->reference = $allocation->reference;
+            } else {
+                $model->reference = DB::transaction(function () use ($allocator, $namespace) {
+                    return $allocator->allocate($namespace)->reference;
+                });
+            }
         });
     }
 
     public static function generateReference(int $settingId, ?Carbon $date = null): string
     {
+        $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
         $saleDate = $date ?? now();
-        $year = $saleDate->year;
-        $month = $saleDate->month;
+        $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, $settingId, $saleDate);
 
-        // Lock the Setting row to serialize all reference allocations for this business
-        return DB::transaction(function () use ($settingId, $year, $month) {
-            // Lock the target setting row to serialize reference allocation
-            $setting = Setting::whereKey($settingId)->lockForUpdate()->firstOrFail();
-
-            $latestReference = Sale::withArchived()
-                ->where('setting_id', $settingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
-
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->sale_prefix_document ?: 'SL');
-
-            return make_reference_id($prefix, $year, $month, $nextNumber);
+        return DB::transaction(function () use ($allocator, $namespace) {
+            return $allocator->allocate($namespace)->reference;
         });
     }
 

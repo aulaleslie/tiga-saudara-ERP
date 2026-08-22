@@ -147,33 +147,12 @@ class Purchase extends BaseModel implements HasMedia
 
     public static function generateReference(int $settingId, ?Carbon $date = null): string
     {
+        $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
         $purchaseDate = $date ?? now();
-        $year = $purchaseDate->year;
-        $month = $purchaseDate->month;
+        $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::PURCHASE, $settingId, $purchaseDate);
 
-        // Lock the Setting row to serialize all reference allocations for this business
-        return DB::transaction(function () use ($settingId, $year, $month) {
-            // Lock the target setting row to serialize reference allocation
-            $setting = Setting::whereKey($settingId)->lockForUpdate()->firstOrFail();
-
-            $latestReference = Purchase::withArchived()
-                ->where('setting_id', $settingId)
-                ->whereYear('date', $year)
-                ->whereMonth('date', $month)
-                ->latest('id')
-                ->value('reference');
-
-            $nextNumber = 1;
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->purchase_prefix_document ?: 'PR');
-
-            return make_reference_id($prefix, $year, $month, $nextNumber);
+        return DB::transaction(function () use ($allocator, $namespace) {
+            return $allocator->allocate($namespace)->reference;
         });
     }
 
@@ -245,46 +224,19 @@ class Purchase extends BaseModel implements HasMedia
                 return;
             }
 
-            // Fallback reference allocation when not using DocumentReferenceService.
-            // WARNING: This hook provides basic concurrency safety via Setting row locking,
-            // but it is NOT suitable for high-concurrency scenarios. Prefer using
-            // DocumentReferenceService::createPurchaseWithReference() which holds the lock
-            // from allocation through INSERT for stronger atomicity guarantees.
-            // Raw Purchase::create() calls bypass the dedicated service and should only be used
-            // in tests or when providing an explicit reference.
-            $model->reference = DB::transaction(function () use ($model) {
-                $purchaseDate = $model->date ? Carbon::parse($model->date) : now();
-                $year = $purchaseDate->year;
-                $month = $purchaseDate->month;
+            // Fallback allocation via authoritative sequence allocator
+            $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+            $purchaseDate = $model->date ? Carbon::parse($model->date) : now();
+            $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::PURCHASE, (int) $model->setting_id, $purchaseDate);
 
-                // Lock the target setting row to serialize reference allocation
-                $setting = Setting::whereKey($model->setting_id)->lockForUpdate()->firstOrFail();
-
-                // Fetch the latest reference for this setting, year, and month
-                $latestReference = Purchase::withArchived()
-                    ->where('setting_id', $model->setting_id)
-                    ->whereYear('date', $year)
-                    ->whereMonth('date', $month)
-                    ->latest('id')
-                    ->value('reference');
-
-                // Extract the number from the latest reference
-                $nextNumber = 1; // Default to 1 if no reference exists
-                if ($latestReference) {
-                    $parts = explode('-', $latestReference);
-                    $lastNumber = (int) end($parts);
-                    $nextNumber = $lastNumber + 1;
-                }
-
-                // Build prefix:
-                // 1) take document_prefix if truthy, else empty string
-                // 2) then take purchase_prefix_document if truthy, else fallback to 'PR'
-                $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                    . (optional($setting)->purchase_prefix_document ?: 'PR');
-
-                // Generate and return the new reference ID
-                return make_reference_id($prefix, $year, $month, $nextNumber);
-            });
+            if (DB::transactionLevel() > 0) {
+                $allocation = $allocator->allocate($namespace);
+                $model->reference = $allocation->reference;
+            } else {
+                $model->reference = DB::transaction(function () use ($allocator, $namespace) {
+                    return $allocator->allocate($namespace)->reference;
+                });
+            }
         });
     }
 

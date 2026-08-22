@@ -65,6 +65,21 @@ return [
             ]) : [],
         ],
 
+        'mysql_test' => [
+            'driver' => 'mysql',
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '33066'),
+            'database' => env('DB_DATABASE', 'tiga_saudara_test'),
+            'username' => env('DB_USERNAME', 'test_user'),
+            'password' => env('DB_PASSWORD', 'test_password'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_0900_ai_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => 'InnoDB',
+        ],
+
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DATABASE_URL'),
