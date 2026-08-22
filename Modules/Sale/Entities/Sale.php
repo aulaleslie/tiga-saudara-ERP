@@ -28,6 +28,15 @@ class Sale extends BaseModel implements HasMedia
 
     protected $guarded = [];
 
+    protected function shouldUppercase(string $key): bool
+    {
+        if (in_array($key, ['note', 'rejection_note'], true)) {
+            return false;
+        }
+
+        return parent::shouldUppercase($key);
+    }
+
     protected $casts = [
         'tax_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',

@@ -237,7 +237,7 @@
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
                                 @if(isset($globalMode) && $globalMode)
-                                    <p>{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
+                                    <p style="white-space: pre-wrap;">{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
                                 @else
                                     <livewire:purchase.purchase-note-editor
                                         :purchaseId="$purchase->id"

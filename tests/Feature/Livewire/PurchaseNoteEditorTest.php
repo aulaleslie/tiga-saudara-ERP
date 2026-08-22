@@ -152,4 +152,17 @@ class PurchaseNoteEditorTest extends TestCase
         Livewire::test(PurchaseNoteEditor::class, ['purchaseId' => $this->purchase->id])
             ->assertNotFound();
     }
+
+    public function test_preserves_and_renders_multiline_note_with_pre_wrap()
+    {
+        $multilineNote = "First line\nSecond line";
+        $this->purchase->update(['note' => $multilineNote]);
+
+        $this->actingAs($this->authorizedUser);
+
+        Livewire::test(PurchaseNoteEditor::class, ['purchaseId' => $this->purchase->id])
+            ->assertSee($multilineNote)
+            ->assertSeeHtml('style="white-space: pre-wrap;"')
+            ->assertDontSeeHtml('text-wrap');
+    }
 }

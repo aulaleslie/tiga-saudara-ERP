@@ -235,7 +235,10 @@
             <div class="row mt-4">
                 <div class="col-sm-12">
                     <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
-                    <p>{{ $sale->note ?? 'Tidak ada catatan.' }}</p>
+                    <livewire:sale.sale-note-editor
+                        :saleId="$sale->id"
+                        :key="'sale-note-' . $sale->id"
+                    />
                 </div>
             </div>
 

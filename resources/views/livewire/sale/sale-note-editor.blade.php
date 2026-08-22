@@ -16,8 +16,8 @@
 
     @if ($editing)
         <div class="border rounded p-2 bg-light">
-            <label for="purchase_note" class="form-label mb-1">Perbarui Catatan Pembelian</label>
-            <textarea id="purchase_note" class="form-control form-control-sm"
+            <label for="sale_note" class="form-label mb-1">Perbarui Catatan Penjualan</label>
+            <textarea id="sale_note" class="form-control form-control-sm"
                    wire:model.defer="note"
                    rows="3"
                    placeholder="Opsional"></textarea>
