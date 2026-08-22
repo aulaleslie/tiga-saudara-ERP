@@ -1238,8 +1238,46 @@ class FinalizePosCheckoutService
         $sequenceNamespaces = [];
         $sequenceAllocator = app(DocumentSequenceAllocator::class);
 
+        // executeWholeOperationWithConflictRetry() owns the outermost transaction and
+        // deadlock/collision retry ONLY when no transaction is already active; when nested
+        // (DocumentSequenceAllocator::executeOnceWithinExistingTransaction()) it runs the
+        // posting closure with NO transaction/savepoint boundary of its own — by design, so
+        // a nested caller keeps full control of its own atomicity.
+        //
+        // No real production caller invokes finalize()/postCheckout() nested inside an
+        // existing transaction today (verified: the only entry point is
+        // PosSellController::checkoutFinalize(), with no transaction-wrapping middleware).
+        // The nested case is exercised only by RefreshDatabase-based tests, which wrap the
+        // whole HTTP call in their own transaction.
+        //
+        // To keep that nested case from silently leaving partial Sale/SaleDetails/payment/
+        // dispatch/sequence writes behind (which a bare, un-boundaried closure would), this
+        // deliberately opens a nested SAVEPOINT here via DB::transaction() when
+        // DB::transactionLevel() > 0. This is a conscious deviation from "never open a
+        // savepoint" for the sake of RefreshDatabase test compatibility, not a fully
+        // general nested-caller contract:
+        //   - The savepoint DOES roll back this posting attempt's own writes on exception,
+        //     independent of when/whether the outer transaction itself later resolves.
+        //   - It does NOT give markCheckoutFailed()'s FAILED-state write independent
+        //     durability: markCheckoutFailed() also runs via DB::transaction(), which is
+        //     itself just another savepoint at this nesting level, not a real commit. If the
+        //     outer (caller-owned) transaction is later rolled back instead of committed,
+        //     the FAILED status written here is rolled back along with it.
+        //   - Nested POS finalization is therefore supported on a best-effort basis: safe
+        //     for what RefreshDatabase test wrapping requires (no partial posting artifacts
+        //     visible while the outer transaction is still open, e.g. mid-test assertions),
+        //     but a genuine future nested business caller wanting independently durable
+        //     FAILED-state persistence would need to persist that itself after its own
+        //     outer transaction commits — this method does not provide that guarantee.
+        // The outermost (real production) path is completely unaffected: this closure is a
+        // no-op there and executeWholeOperationWithConflictRetry() keeps sole ownership of
+        // the transaction and its deadlock/collision retry loop.
+        $postingBoundary = DB::transactionLevel() > 0
+            ? static fn (\Closure $callback) => DB::transaction($callback)
+            : static fn (\Closure $callback) => $callback();
+
         try {
-            return $sequenceAllocator->executeWholeOperationWithConflictRetry(function () use (
+            return $postingBoundary(fn () => $sequenceAllocator->executeWholeOperationWithConflictRetry(function () use (
                 $checkout,
                 $settingId,
                 $sessionId,
@@ -1537,7 +1575,7 @@ class FinalizePosCheckoutService
                 return $responsePayload;
             }, static function () use (&$sequenceNamespaces): array {
                 return array_values($sequenceNamespaces);
-            }, 3);
+            }, 3));
         } catch (PosCheckoutConflictException $exception) {
             throw $exception;
         } catch (PosCheckoutValidationException $exception) {

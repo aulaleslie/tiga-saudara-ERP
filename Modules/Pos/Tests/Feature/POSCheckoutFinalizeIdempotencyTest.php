@@ -340,12 +340,216 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $this->assertDatabaseCount('sale_payments', 0);
         $this->assertDatabaseCount('dispatches', 0);
         $this->assertDatabaseCount('dispatch_details', 0);
+        // No sequence increment must survive a rolled-back posting attempt: the Sale insert
+        // above happens inside the same posting boundary as any document-sequence allocation
+        // the adapter would have performed, so a real document_sequences row must not exist
+        // for this setting either.
+        $this->assertDatabaseCount('document_sequences', 0);
         $this->assertDatabaseHas('pos_checkouts', [
             'setting_id' => $context['setting']->id,
             'idempotency_key' => 'k-rollback-001',
             'status' => PosCheckout::STATUS_FAILED,
             'failure_code' => 'POSTING_FAILURE',
         ]);
+    }
+
+    /**
+     * Guards the savepoint fix in FinalizePosCheckoutService::postCheckout(): when this test
+     * runs under RefreshDatabase, finalize() executes nested inside the test's own outer
+     * transaction (DB::transactionLevel() > 0). Before the fix, the posting closure ran with
+     * NO transaction/savepoint boundary of its own in that case, so a Sale inserted before a
+     * later posting failure was never rolled back — it would still be visible to
+     * assertDatabaseCount() here, since RefreshDatabase's own rollback only happens at test
+     * teardown, after assertions run. The fix wraps the whole posting operation in a nested
+     * SAVEPOINT (via DB::transaction() at level > 0) whenever a caller transaction is already
+     * active, and that savepoint rolls back this posting attempt's own writes on exception.
+     *
+     * This test proves the savepoint rollback and that the HTTP layer surfaces a clean 500
+     * response — it does NOT prove propagation to an independent, externally-owned
+     * transaction (RefreshDatabase's wrapping transaction is test infrastructure, not a real
+     * caller). See test_posting_failure_propagates_to_a_real_caller_owned_transaction() below
+     * for that direct, service-level proof.
+     */
+    public function test_posting_failure_inside_nested_savepoint_rolls_back_and_returns_clean_http_failure(): void
+    {
+        $this->assertGreaterThan(0, DB::transactionLevel(), 'This test must run nested inside RefreshDatabase\'s own transaction to exercise the caller-owned-transaction path.');
+
+        $context = $this->createCheckoutContext('POS CHECKOUT NESTED ROLLBACK');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-NESTED-001', 25000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        app()->bind(PosCheckoutPostingAdapter::class, function (): PosCheckoutPostingAdapter {
+            return new class implements PosCheckoutPostingAdapter
+            {
+                public function post(array $context): array
+                {
+                    Sale::query()->create([
+                        'date' => Carbon::now()->toDateString(),
+                        'due_date' => Carbon::now()->toDateString(),
+                        'customer_id' => $context['customer_id'],
+                        'customer_name' => 'FORCED NESTED FAILURE',
+                        'tax_percentage' => 0,
+                        'tax_amount' => 0,
+                        'discount_percentage' => 0,
+                        'discount_amount' => 0,
+                        'shipping_amount' => 0,
+                        'total_amount' => 25000,
+                        'paid_amount' => 25000,
+                        'due_amount' => 0,
+                        'status' => 'DISPATCHED',
+                        'payment_status' => 'PAID',
+                        'payment_method' => 'CASH',
+                        'setting_id' => $context['setting_id'],
+                        'is_tax_included' => false,
+                    ]);
+
+                    throw new \RuntimeException('Injected nested mid-posting failure');
+                }
+            };
+        });
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-NESTED-ROLLBACK-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 25000,
+            ],
+        ]);
+
+        // The exception reached the HTTP boundary (i.e. it was not silently swallowed inside
+        // the nested savepoint) and the checkout was recorded as failed.
+        $response->assertStatus(500)
+            ->assertJsonPath('code', 'POSTING_FAILURE');
+
+        // The Sale inserted before the injected failure must not survive, even though
+        // finalize() ran nested inside this test's own transaction.
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseHas('pos_checkouts', [
+            'setting_id' => $context['setting']->id,
+            'idempotency_key' => 'k-nested-rollback-001',
+            'status' => PosCheckout::STATUS_FAILED,
+            'failure_code' => 'POSTING_FAILURE',
+        ]);
+    }
+
+    /**
+     * Direct, service-level proof of propagation to a real, externally-owned transaction —
+     * not just the HTTP-level 500 response the test above observes. This opens an explicit
+     * DB::beginTransaction() BEFORE calling FinalizePosCheckoutService::finalize() directly
+     * (bypassing the HTTP layer and its exception-to-JSON conversion), so the "caller" here is
+     * unambiguously this test method's own transaction, not RefreshDatabase's wrapping one.
+     *
+     * It proves three things a caller-owned transaction depends on:
+     *   1. The original exception (or its documented conversion) is thrown OUT of finalize()
+     *      to this calling code — never swallowed.
+     *   2. If the caller then rolls back its own transaction (simulating a real business
+     *      caller reacting to the failure), the partial Sale is gone.
+     *   3. Per the documented limitation, the FAILED status markCheckoutFailed() wrote is
+     *      ALSO rolled back when the caller rolls back — nested finalization does not give
+     *      FAILED-state persistence independent durability from the caller's own outcome.
+     */
+    public function test_posting_failure_propagates_to_a_real_caller_owned_transaction(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT REAL CALLER');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-REAL-CALLER-001', 25000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        app()->bind(PosCheckoutPostingAdapter::class, function (): PosCheckoutPostingAdapter {
+            return new class implements PosCheckoutPostingAdapter
+            {
+                public function post(array $context): array
+                {
+                    Sale::query()->create([
+                        'date' => Carbon::now()->toDateString(),
+                        'due_date' => Carbon::now()->toDateString(),
+                        'customer_id' => $context['customer_id'],
+                        'customer_name' => 'FORCED REAL CALLER FAILURE',
+                        'tax_percentage' => 0,
+                        'tax_amount' => 0,
+                        'discount_percentage' => 0,
+                        'discount_amount' => 0,
+                        'shipping_amount' => 0,
+                        'total_amount' => 25000,
+                        'paid_amount' => 25000,
+                        'due_amount' => 0,
+                        'status' => 'DISPATCHED',
+                        'payment_status' => 'PAID',
+                        'payment_method' => 'CASH',
+                        'setting_id' => $context['setting_id'],
+                        'is_tax_included' => false,
+                    ]);
+
+                    throw new \RuntimeException('Injected real-caller mid-posting failure');
+                }
+            };
+        });
+
+        $cartService = app(\Modules\Pos\Services\PosCartService::class);
+        $cartService->addLine($context['setting']->id, (int) $context['session']->id, $product->id, 1, null, null);
+        $cartService->updateCustomerSelection($context['setting']->id, (int) $context['session']->id, $customer->id);
+
+        $finalizeService = app(\Modules\Pos\Services\FinalizePosCheckoutService::class);
+
+        $levelBeforeCallerTransaction = DB::transactionLevel();
+        DB::beginTransaction();
+
+        $thrown = null;
+
+        try {
+            try {
+                $finalizeService->finalize(
+                    $context['setting']->id,
+                    $context['session'],
+                    $context['cashier']->id,
+                    'K-REAL-CALLER-001',
+                    [
+                        'payment_method_id' => $methods['cash']->id,
+                        'amount_paid' => 25000,
+                    ],
+                    null
+                );
+                $this->fail('Expected the posting failure to propagate out of finalize() to this caller.');
+            } catch (\Throwable $e) {
+                $thrown = $e;
+            }
+
+            $this->assertNotNull($thrown, 'The exception must propagate to the caller, never be swallowed inside the caller-owned transaction.');
+
+            // Still inside the caller's own open transaction: the savepoint already rolled
+            // back the Sale, and markCheckoutFailed()'s own nested savepoint already wrote
+            // FAILED — both are visible here because this connection is still inside the
+            // caller's transaction (not because they were committed independently).
+            $this->assertDatabaseCount('sales', 0);
+            $this->assertDatabaseHas('pos_checkouts', [
+                'setting_id' => $context['setting']->id,
+                'idempotency_key' => 'k-real-caller-001',
+                'status' => PosCheckout::STATUS_FAILED,
+            ]);
+
+            // The caller now reacts to the propagated failure by rolling back its own
+            // transaction — exercising the "caller rolls back its own transaction" behavior
+            // the task requires.
+            DB::rollBack();
+
+            // Documented limitation: because postCheckout()'s posting boundary and
+            // markCheckoutFailed() both run as savepoints nested inside the caller's
+            // transaction (not independent commits), rolling back the caller's transaction
+            // also discards the FAILED checkout row itself — nested finalization does not
+            // give the failure ledger update independent durability from the caller's own
+            // outcome.
+            $this->assertDatabaseCount('pos_checkouts', 0);
+            $this->assertDatabaseCount('sales', 0);
+        } finally {
+            while (DB::transactionLevel() > $levelBeforeCallerTransaction) {
+                DB::rollBack();
+            }
+        }
     }
 
     public function test_missing_idempotency_key_returns_validation_error(): void
