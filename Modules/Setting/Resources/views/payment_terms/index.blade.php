@@ -25,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('payment-terms.index') }}?status=' + this.value : '{{ route('payment-terms.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -32,6 +43,7 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama Term Pembayaran</th>
                                     <th class="align-middle">Tempo (hari)</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -42,18 +54,34 @@
                                         <td class="align-middle">{{ $payment_term->name }}</td>
                                         <td class="align-middle">{{ $payment_term->longevity }}</td>
                                         <td class="align-middle">
+                                            @if($payment_term->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td class="align-middle">
                                             <a href="{{ route('payment-terms.edit', $payment_term) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
-                                            <button class="btn btn-danger btn-sm"
-                                                    onclick="showDeleteModal({{ $payment_term->id }})">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                            <form id="destroy{{ $payment_term->id }}" class="d-none"
-                                                  action="{{ route('payment-terms.destroy', $payment_term) }}" method="POST">
-                                                @csrf
-                                                @method('delete')
-                                            </form>
+                                            @if(auth()->user()->can('paymentTerms.edit') || auth()->user()->can('paymentTerms.delete'))
+                                                @if($payment_term->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Syarat Pembayaran"
+                                                            onclick="if(confirm('Nonaktifkan syarat pembayaran &quot;{{ $payment_term->name }}&quot;?')) document.getElementById('toggle-pt-{{ $payment_term->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali syarat pembayaran &quot;{{ $payment_term->name }}&quot;?')) document.getElementById('toggle-pt-{{ $payment_term->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-pt-{{ $payment_term->id }}" class="d-none"
+                                                      action="{{ route('payment-terms.toggle-status', $payment_term) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach

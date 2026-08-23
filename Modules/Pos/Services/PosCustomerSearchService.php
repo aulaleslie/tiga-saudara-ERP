@@ -30,6 +30,7 @@ class PosCustomerSearchService
         }
 
         $rows = Customer::query()
+            ->active()
             ->where(function ($queryBuilder) use ($normalizedQuery) {
                 $queryBuilder->where('customer_name', 'like', '%' . $normalizedQuery . '%')
                     ->orWhere('contact_name', 'like', '%' . $normalizedQuery . '%')

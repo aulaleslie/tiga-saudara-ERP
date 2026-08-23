@@ -62,7 +62,7 @@ class CreateForm extends Component
         $this->reference = 'SL';
         $this->date = now()->format('Y-m-d');
         $this->dueDate = now()->format('Y-m-d');
-        $this->paymentTerms = PaymentTerm::all();
+        $this->paymentTerms = PaymentTerm::active()->get();
         $this->tax_ref_no = null;
         $this->syncPaymentTermAndDueDate($this->resolveDefaultPaymentTermId());
     }

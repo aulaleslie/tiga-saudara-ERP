@@ -17,7 +17,17 @@ class UnitsController extends Controller
     {
         abort_if(Gate::denies('units.access'), 403);
 
-        $units = Unit::all();
+        $query = Unit::query();
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $units = $query->get();
 
         return view('setting::units.index', [
             'units' => $units
@@ -80,17 +90,35 @@ class UnitsController extends Controller
         return redirect()->route('units.index');
     }
 
-    public function destroy(Unit $unit): RedirectResponse
+    public function toggleStatus(Unit $unit, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('units.delete'), 403);
-        // Check if the unit is associated with any products
-        if ($unit->products()->exists() || $unit->baseProducts()->exists()) {
-            return redirect()->route('units.index')->withErrors('Cannot delete this unit because it is associated with one or more products.');
+        abort_if(! Gate::allows('units.edit') && ! Gate::allows('units.delete'), 403);
+
+        try {
+            if ($unit->is_active) {
+                $lifecycleService->deactivate($unit);
+                toast('Satuan berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($unit);
+                toast('Satuan berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
         }
 
-        $unit->delete();
+        return redirect()->back();
+    }
 
-        toast('Unit dihapus!', 'warning');
+    public function destroy(Unit $unit, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('units.edit') && ! Gate::allows('units.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($unit);
+            toast('Satuan berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('units.index');
     }

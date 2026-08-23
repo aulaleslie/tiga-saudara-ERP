@@ -18,6 +18,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('payment-methods.index') }}?status=' + this.value : '{{ route('payment-methods.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -26,6 +37,7 @@
                                     <th class="align-middle">Nomor Akun</th>
                                     <th class="align-middle">Metode Tunai</th>
                                     <th class="align-middle">Wajib Referensi</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -41,12 +53,39 @@
                                             <span class="badge {{ $method->requires_reference ? 'bg-success' : 'bg-secondary' }}">{{ $method->requires_reference ? 'Ya' : 'Tidak' }}</span>
                                         </td>
                                         <td>
-                                            <a href="{{ route('payment-methods.edit', $method->id) }}" class="btn btn-primary btn-sm"><i class="bi bi-pencil"></i></a>
-                                            <form action="{{ route('payment-methods.destroy', $method->id) }}" method="POST" style="display: inline-block;">
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this payment method?');"><i class="bi bi-trash"></i></button>
-                                            </form>
+                                            @if($method->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td>
+                                            <a href="{{ route('payment-methods.edit', $method->id) }}" class="btn btn-info btn-sm"><i class="bi bi-pencil"></i></a>
+                                            @if(auth()->user()->can('paymentMethods.edit') || auth()->user()->can('paymentMethods.delete'))
+                                                @if($method->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Metode Pembayaran" onclick="
+                                                        event.preventDefault();
+                                                        if (confirm('Nonaktifkan metode pembayaran &quot;{{ $method->name }}&quot;?')) {
+                                                            document.getElementById('toggle-pm-{{ $method->id }}').submit();
+                                                        }
+                                                    ">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali" onclick="
+                                                        event.preventDefault();
+                                                        if (confirm('Aktifkan kembali metode pembayaran &quot;{{ $method->name }}&quot;?')) {
+                                                            document.getElementById('toggle-pm-{{ $method->id }}').submit();
+                                                        }
+                                                    ">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-pm-{{ $method->id }}" class="d-none" action="{{ route('payment-methods.toggle-status', $method->id) }}" method="POST">
+                                                    @csrf
+                                                    @method('PATCH')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach

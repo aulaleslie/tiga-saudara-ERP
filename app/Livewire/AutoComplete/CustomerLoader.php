@@ -55,12 +55,12 @@ class CustomerLoader extends Component
     public function searchCustomers(): void
     {
         if ($this->query) {
-            $this->query_count = Customer::where(function ($query) {
+            $this->query_count = Customer::active()->where(function ($query) {
                 $query->where('contact_name', 'like', '%' . $this->query . '%')
                       ->orWhere('customer_name', 'like', '%' . $this->query . '%');
             })
                 ->count();
-            $this->search_results = Customer::where(function ($query) {
+            $this->search_results = Customer::active()->where(function ($query) {
                 $query->where('contact_name', 'like', '%' . $this->query . '%')
                       ->orWhere('customer_name', 'like', '%' . $this->query . '%');
             })

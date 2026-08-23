@@ -5,6 +5,7 @@ namespace Modules\Sale\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Modules\Sale\Entities\Sale;
+use Modules\People\Entities\Customer;
 
 class UpdateSaleRequest extends FormRequest
 {
@@ -15,8 +16,24 @@ class UpdateSaleRequest extends FormRequest
      */
     public function rules()
     {
+        $sale = $this->route('sale');
+
         return [
-            'customer_id' => 'required|numeric',
+            'customer_id' => [
+                'required',
+                'numeric',
+                'exists:customers,id',
+                function (string $attribute, $value, \Closure $fail) use ($sale) {
+                    if ($sale && (int) $value === (int) $sale->customer_id) {
+                        return;
+                    }
+
+                    $customer = Customer::find($value);
+                    if ($customer && ! $customer->is_active) {
+                        $fail('Pelanggan yang dipilih tidak aktif.');
+                    }
+                },
+            ],
             'date' => 'required|date',
             'reference' => 'required|string|max:255|unique:sales,reference,' . $this->route('sale')->id . ',id,setting_id,' . session('setting_id'),
             'tax_percentage' => 'required|integer|min:0|max:100',

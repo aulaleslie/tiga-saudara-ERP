@@ -176,6 +176,7 @@ class LocationSearchDropdown extends Component
         $settingId = $this->selectedSettingId ?? session('setting_id');
 
         return Location::query()
+            ->active()
             ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
             ->when($this->consignmentFilter === 'consignment', fn ($q) => $q->where('is_consignment', true))
             ->when($this->consignmentFilter === 'standard', fn ($q) => $q->where('is_consignment', false))

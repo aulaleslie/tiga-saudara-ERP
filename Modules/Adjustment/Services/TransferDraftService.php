@@ -53,6 +53,15 @@ class TransferDraftService
             throw new InvalidArgumentException("Origin and destination cannot be the same.");
         }
 
+        // Inactive locations may only be retained if they are already the transfer's current
+        // origin/destination; any newly selected location must be active.
+        if (!$origin->is_active && (!$transfer || (int) $transfer->origin_location_id !== $origin->id)) {
+            throw new InvalidArgumentException("Origin location is inactive.");
+        }
+        if (!$destination->is_active && (!$transfer || (int) $transfer->destination_location_id !== $destination->id)) {
+            throw new InvalidArgumentException("Destination location is inactive.");
+        }
+
         if ((bool) $origin->is_consignment !== (bool) $destination->is_consignment) {
             throw new InvalidArgumentException("Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.");
         }
@@ -83,6 +92,14 @@ class TransferDraftService
             // Validate stock_managed requirement
             if (!$product->stock_managed) {
                 throw new InvalidArgumentException("Product {$product->id} must have stock management enabled.");
+            }
+
+            // Inactive products may only be retained if already present on the transfer being
+            // edited; any newly added line must reference an active product.
+            $productAlreadyOnTransfer = $transfer
+                && $transfer->products()->where('product_id', $product->id)->exists();
+            if (!$product->is_active && !$productAlreadyOnTransfer) {
+                throw new InvalidArgumentException("Product {$product->id} is inactive.");
             }
 
             $stock = ProductStock::where('product_id', $product->id)

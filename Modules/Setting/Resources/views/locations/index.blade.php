@@ -25,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('locations.index') }}?status=' + this.value : '{{ route('locations.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -33,6 +44,7 @@
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Tipe</th>
                                     <th class="align-middle">Bisnis</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -50,20 +62,35 @@
                                         </td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
                                         <td class="align-middle">
+                                            @if($location->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td class="align-middle">
                                             <a href="{{ route('locations.edit', $location) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
 
-                                            <button type="button"
-                                                    class="btn btn-danger btn-sm"
-                                                    onclick="showDeleteModal({{ $location->id }}, 'Hapus lokasi &quot;{{ $location->name }}&quot;?')">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                            <form id="destroy{{ $location->id }}" class="d-none"
-                                                  action="{{ route('locations.destroy', $location) }}" method="POST">
-                                                @csrf
-                                                @method('delete')
-                                            </form>
+                                            @can('locations.edit')
+                                                @if($location->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Lokasi"
+                                                            onclick="if(confirm('Nonaktifkan lokasi &quot;{{ $location->name }}&quot;?')) document.getElementById('toggle-loc-{{ $location->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali lokasi &quot;{{ $location->name }}&quot;?')) document.getElementById('toggle-loc-{{ $location->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-loc-{{ $location->id }}" class="d-none"
+                                                      action="{{ route('locations.toggle-status', $location) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endcan
                                         </td>
                                     </tr>
                                 @endforeach

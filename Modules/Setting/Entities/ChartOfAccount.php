@@ -16,8 +16,28 @@ class ChartOfAccount extends BaseModel
         'parent_account_id',
         'tax_id',
         'description',
-        'setting_id'
+        'setting_id',
+        'is_active',
     ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
 
     protected array $uppercaseExcept = ['category'];
 

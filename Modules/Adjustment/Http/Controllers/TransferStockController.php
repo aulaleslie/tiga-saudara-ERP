@@ -61,8 +61,8 @@ class TransferStockController extends Controller
         $currentSettingId = (int) session('setting_id');
         $currentSetting   = Setting::find($currentSettingId);
         $settings         = Setting::all();
-        $locations        = Location::where('setting_id', $currentSettingId)->get();
-        $destinationLocations = Location::all();
+        $locations        = Location::where('setting_id', $currentSettingId)->active()->get();
+        $destinationLocations = Location::active()->get();
 
         $idempotencyToken = IdempotencyService::tokenFromRequest($request);
 

@@ -38,7 +38,7 @@
                                         <div class="form-group">
                                             <label for="customer_id">Customer <span class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
+                                                @foreach(\Modules\People\Entities\Customer::active()->orWhere('id', $quotation->customer_id)->get() as $customer)
                                                     <option {{ $quotation->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
                                                 @endforeach
                                             </select>

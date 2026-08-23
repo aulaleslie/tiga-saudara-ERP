@@ -7,12 +7,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PaymentMethod extends BaseModel
 {
-    protected $fillable = ['name', 'coa_id', 'is_cash', 'requires_reference'];
+    protected $fillable = ['name', 'coa_id', 'is_cash', 'requires_reference', 'is_active'];
 
     protected $casts = [
         'is_cash' => 'boolean',
         'requires_reference' => 'boolean',
+        'is_active' => 'boolean',
     ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
 
     protected static function booted(): void
     {

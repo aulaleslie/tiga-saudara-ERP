@@ -148,6 +148,64 @@ class ExpenseImportTest extends TestCase
         ]);
     }
 
+    public function test_expense_import_service_rejects_inactive_matching_supplier(): void
+    {
+        $inactiveSupplier = Supplier::create([
+            'supplier_name' => 'PLN',
+            'supplier_email' => 'pln@example.com',
+            'supplier_phone' => '0800000000',
+            'address' => 'Address',
+            'city' => 'City',
+            'country' => 'Indonesia',
+            'setting_id' => $this->setting->id,
+            'is_active' => false,
+        ]);
+
+        $batch = ExpenseImportBatch::create([
+            'status' => ExpenseImportBatch::STATUS_QUEUED,
+            'total_rows' => 1,
+            'processed_rows' => 0,
+            'success_count' => 0,
+            'error_count' => 0,
+            'source_csv_path' => 'dummy.csv',
+            'file_sha256' => 'dummy',
+            'user_id' => $this->admin->id,
+        ]);
+
+        $row = ExpenseImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 2,
+            'raw_json' => [
+                'tanggal' => '19/03/2020',
+                'transaksi' => 'Expense',
+                'nomor' => 'EXP-001',
+                'kategori' => 'Biaya Listrik',
+                'deskripsi' => 'Pembayaran Listrik',
+                'supplier' => 'PLN',
+                'jumlah' => '100000',
+                'tax' => '0',
+                'status' => 'Paid',
+                'sisa_tagihan' => '0',
+            ],
+            'status' => ExpenseImportRow::STATUS_PENDING,
+        ]);
+
+        $service = new ExpenseImportService();
+        $service->processBatch($batch);
+
+        $row->refresh();
+        $batch->refresh();
+
+        $this->assertEquals(ExpenseImportRow::STATUS_INVALID, $row->status);
+        $this->assertNull($row->expense_id);
+        $this->assertEquals(0, $batch->success_count);
+        $this->assertEquals(1, $batch->error_count);
+        $this->assertStringContainsString('dinonaktifkan', (string) $row->error_message);
+
+        // The import must not have reactivated the supplier as a side effect.
+        $this->assertFalse($inactiveSupplier->fresh()->is_active);
+    }
+
     public function test_expense_import_service_skips_duplicate_nomor()
     {
         $cat = ExpenseCategory::create([

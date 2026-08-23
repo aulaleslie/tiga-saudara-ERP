@@ -25,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('taxes.index') }}?status=' + this.value : '{{ route('taxes.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -32,6 +43,7 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama Pajak</th>
                                     <th class="align-middle">Nilai Presentase Pajak</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -42,23 +54,39 @@
                                         <td class="align-middle">
                                             {{ $tax->name }}
                                             @if($tax->is_default)
-                                                <span class="badge badge-success ml-1">Default</span>
+                                                <span class="badge badge-primary ml-1">Default</span>
                                             @endif
                                         </td>
-                                        <td class="align-middle">{{ $tax->value }}</td>
+                                        <td class="align-middle">{{ $tax->value }}%</td>
+                                        <td class="align-middle">
+                                            @if($tax->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
                                         <td class="align-middle">
                                             <a href="{{ route('taxes.edit', $tax) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
-                                            <button class="btn btn-danger btn-sm"
-                                                    onclick="showDeleteModal({{ $tax->id }})">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                            <form id="destroy{{ $tax->id }}" class="d-none"
-                                                  action="{{ route('taxes.destroy', $tax) }}" method="POST">
-                                                @csrf
-                                                @method('delete')
-                                            </form>
+                                            @if(auth()->user()->can('taxes.edit') || auth()->user()->can('taxes.delete'))
+                                                @if($tax->is_active)
+                                                    <button class="btn btn-warning btn-sm" title="Nonaktifkan Pajak"
+                                                            onclick="if(confirm('Nonaktifkan pajak &quot;{{ $tax->name }}&quot;?')) document.getElementById('toggle-tax-{{ $tax->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali pajak &quot;{{ $tax->name }}&quot;?')) document.getElementById('toggle-tax-{{ $tax->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-tax-{{ $tax->id }}" class="d-none"
+                                                      action="{{ route('taxes.toggle-status', $tax) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach

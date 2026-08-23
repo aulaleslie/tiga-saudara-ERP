@@ -16,6 +16,7 @@ class PosPaymentMethodSearchService
     public function search(int $settingId, ?string $query = null): array
     {
         $builder = PaymentMethod::query()
+            ->active()
             ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
             ->where('setting_pos_payment_methods.setting_id', $settingId)
             ->where('setting_pos_payment_methods.is_enabled', true)

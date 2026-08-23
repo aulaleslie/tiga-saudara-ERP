@@ -27,7 +27,10 @@ class StorePaymentMethodRequest extends FormRequest
     {
         return [
             'name' => 'required|string|max:255|unique:payment_methods,name',
-            'coa_id' => 'required|exists:chart_of_accounts,id',
+            'coa_id' => [
+                'required',
+                \Illuminate\Validation\Rule::exists('chart_of_accounts', 'id')->where('is_active', true),
+            ],
             'requires_reference' => 'nullable|boolean',
             'is_cash' => [
                 'nullable',

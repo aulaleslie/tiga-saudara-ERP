@@ -18,7 +18,11 @@ class StorePurchaseRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'supplier_id' => 'required|integer|exists:suppliers,id',
+            'supplier_id' => [
+                'required',
+                'integer',
+                Rule::exists('suppliers', 'id')->where('is_active', true),
+            ],
             'reference' => 'required|string|max:255|unique:purchases,reference,NULL,id,setting_id,' . session('setting_id'),
             'supplier_purchase_number' => [
                 'sometimes',
@@ -32,12 +36,20 @@ class StorePurchaseRequest extends FormRequest
             'tax_ref_no' => 'sometimes|nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
-            'tax_id' => 'nullable|integer|exists:taxes,id',
+            'tax_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('taxes', 'id')->where('is_active', true),
+            ],
             'discount_percentage' => 'nullable|numeric|min:0|max:100|required_without:discount_amount',
             'discount_amount' => 'nullable|numeric|min:0|required_without:discount_percentage',
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
-            'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'payment_term' => [
+                'required',
+                'integer',
+                Rule::exists('payment_terms', 'id')->where('is_active', true),
+            ],
             'note' => 'nullable|string|max:1000',
         ];
     }

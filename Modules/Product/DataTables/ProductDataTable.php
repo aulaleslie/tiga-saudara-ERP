@@ -101,7 +101,12 @@ class ProductDataTable extends DataTable
             ->addColumn('brand', function ($data) {
                 return optional($data->brand)->name ?? 'N/A';
             })
-            ->rawColumns(['product_image', 'product_name', 'total_stock', 'good_stock', 'broken_stock', 'on_order_stock', 'in_return_process_stock']);
+            ->addColumn('status', function ($data) {
+                return $data->is_active
+                    ? '<span class="badge badge-success">Aktif</span>'
+                    : '<span class="badge badge-secondary">Nonaktif</span>';
+            })
+            ->rawColumns(['product_image', 'product_name', 'total_stock', 'good_stock', 'broken_stock', 'on_order_stock', 'in_return_process_stock', 'status', 'action']);
     }
 
     protected function renderStockColumn($data, $key, $class = '')
@@ -180,7 +185,7 @@ class ProductDataTable extends DataTable
             ?? optional($user?->settings()->select('settings.id')->first())->id
             ?? Setting::query()->min('id');
 
-        return $model->newQuery()
+        $query = $model->newQuery()
             ->leftJoin('product_prices as pp', function ($join) use ($settingId) {
                 $join->on('pp.product_id', '=', 'products.id')
                     ->where('pp.setting_id', '=', $settingId);
@@ -200,6 +205,17 @@ class ProductDataTable extends DataTable
                 'pp.last_purchase_price as pp_last_purchase_price',
                 'pp.average_purchase_price as pp_average_purchase_price',
             ]);
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('products.is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('products.is_active', false);
+            }
+        }
+
+        return $query;
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -271,6 +287,10 @@ class ProductDataTable extends DataTable
             Gate::allows('products.view_prices') ? Column::computed('tier_2_price')
                 ->title('Jual Reseller')
                 ->className('text-center align-middle') : null,
+
+            Column::computed('status')
+                ->title('Status')
+                ->className('text-center align-middle'),
 
             Column::computed('action')
                 ->exportable(false)

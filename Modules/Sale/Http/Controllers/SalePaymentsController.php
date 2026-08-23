@@ -30,7 +30,7 @@ class SalePaymentsController extends Controller
         abort_if(Gate::denies('salePayments.create'), 403);
 
         $sale = Sale::findOrFail($sale_id);
-        $payment_methods = PaymentMethod::all();
+        $payment_methods = PaymentMethod::active()->get();
 
         $customerCredits = CustomerCredit::query()
             ->with('saleReturn')
@@ -52,7 +52,7 @@ class SalePaymentsController extends Controller
             'amount'             => 'required|numeric|min:0',
             'note'               => 'nullable|string|max:1000',
             'sale_id'            => 'required|integer|exists:sales,id',
-            'payment_method_id'  => 'required|integer|exists:payment_methods,id',
+            'payment_method_id'  => 'required|integer|exists:payment_methods,id,is_active,1',
             'attachment'         => 'nullable|string',
             'credit_customer_credit_id' => 'nullable|integer|exists:customer_credits,id',
             'credit_amount'      => 'nullable|numeric|min:0',

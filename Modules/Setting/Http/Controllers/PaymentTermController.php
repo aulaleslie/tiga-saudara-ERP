@@ -25,7 +25,18 @@ class PaymentTermController extends Controller
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('paymentTerms.access'), 403);
-        $payment_terms = PaymentTerm::all();
+        $query = PaymentTerm::query();
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $payment_terms = $query->get();
 
         return view('setting::payment_terms.index', [
             'payment_terms' => $payment_terms
@@ -110,17 +121,40 @@ class PaymentTermController extends Controller
         return redirect()->route('payment-terms.index');
     }
 
+    public function toggleStatus(PaymentTerm $payment_term, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('paymentTerms.edit') && ! Gate::allows('paymentTerms.delete'), 403);
+
+        try {
+            if ($payment_term->is_active) {
+                $lifecycleService->deactivate($payment_term);
+                toast('Syarat pembayaran berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($payment_term);
+                toast('Syarat pembayaran berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->back();
+    }
+
     /**
      * Remove the specified resource from storage.
      * @param PaymentTerm $payment_term
      * @return RedirectResponse
      */
-    public function destroy(PaymentTerm $payment_term): RedirectResponse
+    public function destroy(PaymentTerm $payment_term, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('paymentTerms.delete'), 403);
-        $payment_term->delete();
+        abort_if(! Gate::allows('paymentTerms.edit') && ! Gate::allows('paymentTerms.delete'), 403);
 
-        toast('Term Pembayaran Berhasil dihapus!', 'warning');
+        try {
+            $lifecycleService->deactivate($payment_term);
+            toast('Syarat pembayaran berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('payment-terms.index');
     }

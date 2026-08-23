@@ -21,9 +21,19 @@ class LocationController extends Controller
     {
         abort_if(Gate::denies('locations.access'), 403);
         $currentSettingId = session('setting_id');
-        $locations = Location::with(['setting:id,company_name'])
-            ->where('setting_id', $currentSettingId)
-            ->get();
+        $query = Location::with(['setting:id,company_name'])
+            ->where('setting_id', $currentSettingId);
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $locations = $query->get();
 
         return view('setting::locations.index', [
             'locations' => $locations
@@ -124,33 +134,40 @@ class LocationController extends Controller
         return redirect()->route('locations.index');
     }
 
-    /**
-     * Remove the specified location from storage.
-     */
-    public function destroy(Location $location): RedirectResponse
+    public function toggleStatus(Location $location, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
         abort_if(Gate::denies('locations.edit'), 403);
         abort_if($location->setting_id !== session('setting_id'), 403);
 
-        $hasStock = ProductStock::where('location_id', $location->id)
-            ->where(function ($q) {
-                $q->where('quantity', '>', 0)
-                    ->orWhere('broken_quantity', '>', 0)
-                    ->orWhere('quantity_tax', '>', 0)
-                    ->orWhere('quantity_non_tax', '>', 0)
-                    ->orWhere('broken_quantity_tax', '>', 0)
-                    ->orWhere('broken_quantity_non_tax', '>', 0);
-            })
-            ->exists();
-
-        if ($hasStock) {
-            toast('Lokasi tidak bisa dihapus: masih ada stok di lokasi ini.', 'error');
-            return redirect()->route('locations.index');
+        try {
+            if ($location->is_active) {
+                $lifecycleService->deactivate($location);
+                toast('Lokasi berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($location);
+                toast('Lokasi berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
         }
 
-        $location->delete();
+        return redirect()->back();
+    }
 
-        toast('Lokasi Berhasil dihapus!', 'warning');
+    /**
+     * Remove the specified location from storage.
+     */
+    public function destroy(Location $location, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(Gate::denies('locations.edit'), 403);
+        abort_if($location->setting_id !== session('setting_id'), 403);
+
+        try {
+            $lifecycleService->deactivate($location);
+            toast('Lokasi berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('locations.index');
     }

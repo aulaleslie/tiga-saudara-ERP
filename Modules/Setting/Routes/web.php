@@ -27,10 +27,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/settings', 'SettingController@index')->name('settings.index');
     Route::patch('/settings', 'SettingController@update')->name('settings.update');
     // Units
+    Route::patch('units/{unit}/toggle-status', 'UnitsController@toggleStatus')->name('units.toggle-status');
     Route::resource('units', 'UnitsController')->except('show');
     Route::resource('businesses', 'BusinessController');
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
     // Locations
+    Route::patch('locations/{location}/toggle-status', 'LocationController@toggleStatus')->name('locations.toggle-status');
     Route::resource('locations', 'LocationController')->except('show');
     Route::get('sales-location-configurations', [SaleLocationConfigurationController::class, 'index'])
         ->name('sales-location-configurations.index');
@@ -48,10 +50,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('pos-payment-configurations/bulk-disable', 'PosPaymentConfigurationController@bulkDisable')
         ->name('pos-payment-configurations.bulkDisable');
     // Taxes
+    Route::patch('taxes/{tax}/toggle-status', 'TaxController@toggleStatus')->name('taxes.toggle-status');
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms
+    Route::patch('payment-terms/{payment_term}/toggle-status', 'PaymentTermController@toggleStatus')->name('payment-terms.toggle-status');
     Route::resource('payment-terms', 'PaymentTermController')->except('show');
     // Chart of accounts
+    Route::patch('chart-of-account/{chart_of_account}/toggle-status', 'ChartofAccountController@toggleStatus')->name('chart-of-account.toggle-status');
     Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
     // Journals
     Route::resource('journals', JournalController::class);
@@ -71,6 +76,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         return $pdf->stream('sales.pdf');
     })->name('print.salesDocument');
 
+    Route::patch('payment-methods/{paymentMethod}/toggle-status', [PaymentMethodController::class, 'toggleStatus'])->name('payment-methods.toggle-status');
     Route::resource('payment-methods', PaymentMethodController::class)
         ->except('show');
 

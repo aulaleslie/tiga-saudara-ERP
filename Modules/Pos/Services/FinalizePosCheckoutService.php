@@ -261,6 +261,10 @@ class FinalizePosCheckoutService
             if ($paymentTermId === null || $paymentTermId <= 0) {
                 throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Syarat pembayaran (Term) harus dipilih untuk utang.');
             }
+            $term = \Modules\Purchase\Entities\PaymentTerm::find($paymentTermId);
+            if (! $term || ! $term->is_active) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Syarat pembayaran (Term) yang dipilih tidak aktif.');
+            }
             if (!$this->authorizationService) {
                 throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Layanan otorisasi tidak tersedia, tidak dapat memproses utang.');
             }
@@ -280,8 +284,26 @@ class FinalizePosCheckoutService
 
         $customerResolutionSource = (string) ($cartSnapshot['customer']['resolution_source'] ?? 'none');
 
+        if ($resolvedCustomerId !== null && $resolvedCustomerId > 0) {
+            $customer = \Modules\People\Entities\Customer::find($resolvedCustomerId);
+            if (! $customer || ! $customer->is_active) {
+                throw new PosCheckoutValidationException('CUSTOMER_INVALID', 'Pelanggan yang dipilih tidak aktif.');
+            }
+        }
+
         if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0 || $customerResolutionSource !== 'selected')) {
             throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
+        }
+
+        foreach ($cartLines as $line) {
+            $productId = (int) ($line['product_id'] ?? 0);
+            if ($productId > 0) {
+                $product = \Modules\Product\Entities\Product::find($productId);
+                if (! $product || ! $product->is_active) {
+                    $prodName = $line['product_name'] ?? ('Produk #' . $productId);
+                    throw new PosCheckoutValidationException('PRODUCT_INACTIVE', "Produk '{$prodName}' tidak aktif dan tidak dapat ditransaksikan.");
+                }
+            }
         }
 
         $totals = $this->validateCartAndPayment(
@@ -910,6 +932,7 @@ class FinalizePosCheckoutService
             }
 
             $paymentMethod = PaymentMethod::query()
+                ->active()
                 ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
                 ->where('setting_pos_payment_methods.setting_id', $settingId)
                 ->where('setting_pos_payment_methods.is_enabled', true)

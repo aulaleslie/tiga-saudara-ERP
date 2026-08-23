@@ -21,14 +21,31 @@ class CustomersDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->addColumn('status', function ($data) {
+                return $data->is_active
+                    ? '<span class="badge badge-success">Aktif</span>'
+                    : '<span class="badge badge-secondary">Nonaktif</span>';
+            })
             ->addColumn('action', function ($data) {
                 return view('people::customers.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['status', 'action']);
     }
 
     public function query(Customer $model): Builder
     {
-        return $model->newQuery();
+        $query = $model->newQuery();
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        return $query;
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -71,6 +88,10 @@ class CustomersDataTable extends DataTable
             Column::make('customer_phone')
                 ->className('text-center align-middle')
                 ->title('Telepon'),
+
+            Column::computed('status')
+                ->className('text-center align-middle')
+                ->title('Status'),
 
             Column::computed('action')
                 ->exportable(false)

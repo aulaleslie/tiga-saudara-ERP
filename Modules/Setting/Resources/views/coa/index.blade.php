@@ -25,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('chart-of-account.index') }}?status=' + this.value : '{{ route('chart-of-account.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -35,6 +46,7 @@
                                     <th class="align-middle">Category</th>
                                     <th class="align-middle">Parent Account</th>
                                     <th class="align-middle">Description</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Action</th>
                                 </tr>
                                 </thead>
@@ -48,10 +60,34 @@
                                         <td class="align-middle">{{ $account->parentAccount->name ?? '-' }}</td>
                                         <td class="align-middle">{{ $account->description ?? '-' }}</td>
                                         <td class="align-middle">
-
+                                            @if($account->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td class="align-middle">
                                             <a href="{{ route('chart-of-account.edit', $account) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
+                                            @if(auth()->user()->can('chartOfAccounts.edit') || auth()->user()->can('chartOfAccounts.delete'))
+                                                @if($account->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Akun"
+                                                            onclick="if(confirm('Nonaktifkan akun &quot;{{ $account->name }}&quot;?')) document.getElementById('toggle-coa-{{ $account->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali akun &quot;{{ $account->name }}&quot;?')) document.getElementById('toggle-coa-{{ $account->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-coa-{{ $account->id }}" class="d-none"
+                                                      action="{{ route('chart-of-account.toggle-status', $account->id) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach

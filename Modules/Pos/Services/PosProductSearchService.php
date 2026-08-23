@@ -47,6 +47,8 @@ class PosProductSearchService
                 $join->on('pp.product_id', '=', 'p.id')
                     ->where('pp.setting_id', '=', $settingId);
             })
+            ->where('p.is_active', true)
+            ->whereNull('p.merged_into_id')
             ->where(function($q) {
                 $q->where('p.stock_managed', true)
                   ->orWhere('p.is_sold', true);

@@ -88,8 +88,8 @@ class SaleController extends Controller
             Cart::instance('sale')->destroy();
         }
 
-        $paymentTerms = PaymentTerm::all();
-        $customers = Customer::all();
+        $paymentTerms = PaymentTerm::where('is_active', true)->get();
+        $customers = Customer::where('is_active', true)->get();
 
         $idempotencyToken = (string) Str::uuid();
 

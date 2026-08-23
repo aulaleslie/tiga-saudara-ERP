@@ -27,7 +27,27 @@ class PaymentTerm extends BaseModel
         'id',
         'name',
         'longevity',
+        'is_active',
     ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
     public function customers(): HasMany
     {
         return $this->hasMany(Customer::class, 'payment_term_id', 'id');

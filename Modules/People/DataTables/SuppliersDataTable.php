@@ -21,14 +21,31 @@ class SuppliersDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->addColumn('status', function ($data) {
+                return $data->is_active
+                    ? '<span class="badge badge-success">Aktif</span>'
+                    : '<span class="badge badge-secondary">Nonaktif</span>';
+            })
             ->addColumn('action', function ($data) {
                 return view('people::suppliers.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['status', 'action']);
     }
 
     public function query(Supplier $model): Builder
     {
-        return $model->newQuery();
+        $query = $model->newQuery();
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        return $query;
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -39,7 +56,7 @@ class SuppliersDataTable extends DataTable
             ->minifiedAjax()
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                         'tr' .
-                                <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
+                                  <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
             ->orderBy(4)
             ->buttons(
                 Button::make('excel')
@@ -67,6 +84,10 @@ class SuppliersDataTable extends DataTable
             Column::make('supplier_phone')
                 ->className('text-center align-middle')
                 ->title('Telepon'),
+
+            Column::computed('status')
+                ->className('text-center align-middle')
+                ->title('Status'),
 
             Column::computed('action')
                 ->exportable(false)

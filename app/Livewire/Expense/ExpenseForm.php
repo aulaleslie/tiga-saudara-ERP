@@ -293,7 +293,9 @@ class ExpenseForm extends Component
     {
         return view('livewire.expense.expense-form', [
             'categories' => ExpenseCategory::all(),
-            'taxes' => Tax::all(),
+            'taxes' => Tax::where('is_active', true)
+                ->when($this->tax_id, fn($q) => $q->orWhere('id', $this->tax_id))
+                ->get(),
         ]);
     }
 

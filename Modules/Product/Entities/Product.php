@@ -24,6 +24,7 @@ class Product extends BaseModel implements HasMedia
         // Global quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
         'product_quantity' => 'decimal:3',
         'stock_managed' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     protected $with = ['media', 'brand:id,name', 'category:id,category_name'];
@@ -281,11 +282,27 @@ class Product extends BaseModel implements HasMedia
     }
     
     /**
-     * Scope a query to only include active (non-merged) products.
+     * Scope a query to only include active and eligible (non-merged) products.
      */
     public function scopeActive($query)
     {
-        return $query->whereNull('merged_into_id');
+        return $query->where('is_active', true)->whereNull('merged_into_id');
+    }
+
+    /**
+     * Alias/scope for operational transaction eligibility.
+     */
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true)->whereNull('merged_into_id');
+    }
+
+    /**
+     * Scope to query inactive products.
+     */
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
     }
     
     /**

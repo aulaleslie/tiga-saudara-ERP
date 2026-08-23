@@ -169,7 +169,7 @@ class CustomerSearchDropdown extends Component
      */
     private function fetchCustomers(string $keyword = ''): array
     {
-        $query = Customer::query();
+        $query = Customer::query()->active();
 
         if ($keyword !== '') {
             $query->where(function ($q) use ($keyword) {

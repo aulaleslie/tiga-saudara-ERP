@@ -146,6 +146,7 @@ class ProductCart extends Component
     private function loadTaxes()
     {
         return Tax::query()
+            ->active()
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get();

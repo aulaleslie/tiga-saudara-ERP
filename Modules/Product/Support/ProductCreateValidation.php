@@ -37,19 +37,20 @@ class ProductCreateValidation
 
             'is_purchased'      => ['nullable', 'boolean'],
             'purchase_price'    => ['nullable', 'numeric', 'min:0'],
-            'purchase_tax_id'   => ['nullable', 'integer', 'exists:taxes,id'],
+            'purchase_tax_id'   => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('taxes', 'id')->where('is_active', true)],
 
             'is_sold'           => ['nullable', 'boolean'],
             'sale_price'        => ['nullable', 'numeric', 'min:0'],
             'tier_1_price'      => ['nullable', 'numeric', 'min:0'],
             'tier_2_price'      => ['nullable', 'numeric', 'min:0'],
-            'sale_tax_id'       => ['nullable', 'integer', 'exists:taxes,id'],
+            'sale_tax_id'       => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('taxes', 'id')->where('is_active', true)],
 
             'barcode'           => ['nullable', 'string', 'max:255', new \Modules\Product\Rules\UniqueBarcodeIdentity()],
 
             'base_unit_id'      => [
                 'required_if:stock_managed,1,true,on',
                 'integer',
+                \Illuminate\Validation\Rule::exists('units', 'id')->where('is_active', true),
                 function ($attribute, $value, $fail) use ($input) {
                     $stockManaged = self::toBoolean($input['stock_managed'] ?? false);
                     if ($stockManaged && (is_null($value) || (string) $value === '0')) {
@@ -63,6 +64,7 @@ class ProductCreateValidation
                 'required_if:stock_managed,1,true,on',
                 'integer',
                 'not_in:0',
+                \Illuminate\Validation\Rule::exists('units', 'id')->where('is_active', true),
                 function ($attribute, $value, $fail) use ($input) {
                     $conversions = is_array($input['conversions'] ?? null) ? $input['conversions'] : [];
                     $unitIds = array_filter(array_column($conversions, 'unit_id'));

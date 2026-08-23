@@ -76,8 +76,8 @@ class ProductController extends Controller
             ->orderBy('category_name')
             ->distinct()
             ->get();
-        $locations = Location::all();
-        $taxes = Tax::all()->unique('id')->values();
+        $locations = Location::where('is_active', true)->get();
+        $taxes = Tax::where('is_active', true)->get()->unique('id')->values();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -225,11 +225,11 @@ class ProductController extends Controller
 
         $idempotencyToken = (string) Str::uuid();
 
-        $units      = Unit::all();
+        $units      = Unit::where('is_active', true)->orWhere('id', $product->product_unit)->get();
         $brands     = Brand::all();
         $categories = Category::with('parent')->get();
-        $locations  = Location::all();
-        $taxes      = Tax::all();
+        $locations  = Location::where('is_active', true)->get();
+        $taxes      = Tax::where('is_active', true)->orWhere('id', $product->product_tax_id)->get();
 
         $formattedCategories = $categories->mapWithKeys(function ($category) {
             $formattedName = $category->parent
@@ -541,23 +541,35 @@ class ProductController extends Controller
     }
 
 
-    public function destroy(Product $product): RedirectResponse
+    public function toggleStatus(Product $product, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('products.delete'), 403);
+        abort_if(! Gate::allows('products.edit') && ! Gate::allows('products.delete'), 403);
 
-        if ($product->bundles()->exists()) {
-            toast('Produk tidak dapat dihapus karena masih digunakan sebagai produk utama dalam paket penjualan. Hapus paket penjualan terlebih dahulu.', 'error');
-            return redirect()->back();
+        try {
+            if ($product->is_active) {
+                $lifecycleService->deactivate($product);
+                toast('Produk berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($product);
+                toast('Produk berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
         }
 
-        if ($product->bundledIn()->exists()) {
-            toast('Produk tidak dapat dihapus karena masih digunakan sebagai komponen dalam paket penjualan. Hapus referensi komponen terlebih dahulu.', 'error');
-            return redirect()->back();
+        return redirect()->back();
+    }
+
+    public function destroy(Product $product, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('products.edit') && ! Gate::allows('products.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($product);
+            toast('Produk berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
         }
-
-        $product->delete();
-
-        toast('Produk Dihapus!', 'warning');
 
         return redirect()->route('products.index');
     }
@@ -879,7 +891,7 @@ class ProductController extends Controller
     {
         $product = Product::findOrFail($request->route('product_id'));
         $location = Location::findOrFail($request->route('location_id'));
-        $taxes = Tax::all(); // Retrieve all available taxes (assuming they are global, adjust if needed)
+        $taxes = Tax::where('is_active', true)->get();
         $transaction = Transaction::where('location_id', $request->route('location_id'))
             ->where('product_id', $request->route('product_id'))
             ->firstOrFail();
@@ -927,7 +939,8 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.access'), 403);
         $search = $request->input('q');
-        $products = Product::where('product_name', 'LIKE', "%$search%")
+        $products = Product::eligible()
+            ->where('product_name', 'LIKE', "%$search%")
             ->select('id', 'product_name as text')
             ->limit(10)
             ->get();

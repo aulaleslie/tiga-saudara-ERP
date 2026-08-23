@@ -314,13 +314,35 @@ class SuppliersController extends Controller
     }
 
 
-    public function destroy(Supplier $supplier)
+    public function toggleStatus(Supplier $supplier, \App\Services\MasterDataLifecycleService $lifecycleService): \Illuminate\Http\RedirectResponse
     {
-        abort_if(Gate::denies('suppliers.delete'), 403);
+        abort_if(! Gate::allows('suppliers.edit') && ! Gate::allows('suppliers.delete'), 403);
 
-        $supplier->delete();
+        try {
+            if ($supplier->is_active) {
+                $lifecycleService->deactivate($supplier);
+                toast('Pemasok berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($supplier);
+                toast('Pemasok berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
-        toast('Data Pemasok Dihapus!', 'warning');
+        return redirect()->back();
+    }
+
+    public function destroy(Supplier $supplier, \App\Services\MasterDataLifecycleService $lifecycleService): \Illuminate\Http\RedirectResponse
+    {
+        abort_if(! Gate::allows('suppliers.edit') && ! Gate::allows('suppliers.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($supplier);
+            toast('Pemasok berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('suppliers.index');
     }

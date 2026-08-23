@@ -203,6 +203,7 @@ class PaymentTermSearchDropdown extends Component
     private function fetchPaymentTerms(): array
     {
         return PaymentTerm::query()
+            ->active()
             ->orderBy('name')
             ->get()
             ->map(fn (PaymentTerm $term) => [

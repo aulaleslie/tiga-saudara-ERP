@@ -198,6 +198,7 @@ class SupplierSearchDropdown extends Component
         $settingId = session('setting_id');
 
         return Supplier::query()
+            ->active()
             ->orderBy('supplier_name')
             ->get()
             ->map(fn (Supplier $supplier) => [

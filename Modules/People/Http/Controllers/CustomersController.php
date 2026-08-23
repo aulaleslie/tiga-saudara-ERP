@@ -365,13 +365,35 @@ class CustomersController extends Controller
     }
 
 
-    public function destroy(Customer $customer): RedirectResponse
+    public function toggleStatus(Customer $customer, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('customers.delete'), 403);
+        abort_if(! Gate::allows('customers.edit') && ! Gate::allows('customers.delete'), 403);
 
-        $customer->delete();
+        try {
+            if ($customer->is_active) {
+                $lifecycleService->deactivate($customer);
+                toast('Pelanggan berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($customer);
+                toast('Pelanggan berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
-        toast('Data Pelanggan Dihapus!', 'warning');
+        return redirect()->back();
+    }
+
+    public function destroy(Customer $customer, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('customers.edit') && ! Gate::allows('customers.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($customer);
+            toast('Pelanggan berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('customers.index');
     }

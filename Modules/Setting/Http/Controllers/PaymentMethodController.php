@@ -16,8 +16,18 @@ class PaymentMethodController extends Controller
     public function index()
     {
         abort_if(Gate::denies('paymentMethods.access'), 403);
-        // Get payment methods filtered by setting_id
-        $paymentMethods = PaymentMethod::with('chartOfAccount')->get();
+        $query = PaymentMethod::with('chartOfAccount');
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $paymentMethods = $query->get();
 
         return view('setting::payment_methods.index', compact('paymentMethods'));
     }
@@ -26,7 +36,7 @@ class PaymentMethodController extends Controller
     {
         abort_if(Gate::denies('paymentMethods.create'), 403);
         // Get chart of accounts for the dropdown
-        $chartOfAccounts = ChartOfAccount::all();
+        $chartOfAccounts = ChartOfAccount::where('is_active', true)->get();
 
         return view('setting::payment_methods.create', compact('chartOfAccounts'));
     }
@@ -43,8 +53,10 @@ class PaymentMethodController extends Controller
     public function edit(PaymentMethod $paymentMethod)
     {
         abort_if(Gate::denies('paymentMethods.edit'), 403);
-        // Get chart of accounts for the dropdown
-        $chartOfAccounts = ChartOfAccount::all();
+        // Get chart of accounts for the dropdown, including current COA even if inactive
+        $chartOfAccounts = ChartOfAccount::where('is_active', true)
+            ->orWhere('id', $paymentMethod->coa_id)
+            ->get();
 
         return view('setting::payment_methods.edit', compact('paymentMethod', 'chartOfAccounts'));
     }
@@ -58,13 +70,36 @@ class PaymentMethodController extends Controller
         return redirect()->route('payment-methods.index');
     }
 
-    public function destroy(PaymentMethod $paymentMethod)
+    public function toggleStatus(PaymentMethod $paymentMethod, \App\Services\MasterDataLifecycleService $lifecycleService)
     {
-        abort_if(Gate::denies('paymentMethods.delete'), 403);
-        // Delete the payment method
-        $paymentMethod->delete();
+        abort_if(! Gate::allows('paymentMethods.edit') && ! Gate::allows('paymentMethods.delete'), 403);
 
-        toast('Payment method deleted successfully!', 'warning');
+        try {
+            if ($paymentMethod->is_active) {
+                $lifecycleService->deactivate($paymentMethod);
+                toast('Metode pembayaran berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($paymentMethod);
+                toast('Metode pembayaran berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->back();
+    }
+
+    public function destroy(PaymentMethod $paymentMethod, \App\Services\MasterDataLifecycleService $lifecycleService)
+    {
+        abort_if(! Gate::allows('paymentMethods.edit') && ! Gate::allows('paymentMethods.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($paymentMethod);
+            toast('Metode pembayaran berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
+
         return redirect()->route('payment-methods.index');
     }
 }

@@ -6,6 +6,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\People\Entities\Supplier;
+use Modules\Setting\Entities\Tax;
 
 class UpdatePurchaseRequest extends FormRequest
 {
@@ -16,8 +19,15 @@ class UpdatePurchaseRequest extends FormRequest
      */
     public function rules()
     {
+        $purchase = $this->route('purchase');
+
         return [
-            'supplier_id' => 'required|integer|exists:suppliers,id',
+            'supplier_id' => [
+                'required',
+                'integer',
+                'exists:suppliers,id',
+                $this->activeUnlessUnchanged(Supplier::class, $purchase?->supplier_id, 'Pemasok yang dipilih tidak aktif.'),
+            ],
             'reference' => 'required|string|max:255|unique:purchases,reference,' . $this->route('purchase')->id . ',id,setting_id,' . session('setting_id'),
             'supplier_purchase_number' => [
                 'sometimes',
@@ -32,13 +42,46 @@ class UpdatePurchaseRequest extends FormRequest
             'tax_ref_no' => 'sometimes|nullable|string|max:255|unique:purchases,tax_ref_no,' . $this->route('purchase')->id . ',id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
-            'tax_id' => 'nullable|integer|exists:taxes,id',
+            'tax_id' => [
+                'nullable',
+                'integer',
+                'exists:taxes,id',
+                $this->activeUnlessUnchanged(Tax::class, $purchase?->tax_id, 'Pajak yang dipilih tidak aktif.'),
+            ],
             'discount_percentage' => 'required|numeric|min:0|max:100',
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
-            'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'payment_term' => [
+                'required',
+                'integer',
+                'exists:payment_terms,id',
+                $this->activeUnlessUnchanged(PaymentTerm::class, $purchase?->payment_term_id, 'Term pembayaran yang dipilih tidak aktif.'),
+            ],
             'note' => 'nullable|string|max:1000',
         ];
+    }
+
+    /**
+     * Build a closure rule requiring the given class's record to be active,
+     * unless the submitted id matches the document's current value (which is
+     * always allowed to be retained even if it has since been deactivated).
+     */
+    private function activeUnlessUnchanged(string $modelClass, ?int $currentId, string $message): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) use ($modelClass, $currentId, $message) {
+            if ($value === null) {
+                return;
+            }
+
+            if ($currentId !== null && (int) $value === (int) $currentId) {
+                return;
+            }
+
+            $record = $modelClass::find($value);
+            if ($record && ! $record->is_active) {
+                $fail($message);
+            }
+        };
     }
 
     /**

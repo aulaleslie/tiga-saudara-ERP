@@ -69,6 +69,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/products/{product_id}/input-serial-numbers/{location_id}', [ProductController::class, 'inputSerialNumbers'])->name('products.inputSerialNumbers');
     Route::post('/products/{product_id}/input-serial-numbers/{location_id}', [ProductController::class, 'storeSerialNumbers'])->name('products.storeSerialNumbers');
     Route::get('/products/search', [ProductController::class, 'search'])->name('products.search');
+    Route::patch('/products/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('products.toggle-status');
     Route::delete('/products/{product}/media/{media}', [ProductController::class, 'destroyMedia'])->name('products.media.destroy');
 
     // UOM Normalization

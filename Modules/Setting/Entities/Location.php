@@ -30,7 +30,23 @@ class Location extends BaseModel
 
     protected $casts = [
         'is_consignment' => 'boolean',
+        'is_active' => 'boolean',
     ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
 
     public function scopeConsignment($query)
     {

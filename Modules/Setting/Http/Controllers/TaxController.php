@@ -21,7 +21,18 @@ class TaxController extends Controller
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('taxes.access'), 403);
-        $taxes = Tax::all();
+
+        $query = Tax::query();
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $taxes = $query->get();
 
         return view('setting::taxes.index', [
             'taxes' => $taxes
@@ -111,17 +122,40 @@ class TaxController extends Controller
         return redirect()->route('taxes.index');
     }
 
+    public function toggleStatus(Tax $tax, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('taxes.edit') && ! Gate::allows('taxes.delete'), 403);
+
+        try {
+            if ($tax->is_active) {
+                $lifecycleService->deactivate($tax);
+                toast('Pajak berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($tax);
+                toast('Pajak berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->back();
+    }
+
     /**
      * Remove the specified resource from storage.
      * @param Tax $tax
      * @return RedirectResponse
      */
-    public function destroy(Tax $tax): RedirectResponse
+    public function destroy(Tax $tax, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('taxes.delete'), 403);
-        $tax->delete();
+        abort_if(! Gate::allows('taxes.edit') && ! Gate::allows('taxes.delete'), 403);
 
-        toast('Pajak Berhasil dihapus!', 'warning');
+        try {
+            $lifecycleService->deactivate($tax);
+            toast('Pajak berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('taxes.index');
     }

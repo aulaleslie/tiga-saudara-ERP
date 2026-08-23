@@ -17,16 +17,28 @@ class StoreSaleRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'customer_id' => 'required|integer|exists:customers,id',
+            'customer_id' => [
+                'required',
+                'integer',
+                \Illuminate\Validation\Rule::exists('customers', 'id')->where('is_active', true),
+            ],
             'reference' => 'nullable|string|max:255|unique:sales,reference,NULL,id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
-            'tax_id' => 'nullable|integer|exists:taxes,id',
+            'tax_id' => [
+                'nullable',
+                'integer',
+                \Illuminate\Validation\Rule::exists('taxes', 'id')->where('is_active', true),
+            ],
             'discount_percentage' => 'nullable|numeric|min:0|max:100|required_without:discount_amount',
             'discount_amount' => 'nullable|numeric|min:0|required_without:discount_percentage',
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
-            'payment_term_id' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'payment_term_id' => [
+                'required',
+                'integer',
+                \Illuminate\Validation\Rule::exists('payment_terms', 'id')->where('is_active', true),
+            ],
             'note' => 'nullable|string|max:1000',
         ];
     }

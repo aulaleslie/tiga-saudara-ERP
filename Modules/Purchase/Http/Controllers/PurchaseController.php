@@ -88,13 +88,13 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.create'), 403);
 
         // Get data for Alpine.js form
-        $paymentTerms = PaymentTerm::all();
-        $suppliers = Supplier::all();
+        $paymentTerms = PaymentTerm::where('is_active', true)->get();
+        $suppliers = Supplier::where('is_active', true)->get();
         $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
-        $taxes = \Modules\Setting\Entities\Tax::all();
+        $taxes = \Modules\Setting\Entities\Tax::where('is_active', true)->get();
         $categories = \Modules\Product\Entities\Category::all();
         $brands = \Modules\Product\Entities\Brand::all();
-        $units = \Modules\Setting\Entities\Unit::all();
+        $units = \Modules\Setting\Entities\Unit::where('is_active', true)->get();
         $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
         $idempotencyToken = (string) Str::uuid();
 
@@ -115,11 +115,11 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.create'), 403);
 
         // Get data for new Alpine.js form
-        $paymentTerms = PaymentTerm::all();
-        $taxes = \Modules\Setting\Entities\Tax::all();
+        $paymentTerms = PaymentTerm::where('is_active', true)->get();
+        $taxes = \Modules\Setting\Entities\Tax::where('is_active', true)->get();
         $categories = \Modules\Product\Entities\Category::all();
         $brands = \Modules\Product\Entities\Brand::all();
-        $units = \Modules\Setting\Entities\Unit::all();
+        $units = \Modules\Setting\Entities\Unit::where('is_active', true)->get();
         $idempotencyToken = (string) Str::uuid();
         $duplicateId = request()->query('duplicate');
 
@@ -380,8 +380,8 @@ class PurchaseController extends Controller
 
 
         // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::all();
-        $suppliers = Supplier::all();
+        $paymentTerms = PaymentTerm::where('is_active', true)->orWhere('id', $purchase->payment_term_id)->get();
+        $suppliers = Supplier::where('is_active', true)->orWhere('id', $purchase->supplier_id)->get();
         $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
         // Retrieve purchase details

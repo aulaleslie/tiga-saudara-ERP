@@ -302,6 +302,8 @@ class PurchaseImportService
                 'tax_id' => $tax->id,
                 'percentage' => $percentage,
             ]);
+        } elseif (!$tax->is_active) {
+            throw new \Exception("Pajak {$percentage}% yang cocok sudah dinonaktifkan dan tidak dapat digunakan untuk impor.");
         }
 
         $this->taxesCache[$percentage] = $tax;
@@ -310,17 +312,20 @@ class PurchaseImportService
     }
 
     /**
-     * Find or create a supplier by name.
+     * Find or create a supplier by name, scoped to the current tenant.
      */
     public function findOrCreateSupplier(string $name, int $settingId, ?string $contactName = null, ?string $phone = null): Supplier
     {
         $normalizedName = strtolower(trim($name));
+        $cacheKey = "{$settingId}_{$normalizedName}";
 
-        if (isset($this->suppliersCache[$normalizedName])) {
-            return $this->suppliersCache[$normalizedName];
+        if (isset($this->suppliersCache[$cacheKey])) {
+            return $this->suppliersCache[$cacheKey];
         }
 
-        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [$normalizedName])->first();
+        $supplier = Supplier::where('setting_id', $settingId)
+            ->whereRaw('LOWER(supplier_name) = ?', [$normalizedName])
+            ->first();
 
         if (!$supplier) {
             $supplier = Supplier::create([
@@ -338,9 +343,11 @@ class PurchaseImportService
                 'supplier_id' => $supplier->id,
                 'name' => $name,
             ]);
+        } elseif (!$supplier->is_active) {
+            throw new \Exception("Pemasok \"{$name}\" yang cocok sudah dinonaktifkan dan tidak dapat digunakan untuk impor.");
         }
 
-        $this->suppliersCache[$normalizedName] = $supplier;
+        $this->suppliersCache[$cacheKey] = $supplier;
 
         return $supplier;
     }

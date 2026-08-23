@@ -269,6 +269,8 @@ class ExpenseImportService
                 'country' => 'Indonesia',
                 'setting_id' => $settingId,
             ]);
+        } elseif (!$supplier->is_active) {
+            throw new \Exception("Pemasok \"{$name}\" yang cocok sudah dinonaktifkan dan tidak dapat digunakan untuk impor.");
         }
 
         $this->suppliersCache[$cacheKey] = $supplier;

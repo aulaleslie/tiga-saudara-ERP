@@ -8,17 +8,29 @@
         <i class="bi bi-eye"></i>
     </a>
 @endcan
-@can('suppliers.delete')
-    <button id="delete" class="btn btn-danger btn-sm" onclick="
-        event.preventDefault();
-        if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
-        document.getElementById('destroy{{ $data->id }}').submit()
-        }
+@if(auth()->user()->can('suppliers.edit') || auth()->user()->can('suppliers.delete'))
+    @if($data->is_active)
+        <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Pemasok" onclick="
+            event.preventDefault();
+            if (confirm('Nonaktifkan pemasok &quot;{{ $data->supplier_name }}&quot;? Data tidak akan dihapus dan tetap tercatat di transaksi historis.')) {
+                document.getElementById('toggle-status-{{ $data->id }}').submit();
+            }
         ">
-        <i class="bi bi-trash"></i>
-        <form id="destroy{{ $data->id }}" class="d-none" action="{{ route('suppliers.destroy', $data->id) }}" method="POST">
-            @csrf
-            @method('delete')
-        </form>
-    </button>
-@endcan
+            <i class="bi bi-pause-circle"></i>
+        </button>
+    @else
+        <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali" onclick="
+            event.preventDefault();
+            if (confirm('Aktifkan kembali pemasok &quot;{{ $data->supplier_name }}&quot;?')) {
+                document.getElementById('toggle-status-{{ $data->id }}').submit();
+            }
+        ">
+            <i class="bi bi-play-circle"></i>
+        </button>
+    @endif
+    <form id="toggle-status-{{ $data->id }}" class="d-none" action="{{ route('suppliers.toggle-status', $data->id) }}" method="POST">
+        @csrf
+        @method('patch')
+    </form>
+@endif
+
