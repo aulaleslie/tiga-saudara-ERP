@@ -20,11 +20,15 @@ class BusinessDataTable extends DataTable
     }
 
     public function query(Setting $model) {
-        if (auth()->user()->hasRole('Super Admin')) {
-            return $model->newQuery()->with('currency');
-        } else {
-            return auth()->user()->settings()->with('currency');
+        $query = $model->newQuery()->with('currency');
+
+        if (!auth()->user()->hasRole('Super Admin')) {
+            $query->whereHas('users', function ($q) {
+                $q->where('users.id', auth()->id());
+            });
         }
+
+        return $query;
     }
 
     public function html() {
