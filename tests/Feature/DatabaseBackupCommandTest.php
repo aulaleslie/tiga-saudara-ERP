@@ -10,6 +10,7 @@ use ZipArchive;
 
 class DatabaseBackupCommandTest extends TestCase
 {
+    private string $testWorkingDir;
     private string $testBackupDir;
     private string $slotA;
     private string $slotB;
@@ -18,13 +19,16 @@ class DatabaseBackupCommandTest extends TestCase
     {
         parent::setUp();
 
+        $this->testWorkingDir = storage_path('test_backups_working');
         $this->testBackupDir = storage_path('test_backups');
         $this->slotA = 'database-backup-a.zip';
         $this->slotB = 'database-backup-b.zip';
 
+        File::ensureDirectoryExists($this->testWorkingDir);
         File::ensureDirectoryExists($this->testBackupDir);
 
         config([
+            'database-backup.working_dir' => $this->testWorkingDir,
             'database-backup.destination_dir' => $this->testBackupDir,
             'database-backup.slot_a' => $this->slotA,
             'database-backup.slot_b' => $this->slotB,
@@ -34,6 +38,7 @@ class DatabaseBackupCommandTest extends TestCase
 
     protected function tearDown(): void
     {
+        File::deleteDirectory($this->testWorkingDir);
         File::deleteDirectory($this->testBackupDir);
         parent::tearDown();
     }
@@ -42,6 +47,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -57,6 +63,14 @@ class DatabaseBackupCommandTest extends TestCase
         $this->assertFileExists($slotAPath);
         $this->assertGreaterThan(0, filesize($slotAPath));
 
+        // Temporary workspace and files should be cleaned up
+        $tempDirs = glob($this->testWorkingDir . DIRECTORY_SEPARATOR . 'temp_*');
+        $this->assertEmpty($tempDirs, "Temporary directories should be cleaned up from working dir");
+
+        // Destination directory should only contain the final slot
+        $destFiles = array_diff(scandir($this->testBackupDir), ['.', '..']);
+        $this->assertCount(1, $destFiles, "Destination should only contain the final backup archive");
+
         $this->assertValidZipArchive($slotAPath);
         $this->assertDumpContainsExpectedContent($slotAPath);
     }
@@ -65,6 +79,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -94,6 +109,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -125,6 +141,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => '/nonexistent/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -150,6 +167,7 @@ class DatabaseBackupCommandTest extends TestCase
         try {
             $config = [
                 'mysqldump_path' => 'mysqldump',
+                'working_dir' => $this->testWorkingDir,
                 'destination_dir' => $readOnlyDir . DIRECTORY_SEPARATOR . 'subdir',
                 'slot_a' => $this->slotA,
                 'slot_b' => $this->slotB,
@@ -176,6 +194,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -195,6 +214,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -214,6 +234,7 @@ class DatabaseBackupCommandTest extends TestCase
     {
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -234,6 +255,7 @@ class DatabaseBackupCommandTest extends TestCase
         $password = 'test_backup_password';
         $config = [
             'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => $this->slotA,
             'slot_b' => $this->slotB,
@@ -278,5 +300,77 @@ class DatabaseBackupCommandTest extends TestCase
         // Basic sanity checks for SQL dump content
         $this->assertStringContainsString('CREATE TABLE', $sql);
         $this->assertStringContainsString('INSERT INTO', $sql);
+    }
+
+    public function test_matching_working_and_destination_fails()
+    {
+        $config = [
+            'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testBackupDir,
+            'destination_dir' => $this->testBackupDir,
+            'slot_a' => $this->slotA,
+            'slot_b' => $this->slotB,
+            'archive_password' => '',
+        ];
+
+        $service = new DatabaseBackupService($config, testMode: true);
+        $result = $service->backup();
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('cannot be the same', $result['message']);
+    }
+
+    public function test_different_volumes_validation_fails()
+    {
+        $config = [
+            'mysqldump_path' => 'mysqldump',
+            'working_dir' => 'C:\\Backup_Work',
+            'destination_dir' => 'D:\\Backup_WK',
+            'slot_a' => $this->slotA,
+            'slot_b' => $this->slotB,
+            'archive_password' => '',
+        ];
+
+        $service = new DatabaseBackupService($config, testMode: true);
+        $result = $service->backup();
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('same volume', $result['message']);
+    }
+
+    public function test_nested_working_dir_validation_fails()
+    {
+        $config = [
+            'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testBackupDir . DIRECTORY_SEPARATOR . 'nested_work',
+            'destination_dir' => $this->testBackupDir,
+            'slot_a' => $this->slotA,
+            'slot_b' => $this->slotB,
+            'archive_password' => '',
+        ];
+
+        $service = new DatabaseBackupService($config, testMode: true);
+        $result = $service->backup();
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('nested within', $result['message']);
+    }
+
+    public function test_path_alias_normalization_validation_fails()
+    {
+        $config = [
+            'mysqldump_path' => 'mysqldump',
+            'working_dir' => $this->testBackupDir . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . basename($this->testBackupDir),
+            'destination_dir' => $this->testBackupDir,
+            'slot_a' => $this->slotA,
+            'slot_b' => $this->slotB,
+            'archive_password' => '',
+        ];
+
+        $service = new DatabaseBackupService($config, testMode: true);
+        $result = $service->backup();
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('cannot be the same', $result['message']);
     }
 }

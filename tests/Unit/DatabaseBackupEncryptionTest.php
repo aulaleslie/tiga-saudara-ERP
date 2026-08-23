@@ -13,17 +13,21 @@ use ZipArchive;
  */
 class DatabaseBackupEncryptionTest extends TestCase
 {
+    private string $testWorkingDir;
     private string $testBackupDir;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->testWorkingDir = storage_path('test_backups_working_enc');
         $this->testBackupDir = storage_path('test_backups_encryption');
+        File::ensureDirectoryExists($this->testWorkingDir);
         File::ensureDirectoryExists($this->testBackupDir);
     }
 
     protected function tearDown(): void
     {
+        File::deleteDirectory($this->testWorkingDir);
         File::deleteDirectory($this->testBackupDir);
         parent::tearDown();
     }
@@ -34,6 +38,7 @@ class DatabaseBackupEncryptionTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -67,6 +72,7 @@ class DatabaseBackupEncryptionTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -116,6 +122,7 @@ class DatabaseBackupEncryptionTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -150,6 +157,7 @@ class DatabaseBackupEncryptionTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -169,12 +177,12 @@ class DatabaseBackupEncryptionTest extends TestCase
         // Backup should fail
         $this->assertFalse($result['success']);
 
-        // Temporary files should be cleaned up
-        $tempFiles = glob($this->testBackupDir . DIRECTORY_SEPARATOR . 'temp_*', GLOB_ONLYDIR);
-        $this->assertEmpty($tempFiles,
+        // Temporary files should be cleaned up from the working directory
+        $tempDirs = glob($this->testWorkingDir . DIRECTORY_SEPARATOR . 'temp_*', GLOB_ONLYDIR);
+        $this->assertEmpty($tempDirs,
             'Temporary directories should be cleaned up after encryption failure');
 
-        $tempZips = glob($this->testBackupDir . DIRECTORY_SEPARATOR . 'temp_*.zip');
+        $tempZips = glob($this->testWorkingDir . DIRECTORY_SEPARATOR . 'temp_*.zip');
         $this->assertEmpty($tempZips,
             'Temporary ZIP files should be cleaned up after encryption failure');
     }

@@ -2,16 +2,17 @@
 
 ## Overview
 
-This document describes how to configure hourly MySQL database backups on a Windows deployment. The application provides an Artisan command (`db:backup`) that creates compressed, rotating backups in a configured local directory for synchronization to cloud storage.
+This document describes how to configure 15-minute MySQL database backups on a Windows deployment. The application provides an Artisan command (`db:backup`) that creates temporary backup files in a working directory and promotes completed, rotating backups to a final destination for synchronization to cloud storage.
 
 ## Prerequisites
 
 - Windows Server with MySQL 8.0 installed
 - MySQL `mysqldump.exe` available at a known path (typically `C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe`)
-- A dedicated backup directory on the server (e.g., `D:\Backup_WK`)
-- Windows Task Scheduler configured to run the command hourly
+- A dedicated unsynchronized working directory on the server (e.g., `D:\Backup_Work`)
+- A dedicated synchronized destination directory on the same volume (e.g., `D:\Backup_WK`)
+- Windows Task Scheduler configured to run the command every 15 minutes
 - Sufficient local disk space for two rotating backup archives
-- Operator account with Modify permission to the backup directory
+- Operator account with Modify permission to both backup directories
 
 ## Production `.env` Configuration
 
@@ -20,6 +21,7 @@ Add or update the following environment variables in your production `.env` file
 ```env
 # Database Backup Configuration
 DB_BACKUP_MYSQLDUMP_PATH="C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
+DB_BACKUP_WORKING_DIR="D:\Backup_Work"
 DB_BACKUP_DESTINATION_DIR="D:\Backup_WK"
 DB_BACKUP_SLOT_A="database-backup-a.zip"
 DB_BACKUP_SLOT_B="database-backup-b.zip"
@@ -33,7 +35,9 @@ DB_BACKUP_ARCHIVE_PASSWORD=
   dir "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
   ```
 
-- **`DB_BACKUP_DESTINATION_DIR`**: Windows directory where backup archives are stored. This directory will be synchronized to cloud storage (e.g., Google Drive). The operator must have Modify permission.
+- **`DB_BACKUP_WORKING_DIR`**: Unsynchronized Windows directory for temporary workspace and files. Must be on the same volume as the destination directory (e.g., `D:\`).
+
+- **`DB_BACKUP_DESTINATION_DIR`**: Windows directory where final backup archives are stored. This directory will be synchronized to cloud storage (e.g., Google Drive). Both directories require the operator to have Modify permission.
 
 - **`DB_BACKUP_SLOT_A` and `DB_BACKUP_SLOT_B`**: Two fixed filenames for the rotating backup set. The command alternates between these, preserving one fallback copy at all times.
 
@@ -41,12 +45,14 @@ DB_BACKUP_ARCHIVE_PASSWORD=
 
 ### Granting Permissions
 
-Ensure the account running the scheduled task has Modify permission to the backup directory:
+Ensure the account running the scheduled task has Modify permission to both backup directories (`D:\Backup_Work` and `D:\Backup_WK`):
 
-1. Right-click the backup directory (e.g., `D:\Backup_WK`) → Properties
+1. Right-click the backup directory → Properties
 2. Select the Security tab → Edit
 3. Select the task-runner account → Click Edit
 4. Check "Modify" → Apply → OK
+
+> **Note:** If your application caches configuration, run `php artisan config:clear` after updating the `.env` file.
 
 ## Windows Task Scheduler Configuration
 
@@ -61,17 +67,16 @@ The deployment operator must manually create a Windows Task Scheduler task. This
    - Click "Create Task..." in the right panel
 
 3. Configure the General tab:
-   - **Name**: "Hourly Database Backup"
-   - **Description**: "Creates hourly backup of production database"
+   - **Name**: "15-Minute Database Backup"
+   - **Description**: "Creates 15-minute backup of production database"
    - Check "Run whether user is logged in or not"
    - Check "Run with highest privileges" (if task-runner account permits)
 
 4. Configure the Triggers tab:
    - Click "New..." and select "On a schedule"
    - Choose "Daily"
-   - Set "Repeat every" to "1 hour"
+   - Set "Repeat every" to "15 minutes"
    - Set "Start time" to any time
-   - Set "Repeat every" with a start time of **:05** (5 minutes past each hour)
    - Check "Synchronize across time zones"
 
 5. Configure the Actions tab:
@@ -117,8 +122,8 @@ To verify a backup manually:
 To verify the two-slot rotation is working:
 
 1. Open Task Scheduler
-2. Right-click the "Hourly Database Backup" task → Run
-3. Wait 1–2 seconds and refresh the backup directory
+2. Right-click the "15-Minute Database Backup" task → Run
+3. Wait 1–2 seconds and refresh the destination directory (`D:\Backup_WK`)
 4. Note the timestamp of the first slot
 5. Run the task again
 6. Verify the second slot was created with a newer timestamp
@@ -188,9 +193,9 @@ This test confirms:
 
 Consider monitoring these aspects:
 
-- **Backup frequency**: Verify a new backup appears every hour
+- **Backup frequency**: Verify a new backup appears every 15 minutes
 - **Backup size**: Track backup file sizes to detect unexpected database growth
-- **Cloud sync health**: Confirm backups sync to cloud within 5–15 minutes of creation
+- **Cloud sync health**: Confirm backups sync to cloud within 5–15 minutes of creation, and that the cloud sees ONLY the final ZIP slots, not temporary files.
 - **Disk space**: Monitor `D:\` to prevent running out of storage
 - **Backup restore capability**: Test a restore at least quarterly or after major schema changes
 
@@ -199,22 +204,25 @@ Consider monitoring these aspects:
 Complete this checklist before declaring the backup system operational:
 
 ### Manual Backup Verification
-- [ ] Backup directory `D:\Backup_WK` exists and is readable/writable by task account
+- [ ] Working directory `D:\Backup_Work` and destination `D:\Backup_WK` exist on the same volume and are readable/writable by task account
+- [ ] Cleared Laravel config cache if applicable (`php artisan config:clear`)
 - [ ] Run backup manually: `php artisan db:backup` from the project root
-- [ ] Verify `database-backup-a.zip` appears in the directory with a size > 0 bytes
+- [ ] Verify `database-backup-a.zip` appears in the destination directory with a size > 0 bytes
+- [ ] Confirm no temporary folders, SQL dumps, or ZIP files remain in the working directory
 - [ ] Open the ZIP file and confirm `dump.sql` is present and contains SQL schema
 
 ### Two-Run Rotation Verification
 - [ ] Run backup a second time
 - [ ] Verify `database-backup-b.zip` is created
-- [ ] Both files exist with recent timestamps
+- [ ] Both files exist with recent timestamps in destination directory
 - [ ] Run backup a third time
 - [ ] Verify `database-backup-a.zip` timestamp updated while `database-backup-b.zip` remains unchanged
 
 ### Cloud Synchronization Verification
-- [ ] Configure your cloud sync client (Google Drive, OneDrive, Dropbox) to monitor `D:\Backup_WK`
+- [ ] Configure your cloud sync client (Google Drive, OneDrive, Dropbox) to monitor ONLY `D:\Backup_WK`
 - [ ] Wait 5–15 minutes for backups to sync
 - [ ] Verify both backup files appear in cloud storage
+- [ ] Confirm the cloud storage recycle bin/trash does NOT contain short-lived `dump.sql` or temporary `.zip` files
 - [ ] Note the cloud storage path for recovery reference
 
 ### Safe Restore Test
@@ -228,18 +236,18 @@ Complete this checklist before declaring the backup system operational:
 
 ### Scheduled Task Verification
 - [ ] Open Windows Task Scheduler
-- [ ] Locate "Hourly Database Backup" task
+- [ ] Locate "15-Minute Database Backup" task
 - [ ] Verify the task is enabled
 - [ ] Right-click and select "Run" to manually trigger
-- [ ] Observe the next scheduled run time (should be at :05 of the hour)
-- [ ] Let the task run for at least 2 hours and confirm backups appear hourly
+- [ ] Observe the next scheduled run time
+- [ ] Let the task run for at least 2 hours and confirm backups appear every 15 minutes
 
 ## Rollback
 
 To disable backups:
 
 1. Open Task Scheduler
-2. Right-click the "Hourly Database Backup" task → Disable
+2. Right-click the "15-Minute Database Backup" task → Disable
 3. Backups are no longer created, but existing archives remain available
 4. Existing backup archives can still be restored manually if needed
 

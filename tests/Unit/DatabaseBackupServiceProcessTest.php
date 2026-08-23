@@ -13,17 +13,21 @@ use Tests\TestCase;
  */
 class DatabaseBackupServiceProcessTest extends TestCase
 {
+    private string $testWorkingDir;
     private string $testBackupDir;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->testWorkingDir = storage_path('test_backups_working_unit');
         $this->testBackupDir = storage_path('test_backups_unit');
+        File::ensureDirectoryExists($this->testWorkingDir);
         File::ensureDirectoryExists($this->testBackupDir);
     }
 
     protected function tearDown(): void
     {
+        File::deleteDirectory($this->testWorkingDir);
         File::deleteDirectory($this->testBackupDir);
         parent::tearDown();
     }
@@ -34,6 +38,7 @@ class DatabaseBackupServiceProcessTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -63,6 +68,7 @@ class DatabaseBackupServiceProcessTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -93,6 +99,7 @@ class DatabaseBackupServiceProcessTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -142,6 +149,7 @@ class DatabaseBackupServiceProcessTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',
@@ -182,6 +190,7 @@ class DatabaseBackupServiceProcessTest extends TestCase
 
         $config = [
             'mysqldump_path' => '/usr/bin/mysqldump',
+            'working_dir' => $this->testWorkingDir,
             'destination_dir' => $this->testBackupDir,
             'slot_a' => 'backup-a.zip',
             'slot_b' => 'backup-b.zip',

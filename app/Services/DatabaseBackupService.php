@@ -11,6 +11,7 @@ use Symfony\Component\Process\Exception\ProcessFailedException;
 class DatabaseBackupService
 {
     private string $mysqldumpPath;
+    private string $workingDir;
     private string $destinationDir;
     private string $slotA;
     private string $slotB;
@@ -25,6 +26,7 @@ class DatabaseBackupService
     ) {
         $config = $config ?? config('database-backup');
         $this->mysqldumpPath = $config['mysqldump_path'];
+        $this->workingDir = $config['working_dir'] ?? sys_get_temp_dir();
         $this->destinationDir = $config['destination_dir'];
         $this->slotA = $config['slot_a'];
         $this->slotB = $config['slot_b'];
@@ -74,6 +76,18 @@ class DatabaseBackupService
             throw new RuntimeException("mysqldump executable not found or not executable: {$this->mysqldumpPath}");
         }
 
+        $this->validateDirectorySeparation();
+
+        if (!is_dir($this->workingDir)) {
+            if (!@mkdir($this->workingDir, 0755, true)) {
+                throw new RuntimeException("Failed to create backup working directory: {$this->workingDir}");
+            }
+        }
+
+        if (!is_writable($this->workingDir)) {
+            throw new RuntimeException("Backup working directory is not writable: {$this->workingDir}");
+        }
+
         if (!is_dir($this->destinationDir)) {
             if (!@mkdir($this->destinationDir, 0755, true)) {
                 throw new RuntimeException("Failed to create backup destination directory: {$this->destinationDir}");
@@ -82,6 +96,48 @@ class DatabaseBackupService
 
         if (!is_writable($this->destinationDir)) {
             throw new RuntimeException("Backup destination directory is not writable: {$this->destinationDir}");
+        }
+    }
+
+    private function normalizePath(string $path): string
+    {
+        $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
+        $parts = explode(DIRECTORY_SEPARATOR, $path);
+        $absolutes = [];
+
+        foreach ($parts as $i => $part) {
+            if ($part === '.' || ($part === '' && $i > 0)) continue;
+            if ($part === '..') {
+                if (!empty($absolutes) && end($absolutes) !== '') {
+                    array_pop($absolutes);
+                }
+            } else {
+                $absolutes[] = $part;
+            }
+        }
+
+        return implode(DIRECTORY_SEPARATOR, $absolutes);
+    }
+
+    private function validateDirectorySeparation(): void
+    {
+        $normWorking = $this->normalizePath($this->workingDir);
+        $normDest = $this->normalizePath($this->destinationDir);
+
+        $caseInsensitive = PHP_OS_FAMILY === 'Windows' ||
+            (preg_match('/^[a-zA-Z]:/', $normWorking) && preg_match('/^[a-zA-Z]:/', $normDest));
+
+        $cmpWorking = $caseInsensitive ? strtolower($normWorking) : $normWorking;
+        $cmpDest = $caseInsensitive ? strtolower($normDest) : $normDest;
+
+        if ($cmpWorking === $cmpDest || str_starts_with($cmpWorking, $cmpDest . DIRECTORY_SEPARATOR)) {
+            throw new RuntimeException("Working directory cannot be the same as or nested within the destination directory: {$this->workingDir}");
+        }
+
+        if (preg_match('/^([a-zA-Z]):/', $normWorking, $wMatch) && preg_match('/^([a-zA-Z]):/', $normDest, $dMatch)) {
+            if (strtolower($wMatch[1]) !== strtolower($dMatch[1])) {
+                throw new RuntimeException("Working directory and destination directory must be on the same volume");
+            }
         }
     }
 
@@ -112,7 +168,7 @@ class DatabaseBackupService
 
     private function createTemporaryWorkspace(): string
     {
-        $tempDir = $this->destinationDir . DIRECTORY_SEPARATOR . 'temp_' . uniqid() . '_' . time();
+        $tempDir = $this->workingDir . DIRECTORY_SEPARATOR . 'temp_' . uniqid() . '_' . time();
         if (!@mkdir($tempDir, 0755, true)) {
             throw new RuntimeException("Failed to create temporary workspace: {$tempDir}");
         }
