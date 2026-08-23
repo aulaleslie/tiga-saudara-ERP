@@ -335,4 +335,40 @@ class MasterDataDeactivationTest extends TestCase
         $this->assertTrue((bool) $tax2->is_default);
         $this->assertSame(1, Tax::where('is_default', true)->count());
     }
+
+    public function test_tax_default_reassignment_rolls_back_fully_on_injected_failure(): void
+    {
+        $tax1 = Tax::create(['name' => 'PPN 11%', 'value' => 11, 'is_default' => true, 'is_active' => true]);
+        $tax2 = Tax::create(['name' => 'PPN 12%', 'value' => 12, 'is_default' => false, 'is_active' => true]);
+
+        // Force the second write (promoting tax2 to default) to fail mid-transaction,
+        // proving the whole deactivate() operation is atomic: if the replacement
+        // update fails, the original tax's deactivation/is_default change must not
+        // be left partially applied either.
+        Tax::saving(function (Tax $tax) use ($tax2) {
+            if ($tax->is($tax2) && $tax->is_default) {
+                throw new \RuntimeException('Injected failure during default reassignment.');
+            }
+        });
+
+        try {
+            $this->lifecycleService->deactivate($tax1);
+            $this->fail('Expected the injected failure to propagate out of deactivate().');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Injected failure during default reassignment.', $e->getMessage());
+        } finally {
+            Tax::flushEventListeners();
+        }
+
+        $tax1->refresh();
+        $tax2->refresh();
+
+        // Nothing must have committed: tax1 remains the active default, tax2 remains
+        // non-default and active, exactly as before the failed operation.
+        $this->assertTrue($tax1->is_active);
+        $this->assertTrue((bool) $tax1->is_default);
+        $this->assertTrue($tax2->is_active);
+        $this->assertFalse((bool) $tax2->is_default);
+        $this->assertSame(1, Tax::where('is_default', true)->count());
+    }
 }
