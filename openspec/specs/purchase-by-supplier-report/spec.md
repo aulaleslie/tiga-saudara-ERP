@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+The Purchase by Supplier report provides a detailed supplier-grouped view of all purchase invoices within a date range and set of filters, supporting drill-down analysis of purchase behavior by supplier.
+
+## Requirements
 
 ### Requirement: Purchase by supplier menu access
 The system SHALL expose a `Pembelian Per Supplier` report under `Laporan -> Pembelian` for users with `purchaseReports.access`.
@@ -150,7 +154,7 @@ The system SHALL sort supplier report rows by transaction date descending within
 - **WHEN** the filtered report has more rows than the page size
 - **THEN** the system paginates by result rows
 - **AND** a supplier group may continue on a later page
-## Requirements
+
 ### Requirement: Purchase by supplier tax row expansion
 The system SHALL render a separate `Pajak` row immediately after a purchase detail's product row when the persisted purchase detail has `product_tax_amount > 0`.
 
@@ -171,7 +175,7 @@ The system SHALL render a separate `Pajak` row immediately after a purchase deta
 - **THEN** the report displays the `Pajak` row
 - **AND** the report does not recompute tax from current tax settings
 
-### Requirement: Purchase by supplier monetary totals
+### Requirement: Purchase by supplier monetary totals (Tax)
 The system SHALL use purchase detail `sub_total` for product-row `Nominal tagihan`, use purchase detail `product_tax_amount` for tax-row `Nominal tagihan`, and compute `Total nominal tagihan` as a running total per supplier group across all rendered product and tax rows.
 
 #### Scenario: Product row nominal tagihan uses detail subtotal
@@ -237,4 +241,23 @@ The report SHALL emit exactly one document `Diskon` row per purchase invoice who
 
 - **WHEN** a discounted purchase is exported
 - **THEN** the exported rows contain the same `Diskon` row, in the same position, as the on-screen report
+
+### Requirement: Purchase by supplier excludes archived purchases
+The system SHALL exclude purchase details whose parent purchase is archived from the normal Purchase by Supplier dataset. The exclusion MUST apply consistently to on-screen rows, filtered result counts, pagination, sorting, running totals, grand totals, and Excel and CSV exports.
+
+#### Scenario: Archived purchase matches the active filters
+- **WHEN** an archived purchase belongs to the active setting and its effective purchase date, supplier, tags, and product categories match the applied filters
+- **THEN** none of its purchase detail rows are included in the Purchase by Supplier report
+- **AND** applying the filters and rendering the report completes without an error
+
+#### Scenario: Active and archived purchases match together
+- **WHEN** an active purchase and an archived purchase both belong to the active setting and match the applied filters
+- **THEN** the report includes the active purchase detail rows
+- **AND** the report excludes the archived purchase detail rows
+- **AND** result counts, pagination, sorting, running totals, and grand totals are calculated only from the active purchase detail rows
+
+#### Scenario: Export uses the same non-archived dataset
+- **WHEN** a user exports applied filters that match both active and archived purchases
+- **THEN** the Excel or CSV export contains the matching active purchase rows
+- **AND** the export does not contain rows or monetary contributions from the archived purchase
 

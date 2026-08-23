@@ -28,6 +28,7 @@ class PurchaseBySupplierReportQueryService
                 DB::raw(EffectivePurchaseReportingDate::sqlExpression() . ' as purchase_date')
             )
             ->where('purchases.setting_id', $scopeSettingId)
+            ->whereNull('purchases.archived_at')
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 

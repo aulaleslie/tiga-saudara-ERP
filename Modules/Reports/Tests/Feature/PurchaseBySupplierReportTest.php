@@ -975,4 +975,68 @@ class PurchaseBySupplierReportTest extends TestCase
                 return true;
             });
     }
+
+    /** @test */
+    public function it_excludes_archived_purchases_from_report_and_totals()
+    {
+        $supplier = $this->makeSupplier('Supplier Mixed');
+        $date = '2026-08-15';
+        
+        $activePurchase = $this->makePurchase($supplier, ['date' => $date]);
+        $this->makePurchaseDetail($activePurchase, ['product_name' => 'Active Product', 'sub_total' => 1000]);
+
+        $archivedPurchase = $this->makePurchase($supplier, ['date' => $date, 'archived_at' => now(), 'archived_by' => $this->user->id]);
+        $this->makePurchaseDetail($archivedPurchase, ['product_name' => 'Archived Product', 'sub_total' => 5000]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-08-01')
+            ->set('endDate', '2026-08-31')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                \PHPUnit\Framework\Assert::assertEquals(1, $purchases->count());
+                \PHPUnit\Framework\Assert::assertEquals('ACTIVE PRODUCT', strtoupper($purchases->first()->product_name));
+                
+                $mapped = \App\Services\Reports\PurchaseBySupplierReportQueryService::mapRows($purchases->first(), 0);
+                \PHPUnit\Framework\Assert::assertEquals(1000, $mapped[0]['Total nominal tagihan']);
+                
+                return true;
+            });
+    }
+
+    /** @test */
+    public function it_excludes_archived_purchases_from_exports()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        
+        $supplier = $this->makeSupplier('Supplier Mixed');
+        $date = '2026-08-15';
+        
+        $activePurchase = $this->makePurchase($supplier, ['date' => $date]);
+        $this->makePurchaseDetail($activePurchase, ['product_name' => 'Active Product', 'sub_total' => 1000]);
+
+        $archivedPurchase = $this->makePurchase($supplier, ['date' => $date, 'archived_at' => now(), 'archived_by' => $this->user->id]);
+        $this->makePurchaseDetail($archivedPurchase, ['product_name' => 'Archived Product', 'sub_total' => 5000]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseBySupplierReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-08-01')
+            ->set('endDate', '2026-08-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('purchases_by_vendor_2026-08-01_2026-08-31.xlsx', function ($export) {
+            $rows = $export->array();
+            \PHPUnit\Framework\Assert::assertCount(4, $rows);
+            
+            \PHPUnit\Framework\Assert::assertEquals('ACTIVE PRODUCT', strtoupper($rows[1][4]));
+            
+            foreach ($rows as $row) {
+                \PHPUnit\Framework\Assert::assertNotEquals('ARCHIVED PRODUCT', strtoupper($row[4] ?? ''));
+            }
+            return true;
+        });
+    }
 }
