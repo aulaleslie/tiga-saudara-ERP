@@ -16,6 +16,7 @@ use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Services\SaleService;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 
 class CreateForm extends Component
 {
