@@ -98,11 +98,15 @@ class GlobalPurchasePaymentViewTest extends TestCase
         $response->assertStatus(200);
         $response->assertViewIs('purchase::show');
         $response->assertViewHas('globalMode', true);
-        
-        // Assert action buttons like "Ubah" or "Duplikat" are not present because of globalMode
-        $response->assertDontSeeText('Ubah');
+
+        // Assert inline editors are mounted for inline metadata edits
+        $response->assertSeeLivewire('purchase.supplier-purchase-number-editor');
+        $response->assertSeeLivewire('purchase.tax-ref-no-editor');
+        $response->assertSeeLivewire('purchase.purchase-note-editor');
+
+        // Assert non-inline action buttons like "Duplikat" are not present because of globalMode
         $response->assertDontSeeText('Duplikat');
-        
+
         // Assert breadcrumb points back to global index
         $response->assertSee(route('purchases.global-payments.index'));
     }

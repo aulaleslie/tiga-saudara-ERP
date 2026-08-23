@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Services\GlobalSalePaymentService;
+use Modules\Sale\Services\SaleSerialDisplayResolver;
 use Modules\Sale\DataTables\SalePaymentsDataTable;
 use Modules\Setting\Entities\PaymentMethod;
 
@@ -27,31 +28,44 @@ class GlobalSalePaymentController extends Controller
 
     /**
      * 3.4 Show: Dedicated cross-setting read-only detail
-     * Loads the sale's actual setting and payment history without mutation controls
+     * Renders the canonical sale detail template with globalMode context
      */
-    public function show($sale_id)
+    public function show($sale_id, SalePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('salePayments.global.access'), 403);
 
         $sale = Sale::globalPaymentEligible()
             ->whereNull('archived_at')
-            ->with([
-                'customer',
-                'tenantSetting',
-                'tags',
-                'saleDetails.tax',
-                'saleDetails.bundleItems',
-                'bundleItems.product',
-                'bundleItems.tax',
-                'saleDispatches.details',
-                'salePayments.paymentMethod',
-            ])
             ->findOrFail($sale_id);
+
+        $sale->load([
+            'saleDetails.bundleItems',
+            'bundleItems', // Standalone bundle items
+            'saleDetails.tax',
+            'saleDispatches.details',
+            'saleDispatches.details.product',
+            'saleDispatches.details.location',
+            'salePayments.paymentMethod',
+            'reportingDateAudits.actor',
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::findOrFail($sale->customer_id);
+        $dispatches = $sale->saleDispatches;
+
+        app(\Modules\Sale\Services\SaleSerialDisplayResolver::class)->annotateDispatchesForSale($sale);
 
         // Load sale's actual setting for company presentation
         $setting = $sale->tenantSetting;
 
-        return view('sale::global-payments.show', compact('sale', 'setting'));
+        return $dataTable
+            ->with(['sale_id' => $sale->id, 'globalMode' => true])
+            ->render('sale::show', [
+                'sale' => $sale,
+                'customer' => $customer,
+                'dispatches' => $dispatches,
+                'globalMode' => true,
+                'setting' => $setting
+            ]);
     }
 
     /**

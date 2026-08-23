@@ -78,7 +78,11 @@
                                 <div>Tanggal Jatuh Tempo: {{ \Carbon\Carbon::parse($purchase->due_date)->format('d M, Y') }}</div>
                                 <div class="mt-2">
                                     @if(isset($globalMode) && $globalMode)
-                                        <div>Nomor Pembelian Pemasok: <strong>{{ $purchase->supplier_purchase_number ?? '-' }}</strong></div>
+                                        <livewire:purchase.supplier-purchase-number-editor
+                                            :purchaseId="$purchase->id"
+                                            :globalMode="true"
+                                            :key="'supplier-purchase-number-' . $purchase->id"
+                                        />
                                     @else
                                         <livewire:purchase.supplier-purchase-number-editor
                                             :purchaseId="$purchase->id"
@@ -88,7 +92,11 @@
                                 </div>
                                 <div class="mt-2">
                                     @if(isset($globalMode) && $globalMode)
-                                        <div>Nomor Seri Faktur Pajak: <strong>{{ $purchase->tax_ref_no ?? '-' }}</strong></div>
+                                        <livewire:purchase.tax-ref-no-editor
+                                            :purchaseId="$purchase->id"
+                                            :globalMode="true"
+                                            :key="'tax-ref-no-' . $purchase->id"
+                                        />
                                     @else
                                         <livewire:purchase.tax-ref-no-editor
                                             :purchaseId="$purchase->id"
@@ -237,7 +245,11 @@
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
                                 @if(isset($globalMode) && $globalMode)
-                                    <p style="white-space: pre-wrap;">{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
+                                    <livewire:purchase.purchase-note-editor
+                                        :purchaseId="$purchase->id"
+                                        :globalMode="true"
+                                        :key="'purchase-note-' . $purchase->id"
+                                    />
                                 @else
                                     <livewire:purchase.purchase-note-editor
                                         :purchaseId="$purchase->id"

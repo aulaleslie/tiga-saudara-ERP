@@ -4,24 +4,39 @@ namespace App\Livewire\Purchase;
 
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Purchase\Entities\Purchase;
 
 class SupplierPurchaseNumberEditor extends Component
 {
+    #[Locked]
     public int $purchaseId;
+
     public ?string $supplierPurchaseNumber = null;
     public bool $editing = false;
     public bool $canEdit = false;
 
-    public function mount(int $purchaseId): void
+    #[Locked]
+    public bool $globalMode = false;
+
+    public function mount(int $purchaseId, bool $globalMode = false): void
     {
-        $purchase = Purchase::withArchived()->findOrFail($purchaseId);
-        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        $this->globalMode = $globalMode;
+
+        if ($this->globalMode) {
+            abort_if(Gate::denies('purchasePayments.global.access'), 403);
+            $purchase = Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($purchaseId);
+        } else {
+            $purchase = Purchase::withArchived()->findOrFail($purchaseId);
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        }
 
         $this->purchaseId = $purchaseId;
         $this->supplierPurchaseNumber = $purchase->supplier_purchase_number;
-        $this->canEdit = Gate::allows('purchases.update') && !$purchase->isArchived();
+        $this->canEdit = $this->authorizeCanEdit($purchase);
     }
 
     public function startEditing(): void
@@ -32,6 +47,7 @@ class SupplierPurchaseNumberEditor extends Component
 
     public function cancelEdit(): void
     {
+        $this->authorizeEdit();
         $purchase = $this->findPurchase();
         $this->supplierPurchaseNumber = $purchase->supplier_purchase_number;
         $this->editing = false;
@@ -40,6 +56,7 @@ class SupplierPurchaseNumberEditor extends Component
     public function save(): void
     {
         $this->authorizeEdit();
+        $purchase = $this->findPurchase();
 
         $data = $this->validate([
             'supplierPurchaseNumber' => [
@@ -48,12 +65,11 @@ class SupplierPurchaseNumberEditor extends Component
                 'max:255',
                 Rule::unique('purchases', 'supplier_purchase_number')
                     ->ignore($this->purchaseId)
-                    ->where('setting_id', session('setting_id'))
+                    ->where('setting_id', $purchase->setting_id)
                     ->whereNull('archived_at'),
             ],
         ]);
 
-        $purchase = $this->findPurchase();
         $value = $data['supplierPurchaseNumber'];
         $normalizedValue = $value === '' ? null : $value;
 
@@ -72,14 +88,42 @@ class SupplierPurchaseNumberEditor extends Component
         return view('livewire.purchase.supplier-purchase-number-editor');
     }
 
+    private function authorizeCanEdit(Purchase $purchase): bool
+    {
+        if ($purchase->isArchived()) {
+            return false;
+        }
+
+        if ($this->globalMode) {
+            return Gate::allows('purchasePayments.global.access') && Gate::allows('purchases.update');
+        }
+
+        return Gate::allows('purchases.update');
+    }
+
     private function authorizeEdit(): void
     {
-        $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
-        abort_if(Gate::denies('purchases.update') || $purchase->isArchived(), 403);
+        if ($this->globalMode) {
+            abort_if(Gate::denies('purchasePayments.global.access') || Gate::denies('purchases.update'), 403);
+            $purchase = Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->purchaseId);
+        } else {
+            abort_if(Gate::denies('purchases.update'), 403);
+            $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+            abort_if($purchase->isArchived(), 403);
+        }
     }
 
     private function findPurchase(): Purchase
     {
+        if ($this->globalMode) {
+            return Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->purchaseId);
+        }
+
         $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 

@@ -129,28 +129,47 @@ class SaleDetailNoteRenderingTest extends TestCase
         $response->assertDontSee('wire:click="startEditing"', false);
     }
 
-    public function test_global_sale_payment_detail_view_renders_static_note_and_does_not_mount_editor()
+    public function test_global_detail_mounts_editor_with_global_mode_for_authorized_user()
     {
         $this->actingAs($this->authorizedUser);
 
         $response = $this->get(route('sales.global-payments.show', $this->sale->id));
 
         $response->assertOk();
-        $response->assertDontSeeLivewire('sale.sale-note-editor');
+        $response->assertSeeLivewire('sale.sale-note-editor');
         $response->assertSee('Operational note for detail test');
     }
 
-    public function test_global_sale_payment_detail_view_renders_multiline_note_with_pre_wrap()
+    public function test_global_detail_renders_editor_as_read_only_for_unauthorized_user()
     {
-        $multilineNote = "First line\nSecond line";
-        $this->sale->update(['note' => $multilineNote]);
+        $this->unauthorizedUser->removeRole('Viewer');
+        $viewerRole = Role::firstOrCreate(['name' => 'Viewer Global', 'guard_name' => 'web']);
+        $viewerRole->givePermissionTo(['sales.show', 'sales.access', 'salePayments.global.access']);
+        $this->unauthorizedUser->assignRole($viewerRole);
+        $this->unauthorizedUser->settings()->syncWithPivotValues($this->setting->id, ['role_id' => $viewerRole->id]);
 
-        $this->actingAs($this->authorizedUser);
+        $this->actingAs($this->unauthorizedUser);
 
         $response = $this->get(route('sales.global-payments.show', $this->sale->id));
 
         $response->assertOk();
-        $response->assertSee($multilineNote);
-        $this->assertStringContainsString('style="white-space: pre-wrap;"', $response->getContent());
+        $response->assertSeeLivewire('sale.sale-note-editor');
+        $response->assertSee('Operational note for detail test');
+        $response->assertDontSee('wire:click="startEditing"', false);
+    }
+
+    public function test_global_detail_cannot_be_accessed_without_global_access_permission()
+    {
+        $unauthorizedRole = Role::firstOrCreate(['name' => 'No Global', 'guard_name' => 'web']);
+        $unauthorizedRole->givePermissionTo(['sales.show', 'sales.access']);
+        $localUser = User::factory()->create(['is_active' => true]);
+        $localUser->assignRole($unauthorizedRole);
+        $localUser->settings()->attach($this->setting->id, ['role_id' => $unauthorizedRole->id]);
+
+        $this->actingAs($localUser);
+
+        $response = $this->get(route('sales.global-payments.show', $this->sale->id));
+
+        $response->assertForbidden();
     }
 }

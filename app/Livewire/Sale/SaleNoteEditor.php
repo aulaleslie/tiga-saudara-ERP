@@ -3,24 +3,39 @@
 namespace App\Livewire\Sale;
 
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Sale\Entities\Sale;
 
 class SaleNoteEditor extends Component
 {
+    #[Locked]
     public int $saleId;
+
     public ?string $note = null;
     public bool $editing = false;
     public bool $canEdit = false;
 
-    public function mount(int $saleId): void
+    #[Locked]
+    public bool $globalMode = false;
+
+    public function mount(int $saleId, bool $globalMode = false): void
     {
-        $sale = Sale::withArchived()->findOrFail($saleId);
-        $this->ensureSaleBelongsToCurrentSetting($sale);
+        $this->globalMode = $globalMode;
+
+        if ($this->globalMode) {
+            abort_if(Gate::denies('salePayments.global.access'), 403);
+            $sale = Sale::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($saleId);
+        } else {
+            $sale = Sale::withArchived()->findOrFail($saleId);
+            $this->ensureSaleBelongsToCurrentSetting($sale);
+        }
 
         $this->saleId = $saleId;
         $this->note = $sale->note;
-        $this->canEdit = Gate::allows('sales.edit') && !$sale->isArchived();
+        $this->canEdit = $this->authorizeCanEdit($sale);
     }
 
     public function startEditing(): void
@@ -31,6 +46,7 @@ class SaleNoteEditor extends Component
 
     public function cancelEdit(): void
     {
+        $this->authorizeEdit();
         $sale = $this->findSale();
         $this->note = $sale->note;
         $this->editing = false;
@@ -63,14 +79,42 @@ class SaleNoteEditor extends Component
         return view('livewire.sale.sale-note-editor');
     }
 
+    private function authorizeCanEdit(Sale $sale): bool
+    {
+        if ($sale->isArchived()) {
+            return false;
+        }
+
+        if ($this->globalMode) {
+            return Gate::allows('salePayments.global.access') && Gate::allows('sales.edit');
+        }
+
+        return Gate::allows('sales.edit');
+    }
+
     private function authorizeEdit(): void
     {
-        $sale = Sale::withArchived()->findOrFail($this->saleId);
-        abort_if(Gate::denies('sales.edit') || $sale->isArchived(), 403);
+        if ($this->globalMode) {
+            abort_if(Gate::denies('salePayments.global.access') || Gate::denies('sales.edit'), 403);
+            $sale = Sale::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->saleId);
+        } else {
+            abort_if(Gate::denies('sales.edit'), 403);
+            $sale = Sale::withArchived()->findOrFail($this->saleId);
+            $this->ensureSaleBelongsToCurrentSetting($sale);
+            abort_if($sale->isArchived(), 403);
+        }
     }
 
     private function findSale(): Sale
     {
+        if ($this->globalMode) {
+            return Sale::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->saleId);
+        }
+
         $sale = Sale::withArchived()->findOrFail($this->saleId);
         $this->ensureSaleBelongsToCurrentSetting($sale);
 

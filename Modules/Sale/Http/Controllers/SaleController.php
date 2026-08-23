@@ -201,9 +201,11 @@ class SaleController extends Controller
         app(SaleSerialDisplayResolver::class)->annotateDispatchesForSale($sale);
         Log::info('SaleController::show: dispatches annotated');
 
+        $globalMode = false;
+
         return $dataTable
             ->with(['sale_id' => $sale->id])
-            ->render('sale::show', compact('sale', 'customer', 'dispatches'));
+            ->render('sale::show', compact('sale', 'customer', 'dispatches', 'globalMode'));
     }
 
 

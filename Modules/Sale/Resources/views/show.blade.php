@@ -3,6 +3,18 @@
 
 @section('title', 'Rincian Penjualan')
 
+@section('breadcrumb')
+    <ol class="breadcrumb border-0 m-0">
+        <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
+        @if(isset($globalMode) && $globalMode)
+            <li class="breadcrumb-item"><a href="{{ route('sales.global-payments.index') }}">Pembayaran Penjualan Global</a></li>
+        @else
+            <li class="breadcrumb-item"><a href="{{ route('sales.index') }}">Penjualan</a></li>
+        @endif
+        <li class="breadcrumb-item active">Rincian</li>
+    </ol>
+@endsection
+
 @section('content')
     <div class="container-fluid">
         <div class="card">
@@ -13,26 +25,37 @@
 
                 @php $hasDispatches = isset($dispatches) && $dispatches->isNotEmpty(); @endphp
 
-                @if(!$sale->isArchived())
-                    @if($hasDispatches)
+                @if(!(isset($globalMode) && $globalMode))
+                    @if(!$sale->isArchived())
+                        @if($hasDispatches)
+                            <a target="_blank"
+                               href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
+                               class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
+                                <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
+                            </a>
+                        @else
+                            <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
+                               title="Belum ada pengeluaran/dispatch untuk dicetak">
+                                <i class="bi bi-truck"></i> Surat Jalan
+                            </a>
+                        @endif
                         <a target="_blank"
-                           href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
-                           class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
-                            <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
-                        </a>
-                    @else
-                        <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
-                           title="Belum ada pengeluaran/dispatch untuk dicetak">
-                            <i class="bi bi-truck"></i> Surat Jalan
+                           href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
+                           class="btn btn-sm btn-secondary mfe-1 d-print-none">
+                            <i class="bi bi-truck"></i> Cetak Faktur
                         </a>
                     @endif
-                    <a target="_blank"
-                       href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
-                       class="btn btn-sm btn-secondary mfe-1 d-print-none">
-                        <i class="bi bi-truck"></i> Cetak Faktur
+                @endif
+
+                @if($globalMode && $sale->live_due_amount > 0 && auth()->user()->can('salePayments.create'))
+                    <a href="{{ route('sales.global-payments.create', $sale->id) }}"
+                       class="btn btn-sm btn-primary mfs-auto mfe-1 d-print-none">
+                        <i class="bi bi-cash-coin"></i> Pembayaran Global
                     </a>
                 @endif
-                <a class="btn btn-sm btn-info mfs-auto mfe-1 d-print-none" href="{{ route('sales.index') }}">
+
+                <a class="btn btn-sm btn-info {{ (isset($globalMode) && $globalMode) ? 'mfs-auto' : '' }} mfe-1 d-print-none"
+                   href="{{ (isset($globalMode) && $globalMode) ? route('sales.global-payments.index') : route('sales.index') }}">
                     <i class="bi bi-back"></i> Kembali
                 </a>
             </div>
@@ -41,10 +64,17 @@
                     <!-- Informasi Bisnis -->
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Informasi Bisnis:</h5>
-                        <div><strong>{{ optional(settings())->company_name }}</strong></div>
-                        <div>{{ optional(settings())->company_address }}</div>
-                        <div>Email: {{ optional(settings())->company_email }}</div>
-                        <div>Kontak: {{ optional(settings())->company_phone }}</div>
+                        @if(isset($globalMode) && $globalMode && isset($setting))
+                            <div><strong>{{ $setting->company_name }}</strong></div>
+                            <div>{{ $setting->company_address }}</div>
+                            <div>Email: {{ $setting->company_email }}</div>
+                            <div>Kontak: {{ $setting->company_phone }}</div>
+                        @else
+                            <div><strong>{{ optional(settings())->company_name }}</strong></div>
+                            <div>{{ optional(settings())->company_address }}</div>
+                            <div>Email: {{ optional(settings())->company_email }}</div>
+                            <div>Kontak: {{ optional(settings())->company_phone }}</div>
+                        @endif
                     </div>
                     <!-- Informasi Pelanggan -->
                     <div class="col-sm-4 mb-3 mb-md-0">
@@ -61,11 +91,20 @@
                         <div>Faktur: <strong>INV/{{ $sale->reference }}</strong></div>
                         <div>Tanggal: {{ Carbon::parse($sale->effective_date)->format('d M, Y') }}</div>
                         <div class="mt-2">
-                            <livewire:sale.tax-ref-no-editor
-                                :saleId="$sale->id"
-                                :isArchived="$sale->isArchived()"
-                                :key="'sale-tax-ref-no-' . $sale->id"
-                            />
+                            @if(isset($globalMode) && $globalMode)
+                                <livewire:sale.tax-ref-no-editor
+                                    :saleId="$sale->id"
+                                    :isArchived="$sale->isArchived()"
+                                    :globalMode="true"
+                                    :key="'sale-tax-ref-no-' . $sale->id"
+                                />
+                            @else
+                                <livewire:sale.tax-ref-no-editor
+                                    :saleId="$sale->id"
+                                    :isArchived="$sale->isArchived()"
+                                    :key="'sale-tax-ref-no-' . $sale->id"
+                                />
+                            @endif
                         </div>
                         <div class="mt-2">
                             <div>Tags:</div>
@@ -235,10 +274,18 @@
             <div class="row mt-4">
                 <div class="col-sm-12">
                     <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
-                    <livewire:sale.sale-note-editor
-                        :saleId="$sale->id"
-                        :key="'sale-note-' . $sale->id"
-                    />
+                    @if(isset($globalMode) && $globalMode)
+                        <livewire:sale.sale-note-editor
+                            :saleId="$sale->id"
+                            :globalMode="true"
+                            :key="'sale-note-' . $sale->id"
+                        />
+                    @else
+                        <livewire:sale.sale-note-editor
+                            :saleId="$sale->id"
+                            :key="'sale-note-' . $sale->id"
+                        />
+                    @endif
                 </div>
             </div>
 
@@ -246,40 +293,42 @@
             <div class="row mt-4">
                 <div class="col-sm-12">
                     <h5 class="mb-2 border-bottom pb-2">Lampiran:</h5>
-                    @can('sales.edit')
-                        @if(!$sale->isArchived())
-                            <form action="{{ route('sales.attachments.store', $sale->id) }}"
-                              method="POST"
-                              enctype="multipart/form-data"
-                              class="mb-3">
-                            @csrf
-                            <div class="form-group mb-2">
-                                <label for="sale-attachment" class="font-weight-bold">Tambah Lampiran</label>
-                                <div class="attachment-uploader">
-                                    <div class="attachment-uploader__icon">
-                                        <i class="bi bi-paperclip"></i>
-                                    </div>
-                                    <div class="attachment-uploader__body">
-                                        <div class="custom-file">
-                                            <input type="file"
-                                                   name="file"
-                                                   id="sale-attachment"
-                                                   class="custom-file-input @error('file') is-invalid @enderror">
-                                            <label class="custom-file-label" for="sale-attachment">Pilih file...</label>
-                                            @error('file')
-                                            <div class="invalid-feedback">{{ $message }}</div>
-                                            @enderror
+                    @if(!(isset($globalMode) && $globalMode))
+                        @can('sales.edit')
+                            @if(!$sale->isArchived())
+                                <form action="{{ route('sales.attachments.store', $sale->id) }}"
+                                  method="POST"
+                                  enctype="multipart/form-data"
+                                  class="mb-3">
+                                @csrf
+                                <div class="form-group mb-2">
+                                    <label for="sale-attachment" class="font-weight-bold">Tambah Lampiran</label>
+                                    <div class="attachment-uploader">
+                                        <div class="attachment-uploader__icon">
+                                            <i class="bi bi-paperclip"></i>
                                         </div>
-                                        <small class="form-text text-muted">
-                                            Maksimal 1 lampiran per unggah (10MB).
-                                        </small>
+                                        <div class="attachment-uploader__body">
+                                            <div class="custom-file">
+                                                <input type="file"
+                                                       name="file"
+                                                       id="sale-attachment"
+                                                       class="custom-file-input @error('file') is-invalid @enderror">
+                                                <label class="custom-file-label" for="sale-attachment">Pilih file...</label>
+                                                @error('file')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                            <small class="form-text text-muted">
+                                                Maksimal 1 lampiran per unggah (10MB).
+                                            </small>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <button type="submit" class="btn btn-sm btn-primary">Upload Lampiran</button>
-                        </form>
-                        @endif
-                    @endcan
+                                <button type="submit" class="btn btn-sm btn-primary">Upload Lampiran</button>
+                            </form>
+                            @endif
+                        @endcan
+                    @endif
 
                     @if($attachments->isEmpty())
                         <p class="text-muted">Tidak ada lampiran.</p>
@@ -296,31 +345,47 @@
                                         <div>{{ $displayName }}</div>
                                         <small class="text-muted">{{ $media->humanReadableSize }}</small>
                                     </div>
-                                    <div class="btn-group mt-2 mt-sm-0">
-                                        <a class="btn btn-sm btn-outline-primary" href="{{ $media->getUrl() }}"
-                                           @if($isImage)
-                                               target="_blank" rel="noopener"
-                                           @else
-                                               download
-                                           @endif>
-                                            Preview
-                                        </a>
-                                        <a class="btn btn-sm btn-outline-secondary" href="{{ $media->getUrl() }}" download>
-                                            Download
-                                        </a>
-                                        @can('sales.edit')
-                                            @if(!$sale->isArchived())
-                                                <form method="POST"
-                                                      action="{{ route('sales.attachments.destroy', [$sale->id, $media->id]) }}"
-                                                      onsubmit="return confirm('Hapus lampiran ini?');"
-                                                      class="d-inline">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
-                                                </form>
-                                            @endif
-                                        @endcan
-                                    </div>
+                                    @if(!(isset($globalMode) && $globalMode))
+                                        <div class="btn-group mt-2 mt-sm-0">
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ $media->getUrl() }}"
+                                               @if($isImage)
+                                                   target="_blank" rel="noopener"
+                                               @else
+                                                   download
+                                               @endif>
+                                                Preview
+                                            </a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ $media->getUrl() }}" download>
+                                                Download
+                                            </a>
+                                            @can('sales.edit')
+                                                @if(!$sale->isArchived())
+                                                    <form method="POST"
+                                                          action="{{ route('sales.attachments.destroy', [$sale->id, $media->id]) }}"
+                                                          onsubmit="return confirm('Hapus lampiran ini?');"
+                                                          class="d-inline">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                                                    </form>
+                                                @endif
+                                            @endcan
+                                        </div>
+                                    @else
+                                        <div class="btn-group mt-2 mt-sm-0">
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ $media->getUrl() }}"
+                                               @if($isImage)
+                                                   target="_blank" rel="noopener"
+                                               @else
+                                                   download
+                                               @endif>
+                                                Preview
+                                            </a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ $media->getUrl() }}" download>
+                                                Download
+                                            </a>
+                                        </div>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>

@@ -3,24 +3,39 @@
 namespace App\Livewire\Purchase;
 
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Purchase\Entities\Purchase;
 
 class PurchaseNoteEditor extends Component
 {
+    #[Locked]
     public int $purchaseId;
+
     public ?string $note = null;
     public bool $editing = false;
     public bool $canEdit = false;
 
-    public function mount(int $purchaseId): void
+    #[Locked]
+    public bool $globalMode = false;
+
+    public function mount(int $purchaseId, bool $globalMode = false): void
     {
-        $purchase = Purchase::withArchived()->findOrFail($purchaseId);
-        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        $this->globalMode = $globalMode;
+
+        if ($this->globalMode) {
+            abort_if(Gate::denies('purchasePayments.global.access'), 403);
+            $purchase = Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($purchaseId);
+        } else {
+            $purchase = Purchase::withArchived()->findOrFail($purchaseId);
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        }
 
         $this->purchaseId = $purchaseId;
         $this->note = $purchase->note;
-        $this->canEdit = Gate::allows('purchases.update') && !$purchase->isArchived();
+        $this->canEdit = $this->authorizeCanEdit($purchase);
     }
 
     public function startEditing(): void
@@ -31,6 +46,7 @@ class PurchaseNoteEditor extends Component
 
     public function cancelEdit(): void
     {
+        $this->authorizeEdit();
         $purchase = $this->findPurchase();
         $this->note = $purchase->note;
         $this->editing = false;
@@ -63,14 +79,42 @@ class PurchaseNoteEditor extends Component
         return view('livewire.purchase.purchase-note-editor');
     }
 
+    private function authorizeCanEdit(Purchase $purchase): bool
+    {
+        if ($purchase->isArchived()) {
+            return false;
+        }
+
+        if ($this->globalMode) {
+            return Gate::allows('purchasePayments.global.access') && Gate::allows('purchases.update');
+        }
+
+        return Gate::allows('purchases.update');
+    }
+
     private function authorizeEdit(): void
     {
-        $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
-        abort_if(Gate::denies('purchases.update') || $purchase->isArchived(), 403);
+        if ($this->globalMode) {
+            abort_if(Gate::denies('purchasePayments.global.access') || Gate::denies('purchases.update'), 403);
+            $purchase = Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->purchaseId);
+        } else {
+            abort_if(Gate::denies('purchases.update'), 403);
+            $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+            abort_if($purchase->isArchived(), 403);
+        }
     }
 
     private function findPurchase(): Purchase
     {
+        if ($this->globalMode) {
+            return Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->findOrFail($this->purchaseId);
+        }
+
         $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
