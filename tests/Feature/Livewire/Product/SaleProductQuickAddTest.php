@@ -78,6 +78,7 @@ class SaleProductQuickAddTest extends TestCase
 
     public function test_sales_quick_add_requires_sales_price_and_forces_sellable_context(): void
     {
+        // Test missing sale price
         Livewire::test(ProductQuickAddModal::class)
             ->call('openModal', ['context' => 'sale'])
             ->assertSet('context', 'sale')
@@ -87,10 +88,51 @@ class SaleProductQuickAddTest extends TestCase
             ->set('purchase_price', 90000)
             ->call('save')
             ->assertHasErrors(['sale_price']);
+
+        $this->assertDatabaseMissing('products', ['product_name' => 'Missing Sale Price Product']);
+        $this->assertSame(0, Cart::instance('sale')->count());
+
+        // Test zero sale price
+        Livewire::test(ProductQuickAddModal::class)
+            ->call('openModal', ['context' => 'sale'])
+            ->set('product_name', 'Zero Sale Price Product')
+            ->set('base_unit_id', $this->unit->id)
+            ->set('purchase_price', 90000)
+            ->set('sale_price', 0)
+            ->call('save')
+            ->assertHasErrors(['sale_price']);
+
+        $this->assertDatabaseMissing('products', ['product_name' => 'Zero Sale Price Product']);
+        $this->assertSame(0, Cart::instance('sale')->count());
+
+        // Test negative sale price
+        Livewire::test(ProductQuickAddModal::class)
+            ->call('openModal', ['context' => 'sale'])
+            ->set('product_name', 'Negative Sale Price Product')
+            ->set('base_unit_id', $this->unit->id)
+            ->set('purchase_price', 90000)
+            ->set('sale_price', -100)
+            ->call('save')
+            ->assertHasErrors(['sale_price']);
+
+        $this->assertDatabaseMissing('products', ['product_name' => 'Negative Sale Price Product']);
+        $this->assertSame(0, Cart::instance('sale')->count());
     }
 
-    public function test_sales_quick_add_defaults_tier_prices_and_dispatches_sales_ready_payload(): void
+    public function test_sales_quick_add_defaults_tier_prices_and_creates_identical_prices_for_all_businesses(): void
     {
+        $secondSetting = Setting::create([
+            'company_name' => 'Second Business',
+            'company_email' => 'second@example.com',
+            'company_phone' => '654321',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'second@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => false,
+        ]);
+
         Livewire::test(ProductQuickAddModal::class)
             ->call('openModal', ['context' => 'sale'])
             ->set('product_name', 'Sales Quick Add Product')
@@ -101,11 +143,19 @@ class SaleProductQuickAddTest extends TestCase
             ->assertHasNoErrors()
             ->assertDispatched('productSelected');
 
-        $price = ProductPrice::query()->where('setting_id', $this->setting->id)->latest('id')->firstOrFail();
+        $product = Product::query()->latest('id')->firstOrFail();
+        $prices = ProductPrice::query()->where('product_id', $product->id)->get();
 
-        $this->assertSame('125000.00', $price->sale_price);
-        $this->assertSame('125000.00', $price->tier_1_price);
-        $this->assertSame('125000.00', $price->tier_2_price);
+        $this->assertCount(2, $prices);
+
+        foreach ([$this->setting->id, $secondSetting->id] as $settingId) {
+            $price = $prices->firstWhere('setting_id', $settingId);
+            $this->assertNotNull($price);
+            $this->assertSame('125000.00', $price->sale_price);
+            $this->assertSame('125000.00', $price->tier_1_price);
+            $this->assertSame('125000.00', $price->tier_2_price);
+            $this->assertSame('90000.00', $price->last_purchase_price);
+        }
     }
 
     public function test_sales_cart_uses_quick_added_product_price_metadata_and_reprices_after_customer_selection(): void

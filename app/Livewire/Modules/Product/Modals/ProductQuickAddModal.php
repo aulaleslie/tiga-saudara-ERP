@@ -251,9 +251,14 @@ class ProductQuickAddModal extends Component
     public function save(): void
     {
         $payload = $this->buildValidationPayload();
+        $rules = ProductCreateValidation::rules($payload);
+        if ($this->isSalesContext()) {
+            $rules['sale_price'] = ['required', 'numeric', 'gt:0'];
+        }
+
         $validator = Validator::make(
             $payload,
-            ProductCreateValidation::rules($payload),
+            $rules,
             ProductCreateValidation::messages()
         );
 

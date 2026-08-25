@@ -100,4 +100,48 @@ class PurchaseProductQuickAddToggleTest extends TestCase
             ->assertSet('is_sold', true)
             ->assertDontSeeHtml('class="mt-3 d-none"');
     }
+
+    public function test_purchase_quick_add_creates_identical_prices_for_all_businesses(): void
+    {
+        $secondSetting = Setting::create([
+            'company_name' => 'Second Purchase Business',
+            'company_email' => 'second-purchase@example.com',
+            'company_phone' => '654321',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'second-purchase@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => false,
+        ]);
+
+        $unit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'PCS',
+            'short_name' => 'PCS',
+            'operator' => '*',
+            'operation_value' => 1,
+        ]);
+
+        Livewire::test(ProductQuickAddModal::class)
+            ->call('openModal', ['context' => 'purchase'])
+            ->set('product_name', 'Purchase Quick Add Product')
+            ->set('base_unit_id', $unit->id)
+            ->set('purchase_price', 50000)
+            ->set('is_sold', true)
+            ->set('sale_price', 75000)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $product = \Modules\Product\Entities\Product::query()->latest('id')->firstOrFail();
+        $prices = \Modules\Product\Entities\ProductPrice::query()->where('product_id', $product->id)->get();
+
+        $this->assertCount(2, $prices);
+
+        foreach ([$this->setting->id, $secondSetting->id] as $settingId) {
+            $price = $prices->firstWhere('setting_id', $settingId);
+            $this->assertNotNull($price);
+            $this->assertSame('50000.00', $price->last_purchase_price);
+            $this->assertSame('75000.00', $price->sale_price);
+        }
+    }
 }

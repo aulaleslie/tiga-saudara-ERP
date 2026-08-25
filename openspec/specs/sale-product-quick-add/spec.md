@@ -1,17 +1,24 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Sales product quick-add must create a sellable sales line
-When a user opens product quick-add from a sales page and saves a product into the sales cart, the flow SHALL not silently create a purchase-only product and insert it into the sales cart without sellable pricing.
+When a user opens product quick-add from a sales page and saves a product into the sales cart, the flow SHALL force the product into a sellable context and SHALL require a numeric sale price greater than zero before creating the product or inserting it into the cart. Missing, zero, negative, or non-numeric sale prices SHALL be rejected with validation feedback on the sale-price field.
 
-#### Scenario: Sales quick-add requires sellable pricing before cart insertion
+#### Scenario: Sales quick-add requires positive sellable pricing before cart insertion
 - **WHEN** a user opens product quick-add from the sales create or sales edit page
-- **AND** attempts to save the product into the sales cart
-- **THEN** the flow SHALL ensure the product is marked sellable for that sales context
-- **AND** the flow SHALL require valid sales pricing before inserting the product into the sales cart
+- **AND** attempts to save with a missing, zero, negative, or non-numeric sale price
+- **THEN** the flow SHALL report a validation error for `sale_price`
+- **AND** the system SHALL NOT create the product or insert it into the sales cart
+
+#### Scenario: Sales quick-add accepts valid sellable pricing
+- **WHEN** a user opens product quick-add from the sales create or sales edit page
+- **AND** submits a numeric sale price greater than zero with otherwise valid product data
+- **THEN** the flow SHALL create the product as sellable
+- **AND** the flow SHALL insert the product into the sales cart using its active-business price metadata
 
 #### Scenario: Purchase-only defaults do not leak into sales quick-add
 - **WHEN** the shared product quick-add modal is opened from a sales page
-- **THEN** the sales flow SHALL NOT default to a purchase-only product state that can be saved directly into the sales cart
+- **THEN** the sales flow SHALL force the sellable state
+- **AND** it SHALL NOT allow purchase-only defaults to bypass the positive sale-price requirement
 
 ### Requirement: Sales quick-add uses setting-scoped sales pricing after save
 After a product is created from the sales quick-add flow and inserted into the sales cart, the displayed line price SHALL be resolved from the active setting's `product_prices` row for that product.
