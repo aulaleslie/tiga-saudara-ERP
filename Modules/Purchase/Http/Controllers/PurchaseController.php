@@ -1099,6 +1099,9 @@ class PurchaseController extends Controller
                                     'average_purchase_price' => $newAveragePrice,
                                 ]);
 
+                                app(\Modules\Product\Services\ProductLastPurchasePriceSynchronizer::class)
+                                    ->syncLastPurchasePrice($product->id, $purchaseDetail->price);
+
                                 app(\Modules\Product\Services\ProductAveragePriceSynchronizer::class)
                                     ->syncAveragePurchasePrice($product->id, $newAveragePrice);
                             }
