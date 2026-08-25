@@ -274,18 +274,39 @@ class ProductBundleController extends Controller
         }
     }
 
-    public function destroy(Product $product, ProductBundle $bundle): RedirectResponse
+    public function destroy(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
         abort_if(Gate::denies('products.bundle.delete'), 403);
         if ($bundle->parent_product_id !== $product->id || (int) $bundle->setting_id !== (int) session('setting_id')) {
             abort(404);
         }
 
+        $request->validate([
+            'delete_from_all_businesses' => 'nullable|boolean',
+        ]);
+
+        $deleteAll = $request->boolean('delete_from_all_businesses');
+
+        DB::beginTransaction();
         try {
-            $bundle->delete();
+            if ($deleteAll && !empty($bundle->replica_group_uuid)) {
+                $targets = ProductBundle::where('replica_group_uuid', $bundle->replica_group_uuid)
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($targets as $targetBundle) {
+                    $targetBundle->delete();
+                }
+            } else {
+                $bundle->delete();
+            }
+
+            DB::commit();
             return redirect()->route('products.show', $product->id)
                 ->with('success', 'Bundle deleted successfully.');
         } catch (Exception $e) {
+            DB::rollBack();
             Log::error('Failed to delete bundle', ['error' => $e->getMessage()]);
             return redirect()->back()->with('error', 'Failed to delete bundle.');
         }

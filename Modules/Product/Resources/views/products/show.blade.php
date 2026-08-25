@@ -300,15 +300,15 @@
                                    class="btn btn-info btn-sm">Ubah Paket</a>
                             @endcan
                             @can('products.bundle.delete')
-                                <form action="{{ route('products.bundle.destroy', [$product->id, $bundle->id]) }}"
-                                      method="POST" style="display:inline;">
-                                    @csrf
-                                    @method('delete')
-                                    <button type="submit" class="btn btn-danger btn-sm"
-                                            onclick="return confirm('Yakin ingin menghapus?');">
-                                        Hapus Paket
-                                    </button>
-                                </form>
+                                <button type="button"
+                                        class="btn btn-danger btn-sm js-bundle-delete-trigger"
+                                        data-toggle="modal"
+                                        data-target="#bundleDeleteModal"
+                                        data-destroy-url="{{ route('products.bundle.destroy', [$product->id, $bundle->id]) }}"
+                                        data-bundle-name="{{ $bundle->name }}"
+                                        data-is-grouped="{{ !empty($bundle->replica_group_uuid) ? '1' : '0' }}">
+                                    Hapus Paket
+                                </button>
                             @endcan
                         </div>
                     @endforeach
@@ -318,6 +318,121 @@
             </div>
         </div>
         <!-- End Product Bundles -->
+
+        @can('products.bundle.delete')
+            <!-- Product Bundle Deletion Modal -->
+            <div class="modal fade" id="bundleDeleteModal" tabindex="-1" role="dialog" aria-labelledby="bundleDeleteModalLabel" aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="bundleDeleteModalLabel">Hapus Paket Penjualan</h5>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <form id="bundleDeleteForm" action="" method="POST">
+                            @csrf
+                            @method('delete')
+                            <div class="modal-body">
+                                <p id="bundleDeleteModalWarning">
+                                    Apakah Anda yakin ingin menghapus paket penjualan <strong id="bundleDeleteModalTargetName"></strong>? Tindakan ini tidak dapat dibatalkan.
+                                </p>
+                                <div id="bundleDeleteModalGroupOption" class="form-group mb-0" style="display: none;">
+                                    <div class="form-check">
+                                        <input type="hidden" name="delete_from_all_businesses" value="0">
+                                        <input class="form-check-input" type="checkbox" id="deleteFromAllBusinesses" name="delete_from_all_businesses" value="1">
+                                        <label class="form-check-label" for="deleteFromAllBusinesses">
+                                            Hapus paket ini dari semua bisnis
+                                        </label>
+                                    </div>
+                                </div>
+                                <div id="bundleDeleteModalHistoricalInfo" class="alert alert-info mb-0" style="display: none;">
+                                    Bundle lama tidak terhubung dengan salinan bisnis lainnya dan hanya akan dihapus dari bisnis ini.
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                                <button type="submit" id="bundleDeleteSubmitBtn" class="btn btn-danger" disabled>Hapus Paket</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var deleteTriggers = document.querySelectorAll('.js-bundle-delete-trigger');
+                    var deleteForm = document.getElementById('bundleDeleteForm');
+                    var submitBtn = document.getElementById('bundleDeleteSubmitBtn');
+                    var targetNameEl = document.getElementById('bundleDeleteModalTargetName');
+                    var groupOptionEl = document.getElementById('bundleDeleteModalGroupOption');
+                    var historicalInfoEl = document.getElementById('bundleDeleteModalHistoricalInfo');
+                    var deleteCheckbox = document.getElementById('deleteFromAllBusinesses');
+
+                    function resetModalForm() {
+                        if (deleteForm) {
+                            deleteForm.setAttribute('action', '');
+                        }
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                        }
+                        if (targetNameEl) {
+                            targetNameEl.textContent = '';
+                        }
+                        if (deleteCheckbox) {
+                            deleteCheckbox.checked = false;
+                        }
+                        if (groupOptionEl) groupOptionEl.style.display = 'none';
+                        if (historicalInfoEl) historicalInfoEl.style.display = 'none';
+                    }
+
+                    if (deleteForm) {
+                        deleteForm.addEventListener('submit', function (e) {
+                            var action = deleteForm.getAttribute('action');
+                            if (!action || action.trim() === '') {
+                                e.preventDefault();
+                                return false;
+                            }
+                        });
+                    }
+
+                    deleteTriggers.forEach(function (trigger) {
+                        trigger.addEventListener('click', function () {
+                            var destroyUrl = this.getAttribute('data-destroy-url') || '';
+                            var bundleName = this.getAttribute('data-bundle-name') || '';
+                            var isGrouped = this.getAttribute('data-is-grouped') === '1';
+
+                            if (deleteForm && destroyUrl) {
+                                deleteForm.setAttribute('action', destroyUrl);
+                            }
+                            if (submitBtn) {
+                                submitBtn.disabled = !destroyUrl;
+                            }
+                            if (targetNameEl) {
+                                targetNameEl.textContent = bundleName;
+                            }
+                            if (deleteCheckbox) {
+                                deleteCheckbox.checked = false;
+                            }
+
+                            if (isGrouped) {
+                                if (groupOptionEl) groupOptionEl.style.display = 'block';
+                                if (historicalInfoEl) historicalInfoEl.style.display = 'none';
+                            } else {
+                                if (groupOptionEl) groupOptionEl.style.display = 'none';
+                                if (historicalInfoEl) historicalInfoEl.style.display = 'block';
+                            }
+                        });
+                    });
+
+                    if (typeof $ !== 'undefined') {
+                        $('#bundleDeleteModal').on('hidden.bs.modal', function () {
+                            resetModalForm();
+                        });
+                    }
+                });
+            </script>
+        @endcan
 
         <!-- Serial Numbers -->
         @if ($product->serial_number_required)
