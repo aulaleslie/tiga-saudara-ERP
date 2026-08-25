@@ -4,8 +4,8 @@
     </a>
 </li>
 
-<li class="c-sidebar-nav-item">
-    <a class="c-sidebar-nav-link" href="#">
+<li class="c-sidebar-nav-item {{ request()->routeIs('dashboard') ? 'c-active' : '' }}">
+    <a class="c-sidebar-nav-link" href="{{ route('dashboard') }}">
         <i class="c-sidebar-nav-icon bbi bi-display" style="line-height: 1;"></i> Dashboard
     </a>
 </li>

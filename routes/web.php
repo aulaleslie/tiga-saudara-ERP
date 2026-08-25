@@ -22,6 +22,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/home', 'HomeController@index')
         ->name('home');
 
+    Route::get('/dashboard', 'HomeController@dashboard')
+        ->name('dashboard');
+
     Route::get('/sales-purchases/chart-data', 'HomeController@salesPurchasesChart')
         ->name('sales-purchases.chart');
 
