@@ -29,9 +29,21 @@
                                inputmode="decimal"
                                autocomplete="off">
                         <input type="hidden" name="bundle_sale_price" :value="raw">
-                        <small class="text-muted">
+                        <small class="text-muted d-block">
                             Harga Jual Paket adalah harga jual final untuk produk dan paket ini.
                         </small>
+                        @if ($bundle->replica_group_uuid)
+                            <div class="custom-control custom-checkbox mt-2">
+                                <input type="hidden" name="apply_price_to_all_businesses" value="0">
+                                <input type="checkbox" name="apply_price_to_all_businesses" value="1" class="custom-control-input" id="apply_price_to_all_businesses"
+                                    {{ old('apply_price_to_all_businesses') ? 'checked' : '' }}>
+                                <label class="custom-control-label" for="apply_price_to_all_businesses">Terapkan harga ke semua bisnis</label>
+                            </div>
+                        @else
+                            <small class="text-warning d-block mt-2">
+                                Bundle lama tidak terhubung dengan salinan bisnis lainnya.
+                            </small>
+                        @endif
                     </div>
                 </div>
             </div>

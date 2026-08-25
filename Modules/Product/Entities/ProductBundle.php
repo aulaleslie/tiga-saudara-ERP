@@ -18,6 +18,7 @@ class ProductBundle extends BaseModel
         'is_active' => 'boolean',
         'active_from' => 'date',
         'active_to' => 'date',
+        'replica_group_uuid' => 'string',
     ];
 
     /**

@@ -121,6 +121,8 @@ class ProductBundleController extends Controller
             }
         }
 
+        $replicaGroupUuid = \Illuminate\Support\Str::uuid()->toString();
+
         DB::beginTransaction();
         try {
             foreach ($settings as $setting) {
@@ -128,6 +130,7 @@ class ProductBundleController extends Controller
                 $bundle = ProductBundle::create([
                     'setting_id' => $settingId,
                     'parent_product_id' => $productId,
+                    'replica_group_uuid' => $replicaGroupUuid,
                     'name' => $request->input('name'),
                     'description' => $request->input('description'),
                     'bundle_sale_price' => $request->input('bundle_sale_price'),
@@ -182,6 +185,7 @@ class ProductBundleController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'bundle_sale_price' => 'required|numeric|min:0',
+            'apply_price_to_all_businesses' => 'nullable|boolean',
             'active_from' => 'nullable|date',
             'active_to' => 'nullable|date|after_or_equal:active_from',
             'is_active' => 'nullable|boolean',
@@ -251,6 +255,13 @@ class ProductBundleController extends Controller
                     'quantity'   => $item['quantity'],
                     'informational_item_price' => $resolvedInfoPrice,
                 ]);
+            }
+
+            if ($request->boolean('apply_price_to_all_businesses') && !empty($bundle->replica_group_uuid)) {
+                ProductBundle::where('replica_group_uuid', $bundle->replica_group_uuid)
+                    ->update([
+                        'bundle_sale_price' => $request->input('bundle_sale_price'),
+                    ]);
             }
 
             DB::commit();
