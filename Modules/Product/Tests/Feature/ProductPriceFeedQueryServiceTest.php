@@ -186,4 +186,35 @@ class ProductPriceFeedQueryServiceTest extends TestCase
         $resultsUnknown = $this->service->getFeedEvents($user, ['setting_id' => 999999, 'paginate' => false]);
         $this->assertCount(0, $resultsUnknown);
     }
+
+    public function test_tokenized_bundle_event_search_by_parent_product_name_code_and_bundle_name(): void
+    {
+        Permission::firstOrCreate(['name' => 'sales.create']);
+        $role = Role::firstOrCreate(['name' => 'BundleViewer']);
+        $role->givePermissionTo('sales.create');
+
+        $user = User::factory()->create();
+        $user->settings()->attach($this->settingA->id, ['role_id' => $role->id]);
+
+        app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+            ProductPriceFeedEvent::TYPE_BUNDLE_CREATED,
+            ProductPriceFeedEvent::SUBJECT_BUNDLE,
+            1,
+            'Kopi Arabika — Paket Hemat 2',
+            'KOP-001',
+            [['setting_id' => $this->settingA->id, 'after' => ['bundle_sale_price' => 50000]]]
+        );
+
+        // Match by parent product name token ("Arabika")
+        $resProduct = $this->service->getFeedEvents($user, ['search' => 'Arabika', 'paginate' => false]);
+        $this->assertCount(1, $resProduct);
+
+        // Match by parent product code token ("KOP-001")
+        $resCode = $this->service->getFeedEvents($user, ['search' => 'KOP-001', 'paginate' => false]);
+        $this->assertCount(1, $resCode);
+
+        // Match by bundle name token ("Hemat")
+        $resBundle = $this->service->getFeedEvents($user, ['search' => 'Hemat', 'paginate' => false]);
+        $this->assertCount(1, $resBundle);
+    }
 }

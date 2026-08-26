@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Product\Entities\ProductPriceFeedEvent;
 use Modules\Setting\Entities\Setting;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -52,5 +53,32 @@ class HomeProductPriceFeedPreviewTest extends TestCase
         $response->assertOk();
         $response->assertSee('Preview Item Home');
         $response->assertSee(route('products.price-feed.index'));
+    }
+
+    public function test_home_page_displays_bundle_event_with_combined_identity_and_code(): void
+    {
+        Permission::firstOrCreate(['name' => 'sales.create']);
+        $role = Role::firstOrCreate(['name' => 'BundleUser']);
+        $role->givePermissionTo('sales.create');
+
+        $user = User::factory()->create();
+        $user->assignRole($role);
+        $user->settings()->attach($this->setting->id, ['role_id' => $role->id]);
+
+        app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+            ProductPriceFeedEvent::TYPE_BUNDLE_CREATED,
+            ProductPriceFeedEvent::SUBJECT_BUNDLE,
+            999, // Non-existent subject ID to confirm snapshot-only presentation
+            'Parent Coffee — Special Bundle',
+            'COF-999',
+            [
+                ['setting_id' => $this->setting->id, 'after' => ['bundle_sale_price' => 35000]],
+            ]
+        );
+
+        $response = $this->actingAs($user)->get(route('home'));
+        $response->assertOk();
+        $response->assertSee('Parent Coffee — Special Bundle');
+        $response->assertSee('COF-999');
     }
 }

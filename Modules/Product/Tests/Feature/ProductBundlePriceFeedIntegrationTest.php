@@ -98,7 +98,8 @@ class ProductBundlePriceFeedIntegrationTest extends TestCase
 
         $event = ProductPriceFeedEvent::where('event_type', ProductPriceFeedEvent::TYPE_BUNDLE_CREATED)->first();
         $this->assertNotNull($event);
-        $this->assertEquals('Super Saver Bundle', $event->subject_name);
+        $this->assertEquals('Parent Bundle Product — Super Saver Bundle', $event->subject_name);
+        $this->assertEquals('PBP-001', $event->subject_code);
         $this->assertCount(2, $event->snapshots);
     }
 
@@ -138,6 +139,8 @@ class ProductBundlePriceFeedIntegrationTest extends TestCase
 
         $updateEvent = ProductPriceFeedEvent::where('event_type', ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED)->first();
         $this->assertNotNull($updateEvent);
+        $this->assertEquals('Parent Bundle Product — Updated Bundle Name', $updateEvent->subject_name);
+        $this->assertEquals('PBP-001', $updateEvent->subject_code);
         $this->assertCount(1, $updateEvent->snapshots);
         $this->assertEquals(['bundle_sale_price' => 20000.0], $updateEvent->snapshots->first()->before_snapshot);
         $this->assertEquals(['bundle_sale_price' => 22000.0], $updateEvent->snapshots->first()->after_snapshot);

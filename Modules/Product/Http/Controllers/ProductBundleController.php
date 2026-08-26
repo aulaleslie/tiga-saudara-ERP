@@ -161,13 +161,18 @@ class ProductBundleController extends Controller
 
             $representativeBundle = ProductBundle::where('replica_group_uuid', $replicaGroupUuid)->first();
             $representativeBundleId = $representativeBundle ? $representativeBundle->id : null;
+            $parentProduct = Product::find($productId);
+            $parentProductName = $parentProduct?->product_name;
+            $parentProductCode = $parentProduct?->product_code;
+            $bundleName = $request->input('name');
+            $subjectName = $parentProductName ? "{$parentProductName} — {$bundleName}" : $bundleName;
 
             app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
                 \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_CREATED,
                 \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_BUNDLE,
                 $representativeBundleId,
-                $request->input('name'),
-                null,
+                $subjectName,
+                $parentProductCode,
                 $settingSnapshots,
                 \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
                 null,
@@ -309,12 +314,17 @@ class ProductBundleController extends Controller
                 }
             }
 
+            $parentProductName = $product->product_name;
+            $parentProductCode = $product->product_code;
+            $bundleName = $request->input('name');
+            $subjectName = $parentProductName ? "{$parentProductName} — {$bundleName}" : $bundleName;
+
             app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
                 \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED,
                 \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_BUNDLE,
                 $bundle->id,
-                $request->input('name'),
-                null,
+                $subjectName,
+                $parentProductCode,
                 $settingSnapshots,
                 \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
                 null,
