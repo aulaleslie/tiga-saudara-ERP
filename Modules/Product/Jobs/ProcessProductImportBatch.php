@@ -357,22 +357,55 @@ class ProcessProductImportBatch implements ShouldQueue
 
         if ($product) {
             try {
-                DB::beginTransaction();
-                ProductPrice::upsertFor([
-                    'product_id'             => $product->id,
-                    'setting_id'             => $this->defaultSettingId,
-                    'sale_price'             => $salePrice,
-                    'tier_1_price'           => $tier1Price,
-                    'tier_2_price'           => $tier2Price,
-                    'last_purchase_price'    => $purchasePrice,
-                    'average_purchase_price' => $purchasePrice,
-                    'purchase_tax_id'        => null,
-                    'sale_tax_id'            => null,
-                ]);
-                DB::commit();
+                DB::transaction(function () use ($product, $salePrice, $tier1Price, $tier2Price, $purchasePrice, $row) {
+                    $beforePrice = ProductPrice::where('product_id', $product->id)
+                        ->where('setting_id', $this->defaultSettingId)
+                        ->first();
+
+                    $beforeSnapshot = $beforePrice ? [
+                        'sale_price'          => (float) $beforePrice->sale_price,
+                        'tier_1_price'        => (float) $beforePrice->tier_1_price,
+                        'tier_2_price'        => (float) $beforePrice->tier_2_price,
+                        'last_purchase_price' => (float) $beforePrice->last_purchase_price,
+                    ] : [
+                        'sale_price' => 0.0, 'tier_1_price' => 0.0, 'tier_2_price' => 0.0, 'last_purchase_price' => 0.0,
+                    ];
+
+                    ProductPrice::upsertFor([
+                        'product_id'             => $product->id,
+                        'setting_id'             => $this->defaultSettingId,
+                        'sale_price'             => $salePrice,
+                        'tier_1_price'           => $tier1Price,
+                        'tier_2_price'           => $tier2Price,
+                        'last_purchase_price'    => $purchasePrice,
+                        'average_purchase_price' => $purchasePrice,
+                        'purchase_tax_id'        => null,
+                        'sale_tax_id'            => null,
+                    ]);
+
+                    app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                        \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                        \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                        $product->id,
+                        $product->product_name,
+                        $product->product_code,
+                        [
+                            [
+                                'setting_id' => $this->defaultSettingId,
+                                'before' => $beforeSnapshot,
+                                'after' => [
+                                    'sale_price'          => (float) $salePrice,
+                                    'tier_1_price'        => (float) $tier1Price,
+                                    'tier_2_price'        => (float) $tier2Price,
+                                    'last_purchase_price' => (float) $purchasePrice,
+                                ],
+                            ],
+                        ],
+                        \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_IMPORT
+                    );
+                });
                 $this->recordSuccess($row, $product->id);
             } catch (\Throwable $e) {
-                DB::rollBack();
                 $this->recordFailure($row, Str::limit($e->getMessage(), 2000));
             }
             return;
@@ -439,6 +472,29 @@ class ProcessProductImportBatch implements ShouldQueue
                         'sale_tax_id'            => null,
                     ],
                     $this->settingIds
+                );
+
+                $sections = [];
+                foreach ($this->settingIds as $sId) {
+                    $sections[] = [
+                        'setting_id' => $sId,
+                        'after' => [
+                            'sale_price'          => (float) $salePrice,
+                            'tier_1_price'        => (float) $tier1Price,
+                            'tier_2_price'        => (float) $tier2Price,
+                            'last_purchase_price' => (float) $purchasePrice,
+                        ],
+                    ];
+                }
+
+                app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                    \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_CREATED,
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                    $product->id,
+                    $product->product_name,
+                    $product->product_code,
+                    $sections,
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_IMPORT
                 );
             } else {
                 ProductPrice::upsertFor([

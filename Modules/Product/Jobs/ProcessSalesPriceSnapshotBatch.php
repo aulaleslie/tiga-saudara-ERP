@@ -430,6 +430,31 @@ class ProcessSalesPriceSnapshotBatch implements ShouldQueue
                 }
                 $productPrice->save();
 
+                if ($priceTiersChanged) {
+                    $product = \Modules\Product\Entities\Product::find($productId);
+                    if ($product) {
+                        app(ProductPriceFeedRecorder::class)->record(
+                            \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                            \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                            $product->id,
+                            $product->product_name,
+                            $product->product_code,
+                            [
+                                [
+                                    'setting_id' => $settingId,
+                                    'before' => $prevTiers,
+                                    'after' => [
+                                        'sale_price'   => (float)$targetPrice,
+                                        'tier_1_price' => (float)$targetPrice,
+                                        'tier_2_price' => (float)$targetPrice,
+                                    ],
+                                ],
+                            ],
+                            \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_IMPORT
+                        );
+                    }
+                }
+
                 // Apply stock snapshot mutation
                 $product = \Modules\Product\Entities\Product::findOrFail($productId);
                 $stock = \Modules\Product\Entities\ProductStock::firstOrCreate([

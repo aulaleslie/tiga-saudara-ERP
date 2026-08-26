@@ -125,6 +125,7 @@ class ProductBundleController extends Controller
 
         DB::beginTransaction();
         try {
+            $settingSnapshots = [];
             foreach ($settings as $setting) {
                 $settingId = (int) $setting->id;
                 $bundle = ProductBundle::create([
@@ -149,7 +150,29 @@ class ProductBundleController extends Controller
                         'informational_item_price' => $resolvedInfoPrice,
                     ]);
                 }
+
+                $settingSnapshots[] = [
+                    'setting_id' => $settingId,
+                    'after' => [
+                        'bundle_sale_price' => (float) $request->input('bundle_sale_price'),
+                    ],
+                ];
             }
+
+            $representativeBundle = ProductBundle::where('replica_group_uuid', $replicaGroupUuid)->first();
+            $representativeBundleId = $representativeBundle ? $representativeBundle->id : null;
+
+            app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_CREATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_BUNDLE,
+                $representativeBundleId,
+                $request->input('name'),
+                null,
+                $settingSnapshots,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
+                null,
+                $replicaGroupUuid
+            );
 
             DB::commit();
             return redirect()->route('products.show', $productId)
@@ -234,6 +257,11 @@ class ProductBundleController extends Controller
 
         DB::beginTransaction();
         try {
+            $beforeBundlePrice = (float) $bundle->bundle_sale_price;
+            $newBundlePrice = (float) $request->input('bundle_sale_price');
+            $settingSnapshots = [];
+            $opUuid = (string) \Illuminate\Support\Str::uuid();
+
             // Update bundle header (scoped strictly to this copy)
             $bundle->update([
                 'name'        => $request->input('name'),
@@ -243,6 +271,12 @@ class ProductBundleController extends Controller
                 'active_to'   => $request->input('active_to'),
                 'is_active'   => $request->boolean('is_active', true),
             ]);
+
+            $settingSnapshots[] = [
+                'setting_id' => $bundleSettingId,
+                'before' => ['bundle_sale_price' => $beforeBundlePrice],
+                'after' => ['bundle_sale_price' => $newBundlePrice],
+            ];
 
             // Reset and re-create bundle items with pre-resolved prices
             $bundle->items()->delete();
@@ -258,11 +292,34 @@ class ProductBundleController extends Controller
             }
 
             if ($request->boolean('apply_price_to_all_businesses') && !empty($bundle->replica_group_uuid)) {
-                ProductBundle::where('replica_group_uuid', $bundle->replica_group_uuid)
-                    ->update([
+                $replicas = ProductBundle::where('replica_group_uuid', $bundle->replica_group_uuid)
+                    ->where('id', '!=', $bundle->id)
+                    ->get();
+
+                foreach ($replicas as $replica) {
+                    $settingSnapshots[] = [
+                        'setting_id' => (int) $replica->setting_id,
+                        'before' => ['bundle_sale_price' => (float) $replica->bundle_sale_price],
+                        'after' => ['bundle_sale_price' => $newBundlePrice],
+                    ];
+
+                    $replica->update([
                         'bundle_sale_price' => $request->input('bundle_sale_price'),
                     ]);
+                }
             }
+
+            app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_BUNDLE,
+                $bundle->id,
+                $request->input('name'),
+                null,
+                $settingSnapshots,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
+                null,
+                $opUuid
+            );
 
             DB::commit();
             return redirect()->route('products.show', $product->id)

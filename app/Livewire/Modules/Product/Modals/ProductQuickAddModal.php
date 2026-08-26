@@ -271,6 +271,7 @@ class ProductQuickAddModal extends Component
         try {
             /** @var ProductCreator $creator */
             $creator = app(ProductCreator::class);
+            $validated['source'] = \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_QUICK_ADD;
             $product = $creator->create($validated);
             $productData = $this->buildProductPayload($product);
 

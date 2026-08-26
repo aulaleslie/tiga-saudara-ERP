@@ -79,5 +79,34 @@
                 </div>
             </div>
         </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white font-weight-bold py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-clock-history mr-2 text-primary"></i> Pembaruan Produk & Harga</span>
+                        <a href="{{ route('products.price-feed.index') }}" class="btn btn-sm btn-outline-primary font-weight-bold">
+                            Lihat Semua Pembaruan <i class="bi bi-arrow-right ml-1"></i>
+                        </a>
+                    </div>
+                    <div class="card-body p-0">
+                        @if(isset($feedEvents) && count($feedEvents) > 0)
+                            <div class="list-group list-group-flush">
+                                @foreach($feedEvents as $event)
+                                    @include('product::feed.includes.event-row', ['event' => $event])
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox display-4 d-block mb-2 text-secondary"></i>
+                                Belum ada pembaruan produk atau harga terbaru.
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+
+    @include('product::feed.includes.detail-modal')
 @endsection

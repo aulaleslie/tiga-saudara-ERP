@@ -430,11 +430,34 @@ class ProcessDualCompanyTierPriceBatch implements ShouldQueue
             ];
 
             try {
-                DB::transaction(function () use ($productPrice, $merged) {
+                DB::transaction(function () use ($productPrice, $merged, $productId, $settingId, $previousTiers) {
                     foreach ($merged as $column => $value) {
                         $productPrice->{$column} = $value;
                     }
                     $productPrice->save();
+
+                    $product = \Modules\Product\Entities\Product::find($productId);
+                    if ($product) {
+                        app(ProductPriceFeedRecorder::class)->record(
+                            \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                            \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                            $product->id,
+                            $product->product_name,
+                            $product->product_code,
+                            [
+                                [
+                                    'setting_id' => $settingId,
+                                    'before' => $previousTiers,
+                                    'after' => [
+                                        'sale_price'   => (float)$productPrice->sale_price,
+                                        'tier_1_price' => (float)$productPrice->tier_1_price,
+                                        'tier_2_price' => (float)$productPrice->tier_2_price,
+                                    ],
+                                ],
+                            ],
+                            \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_IMPORT
+                        );
+                    }
                 });
             } catch (Throwable $e) {
                 Log::error('[DualCompanyTierPriceImport] Price mutation failed', [

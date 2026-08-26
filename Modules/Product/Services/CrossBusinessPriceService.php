@@ -72,6 +72,9 @@ class CrossBusinessPriceService
         }
 
         DB::transaction(function () use ($product, $pricesData) {
+            $snapshots = [];
+            $operationUuid = (string) \Illuminate\Support\Str::uuid();
+
             foreach ($pricesData as $data) {
                 $settingId = $data['setting_id'];
                 $existingPrice = ProductPrice::where('product_id', $product->id)
@@ -91,6 +94,13 @@ class CrossBusinessPriceService
                         throw new Exception("Price data for setting ID {$settingId} has been updated by another user. Please refresh and try again.");
                     }
 
+                    $beforeSnapshot = [
+                        'sale_price' => (float) $existingPrice->sale_price,
+                        'tier_1_price' => (float) $existingPrice->tier_1_price,
+                        'tier_2_price' => (float) $existingPrice->tier_2_price,
+                        'last_purchase_price' => (float) $existingPrice->last_purchase_price,
+                    ];
+
                     $existingPrice->update([
                         'sale_price' => $data['sale_price'],
                         'tier_1_price' => $data['tier_1_price'],
@@ -98,6 +108,19 @@ class CrossBusinessPriceService
                         'last_purchase_price' => $data['last_purchase_price'],
                         // average_purchase_price and tax IDs are NOT updated
                     ]);
+
+                    $afterSnapshot = [
+                        'sale_price' => (float) $data['sale_price'],
+                        'tier_1_price' => (float) $data['tier_1_price'],
+                        'tier_2_price' => (float) $data['tier_2_price'],
+                        'last_purchase_price' => (float) $data['last_purchase_price'],
+                    ];
+
+                    $snapshots[] = [
+                        'setting_id' => $settingId,
+                        'before' => $beforeSnapshot,
+                        'after' => $afterSnapshot,
+                    ];
                 } else {
                     if (!empty($data['version'])) {
                         // The user submitted a version for a row that doesn't exist? Stale state.
@@ -116,6 +139,17 @@ class CrossBusinessPriceService
                             'sale_tax_id' => null,
                             'purchase_tax_id' => null,
                         ]);
+
+                        $snapshots[] = [
+                            'setting_id' => $settingId,
+                            'before' => ['sale_price' => 0.0, 'tier_1_price' => 0.0, 'tier_2_price' => 0.0, 'last_purchase_price' => 0.0],
+                            'after' => [
+                                'sale_price' => (float) $data['sale_price'],
+                                'tier_1_price' => (float) $data['tier_1_price'],
+                                'tier_2_price' => (float) $data['tier_2_price'],
+                                'last_purchase_price' => (float) $data['last_purchase_price'],
+                            ],
+                        ];
                     } catch (QueryException $e) {
                         // Convert unique (product_id, setting_id) constraint violation to user-facing conflict
                         if ($e->errorInfo[1] == 1062 || $e->getCode() == 23000) {
@@ -125,6 +159,18 @@ class CrossBusinessPriceService
                     }
                 }
             }
+
+            app(ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                $product->id,
+                $product->product_name,
+                $product->product_code,
+                $snapshots,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
+                null,
+                $operationUuid
+            );
         });
     }
 }

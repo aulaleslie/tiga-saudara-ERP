@@ -27,6 +27,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('barcode.diagnostic-print');
 
     // ⟵ keep these URLs & names exactly, just point to the new controller
+    Route::get('/products/price-feed-history', [\Modules\Product\Http\Controllers\ProductPriceFeedController::class, 'index'])->name('products.price-feed.index');
+    Route::get('/products/price-feed-history/{id}', [\Modules\Product\Http\Controllers\ProductPriceFeedController::class, 'show'])->name('products.price-feed.show');
+
     Route::group(['middleware' => ['can:products.manage_cross_business_prices']], function () {
         Route::get('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'edit'])->name('products.cross-business-prices.edit');
         Route::put('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'update'])->name('products.cross-business-prices.update');

@@ -35,8 +35,12 @@ class HomeController extends Controller
 
         $greetingText = $firstName !== '' ? "{$greeting}, {$firstName}" : $greeting;
 
+        $feedService = app(\Modules\Product\Services\ProductPriceFeedQueryService::class);
+        $feedEvents = $feedService->getFeedEvents($user, ['limit' => 10]);
+
         return view('home', [
             'greetingText' => $greetingText,
+            'feedEvents' => $feedEvents,
         ]);
     }
 

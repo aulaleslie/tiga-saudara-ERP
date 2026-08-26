@@ -87,9 +87,10 @@ class ProductCreator
 
         $validatedData['setting_id'] = $settingId;
 
+        $source = $validatedData['source'] ?? null;
         $documents = $validatedData['document'] ?? [];
         $conversions = $validatedData['conversions'] ?? [];
-        unset($validatedData['document'], $validatedData['conversions'], $validatedData['location_id']);
+        unset($validatedData['document'], $validatedData['conversions'], $validatedData['location_id'], $validatedData['source']);
 
         DB::beginTransaction();
 
@@ -116,6 +117,30 @@ class ProductCreator
                     'sale_tax_id'            => $incomingPrices['sale_tax_id'] ?: null,
                 ],
                 $settingIds
+            );
+
+            // Record update-feed event
+            $settingSnapshots = [];
+            foreach ($settingIds as $sId) {
+                $settingSnapshots[] = [
+                    'setting_id' => $sId,
+                    'after' => [
+                        'sale_price' => (float) ($incomingPrices['sale_price'] ?: 0),
+                        'tier_1_price' => (float) ($incomingPrices['tier_1_price'] ?: 0),
+                        'tier_2_price' => (float) ($incomingPrices['tier_2_price'] ?: 0),
+                        'last_purchase_price' => (float) ($incomingPrices['last_purchase_price'] ?: 0),
+                    ],
+                ];
+            }
+
+            app(ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_CREATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                $product->id,
+                $product->product_name,
+                $product->product_code,
+                $settingSnapshots,
+                $source
             );
 
             if (! empty($documents)) {

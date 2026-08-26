@@ -415,6 +415,13 @@ class ProductController extends Controller
                 'setting_id' => $settingId,
             ]);
 
+            $beforePrices = [
+                'sale_price'          => (float) $productPrice->getOriginal('sale_price'),
+                'tier_1_price'        => (float) $productPrice->getOriginal('tier_1_price'),
+                'tier_2_price'        => (float) $productPrice->getOriginal('tier_2_price'),
+                'last_purchase_price' => (float) $productPrice->getOriginal('last_purchase_price'),
+            ];
+
             $productPrice->last_purchase_price = $isPurchased ? $pricePayload['purchase_price'] : 0;
             if (!$productPrice->exists) {
                 $productPrice->average_purchase_price = 0;
@@ -427,6 +434,27 @@ class ProductController extends Controller
             $productPrice->sale_tax_id     = $pricePayload['sale_tax_id'];
 
             $productPrice->save();
+
+            // Record update-feed event
+            app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                $product->id,
+                $product->product_name,
+                $product->product_code,
+                [
+                    [
+                        'setting_id' => $settingId,
+                        'before' => $beforePrices,
+                        'after' => [
+                            'sale_price'          => (float) $productPrice->sale_price,
+                            'tier_1_price'        => (float) $productPrice->tier_1_price,
+                            'tier_2_price'        => (float) $productPrice->tier_2_price,
+                            'last_purchase_price' => (float) $productPrice->last_purchase_price,
+                        ],
+                    ],
+                ]
+            );
 
             // 3) Documents (unchanged)
             if ($request->has('document')) {
