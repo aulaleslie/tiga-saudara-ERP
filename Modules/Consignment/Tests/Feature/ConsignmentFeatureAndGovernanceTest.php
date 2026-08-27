@@ -535,4 +535,39 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
 
         $response2->assertSessionHasErrors('location_id');
     }
+
+    public function test_reconciliation_index_requires_allocations_access()
+    {
+        // 1. User without allocations access
+        $userWithoutAccess = \App\Models\User::create([
+            'name' => 'No Allocations Access',
+            'email' => 'noalloc@test.com',
+            'password' => bcrypt('password'),
+            'setting_id' => $this->setting->id,
+            'is_active' => 1
+        ]);
+        // Give basic access but NOT consignments.allocations.access
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Basic Consignment User']);
+        $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'consignments.access']);
+        $role->givePermissionTo($permission);
+        $userWithoutAccess->assignRole($role);
+
+        $response1 = $this->actingAs($userWithoutAccess)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.reconciliation.index'));
+
+        $response1->assertForbidden(); // 403
+
+        // 2. User WITH allocations access
+        $allocPermission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'consignments.allocations.access']);
+        $userWithoutAccess->givePermissionTo($allocPermission);
+        $userWithoutAccess->load('roles', 'permissions');
+        app()->make(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $response2 = $this->actingAs($userWithoutAccess)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.reconciliation.index'));
+
+        $response2->assertOk();
+    }
 }

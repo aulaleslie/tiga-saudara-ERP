@@ -300,7 +300,7 @@
     </li>
 @endcanany
 
-@canany(['consignments.access', 'consignments.create', 'consignments.receive'])
+@canany(['consignments.access', 'consignments.create', 'consignments.receive', 'consignments.allocations.access'])
         <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('consignments.*') ? 'c-show' : '' }}">
             <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
                 <i class="c-sidebar-nav-icon bi bi-box-arrow-in-down-right" style="line-height: 1;"></i> Konsinyasi
@@ -338,6 +338,21 @@
                         <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.reconciliation.*') ? 'c-active' : '' }}"
                            href="{{ route('consignments.reconciliation.index') }}">
                             <i class="c-sidebar-nav-icon bi bi-journal-text" style="line-height: 1;"></i> Rekonsiliasi Titipan
+                        </a>
+                    </li>
+                @endcan
+
+                @can('consignments.allocations.access')
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.sold-sources.*') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.sold-sources.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-cart-check" style="line-height: 1;"></i> Sumber Terjual
+                        </a>
+                    </li>
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.confirmations.*') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.confirmations.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-file-earmark-check" style="line-height: 1;"></i> Konfirmasi Alokasi
                         </a>
                     </li>
                 @endcan

@@ -43,12 +43,37 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-3 mb-2">
-                        <select name="status" class="form-control">
-                            <option value="">-- Status Fisik (Default: Approved & Reversed) --</option>
-                            <option value="APPROVED" {{ request('status') === 'APPROVED' ? 'selected' : '' }}>Hanya APPROVED (Aktif)</option>
-                            <option value="REVERSED" {{ request('status') === 'REVERSED' ? 'selected' : '' }}>Hanya REVERSED (Dibatalkan)</option>
+                    <div class="col-md-2 mb-2">
+                        <select name="product_id" class="form-control">
+                            <option value="">-- Semua Produk --</option>
+                            @foreach($products as $p)
+                                <option value="{{ $p->id }}" {{ request('product_id') == $p->id ? 'selected' : '' }}>
+                                    {{ $p->product_name }}
+                                </option>
+                            @endforeach
                         </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <select name="status" class="form-control">
+                            <option value="">-- Status Fisik --</option>
+                            <option value="APPROVED" {{ request('status') === 'APPROVED' ? 'selected' : '' }}>Hanya APPROVED</option>
+                            <option value="REVERSED" {{ request('status') === 'REVERSED' ? 'selected' : '' }}>Hanya REVERSED</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <select name="confirmation_status" class="form-control">
+                            <option value="">-- Status Konfirmasi --</option>
+                            <option value="DRAFT" {{ request('confirmation_status') === 'DRAFT' ? 'selected' : '' }}>DRAFT</option>
+                            <option value="WAITING_APPROVAL" {{ request('confirmation_status') === 'WAITING_APPROVAL' ? 'selected' : '' }}>WAITING</option>
+                            <option value="APPROVED" {{ request('confirmation_status') === 'APPROVED' ? 'selected' : '' }}>APPROVED</option>
+                            <option value="REJECTED" {{ request('confirmation_status') === 'REJECTED' ? 'selected' : '' }}>REJECTED</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <input type="text" name="serial_number" class="form-control" placeholder="Cari Nomor Seri" value="{{ request('serial_number') }}">
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <input type="text" name="transaction_reference" class="form-control" placeholder="Cari Referensi Penjualan" value="{{ request('transaction_reference') }}">
                     </div>
                     <div class="col-md-3 mb-2">
                         <button type="submit" class="btn btn-secondary"><i class="bi bi-filter"></i> Filter</button>
@@ -65,15 +90,52 @@
                                 <th>Supplier</th>
                                 <th>Lokasi</th>
                                 <th>Produk</th>
-                                <th>Jumlah</th>
+                                <th>Diterima</th>
                                 <th>Biaya DPP</th>
                                 <th>Total Nilai</th>
+                                <th>Reversed</th>
+                                <th>Pending Billed</th>
+                                <th>Approved Billed</th>
+                                <th>Sisa Pool</th>
                                 <th>Status</th>
                                 <th>Nomor Seri</th>
+                                <th>Sumber Penjualan & Blocker</th>
                             </tr>
                         </thead>
                         <tbody>
                             @forelse($details as $d)
+                                @php
+                                    $isReversed = $d->consignmentReceiving->status === 'REVERSED';
+                                    $reversedQty = $isReversed ? $d->quantity_received : 0;
+                                    
+                                    $approvedAlloc = $d->receiptAllocations->filter(fn($ra) => $ra->line && $ra->line->confirmation && $ra->line->confirmation->isApproved())->sum('allocated_base_quantity');
+                                    $pendingRes = $d->receiptAllocations->filter(fn($ra) => $ra->line && $ra->line->confirmation && $ra->line->confirmation->isWaitingApproval())->sum('allocated_base_quantity');
+                                    $remainingPool = $isReversed ? 0 : max(0, $d->quantity_received - $approvedAlloc - $pendingRes);
+                                    
+                                    $sourcesHtml = [];
+                                    $blockersHtml = [];
+                                    $totalReturned = 0;
+                                    
+                                    foreach($d->receiptAllocations as $ra) {
+                                        if ($ra->line && $ra->line->soldSource) {
+                                            $source = $ra->line->soldSource;
+                                            $ddId = $source->dispatch_detail_id;
+                                            
+                                            if ($source->has_reconstruction_blocker) {
+                                                $blockersHtml[] = "<span class='text-danger small'><i class='bi bi-exclamation-triangle'></i> ".e($source->blocker_reason)."</span>";
+                                            }
+                                            
+                                            $saleNo = $source->dispatchDetail->sale->checkoutSale->checkout->transaction->code ?? $source->dispatchDetail->sale->posCheckout->transaction->code ?? $source->dispatchDetail->sale->reference ?? 'TRX-'.$ddId;
+                                            
+                                            $soldQty = $source->original_base_quantity ?? 0;
+                                            $returnedQty = $returnedQuantities[$ddId] ?? 0;
+                                            $soldLabel = " <span class='text-info ml-1'>(Sold: " . number_format($soldQty, 3) . ")</span>";
+                                            $returnLabel = $returnedQty > 0 ? " <span class='text-danger ml-1'>(Ret: " . number_format($returnedQty, 3) . ")</span>" : "";
+                                            
+                                            $sourcesHtml[$saleNo] = "<span class='badge badge-light border'>".e($saleNo).$soldLabel.$returnLabel."</span>";
+                                        }
+                                    }
+                                @endphp
                                 <tr>
                                     <td>{{ $d->consignmentReceiving->date->format('d/m/Y') }}</td>
                                     <td>
@@ -87,9 +149,13 @@
                                         <div class="font-weight-bold">{{ $d->product->product_name }}</div>
                                         <small class="text-muted">{{ $d->product->product_code }}</small>
                                     </td>
-                                    <td class="font-weight-bold">{{ $d->quantity_received }} {{ $d->product->baseUnit->short_name ?? 'PCS' }}</td>
+                                    <td class="font-weight-bold">{{ number_format($d->quantity_received, 3) }}</td>
                                     <td>Rp {{ number_format($d->unit_dpp, 2, ',', '.') }}</td>
                                     <td>Rp {{ number_format($d->quantity_received * $d->unit_dpp, 2, ',', '.') }}</td>
+                                    <td class="text-danger">{{ number_format($reversedQty, 3) }}</td>
+                                    <td class="text-warning">{{ number_format($pendingRes, 3) }}</td>
+                                    <td class="text-primary">{{ number_format($approvedAlloc, 3) }}</td>
+                                    <td class="font-weight-bold text-success">{{ number_format($remainingPool, 3) }}</td>
                                     <td>
                                         @if($d->consignmentReceiving->status === 'APPROVED')
                                             <span class="badge badge-success">APPROVED</span>
@@ -108,10 +174,22 @@
                                             <span class="text-muted">-</span>
                                         @endif
                                     </td>
+                                    <td>
+                                        @if(!empty($sourcesHtml))
+                                            <div class="d-flex flex-wrap gap-1 mb-1">
+                                                {!! implode(' ', $sourcesHtml) !!}
+                                            </div>
+                                        @endif
+                                        @if(!empty($blockersHtml))
+                                            <div class="d-flex flex-column gap-1">
+                                                {!! implode('', $blockersHtml) !!}
+                                            </div>
+                                        @endif
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="10" class="text-center text-muted py-4">Tidak ada data rekonsiliasi konsinyasi.</td>
+                                    <td colspan="15" class="text-center text-muted py-4">Tidak ada data rekonsiliasi konsinyasi.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -123,5 +201,43 @@
                 </div>
             </div>
         </div>
+
+        @if($blockers->count() > 0)
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body">
+                <h5 class="card-title text-danger mb-3"><i class="bi bi-exclamation-triangle-fill"></i> Unallocated Sales & Blockers</h5>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-0">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>Produk</th>
+                                <th>Referensi Penjualan</th>
+                                <th>Kuantitas Dispatched</th>
+                                <th>Alasan Blocker</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($blockers as $blocker)
+                            <tr>
+                                <td>
+                                    <div class="font-weight-bold">{{ $blocker->dispatchDetail->product->product_name ?? '-' }}</div>
+                                    <small class="text-muted">{{ $blocker->dispatchDetail->product->product_code ?? '-' }}</small>
+                                </td>
+                                <td>
+                                    @php
+                                        $saleNo = $blocker->dispatchDetail->sale->checkoutSale->checkout->transaction->code ?? $blocker->dispatchDetail->sale->posCheckout->transaction->code ?? $blocker->dispatchDetail->sale->reference ?? 'TRX-'.$blocker->dispatch_detail_id;
+                                    @endphp
+                                    <span class="badge badge-light border">{{ $saleNo }}</span>
+                                </td>
+                                <td>{{ number_format($blocker->dispatchDetail->dispatched_quantity ?? 0, 3) }}</td>
+                                <td class="text-danger small">{{ $blocker->blocker_reason }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        @endif
     </div>
 @endsection

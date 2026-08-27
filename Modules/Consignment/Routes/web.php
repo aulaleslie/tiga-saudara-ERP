@@ -33,4 +33,21 @@ Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignment
 
     // Reconciliation
     Route::get('reconciliation', [ConsignmentReconciliationController::class, 'index'])->name('reconciliation.index');
+
+    // Sold Sources
+    Route::get('sold-sources', [\Modules\Consignment\Http\Controllers\ConsignmentSoldSourceController::class, 'index'])->name('sold-sources.index');
+    Route::post('sold-sources/discover', [\Modules\Consignment\Http\Controllers\ConsignmentSoldSourceController::class, 'discover'])->name('sold-sources.discover');
+
+    // Confirmations
+    Route::get('confirmations', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'index'])->name('confirmations.index');
+    Route::get('confirmations/create', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'create'])->name('confirmations.create');
+    Route::post('confirmations', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'store'])->name('confirmations.store');
+    Route::get('confirmations/{id}', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'show'])->name('confirmations.show');
+    Route::get('confirmations/{id}/edit', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'edit'])->name('confirmations.edit');
+    Route::put('confirmations/{id}', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'update'])->name('confirmations.update');
+    Route::delete('confirmations/{id}', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'destroy'])->name('confirmations.destroy');
+
+    Route::post('confirmations/{id}/submit', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'submit'])->name('confirmations.submit');
+    Route::post('confirmations/{id}/approve', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'approve'])->name('confirmations.approve');
+    Route::post('confirmations/{id}/reject', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'reject'])->name('confirmations.reject');
 });

@@ -430,6 +430,12 @@ return [
         'consignments.receive.approve' => 'Setujui Fisik Penerimaan Konsinyasi',
         'consignments.receive.reject' => 'Tolak Fisik Penerimaan Konsinyasi',
         'consignments.reverse' => 'Batalkan (Reversal) Penerimaan Konsinyasi',
+        'consignments.allocations.access' => 'Hak Akses Alokasi Penjualan Konsinyasi',
+        'consignments.allocations.create' => 'Buat Alokasi Penjualan Konsinyasi',
+        'consignments.allocations.edit' => 'Ubah Alokasi Penjualan Konsinyasi',
+        'consignments.allocations.submit' => 'Ajukan Alokasi Penjualan Konsinyasi',
+        'consignments.allocations.approve' => 'Setujui Alokasi Penjualan Konsinyasi',
+        'consignments.allocations.reject' => 'Tolak Alokasi Penjualan Konsinyasi',
     ],
 
     'Notifications' => [

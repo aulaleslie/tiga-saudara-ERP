@@ -82,4 +82,9 @@ class DispatchDetail extends BaseModel
     {
         return ! is_null($this->pos_return_line_id);
     }
+
+    public function consignmentSoldSource(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Consignment\Entities\ConsignmentSoldSource::class, 'dispatch_detail_id');
+    }
 }

@@ -205,4 +205,14 @@ class ProductSerialNumber extends BaseModel
 
         return null;
     }
+
+    public function consignmentActiveClaim(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Consignment\Entities\ConsignmentActiveSerialClaim::class, 'product_serial_number_id');
+    }
+
+    public function consignmentSerializedAllocations(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\Modules\Consignment\Entities\ConsignmentSerializedAllocation::class, 'product_serial_number_id');
+    }
 }

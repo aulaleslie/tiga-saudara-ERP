@@ -106,4 +106,9 @@ class ConsignmentReceivingDetail extends BaseModel
             'product_serial_number_id'
         )->withPivot(['id', 'source_history_id', 'reversal_history_id', 'linked_at'])->withTimestamps();
     }
+
+    public function receiptAllocations(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ConsignmentReceiptAllocation::class, 'consignment_receiving_detail_id');
+    }
 }
