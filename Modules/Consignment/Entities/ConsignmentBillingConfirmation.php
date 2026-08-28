@@ -37,6 +37,15 @@ class ConsignmentBillingConfirmation extends BaseModel
         'approved_at',
         'rejected_by',
         'rejected_at',
+        'billed_by',
+        'billed_at',
+        'supplier_invoice_number',
+        'invoice_date',
+        'reporting_date',
+        'due_date',
+        'payment_term_id',
+        'tax_ref_no',
+        'billing_notes',
         'source_hash',
         'purchase_id',
         'is_ready_for_billing',
@@ -47,6 +56,10 @@ class ConsignmentBillingConfirmation extends BaseModel
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'billed_at' => 'datetime',
+        'invoice_date' => 'date',
+        'reporting_date' => 'date',
+        'due_date' => 'date',
         'is_ready_for_billing' => 'boolean',
     ];
 
@@ -80,6 +93,21 @@ class ConsignmentBillingConfirmation extends BaseModel
         return $this->belongsTo(User::class, 'rejected_by');
     }
 
+    public function biller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'billed_by');
+    }
+
+    public function paymentTerm(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Purchase\Entities\PaymentTerm::class, 'payment_term_id');
+    }
+
+    public function purchase(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Purchase\Entities\Purchase::class, 'purchase_id');
+    }
+
     public function lines(): HasMany
     {
         return $this->hasMany(ConsignmentBillingConfirmationLine::class, 'consignment_billing_confirmation_id');
@@ -105,6 +133,13 @@ class ConsignmentBillingConfirmation extends BaseModel
         return $query->where('status', $status);
     }
 
+    public function scopeReadyForBilling(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_APPROVED)
+            ->where('is_ready_for_billing', true)
+            ->whereNull('purchase_id');
+    }
+
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
@@ -125,18 +160,46 @@ class ConsignmentBillingConfirmation extends BaseModel
         return $this->status === self::STATUS_REJECTED;
     }
 
+    public function isBilled(): bool
+    {
+        return !empty($this->purchase_id);
+    }
+
     protected static function boot()
     {
         parent::boot();
 
         static::updating(function ($confirmation) {
+            // If already billed (purchase_id set), do not allow modifying confirmation commercial data
+            if ($confirmation->getOriginal('purchase_id') !== null) {
+                throw new \DomainException("Cannot modify billed confirmation #{$confirmation->id}.");
+            }
+
+            // If approved, only allow conversion fields transition (purchase_id, is_ready_for_billing, billed_by, billed_at, billing metadata)
             if ($confirmation->getOriginal('status') === self::STATUS_APPROVED) {
-                throw new \DomainException("Cannot modify approved confirmation #{$confirmation->id}.");
+                $dirtyKeys = array_keys($confirmation->getDirty());
+                $allowedKeys = [
+                    'purchase_id',
+                    'is_ready_for_billing',
+                    'billed_by',
+                    'billed_at',
+                    'supplier_invoice_number',
+                    'invoice_date',
+                    'reporting_date',
+                    'due_date',
+                    'payment_term_id',
+                    'tax_ref_no',
+                    'billing_notes',
+                ];
+                $disallowed = array_diff($dirtyKeys, $allowedKeys);
+                if (!empty($disallowed)) {
+                    throw new \DomainException("Cannot modify approved confirmation #{$confirmation->id}.");
+                }
             }
         });
 
         static::deleting(function ($confirmation) {
-            if ($confirmation->isApproved() || $confirmation->isWaitingApproval()) {
+            if ($confirmation->isApproved() || $confirmation->isWaitingApproval() || $confirmation->isBilled()) {
                 throw new \DomainException("Cannot delete confirmation in status [{$confirmation->status}].");
             }
         });

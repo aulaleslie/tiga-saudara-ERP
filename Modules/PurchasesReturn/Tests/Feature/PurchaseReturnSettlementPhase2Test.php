@@ -192,7 +192,7 @@ class PurchaseReturnSettlementPhase2Test extends TestCase
         // 4. Verify
         $purchase->refresh();
         $this->assertEquals(0, $purchase->paid_amount);
-        $this->assertEquals('UNPAID', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::UNPAID, $purchase->payment_status), 'Expected UNPAID, got ' . $purchase->payment_status);
         $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->active()->count());
         $this->assertEquals(1, PurchasePayment::where('purchase_id', $purchase->id)->invalidated()->count());
     }
@@ -361,7 +361,7 @@ class PurchaseReturnSettlementPhase2Test extends TestCase
         // 5. Verify Purchase updates
         $purchase->refresh();
         $this->assertEquals(1000, $purchase->paid_amount);
-        $this->assertEquals('PARTIAL', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $purchase->payment_status), 'Expected PARTIAL, got ' . $purchase->payment_status);
 
         // 6. Verify SupplierCredit and Application Linkage
         $credit = SupplierCredit::where('purchase_return_id', $this->purchaseReturn->id)->first();

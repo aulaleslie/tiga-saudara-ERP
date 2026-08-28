@@ -293,6 +293,8 @@ class PurchaseReceivingCompletionService
 
     private function validateEligibility(Purchase $purchase): void
     {
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertReceivingAllowed($purchase);
+
         if ($purchase->archived_at) {
             throw new Exception("Purchase {$purchase->reference} is archived and cannot be completed.");
         }
@@ -434,11 +436,11 @@ class PurchaseReceivingCompletionService
 
         // Match existing payment status semantics: UNPAID if zero, PARTIAL if positive but below total, PAID if covers total
         if ($paidAmount == 0) {
-            $paymentStatus = 'UNPAID';
+            $paymentStatus = \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID;
         } elseif ($paidAmount >= $purchase->total_amount) {
-            $paymentStatus = 'PAID';
+            $paymentStatus = \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID;
         } else {
-            $paymentStatus = 'PARTIAL';
+            $paymentStatus = \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL;
         }
 
         $purchase->update([

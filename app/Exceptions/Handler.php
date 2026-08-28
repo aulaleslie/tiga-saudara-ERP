@@ -33,6 +33,13 @@ class Handler extends ExceptionHandler
      */
     public function register(): void
     {
-        //
+        $this->renderable(function (\Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException $e, $request) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['error' => $e->getMessage()], 422);
+            }
+
+            toast($e->getMessage(), 'error');
+            return redirect()->back();
+        });
     }
 }

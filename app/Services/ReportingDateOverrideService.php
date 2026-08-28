@@ -35,6 +35,10 @@ class ReportingDateOverrideService
             // Lock the document row for update
             $locked = $document::where('id', $document->id)->lockForUpdate()->first();
 
+            if ($locked instanceof Purchase) {
+                \Modules\Purchase\Services\PurchaseSourceGuard::assertReportingDateOverrideAllowed($locked);
+            }
+
             // Record the prior override for audit
             $priorOverride = $locked->reporting_date;
 

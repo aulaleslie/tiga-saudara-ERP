@@ -886,7 +886,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
 
         $purchase->refresh();
         $this->assertEquals(0, $purchase->paid_amount);
-        $this->assertEquals('UNPAID', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::UNPAID, $purchase->payment_status), 'Expected UNPAID, got ' . $purchase->payment_status);
         $this->assertCount(0, $purchase->purchasePayments);
         
         // Quantity should be reduced (5 - 2 = 3)

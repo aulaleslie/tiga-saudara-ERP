@@ -486,7 +486,7 @@ class PurchaseMonetaryEditTest extends TestCase
         $this->assertSame(8000.0, (float) $purchase->total_amount);
         $this->assertSame(4000.0, (float) $purchase->paid_amount);
         $this->assertSame(4000.0, (float) $purchase->due_amount);
-        $this->assertSame('PARTIAL', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $purchase->payment_status), 'Expected PARTIAL, got ' . $purchase->payment_status);
 
         $this->assertPaymentRowsUnchanged([4000.0]);
     }
@@ -511,7 +511,7 @@ class PurchaseMonetaryEditTest extends TestCase
         $this->assertSame(6000.0, (float) $purchase->total_amount);
         $this->assertSame(6000.0, (float) $purchase->paid_amount);
         $this->assertSame(0.0, (float) $purchase->due_amount);
-        $this->assertSame('PAID', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $purchase->payment_status), 'Expected PAID, got ' . $purchase->payment_status);
 
         $this->assertPaymentRowsUnchanged([6000.0]);
     }

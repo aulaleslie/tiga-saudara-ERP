@@ -40,6 +40,7 @@ use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 use Modules\Purchase\Services\PurchaseNormalizer;
 use Modules\Purchase\Services\PurchaseReceivingCompletionService;
+use Modules\Purchase\Services\PurchaseSourceGuard;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -269,6 +270,8 @@ class PurchaseController extends Controller
 
         $purchase->load([
             'reportingDateAudits.actor',
+            'consignmentBillingConfirmation',
+            'purchaseDetails.consignmentLineages.confirmationLine',
             'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
@@ -361,6 +364,10 @@ class PurchaseController extends Controller
             abort(404);
         }
 
+        if ($media->getCustomProperty('source') === 'CONSIGNMENT_BILLING') {
+            abort(403, 'Lampiran tagihan konsinyasi bersifat permanen dan tidak dapat dihapus.');
+        }
+
         $media->delete();
         toast('Lampiran dihapus.', 'success');
         return redirect()->back();
@@ -372,6 +379,8 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.update'), 403);
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
 
         $editMode = $purchase->resolveEditMode();
         if ($editMode === Purchase::EDIT_MODE_NONE) {
@@ -444,6 +453,7 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.update'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
 
         $editMode = $purchase->resolveEditMode();
         if ($editMode === Purchase::EDIT_MODE_NONE) {
@@ -549,6 +559,8 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertDeletionAllowed($purchase);
+
         // Rule: Partially or Fully Received -> Hard Block
         if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
             abort(403, 'Tidak dapat menghapus pembelian yang sudah diterima barangnya.');
@@ -574,6 +586,8 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertDeletionAllowed($purchase);
+
         // Rule: Partially or Fully Received -> Hard Block
         if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
             abort(403, 'Tidak dapat mengarsipkan pembelian yang sudah diterima barangnya.');
@@ -593,6 +607,8 @@ class PurchaseController extends Controller
     {
         abort_unless(Gate::any(['purchases.update', 'purchases.approval']), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
+
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Purchase::STATUS_DRAFTED,
@@ -642,6 +658,7 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.receive'), 403);
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertReceivingAllowed($purchase);
 
         $currentSettingId = session('setting_id');
 
@@ -660,6 +677,7 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.receive'), 403);
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertReceivingAllowed($purchase);
 
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'received' => [

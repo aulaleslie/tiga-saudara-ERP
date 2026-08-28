@@ -13,6 +13,17 @@ class ConsignmentReceiptAllocation extends BaseModel
 
     protected $table = 'consignment_receipt_allocations';
 
+    /** Legacy allocations: tax_amount holds the full-lot receiving-detail tax. */
+    public const TAX_SNAPSHOT_VERSION_LEGACY = 1;
+
+    /** Current allocations: tax_amount holds proportional tax for the allocated quantity. */
+    public const TAX_SNAPSHOT_VERSION_PROPORTIONAL = 2;
+
+    public const SUPPORTED_TAX_SNAPSHOT_VERSIONS = [
+        self::TAX_SNAPSHOT_VERSION_LEGACY,
+        self::TAX_SNAPSHOT_VERSION_PROPORTIONAL,
+    ];
+
     protected $fillable = [
         'consignment_billing_confirmation_line_id',
         'consignment_receiving_detail_id',
@@ -22,6 +33,7 @@ class ConsignmentReceiptAllocation extends BaseModel
         'tax_id',
         'tax_rate',
         'tax_amount',
+        'tax_snapshot_version',
         'receival_reference',
         'receiving_reference',
         'receiving_detail_snapshot',
@@ -33,6 +45,7 @@ class ConsignmentReceiptAllocation extends BaseModel
         'unit_dpp' => 'decimal:2',
         'tax_rate' => 'decimal:4',
         'tax_amount' => 'decimal:2',
+        'tax_snapshot_version' => 'integer',
         'receiving_detail_snapshot' => 'array',
     ];
 

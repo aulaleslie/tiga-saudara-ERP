@@ -992,6 +992,7 @@ class PurchasesReturnSettlementController extends Controller
                 $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
                     ->lockForUpdate()
                     ->findOrFail($sourcePurchaseId);
+                \Modules\Purchase\Services\PurchaseSourceGuard::assertReturnAllowed($purchase);
                 $purchaseTotalMode = $this->resolvePurchaseTotalMode($purchase);
 
                 $returnQty = $this->resolveReturnQuantity($item, $detail);
@@ -1199,6 +1200,7 @@ class PurchasesReturnSettlementController extends Controller
                 // 2. Apply to Target Purchase (Usage)
                 if ($item->target_purchase_id) {
                     $purchase = \Modules\Purchase\Entities\Purchase::lockForUpdate()->findOrFail($item->target_purchase_id);
+                    \Modules\Purchase\Services\PurchaseSourceGuard::assertReturnAllowed($purchase);
                     
                     // Reset payments and set Unpaid if Paid/Partial
                     if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
@@ -1290,6 +1292,7 @@ class PurchasesReturnSettlementController extends Controller
                     $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
                         ->lockForUpdate()
                         ->findOrFail($item->target_purchase_id);
+                    \Modules\Purchase\Services\PurchaseSourceGuard::assertReturnAllowed($purchase);
                     $purchaseTotalMode = $this->resolvePurchaseTotalMode($purchase);
 
                     $detail = $item->detail;
@@ -1564,7 +1567,7 @@ class PurchasesReturnSettlementController extends Controller
         $grandTotal = max($baseTotal - $discountAmount + $shipping, 0);
         $paidAmount = $purchase->getEffectivePaidAmount();
         $dueAmount = max($grandTotal - $paidAmount, 0);
-        $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
+        $paymentStatus = $dueAmount <= 0.01 ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID : ($paidAmount > 0 ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL : \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID);
 
         $purchase->fill([
             'tax_amount' => $taxTotal,

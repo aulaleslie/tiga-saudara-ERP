@@ -153,6 +153,8 @@ class PurchaseCorrectionController extends Controller
 
     private function guardReceiveStatusEligibility(Purchase $purchase): void
     {
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
+
         if (!in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
             throw new AuthorizationException('Purchase must be in RECEIVED or RECEIVED PARTIALLY status for correction');
         }

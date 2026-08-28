@@ -24,6 +24,9 @@
                     <div class="card-header d-flex flex-wrap align-items-center">
                         <div>
                             Referensi: <strong>{{ $purchase->reference }}</strong>
+                            @if($purchase->isConsignmentBilling())
+                                <span class="badge badge-primary ml-2">CONSIGNMENT BILLING</span>
+                            @endif
                         </div>
                         @if(!(isset($globalMode) && $globalMode))
                             <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
@@ -47,6 +50,19 @@
                         </a>
                     </div>
                     <div class="card-body">
+                        @if($purchase->isConsignmentBilling() && $purchase->consignmentBillingConfirmation)
+                            <div class="alert alert-info border-left-info shadow-sm mb-4">
+                                <i class="bi bi-link-45deg mr-1"></i>
+                                <strong>Dokumen Pembelian Hasil Konversi Tagihan Konsinyasi:</strong>
+                                Dikonversi dari Konfirmasi Alokasi
+                                <a href="{{ route('consignments.confirmations.show', $purchase->consignmentBillingConfirmation->id) }}" class="font-weight-bold alert-link">
+                                    #{{ $purchase->consignmentBillingConfirmation->confirmation_number }}
+                                </a>
+                                pada {{ $purchase->consignmentBillingConfirmation->billed_at?->format('d/m/Y H:i') }}.
+                                Item dan nilai komersial bersifat read-only.
+                            </div>
+                        @endif
+
                         <div class="row mb-4">
                             <div class="col-sm-4 mb-3 mb-md-0">
                                 <h5 class="mb-2 border-bottom pb-2">Informasi Bisnis:</h5>
@@ -155,6 +171,20 @@
                                             <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>
+                                            @if($purchase->isConsignmentBilling() && $item->consignmentLineages->isNotEmpty())
+                                                <div class="mt-2 small text-muted">
+                                                    <span class="badge badge-light border">Asal Konsinyasi</span>
+                                                    @foreach($item->consignmentLineages as $lineage)
+                                                        <div>
+                                                            Penerimaan #{{ $lineage->consignment_receiving_detail_id }}
+                                                            &middot; Qty {{ number_format($lineage->billed_base_quantity, 3) }}
+                                                            @if($lineage->consignment_serialized_allocation_id)
+                                                                &middot; SN
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="align-middle">{{ formatRupiah($item->price) }}</td>
@@ -308,10 +338,18 @@
                                                 $displayName = $media->getCustomProperty('original_name') ?: $media->file_name;
                                                 $mimeType = $media->mime_type ?? '';
                                                 $isImage = Str::startsWith($mimeType, 'image/');
+                                                $isImmutable = $media->getCustomProperty('source') === 'CONSIGNMENT_BILLING';
                                             @endphp
                                             <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center">
                                                 <div>
-                                                    <div>{{ $displayName }}</div>
+                                                    <div>
+                                                        {{ $displayName }}
+                                                        @if($isImmutable)
+                                                            <span class="badge badge-info ml-1" title="Faktur Supplier Konsinyasi (Bukti Permanen)">
+                                                                <i class="bi bi-shield-check"></i> Faktur Konsinyasi (Permanen)
+                                                            </span>
+                                                        @endif
+                                                    </div>
                                                     <small class="text-muted">{{ $media->humanReadableSize }}</small>
                                                 </div>
                                                 <div class="btn-group mt-2 mt-sm-0">
@@ -327,7 +365,7 @@
                                                         Download
                                                     </a>
                                                     @can('purchases.update')
-                                                        @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode))
+                                                        @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode) && !$isImmutable)
                                                             <form method="POST"
                                                                   action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
                                                                   onsubmit="return confirm('Hapus lampiran ini?');"

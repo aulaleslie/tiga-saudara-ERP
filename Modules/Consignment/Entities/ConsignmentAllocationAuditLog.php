@@ -18,6 +18,8 @@ class ConsignmentAllocationAuditLog extends BaseModel
     public const ACTION_SUBMITTED = 'SUBMITTED';
     public const ACTION_APPROVED = 'APPROVED';
     public const ACTION_REJECTED = 'REJECTED';
+    public const ACTION_BILLING_CONVERTED = 'BILLING_CONVERTED';
+    public const ACTION_BILLING_CONVERSION_FAILED = 'BILLING_CONVERSION_FAILED';
 
     protected $fillable = [
         'consignment_billing_confirmation_id',

@@ -10,15 +10,21 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Services\PurchasePaymentStoreService;
 use Modules\Setting\Entities\PaymentMethod;
 
 class PurchasePaymentsController extends Controller
 {
+    public function __construct(
+        protected PurchasePaymentStoreService $paymentStoreService
+    ) {}
 
     public function index($purchase_id, PurchasePaymentsDataTable $dataTable) {
         abort_if(Gate::denies('purchasePayments.access'), 403);
 
-        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));
@@ -28,7 +34,9 @@ class PurchasePaymentsController extends Controller
     public function create($purchase_id) {
         abort_if(Gate::denies('purchasePayments.create'), 403);
 
-        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $payment_methods = PaymentMethod::active()->get();
@@ -39,49 +47,30 @@ class PurchasePaymentsController extends Controller
     public function store(Request $request) {
         abort_if(Gate::denies('purchasePayments.create'), 403);
 
-
-        $purchase = Purchase::withArchived()->findOrFail($request->purchase_id);
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($request->purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        $request->validate([
+        $validated = $request->validate([
             'date' => 'required|date',
             'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric|max:' . $purchase->due_amount,
+            'amount' => 'required|numeric|min:0.01|max:' . $purchase->live_due_amount,
             'note' => 'nullable|string|max:1000',
             'purchase_id' => 'required|integer|exists:purchases,id',
             'payment_method_id' => 'required|integer|exists:payment_methods,id,is_active,1',
             'attachment' => 'nullable|string', // Validation for file upload
         ], [
+            'amount.min' => 'Jumlah pembayaran harus minimal 0.01.',
             'amount.max' => 'The payment amount cannot be greater than the due amount.'
         ]);
 
-        DB::transaction(function () use ($request, $purchase) {
-            $payment = PurchasePayment::create([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'purchase_id' => $request->purchase_id,
-                'payment_method_id' => $request->payment_method_id,
-                'payment_method' => '',
-            ]);
-
-            // Store the uploaded file if it exists
-            if ($request->attachment) {
-                $payment->addMedia(Storage::path('temp/dropzone/' . $request->attachment))->toMediaCollection('attachments');
-            }
-
-            // After creating payment, recalculate from active payments
-            $effectivePaid = $purchase->getEffectivePaidAmount();
-            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
-
-            $purchase->update([
-                'paid_amount' => $effectivePaid,
-                'due_amount' => $dueAmount,
-                'payment_status' => $paymentStatus,
-            ]);
-        });
+        $this->paymentStoreService->store(
+            purchase: $purchase,
+            actor: auth()->user(),
+            data: $validated,
+            attachment: $validated['attachment'] ?? null
+        );
 
         toast('Pembayaran berhasil dibuat!', 'success');
         return redirect()->route('purchases.index');
@@ -197,7 +186,17 @@ class PurchasePaymentsController extends Controller
         DB::transaction(function () use ($purchasePayment, $purchase) {
             $lockedPurchase = Purchase::where('id', $purchase->id)->lockForUpdate()->firstOrFail();
 
-            $purchasePayment->update([
+            /** @var PurchasePayment|null $lockedPayment */
+            $lockedPayment = PurchasePayment::where('id', $purchasePayment->id)
+                ->where('purchase_id', $lockedPurchase->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$lockedPayment || $lockedPayment->status !== PurchasePayment::STATUS_ACTIVE) {
+                abort(403, 'Hanya pembayaran aktif yang dapat dibatalkan.');
+            }
+
+            $lockedPayment->update([
                 'status' => PurchasePayment::STATUS_INVALIDATED,
                 'invalidated_at' => now(),
                 'invalidated_by' => auth()->id(),

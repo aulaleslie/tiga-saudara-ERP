@@ -349,10 +349,11 @@ class PurchaseTable extends Component
                 $q->where('supplier_id', $this->supplierId);
             })
             ->when(! empty($this->paymentStatusFilter), function ($q) {
-                $q->where('payment_status', $this->paymentStatusFilter);
+                // Stored casing varies by writer; match every spelling of the requested status.
+                $q->whereIn('payment_status', \App\Constants\PaymentStatus::variants($this->paymentStatusFilter));
             })
             ->when(! empty($this->paymentStatusFilters), function ($q) {
-                $q->whereIn('payment_status', $this->paymentStatusFilters);
+                $q->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor($this->paymentStatusFilters));
             })
             ->when($this->dueAmountOnly, function ($q) {
                 if ($this->globalMode) {
@@ -379,7 +380,7 @@ class PurchaseTable extends Component
                              ->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
                       });
                 } else {
-                    $q->where('payment_status', 'PAID')
+                    $q->whereIn('payment_status', \App\Constants\PaymentStatus::variants(\App\Constants\PaymentStatus::PAID))
                       ->where(function ($sub) use ($thirtyDaysAgo) {
                         $sub->whereHas('purchasePayments', function ($pq) use ($thirtyDaysAgo) {
                             $pq->where('date', '>=', $thirtyDaysAgo)

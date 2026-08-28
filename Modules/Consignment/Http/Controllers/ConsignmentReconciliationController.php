@@ -24,7 +24,7 @@ class ConsignmentReconciliationController extends Controller
             'serialNumbers',
             'transaction',
             'reversalTransaction',
-            'receiptAllocations.line.confirmation',
+            'receiptAllocations.line.confirmation.purchase.purchasePayments',
             'receiptAllocations.line.soldSource.dispatchDetail.sale.checkoutSale.checkout.transaction',
             'receiptAllocations.line.soldSource.dispatchDetail.sale.posCheckout.transaction',
         ])
@@ -45,6 +45,18 @@ class ConsignmentReconciliationController extends Controller
                 $q->where('location_id', $request->location_id);
             }
         });
+
+        if ($request->filled('billing_status')) {
+            if ($request->billing_status === 'READY') {
+                $query->whereHas('receiptAllocations.line.confirmation', function ($q) {
+                    $q->where('status', 'APPROVED')->where('is_ready_for_billing', true)->whereNull('purchase_id');
+                });
+            } elseif ($request->billing_status === 'BILLED') {
+                $query->whereHas('receiptAllocations.line.confirmation', function ($q) {
+                    $q->whereNotNull('purchase_id');
+                });
+            }
+        }
 
         if ($request->filled('product_id')) {
             $query->where('product_id', $request->product_id);
@@ -105,7 +117,14 @@ class ConsignmentReconciliationController extends Controller
 
         $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
         $locations = Location::where('setting_id', $settingId)->consignment()->get();
-        $products = Product::active()->where('stock_managed', true)->orderBy('product_name')->get();
+        // Product::active() applies activity/merge filters only, so the active-setting
+        // boundary must be applied explicitly — otherwise foreign product names and
+        // codes appear in the selector.
+        $products = Product::active()
+            ->where('setting_id', $settingId)
+            ->where('stock_managed', true)
+            ->orderBy('product_name')
+            ->get();
 
         return view('consignment::reconciliation.index', compact('details', 'suppliers', 'locations', 'products', 'returnedQuantities', 'blockers'));
     }

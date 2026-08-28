@@ -100,7 +100,8 @@ class PurchasePayment extends BaseModel implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('attachments')->singleFile(); // Single file for each payment
+        $this->addMediaCollection('attachments')
+            ->acceptsMimeTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
     }
 
     /**

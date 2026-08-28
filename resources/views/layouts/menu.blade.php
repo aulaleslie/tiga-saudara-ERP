@@ -300,7 +300,7 @@
     </li>
 @endcanany
 
-@canany(['consignments.access', 'consignments.create', 'consignments.receive', 'consignments.allocations.access'])
+@canany(['consignments.access', 'consignments.create', 'consignments.receive', 'consignments.allocations.access', 'consignments.billing.access'])
         <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('consignments.*') ? 'c-show' : '' }}">
             <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
                 <i class="c-sidebar-nav-icon bi bi-box-arrow-in-down-right" style="line-height: 1;"></i> Konsinyasi
@@ -353,6 +353,15 @@
                         <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.confirmations.*') ? 'c-active' : '' }}"
                            href="{{ route('consignments.confirmations.index') }}">
                             <i class="c-sidebar-nav-icon bi bi-file-earmark-check" style="line-height: 1;"></i> Konfirmasi Alokasi
+                        </a>
+                    </li>
+                @endcan
+
+                @can('consignments.billing.access')
+                    <li class="c-sidebar-nav-item">
+                        <a class="c-sidebar-nav-link {{ request()->routeIs('consignments.billing.*') ? 'c-active' : '' }}"
+                           href="{{ route('consignments.billing.index') }}">
+                            <i class="c-sidebar-nav-icon bi bi-receipt" style="line-height: 1;"></i> Tagihan Siap Konversi
                         </a>
                     </li>
                 @endcan

@@ -72,6 +72,11 @@ class ConsignmentReceivingDetail extends BaseModel
         return $this->belongsTo(ConsignmentReceiving::class, 'consignment_receiving_id');
     }
 
+    public function receiving(): BelongsTo
+    {
+        return $this->belongsTo(ConsignmentReceiving::class, 'consignment_receiving_id');
+    }
+
     public function receivalLine(): BelongsTo
     {
         return $this->belongsTo(ConsignmentReceivalLine::class, 'consignment_receival_line_id');

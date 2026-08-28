@@ -155,7 +155,7 @@ class PurchasePaymentEffectiveTotalsMatrixTest extends TestCase
         $this->syncPurchaseTotals($this->purchase);
         $this->purchase->refresh();
 
-        $this->assertEquals('PAID', $this->purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $this->purchase->payment_status), 'Expected PAID, got ' . $this->purchase->payment_status);
         $this->assertEquals(0, $this->purchase->due_amount);
     }
 
@@ -176,6 +176,6 @@ class PurchasePaymentEffectiveTotalsMatrixTest extends TestCase
 
         $this->assertEquals(1500, $this->purchase->paid_amount);
         $this->assertEquals(0, $this->purchase->due_amount);
-        $this->assertEquals('PAID', $this->purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $this->purchase->payment_status), 'Expected PAID, got ' . $this->purchase->payment_status);
     }
 }

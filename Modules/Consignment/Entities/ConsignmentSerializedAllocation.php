@@ -63,6 +63,11 @@ class ConsignmentSerializedAllocation extends BaseModel
         return $this->belongsTo(ProductSerialNumber::class, 'product_serial_number_id');
     }
 
+    public function productSerialNumber(): BelongsTo
+    {
+        return $this->serialNumber();
+    }
+
     public function receivingDetail(): BelongsTo
     {
         return $this->belongsTo(ConsignmentReceivingDetail::class, 'consignment_receiving_detail_id');

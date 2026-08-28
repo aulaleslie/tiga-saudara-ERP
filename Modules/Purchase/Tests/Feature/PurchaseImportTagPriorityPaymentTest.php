@@ -395,7 +395,7 @@ class PurchaseImportTagPriorityPaymentTest extends TestCase
         // Header reflects cash + credit; paid + due reconciles to total.
         $this->assertEqualsWithDelta(1000000, (float) $purchase->paid_amount, 0.01);
         $this->assertEqualsWithDelta(0, (float) $purchase->due_amount, 0.01);
-        $this->assertEquals('PAID', $purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $purchase->payment_status), 'Expected PAID, got ' . $purchase->payment_status);
 
         // Two active payment rows: a cash row for Pembayaran and a non-cash deduction credit.
         // Reports derive paid from active payment rows, so both must exist and sum to the total.

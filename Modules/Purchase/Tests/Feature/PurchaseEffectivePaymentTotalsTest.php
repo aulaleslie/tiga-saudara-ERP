@@ -170,7 +170,7 @@ class PurchaseEffectivePaymentTotalsTest extends TestCase
 
         $this->assertEquals(0, $this->purchase->paid_amount);
         $this->assertEquals(10000, $this->purchase->due_amount);
-        $this->assertEquals('UNPAID', $this->purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::UNPAID, $this->purchase->payment_status), 'Expected UNPAID, got ' . $this->purchase->payment_status);
     }
 
     /** @test */
@@ -191,6 +191,6 @@ class PurchaseEffectivePaymentTotalsTest extends TestCase
         $dueAmount = max(0, $this->purchase->total_amount - $effectivePaid);
         $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : 'PARTIAL';
 
-        $this->assertEquals('PAID', $paymentStatus);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $paymentStatus), 'Expected PAID, got ' . $paymentStatus);
     }
 }

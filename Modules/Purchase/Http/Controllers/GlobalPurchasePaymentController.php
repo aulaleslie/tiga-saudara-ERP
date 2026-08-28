@@ -122,7 +122,7 @@ class GlobalPurchasePaymentController extends Controller
             }
         }
         
-        $payment_methods = \Modules\Setting\Entities\PaymentMethod::all();
+        $payment_methods = \Modules\Setting\Entities\PaymentMethod::where('is_active', true)->get();
         
         return view('purchase::payments.global-create', compact('supplier', 'candidates', 'startingPurchase', 'payment_methods'));
     }

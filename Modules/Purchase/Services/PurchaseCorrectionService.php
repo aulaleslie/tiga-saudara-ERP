@@ -10,6 +10,7 @@ use Modules\Purchase\Entities\PurchaseCorrection;
 use Modules\Purchase\Entities\PurchaseCorrectionToken;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Services\PurchaseSourceGuard;
 
 class PurchaseCorrectionService
 {
@@ -48,6 +49,7 @@ class PurchaseCorrectionService
             $activePayments,
         ) {
             $purchase = Purchase::lockForUpdate()->find($purchase->id);
+            PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
             $activePayments = PurchasePayment::lockForUpdate()
                 ->where('purchase_id', $purchase->id)
                 ->where('status', PurchasePayment::STATUS_ACTIVE)
@@ -298,14 +300,14 @@ class PurchaseCorrectionService
     private function resolvePaymentStatus(Purchase $purchase): string
     {
         if ($purchase->paid_amount >= $purchase->total_amount) {
-            return 'PAID';
+            return \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID;
         }
 
         if ($purchase->paid_amount > 0) {
-            return 'PARTIAL';
+            return \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL;
         }
 
-        return 'UNPAID';
+        return \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID;
     }
 
     private function validateConfirmationToken(

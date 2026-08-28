@@ -39,6 +39,20 @@
                         @endcan
                     </div>
                     <div class="card-body">
+                        @if($purchase->isConsignmentBilling() && $purchase->consignmentBillingConfirmation)
+                            <div class="alert alert-info border-left-info shadow-sm mb-3">
+                                <i class="bi bi-link-45deg mr-1"></i>
+                                <strong>Tagihan Konsinyasi:</strong>
+                                Dikonversi dari Konfirmasi Alokasi
+                                <a href="{{ route('consignments.confirmations.show', $purchase->consignmentBillingConfirmation->id) }}" class="font-weight-bold alert-link">
+                                    #{{ $purchase->consignmentBillingConfirmation->confirmation_number }}
+                                </a>
+                                @if($purchase->consignmentBillingConfirmation->supplier_invoice_number)
+                                    &middot; Faktur Pemasok: {{ $purchase->consignmentBillingConfirmation->supplier_invoice_number }}
+                                @endif
+                                &middot; Nilai komersial bersifat read-only; pembayaran tetap dapat dicatat.
+                            </div>
+                        @endif
                         <div class="table-responsive">
                             {!! $dataTable->table() !!}
                         </div>

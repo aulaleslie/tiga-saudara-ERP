@@ -259,6 +259,6 @@ class PurchasePaymentInvalidateDeletePolicyTest extends TestCase
         $this->purchase->refresh();
         $this->assertEquals(5000, $this->purchase->paid_amount);
         $this->assertEquals(5000, $this->purchase->due_amount);
-        $this->assertEquals('PARTIAL', $this->purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $this->purchase->payment_status), "Expected PARTIAL, got {$this->purchase->payment_status}");
     }
 }

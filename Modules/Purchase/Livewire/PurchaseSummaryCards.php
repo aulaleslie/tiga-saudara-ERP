@@ -12,7 +12,11 @@ use Illuminate\Support\Facades\Gate;
 
 class PurchaseSummaryCards extends Component
 {
-    private const BELUM_DIBAYAR_PAYMENT_STATUSES = ['UNPAID', 'PARTIAL'];
+    /**
+     * Payment status is persisted in mixed casing by different writers, so filters must
+     * match every stored spelling rather than one hardcoded form.
+     */
+    private const BELUM_DIBAYAR_PAYMENT_STATUSES = [\App\Constants\PaymentStatus::UNPAID, \App\Constants\PaymentStatus::PARTIAL];
 
     public $settingId;
 
@@ -130,7 +134,7 @@ class PurchaseSummaryCards extends Component
 
         $result = Purchase::query()
             ->where('setting_id', $this->settingId)
-            ->whereIn('payment_status', self::BELUM_DIBAYAR_PAYMENT_STATUSES)
+            ->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor(self::BELUM_DIBAYAR_PAYMENT_STATUSES))
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
             ->selectRaw('COUNT(*) as cnt, SUM(due_amount) as total')
@@ -189,7 +193,7 @@ class PurchaseSummaryCards extends Component
 
         $result = Purchase::query()
             ->where('setting_id', $this->settingId)
-            ->whereIn('payment_status', self::BELUM_DIBAYAR_PAYMENT_STATUSES)
+            ->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor(self::BELUM_DIBAYAR_PAYMENT_STATUSES))
             ->where('due_amount', '>', 0)
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
             ->where('due_date', '<', Carbon::today())
@@ -266,7 +270,7 @@ class PurchaseSummaryCards extends Component
         $result = PurchasePayment::active()
             ->whereHas('purchase', function ($q) {
                 $q->where('setting_id', $this->settingId)
-                  ->where('payment_status', 'PAID')
+                  ->whereIn('payment_status', \App\Constants\PaymentStatus::variants(\App\Constants\PaymentStatus::PAID))
                   ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED]);
             })
             ->where('date', '>=', $thirtyDaysAgo)
@@ -285,7 +289,7 @@ class PurchaseSummaryCards extends Component
             ->where('setting_id', $this->settingId)
             ->where('date', '>=', $thirtyDaysAgo)
             ->where('date', '<=', Carbon::today()->endOfDay())
-            ->where('payment_status', 'PAID')
+            ->whereIn('payment_status', \App\Constants\PaymentStatus::variants(\App\Constants\PaymentStatus::PAID))
             ->whereIn('status', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY, Purchase::STATUS_RECEIVED])
             ->selectRaw('COUNT(*) as cnt, SUM(paid_amount) as total')
             ->first();

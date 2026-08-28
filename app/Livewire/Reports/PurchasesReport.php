@@ -44,7 +44,7 @@ class PurchasesReport extends Component
                 return $query->where('status', $this->purchase_status);
             })
             ->when($this->payment_status, function ($query) {
-                return $query->where('payment_status', $this->payment_status);
+                return $query->wherePaymentStatus($this->payment_status);
             })
             ->orderBy('date', 'desc')->paginate(10);
 

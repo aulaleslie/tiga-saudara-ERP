@@ -32,6 +32,46 @@ class PurchaseDetail extends BaseModel
 
     protected $with = ['product', 'tax'];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Defence in depth behind the controller/service guards: commercial detail rows of a
+        // consignment-billing Purchase are derived from approved consignment allocations and
+        // must not be mutated by any unguarded service or direct Eloquent write. Creation is
+        // permitted so the conversion service can build the detail rows in the first place.
+        static::updating(function (PurchaseDetail $detail) {
+            $detail->assertMutableSource('updated');
+        });
+
+        static::deleting(function (PurchaseDetail $detail) {
+            $detail->assertMutableSource('deleted');
+        });
+    }
+
+    /**
+     * @throws \Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException
+     */
+    protected function assertMutableSource(string $operation): void
+    {
+        if (!$this->purchase_id) {
+            return;
+        }
+
+        // Resolve via a direct query rather than $this->purchase: the relation is not
+        // guaranteed to be loaded here, and lazy-loading it would trip strict-mode
+        // lazy-loading violations in callers that never needed the relation.
+        $purchase = $this->relationLoaded('purchase')
+            ? $this->getRelation('purchase')
+            : Purchase::withArchived()->select(['id', 'reference', 'source_type'])->find($this->purchase_id);
+
+        if ($purchase && $purchase->isConsignmentBilling()) {
+            throw new \Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException(
+                "Purchase detail #{$this->id} cannot be {$operation}: it belongs to consignment-billing Purchase #{$purchase->id} ({$purchase->reference}), whose commercial evidence is immutable."
+            );
+        }
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');
@@ -83,5 +123,10 @@ class PurchaseDetail extends BaseModel
     public function uomNormalizationLines(): HasMany
     {
         return $this->hasMany(UomNormalizationLine::class, 'purchase_detail_id');
+    }
+
+    public function consignmentLineages(): HasMany
+    {
+        return $this->hasMany(\Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::class, 'purchase_detail_id');
     }
 }

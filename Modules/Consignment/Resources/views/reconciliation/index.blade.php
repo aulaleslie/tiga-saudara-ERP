@@ -70,12 +70,19 @@
                         </select>
                     </div>
                     <div class="col-md-2 mb-2">
+                        <select name="billing_status" class="form-control">
+                            <option value="">-- Status Billing --</option>
+                            <option value="READY" {{ request('billing_status') === 'READY' ? 'selected' : '' }}>Siap Billing (Ready)</option>
+                            <option value="BILLED" {{ request('billing_status') === 'BILLED' ? 'selected' : '' }}>Sudah Billed (Purchase)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
                         <input type="text" name="serial_number" class="form-control" placeholder="Cari Nomor Seri" value="{{ request('serial_number') }}">
                     </div>
                     <div class="col-md-3 mb-2">
                         <input type="text" name="transaction_reference" class="form-control" placeholder="Cari Referensi Penjualan" value="{{ request('transaction_reference') }}">
                     </div>
-                    <div class="col-md-3 mb-2">
+                    <div class="col-md-2 mb-2">
                         <button type="submit" class="btn btn-secondary"><i class="bi bi-filter"></i> Filter</button>
                         <a href="{{ route('consignments.reconciliation.index') }}" class="btn btn-outline-secondary">Reset</a>
                     </div>
@@ -97,7 +104,8 @@
                                 <th>Pending Billed</th>
                                 <th>Approved Billed</th>
                                 <th>Sisa Pool</th>
-                                <th>Status</th>
+                                <th>Purchase / Invoice Reference</th>
+                                <th>Status Billing & Saldo</th>
                                 <th>Nomor Seri</th>
                                 <th>Sumber Penjualan & Blocker</th>
                             </tr>
@@ -157,10 +165,78 @@
                                     <td class="text-primary">{{ number_format($approvedAlloc, 3) }}</td>
                                     <td class="font-weight-bold text-success">{{ number_format($remainingPool, 3) }}</td>
                                     <td>
-                                        @if($d->consignmentReceiving->status === 'APPROVED')
-                                            <span class="badge badge-success">APPROVED</span>
-                                        @elseif($d->consignmentReceiving->status === 'REVERSED')
-                                            <span class="badge badge-secondary">REVERSED</span>
+                                        @php
+                                            // A receiving detail can be allocated across several confirmations and
+                                            // Purchases. Group every billed contribution by Purchase so none is lost,
+                                            // preserving allocation-level attribution of the billed quantity.
+                                            $billedGroups = [];
+                                            $billedAllocQty = 0.0;
+
+                                            foreach ($d->receiptAllocations as $ra) {
+                                                $c = $ra->line?->confirmation;
+                                                if (!$c || !$c->isBilled() || !$c->purchase) {
+                                                    continue;
+                                                }
+
+                                                $key = $c->purchase->id;
+                                                if (!isset($billedGroups[$key])) {
+                                                    $billedGroups[$key] = [
+                                                        'purchase' => $c->purchase,
+                                                        'invoices' => [],
+                                                        'quantity' => 0.0,
+                                                    ];
+                                                }
+
+                                                if ($c->supplier_invoice_number) {
+                                                    $billedGroups[$key]['invoices'][$c->supplier_invoice_number] = true;
+                                                }
+
+                                                $billedGroups[$key]['quantity'] += (float) $ra->allocated_base_quantity;
+                                                $billedAllocQty += (float) $ra->allocated_base_quantity;
+                                            }
+                                        @endphp
+                                        @forelse($billedGroups as $group)
+                                            <div @class(['mb-2' => !$loop->last])>
+                                                <a href="{{ route('purchases.show', $group['purchase']->id) }}" class="font-weight-bold">
+                                                    {{ $group['purchase']->reference }}
+                                                </a>
+                                                @if(!empty($group['invoices']))
+                                                    <small class="d-block text-muted">Inv: {{ implode(', ', array_keys($group['invoices'])) }}</small>
+                                                @endif
+                                                <small class="d-block text-muted">Qty: {{ number_format($group['quantity'], 3) }}</small>
+                                            </div>
+                                        @empty
+                                            <span class="text-muted">-</span>
+                                        @endforelse
+                                    </td>
+                                    <td>
+                                        @php
+                                            // Ready-for-billing quantity is what remains approved but not yet billed,
+                                            // so a detail carrying both billed and ready allocations shows both.
+                                            $readyAlloc = max(0, $approvedAlloc - $billedAllocQty);
+                                        @endphp
+                                        @if(!empty($billedGroups))
+                                            <span class="badge badge-primary">BILLED</span>
+                                            @foreach($billedGroups as $group)
+                                                @php
+                                                    // Canonical live balances from active payments, not stored columns.
+                                                    $livePaid = $group['purchase']->getEffectivePaidAmount();
+                                                    $liveDue = $group['purchase']->live_due_amount;
+                                                @endphp
+                                                <div @class(['mt-1', 'border-top pt-1' => !$loop->first])>
+                                                    @if(count($billedGroups) > 1)
+                                                        <small class="d-block text-muted">{{ $group['purchase']->reference }}</small>
+                                                    @endif
+                                                    <small class="d-block text-success">Paid: Rp {{ number_format($livePaid, 2, ',', '.') }}</small>
+                                                    <small class="d-block text-danger">Due: Rp {{ number_format($liveDue, 2, ',', '.') }}</small>
+                                                </div>
+                                            @endforeach
+                                        @endif
+                                        @if($readyAlloc > 0)
+                                            <span @class(['badge', 'badge-warning', 'mt-1' => !empty($billedGroups)])>READY FOR BILLING</span>
+                                            <small class="d-block text-muted">Qty: {{ number_format($readyAlloc, 3) }}</small>
+                                        @elseif(empty($billedGroups))
+                                            <span class="badge badge-light">UNBILLED</span>
                                         @endif
                                     </td>
                                     <td>

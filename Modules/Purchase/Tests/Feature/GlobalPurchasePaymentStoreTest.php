@@ -156,12 +156,12 @@ class GlobalPurchasePaymentStoreTest extends TestCase
         $this->purchase1->refresh();
         $this->assertEquals(0, $this->purchase1->due_amount);
         $this->assertEquals(1000, $this->purchase1->paid_amount);
-        $this->assertEquals('PAID', $this->purchase1->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $this->purchase1->payment_status), "Expected PAID, got {$this->purchase1->payment_status}");
 
         $this->purchase2->refresh();
         $this->assertEquals(500, $this->purchase2->due_amount);
         $this->assertEquals(500, $this->purchase2->paid_amount);
-        $this->assertEquals('PARTIAL', $this->purchase2->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $this->purchase2->payment_status), "Expected PARTIAL, got {$this->purchase2->payment_status}");
 
         // Check payments created
         $this->assertEquals(2, PurchasePayment::count());
@@ -224,14 +224,15 @@ class GlobalPurchasePaymentStoreTest extends TestCase
         \Illuminate\Support\Facades\Storage::fake('public');
         
         $tempPath = 'temp/dropzone/test-file.pdf';
-        \Illuminate\Support\Facades\Storage::disk('local')->put($tempPath, 'dummy content');
+        $pdfContent = "%PDF-1.4\n%TEST-GLOBAL-PAYMENT-PDF-CONTENT\n";
+        \Illuminate\Support\Facades\Storage::disk('local')->put($tempPath, $pdfContent);
         $fullPath = \Illuminate\Support\Facades\Storage::disk('local')->path($tempPath);
 
         // Ensure directory exists in fake disk
         if (!file_exists(dirname($fullPath))) {
             mkdir(dirname($fullPath), 0777, true);
         }
-        file_put_contents($fullPath, 'dummy content'); // write to fake path directly just in case
+        file_put_contents($fullPath, $pdfContent); // write valid PDF bytes
 
         $response = $this->actingAs($this->user)->post(route('purchases.global-payments.store', $this->supplier->id), [
             'reference' => 'GLOB-PAY-02',
@@ -268,5 +269,144 @@ class GlobalPurchasePaymentStoreTest extends TestCase
         ]);
 
         $this->assertEquals(0, PurchasePayment::count());
+    }
+
+    public function test_global_payment_rejects_inactive_payment_method()
+    {
+        $inactiveMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Inactive Bank Transfer',
+            'is_active' => false,
+            'coa_id' => $this->paymentMethod->coa_id ?? 1,
+        ]);
+
+        $service = app(\Modules\Purchase\Services\GlobalPurchasePaymentService::class);
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        $service->storeMultiPayment($this->supplier->id, [
+            'reference' => 'GLOB-INACTIVE-PM',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $inactiveMethod->id,
+            'allocations' => [
+                $this->purchase1->id => 100,
+            ]
+        ]);
+    }
+
+    public function test_global_payment_rejects_sub_cent_allocations()
+    {
+        $response = $this->actingAs($this->user)->post(route('purchases.global-payments.store', $this->supplier->id), [
+            'reference' => 'GLOB-SUBCENT-01',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $this->purchase1->id => 0.001,
+            ]
+        ]);
+
+        $response->assertSessionHasErrors(['allocations']);
+        $this->assertEquals(0, PurchasePayment::count());
+    }
+
+    public function test_global_payment_settlement_on_consignment_billing_purchase()
+    {
+        // Create a consignment billing purchase
+        $consignmentPurchase = Purchase::create([
+            'date' => now(),
+            'due_date' => '2026-09-28',
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000.0,
+            'paid_amount' => 0.0,
+            'due_amount' => 100000.0,
+            'status' => 'Received',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->purchase1->setting_id,
+            'source_type' => Purchase::SOURCE_CONSIGNMENT_BILLING,
+        ]);
+
+        $service = app(\Modules\Purchase\Services\GlobalPurchasePaymentService::class);
+
+        // 1. Partial global payment of 40,000
+        $service->storeMultiPayment($this->supplier->id, [
+            'reference' => 'GLOB-CONS-PAY-01',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $consignmentPurchase->id => 40000.0,
+            ]
+        ]);
+
+        $consignmentPurchase->refresh();
+        $this->assertEquals(40000.0, $consignmentPurchase->paid_amount);
+        $this->assertEquals(60000.0, $consignmentPurchase->due_amount);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $consignmentPurchase->payment_status));
+
+        // 2. Full remaining global payment of 60,000
+        $service->storeMultiPayment($this->supplier->id, [
+            'reference' => 'GLOB-CONS-PAY-02',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $consignmentPurchase->id => 60000.0,
+            ]
+        ]);
+
+        $consignmentPurchase->refresh();
+        $this->assertEquals(100000.0, $consignmentPurchase->paid_amount);
+        $this->assertEquals(0.0, $consignmentPurchase->due_amount);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $consignmentPurchase->payment_status));
+    }
+
+    public function test_global_payment_purges_media_on_transaction_failure()
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $tempPath = 'temp/dropzone/cleanup-fail-test.pdf';
+        $pdfContent = "%PDF-1.4\n%FAIL-CLEANUP-PDF\n";
+        \Illuminate\Support\Facades\Storage::disk('local')->put($tempPath, $pdfContent);
+        $fullPath = \Illuminate\Support\Facades\Storage::disk('local')->path($tempPath);
+
+        if (!file_exists(dirname($fullPath))) {
+            mkdir(dirname($fullPath), 0777, true);
+        }
+        file_put_contents($fullPath, $pdfContent);
+
+        $service = app(\Modules\Purchase\Services\GlobalPurchasePaymentService::class);
+
+        // Listen for Purchase updated event to simulate post-attachment commit failure
+        Purchase::updating(function () {
+            static $count = 0;
+            $count++;
+            if ($count >= 1) {
+                throw new \RuntimeException('Simulated transaction failure during global payment update');
+            }
+        });
+
+        $mediaPath = null;
+        try {
+            $service->storeMultiPayment($this->supplier->id, [
+                'reference' => 'GLOB-FAIL-MEDIA-CLEANUP',
+                'date' => now()->format('Y-m-d'),
+                'payment_method_id' => $this->paymentMethod->id,
+                'attachment' => 'cleanup-fail-test.pdf',
+                'allocations' => [
+                    $this->purchase1->id => 100,
+                ]
+            ]);
+            $this->fail('Expected RuntimeException on simulated failure');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Simulated transaction failure', $e->getMessage());
+        }
+
+        // Verify media collection is empty and no orphan media records exist
+        $this->assertEquals(0, \Spatie\MediaLibrary\MediaCollections\Models\Media::count());
     }
 }

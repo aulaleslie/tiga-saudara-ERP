@@ -122,4 +122,23 @@ class PurchasePaymentStatusScopeTest extends TestCase
         $this->assertTrue($invalidatedResults->contains($invalidated));
         $this->assertFalse($invalidatedResults->contains($active));
     }
+
+    /** @test */
+    public function it_filters_purchases_by_payment_status_casing_variants_via_where_payment_status_scope()
+    {
+        // Purchase created with 'Unpaid'
+        $purchasesUnpaid = Purchase::wherePaymentStatus('unpaid')->get();
+        $this->assertTrue($purchasesUnpaid->contains($this->purchase));
+
+        // Update payment_status column directly to uppercase 'PAID'
+        \Illuminate\Support\Facades\DB::table('purchases')
+            ->where('id', $this->purchase->id)
+            ->update(['payment_status' => 'PAID']);
+
+        $purchasesPaid = Purchase::wherePaymentStatus('Paid')->get();
+        $this->assertTrue($purchasesPaid->contains($this->purchase));
+
+        $purchasesMultiple = Purchase::wherePaymentStatus(['Paid', 'Partial'])->get();
+        $this->assertTrue($purchasesMultiple->contains($this->purchase));
+    }
 }

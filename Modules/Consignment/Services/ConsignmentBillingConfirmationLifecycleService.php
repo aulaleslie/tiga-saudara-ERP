@@ -677,15 +677,21 @@ class ConsignmentBillingConfirmationLifecycleService
                         throw new InvalidArgumentException("Receipt detail #{$crd->id} does not match confirmation setting and supplier.");
                     }
 
+                    $allocQty = (float) $raData['allocated_base_quantity'];
+                    $taxRate = (float) ($crd->tax_rate ?? 0);
+                    $unitPrice = (float) ($crd->unit_dpp > 0 ? $crd->unit_dpp : $crd->unit_cost);
+                    $calculatedTaxAmount = round($unitPrice * $allocQty * ($taxRate / 100.0), 2);
+
                     ConsignmentReceiptAllocation::create([
                         'consignment_billing_confirmation_line_id' => $line->id,
                         'consignment_receiving_detail_id' => $crd->id,
-                        'allocated_base_quantity' => $raData['allocated_base_quantity'],
+                        'allocated_base_quantity' => $allocQty,
                         'unit_cost' => $crd->unit_cost,
                         'unit_dpp' => $crd->unit_dpp,
                         'tax_id' => $crd->tax_id,
                         'tax_rate' => $crd->tax_rate,
-                        'tax_amount' => $crd->tax_amount,
+                        'tax_amount' => $calculatedTaxAmount,
+                        'tax_snapshot_version' => ConsignmentReceiptAllocation::TAX_SNAPSHOT_VERSION_PROPORTIONAL,
                         'receival_reference' => $crd->consignmentReceiving->receival->receival_number ?? null,
                         'receiving_reference' => $crd->consignmentReceiving->receiving_number ?? null,
                         'receiving_detail_snapshot' => [
@@ -693,6 +699,7 @@ class ConsignmentBillingConfirmationLifecycleService
                             'unit_dpp' => $crd->unit_dpp,
                             'tax_id' => $crd->tax_id,
                             'tax_rate' => $crd->tax_rate,
+                            'tax_snapshot_version' => ConsignmentReceiptAllocation::TAX_SNAPSHOT_VERSION_PROPORTIONAL,
                         ],
                     ]);
                 }

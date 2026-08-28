@@ -31,8 +31,8 @@ class SearchPurchaseReference extends Component
 
         try {
             // Fetch purchase references based on query
-            $this->search_results = Purchase::where('payment_status', 'paid') // Only paid purchases
-            ->where('reference', 'like', '%' . $this->query . '%')
+            $this->search_results = Purchase::wherePaymentStatus(\App\Constants\PaymentStatus::PAID) // Only paid purchases
+                ->where('reference', 'like', '%' . $this->query . '%')
                 ->take($this->how_many)
                 ->get();
 

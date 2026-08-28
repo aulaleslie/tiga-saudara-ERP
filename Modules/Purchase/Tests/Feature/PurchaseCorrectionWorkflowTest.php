@@ -295,7 +295,7 @@ class PurchaseCorrectionWorkflowTest extends TestCase
         $response->assertJsonStructure(['error']);
     }
 
-    public function test_payment_status_uses_uppercase_constants(): void
+    public function test_payment_status_uses_canonical_constants(): void
     {
         $detail = $this->purchase->purchaseDetails->first();
 
@@ -311,7 +311,7 @@ class PurchaseCorrectionWorkflowTest extends TestCase
         ]);
 
         $this->purchase->refresh();
-        $this->assertEquals('PAID', $this->purchase->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $this->purchase->payment_status), 'Expected PAID, got ' . $this->purchase->payment_status);
     }
 
     public function test_zero_active_payments_status(): void
@@ -362,12 +362,12 @@ class PurchaseCorrectionWorkflowTest extends TestCase
         ]);
 
         $noPay->refresh();
-        $this->assertEquals('UNPAID', $noPay->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::UNPAID, $noPay->payment_status), 'Expected UNPAID, got ' . $noPay->payment_status);
         $this->assertEquals(5000, $noPay->total_amount);
         $this->assertEquals(5000, $noPay->due_amount);
     }
 
-    public function test_unpaid_purchase_uses_uppercase_status(): void
+    public function test_unpaid_purchase_uses_canonical_status(): void
     {
         // Create unpaid purchase
         $unpaid = Purchase::create([
@@ -415,7 +415,7 @@ class PurchaseCorrectionWorkflowTest extends TestCase
         ]);
 
         $unpaid->refresh();
-        $this->assertEquals('UNPAID', $unpaid->payment_status);
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::UNPAID, $unpaid->payment_status), 'Expected UNPAID, got ' . $unpaid->payment_status);
     }
 
     public function test_super_admin_cannot_correct_drafted_purchase(): void

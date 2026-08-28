@@ -147,6 +147,120 @@ class PurchaseSummaryCardsTest extends TestCase
             ->assertSet('pelunasan.total', 3000);
     }
 
+    /**
+     * Payment status has been persisted in both uppercase ('PARTIAL') and canonical
+     * mixed-case ('Partial') by different writers. Cards and table filters must match
+     * every stored spelling, or reconciled purchases silently vanish from them.
+     */
+    public function test_summary_cards_and_table_filters_match_every_stored_payment_status_casing()
+    {
+        $make = function (string $reference, string $storedStatus, float $due, float $paid) {
+            $purchase = Purchase::create([
+                'date' => now(),
+                'due_date' => now()->addDays(5),
+                'reference' => $reference,
+                'supplier_id' => $this->supplier->id,
+                'setting_id' => $this->setting->id,
+                'total_amount' => 1000,
+                'paid_amount' => $paid,
+                'due_amount' => $due,
+                'status' => Purchase::STATUS_APPROVED,
+                'payment_status' => $storedStatus,
+                'payment_method' => 'Cash',
+            ]);
+
+            // Bypass the model's attribute handling so the exact casing is what lands in
+            // the column - this is the historical data shape being guarded against.
+            DB::table('purchases')->where('id', $purchase->id)->update(['payment_status' => $storedStatus]);
+
+            return $purchase;
+        };
+
+        $make('CASE-UPPER-UNPAID', 'UNPAID', 1000, 0);
+        $make('CASE-MIXED-UNPAID', 'Unpaid', 1000, 0);
+        $make('CASE-UPPER-PARTIAL', 'PARTIAL', 600, 400);
+        $make('CASE-MIXED-PARTIAL', 'Partial', 600, 400);
+
+        // All four open-debt purchases are counted regardless of stored casing.
+        Livewire::test(PurchaseSummaryCards::class)
+            ->assertSet('belumDibayar.count', 4)
+            ->assertSet('belumDibayar.total', 3200.0);
+
+        // The unpaid table filter must likewise return all four.
+        $table = Livewire::test(PurchaseTable::class, ['settingId' => $this->setting->id])
+            ->dispatch('purchase-filter', type: 'unpaid');
+
+        $table->assertSee('CASE-UPPER-UNPAID')
+            ->assertSee('CASE-MIXED-UNPAID')
+            ->assertSee('CASE-UPPER-PARTIAL')
+            ->assertSee('CASE-MIXED-PARTIAL');
+    }
+
+    /**
+     * A purchase reconciled through the canonical path must remain visible across the
+     * whole unpaid -> partial -> paid lifecycle.
+     */
+    public function test_reconciled_purchase_stays_visible_through_unpaid_partial_paid_transitions()
+    {
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(5),
+            'reference' => 'LIFECYCLE-001',
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => Purchase::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+        ]);
+
+        // UNPAID: appears in open debt.
+        Livewire::test(PurchaseSummaryCards::class)
+            ->assertSet('belumDibayar.count', 1)
+            ->assertSet('belumDibayar.total', 1000.0);
+
+        // PARTIAL: still open debt, at the reduced outstanding amount.
+        PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 400,
+            'date' => now(),
+            'reference' => 'LIFECYCLE-PAY-1',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+            'payment_method' => 'Cash',
+        ]);
+        $purchase->refresh()->reconcileFromActivePayments();
+
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(
+            \App\Constants\PaymentStatus::PARTIAL,
+            $purchase->fresh()->payment_status
+        ), 'Reconciliation must produce a canonical PARTIAL status.');
+
+        Livewire::test(PurchaseSummaryCards::class)
+            ->assertSet('belumDibayar.count', 1)
+            ->assertSet('belumDibayar.total', 600.0);
+
+        // PAID: leaves open debt entirely.
+        PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 600,
+            'date' => now(),
+            'reference' => 'LIFECYCLE-PAY-2',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+            'payment_method' => 'Cash',
+        ]);
+        $purchase->refresh()->reconcileFromActivePayments();
+
+        $this->assertTrue(\App\Constants\PaymentStatus::matches(
+            \App\Constants\PaymentStatus::PAID,
+            $purchase->fresh()->payment_status
+        ), 'Reconciliation must produce a canonical PAID status.');
+
+        Livewire::test(PurchaseSummaryCards::class)
+            ->assertSet('belumDibayar.count', 0);
+    }
+
     public function test_purchase_summary_cards_isolates_data_by_tenant_setting_id()
     {
         $setting2 = Setting::create([

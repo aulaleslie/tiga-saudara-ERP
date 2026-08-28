@@ -436,6 +436,8 @@ return [
         'consignments.allocations.submit' => 'Ajukan Alokasi Penjualan Konsinyasi',
         'consignments.allocations.approve' => 'Setujui Alokasi Penjualan Konsinyasi',
         'consignments.allocations.reject' => 'Tolak Alokasi Penjualan Konsinyasi',
+        'consignments.billing.access' => 'Hak Akses Tagihan Konsinyasi Supplier',
+        'consignments.billing.convert' => 'Konversi Tagihan Konsinyasi Supplier',
     ],
 
     'Notifications' => [

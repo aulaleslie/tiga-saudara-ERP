@@ -50,4 +50,10 @@ Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignment
     Route::post('confirmations/{id}/submit', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'submit'])->name('confirmations.submit');
     Route::post('confirmations/{id}/approve', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'approve'])->name('confirmations.approve');
     Route::post('confirmations/{id}/reject', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'reject'])->name('confirmations.reject');
+
+    // Consignment Billing Conversion
+    Route::get('billing', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConversionController::class, 'index'])->name('billing.index');
+    Route::get('confirmations/{id}/billing-convert', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConversionController::class, 'create'])->name('billing.create');
+    Route::post('confirmations/{id}/billing-preview', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConversionController::class, 'preview'])->name('billing.preview');
+    Route::post('confirmations/{id}/billing-convert', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConversionController::class, 'convert'])->name('billing.convert');
 });

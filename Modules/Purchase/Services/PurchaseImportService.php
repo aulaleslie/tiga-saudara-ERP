@@ -1295,7 +1295,7 @@ class PurchaseImportService
                 }
             }
 
-            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+            $paymentStatus = $dueAmount <= 0.01 ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID : ($paidAmount > 0.01 ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL : \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID);
 
             // Create purchase
             $purchase = new Purchase();

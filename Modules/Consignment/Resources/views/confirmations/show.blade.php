@@ -26,12 +26,14 @@
                         <small class="text-muted">Tanggal: {{ $confirmation->date->format('d/m/Y') }} | Supplier: {{ $confirmation->supplier->supplier_name }}</small>
                     </div>
                     <div>
-                        @if($confirmation->isDraft())
-                            <span class="badge badge-secondary p-2">DRAFT</span>
-                        @elseif($confirmation->isWaitingApproval())
-                            <span class="badge badge-warning p-2">WAITING APPROVAL</span>
+                        @if($confirmation->isBilled())
+                            <span class="badge badge-primary p-2">BILLED (TERTAGIH)</span>
                         @elseif($confirmation->isApproved())
                             <span class="badge badge-success p-2">APPROVED (SIAP BILLING)</span>
+                        @elseif($confirmation->isWaitingApproval())
+                            <span class="badge badge-warning p-2">WAITING APPROVAL</span>
+                        @elseif($confirmation->isDraft())
+                            <span class="badge badge-secondary p-2">DRAFT</span>
                         @elseif($confirmation->isRejected())
                             <span class="badge badge-danger p-2">REJECTED</span>
                         @endif
@@ -62,6 +64,21 @@
                         <span>{{ $confirmation->notes ?? '-' }}</span>
                     </div>
                 </div>
+
+                @if($confirmation->isBilled())
+                    <div class="alert alert-success border-left-success shadow-sm mb-4">
+                        <h6 class="font-weight-bold mb-1"><i class="bi bi-receipt mr-1"></i> Informasi Tagihan & Purchase Terbuat</h6>
+                        <div>No. Faktur Supplier: <strong>{{ $confirmation->supplier_invoice_number }}</strong> (Tgl Faktur: {{ $confirmation->invoice_date?->format('d/m/Y') }})</div>
+                        <div>Dikonversi oleh: <strong>{{ $confirmation->biller->name ?? '-' }}</strong> pada {{ $confirmation->billed_at?->format('d/m/Y H:i') }}</div>
+                        @if($confirmation->purchase)
+                            <div class="mt-2">
+                                <a href="{{ route('purchases.show', $confirmation->purchase->id) }}" class="btn btn-outline-success btn-sm font-weight-bold">
+                                    <i class="bi bi-box-arrow-up-right"></i> Lihat Purchase #{{ $confirmation->purchase->reference }} (Rp {{ number_format($confirmation->purchase->total_amount, 2, ',', '.') }})
+                                </a>
+                            </div>
+                        @endif
+                    </div>
+                @endif
 
                 @if($confirmation->isRejected() && $confirmation->rejection_reason)
                     <div class="alert alert-danger mb-4">
@@ -112,6 +129,14 @@
                             <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#rejectModal">
                                 <i class="bi bi-x-circle"></i> Tolak Alokasi
                             </button>
+                        @endcan
+                    @endif
+
+                    @if($confirmation->isApproved() && $confirmation->is_ready_for_billing && !$confirmation->isBilled())
+                        @can('consignments.billing.convert')
+                            <a href="{{ route('consignments.billing.create', $confirmation->id) }}" class="btn btn-success font-weight-bold">
+                                <i class="bi bi-receipt"></i> Konversi Ke Tagihan Supplier (Purchase)
+                            </a>
                         @endcan
                     @endif
                 </div>

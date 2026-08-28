@@ -23,8 +23,11 @@ class Purchase extends BaseModel implements HasMedia
     use InteractsWithMedia;
 
     protected array $uppercaseExcept = [
-        'note', 'rejection_note'
+        'note', 'rejection_note', 'payment_status'
     ];
+
+    public const SOURCE_ORDINARY = 'ORDINARY';
+    public const SOURCE_CONSIGNMENT_BILLING = 'CONSIGNMENT_BILLING';
 
     protected $fillable = [
         'date',
@@ -44,6 +47,7 @@ class Purchase extends BaseModel implements HasMedia
         'total_amount',
         'due_amount',
         'status',
+        'source_type',
         'payment_status',
         'payment_method',
         'note',
@@ -107,6 +111,10 @@ class Purchase extends BaseModel implements HasMedia
      */
     public function resolveEditMode(?\Illuminate\Contracts\Auth\Authenticatable $user = null): string
     {
+        if ($this->isConsignmentBilling()) {
+            return self::EDIT_MODE_NONE;
+        }
+
         $user = $user ?? auth()->user();
         if (!$user) {
             return self::EDIT_MODE_NONE;
@@ -165,11 +173,36 @@ class Purchase extends BaseModel implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('attachments');
+        $this->addMediaCollection('attachments')
+            ->acceptsMimeTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
     }
 
     public function purchaseDetails() {
         return $this->hasMany(PurchaseDetail::class, 'purchase_id', 'id');
+    }
+
+    public function consignmentBillingConfirmation() {
+        return $this->hasOne(\Modules\Consignment\Entities\ConsignmentBillingConfirmation::class, 'purchase_id', 'id');
+    }
+
+    public function consignmentLineages() {
+        return $this->hasMany(\Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::class, 'purchase_id', 'id');
+    }
+
+    public function scopeConsignmentBilling($query) {
+        return $query->where('source_type', self::SOURCE_CONSIGNMENT_BILLING);
+    }
+
+    public function scopeOrdinary($query) {
+        return $query->where('source_type', self::SOURCE_ORDINARY);
+    }
+
+    public function isConsignmentBilling(): bool {
+        return $this->source_type === self::SOURCE_CONSIGNMENT_BILLING;
+    }
+
+    public function isOrdinary(): bool {
+        return empty($this->source_type) || $this->source_type === self::SOURCE_ORDINARY;
     }
 
     public function purchasePayments() {
@@ -221,6 +254,10 @@ class Purchase extends BaseModel implements HasMedia
         });
 
         static::creating(function ($model) {
+            if (empty($model->source_type)) {
+                $model->source_type = self::SOURCE_ORDINARY;
+            }
+
             // Only auto-generate if not already set (allow service/explicit allocation to take precedence)
             if ($model->reference) {
                 return;
@@ -238,6 +275,19 @@ class Purchase extends BaseModel implements HasMedia
 
             $allocation = $allocator->allocate($namespace);
             $model->reference = $allocation->reference;
+        });
+
+        static::updating(function ($model) {
+            if ($model->getOriginal('source_type') === self::SOURCE_CONSIGNMENT_BILLING) {
+                $dirty = array_keys($model->getDirty());
+                $allowed = ['paid_amount', 'due_amount', 'payment_status', 'updated_at'];
+                $forbidden = array_diff($dirty, $allowed);
+
+                if (!empty($forbidden)) {
+                    $forbiddenStr = implode(', ', $forbidden);
+                    throw new \DomainException("Commercial header fields [{$forbiddenStr}] on consignment-billing Purchase #{$model->id} ({$model->reference}) are immutable. Only settlement balances may be updated.");
+                }
+            }
         });
     }
 
@@ -317,6 +367,12 @@ class Purchase extends BaseModel implements HasMedia
             return (float) ($this->attributes['active_payments_sum'] ?: 0);
         }
 
+        if ($this->relationLoaded('purchasePayments')) {
+            return (float) $this->purchasePayments
+                ->where('status', PurchasePayment::STATUS_ACTIVE)
+                ->sum('amount');
+        }
+
         return (float) $this->purchasePayments()
             ->where('status', PurchasePayment::STATUS_ACTIVE)
             ->sum('amount');
@@ -336,13 +392,29 @@ class Purchase extends BaseModel implements HasMedia
         $paidAmount = $this->getEffectivePaidAmount();
         $dueAmount = max(0, round($this->total_amount - $paidAmount, 2));
 
-        $status = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+        $status = $dueAmount <= 0.01 ? self::PAYMENT_STATUS_PAID : ($paidAmount > 0.01 ? self::PAYMENT_STATUS_PARTIAL : self::PAYMENT_STATUS_UNPAID);
 
         $this->update([
             'paid_amount' => $paidAmount,
             'due_amount' => $dueAmount,
             'payment_status' => $status,
         ]);
+    }
+
+    /**
+     * Filter purchases by payment status, matching all stored casing variants safely.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param string|array<int, string> $statusOrStatuses
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeWherePaymentStatus($query, $statusOrStatuses)
+    {
+        if (is_array($statusOrStatuses)) {
+            return $query->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor($statusOrStatuses));
+        }
+
+        return $query->whereIn('payment_status', \App\Constants\PaymentStatus::variants((string) $statusOrStatuses));
     }
 
     /**

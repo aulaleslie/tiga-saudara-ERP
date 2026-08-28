@@ -282,9 +282,9 @@ class GlobalPurchasePaymentPartialStatesTest extends TestCase
         // Assert payment_status
         $this->assertNotNull($receivedPartially->due_amount);
         if ($receivedPartially->due_amount > 0) {
-            $this->assertEquals('PARTIAL', $receivedPartially->payment_status);
+            $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $receivedPartially->payment_status), "Expected PARTIAL, got {$receivedPartially->payment_status}");
         } else {
-            $this->assertEquals('PAID', $receivedPartially->payment_status);
+            $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $receivedPartially->payment_status), 'Expected PAID, got ' . $receivedPartially->payment_status);
         }
     }
 
@@ -342,9 +342,9 @@ class GlobalPurchasePaymentPartialStatesTest extends TestCase
         // Assert payment_status
         $this->assertNotNull($returnedPartially->due_amount);
         if ($returnedPartially->due_amount > 0) {
-            $this->assertEquals('PARTIAL', $returnedPartially->payment_status);
+            $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PARTIAL, $returnedPartially->payment_status), "Expected PARTIAL, got {$returnedPartially->payment_status}");
         } else {
-            $this->assertEquals('PAID', $returnedPartially->payment_status);
+            $this->assertTrue(\App\Constants\PaymentStatus::matches(\App\Constants\PaymentStatus::PAID, $returnedPartially->payment_status), 'Expected PAID, got ' . $returnedPartially->payment_status);
         }
     }
 

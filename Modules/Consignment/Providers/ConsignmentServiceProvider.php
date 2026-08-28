@@ -29,6 +29,12 @@ class ConsignmentServiceProvider extends ServiceProvider
         $this->commands([
             \Modules\Consignment\Console\DiscoverConsignmentSoldSourcesCommand::class,
         ]);
+
+        \Spatie\MediaLibrary\MediaCollections\Models\Media::deleting(function (\Spatie\MediaLibrary\MediaCollections\Models\Media $media) {
+            if ($media->getCustomProperty('source') === 'CONSIGNMENT_BILLING' && empty($media->isAuthorizedCompensatingRollback)) {
+                throw new \DomainException("Conversion supplier invoice attachment #{$media->id} is immutable and cannot be deleted.");
+            }
+        });
     }
 
     /**

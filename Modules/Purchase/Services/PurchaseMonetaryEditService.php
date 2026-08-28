@@ -123,10 +123,10 @@ class PurchaseMonetaryEditService extends AbstractMonetaryEditService
     private function resolvePaymentStatus(float $paid, float $totalAmount): string
     {
         if ($paid <= 0.0) {
-            return 'UNPAID';
+            return \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID;
         }
 
-        return $paid >= round($totalAmount, 2) ? 'PAID' : 'PARTIAL';
+        return $paid >= round($totalAmount, 2) ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID : \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL;
     }
 
     protected function effectivePaidAmount(Model $document): float
