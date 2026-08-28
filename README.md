@@ -20,6 +20,52 @@
 - run `` php artisan serve ``
 - then visit `` http://localhost:8000 or http://127.0.0.1:8000 ``.
 
+## WSL Quick Setup (One Command)
+
+If you're on Windows with WSL2, the bootstrap script handles everything automatically — Docker, PHP, Node, MySQL, database restore, and starting the dev servers:
+
+```bash
+git clone https://github.com/aulaleslie/tiga-saudara-ERP.git
+cd tiga-saudara-ERP
+./scripts/setup-wsl.sh
+```
+
+The script will:
+1. Install **Docker Engine** inside WSL (if not present)
+2. Install **PHP 8.2** with all required extensions (if not present)
+3. Install **Node.js 22 LTS** (if not present)
+4. Start a **MySQL 8.0** Docker container (root, no password, port 3306)
+5. Restore the database from `backup/database-backup-a.zip`
+6. Run `composer install`, `npm install`, and Laravel setup
+7. Start `php artisan serve` and `npm run dev`
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--backup=b` | Use backup slot `b` instead of `a` |
+| `--fresh-db` | Drop existing DB and re-restore from backup |
+| `--skip-serve` | Only set up the environment, don't start servers |
+| `--help` | Show usage help |
+
+**Examples:**
+
+```bash
+# First-time setup (installs everything + restores DB + starts servers)
+./scripts/setup-wsl.sh
+
+# Re-run with a clean database
+./scripts/setup-wsl.sh --fresh-db
+
+# Use backup slot b
+./scripts/setup-wsl.sh --backup=b
+
+# Setup only, start servers manually later
+./scripts/setup-wsl.sh --skip-serve
+```
+
+> **Note:** The script is idempotent — safe to run multiple times. It skips what's already installed and only restores the database if it's empty (unless `--fresh-db` is passed).
+
 ### Browser Extension Console Noise (Local Dev)
 
 If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-state-tree`, or `lockdown-install.js` warnings during local development, follow this runbook first:
