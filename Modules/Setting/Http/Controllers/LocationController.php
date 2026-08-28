@@ -104,30 +104,29 @@ class LocationController extends Controller
 
         $newIsConsignment = $request->boolean('is_consignment');
 
-        if ($location->is_consignment !== $newIsConsignment) {
-            // Guard: check for any active stock in location
-            $hasStock = ProductStock::where('location_id', $location->id)
-                ->where(function ($q) {
-                    $q->where('quantity', '>', 0)
-                        ->orWhere('broken_quantity', '>', 0)
-                        ->orWhere('quantity_tax', '>', 0)
-                        ->orWhere('quantity_non_tax', '>', 0)
-                        ->orWhere('broken_quantity_tax', '>', 0)
-                        ->orWhere('broken_quantity_non_tax', '>', 0);
-                })
-                ->exists();
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($location, $request, $newIsConsignment) {
+                $lockedLocation = Location::whereKey($location->id)->lockForUpdate()->firstOrFail();
 
-            if ($hasStock) {
-                return redirect()->back()
-                    ->withInput()
-                    ->withErrors(['is_consignment' => 'Klasifikasi lokasi tidak dapat diubah karena lokasi masih memiliki stok aktif.']);
-            }
+                if ($lockedLocation->is_consignment !== $newIsConsignment) {
+                    $checker = app(\Modules\Consignment\Services\ConsignmentLocationDependencyChecker::class);
+                    $blockers = $checker->getReclassificationBlockers($lockedLocation);
+
+                    if (!empty($blockers)) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'is_consignment' => 'Klasifikasi lokasi tidak dapat diubah: ' . implode('; ', $blockers),
+                        ]);
+                    }
+                }
+
+                $lockedLocation->update([
+                    'name' => $request->name,
+                    'is_consignment' => $newIsConsignment,
+                ]);
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()->back()->withInput()->withErrors($e->errors());
         }
-
-        $location->update([
-            'name' => $request->name,
-            'is_consignment' => $newIsConsignment,
-        ]);
 
         toast('Lokasi diperbaharui!', 'info');
 

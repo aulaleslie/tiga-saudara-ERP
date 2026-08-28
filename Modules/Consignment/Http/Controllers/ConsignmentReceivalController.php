@@ -51,7 +51,7 @@ class ConsignmentReceivalController extends Controller
         }
 
         $receivals = $query->paginate(20)->withQueryString();
-        $suppliers = Supplier::orderBy('supplier_name')->get();
+        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
 
         return view('consignment::receivals.index', compact('receivals', 'suppliers'));
     }
@@ -222,11 +222,6 @@ class ConsignmentReceivalController extends Controller
 
         $receival = ConsignmentReceival::where('setting_id', $settingId)->findOrFail($id);
 
-        if (!$receival->canBeEdited()) {
-            toast('Dokumen tidak dapat diubah karena statusnya ' . $receival->status, 'error');
-            return redirect()->route('consignments.receivals.show', $receival->id);
-        }
-
         $request->validate([
             'supplier_id' => ['required', 'integer', Rule::exists('suppliers', 'id')->where('setting_id', $settingId)],
             'date' => 'required|date',
@@ -243,22 +238,12 @@ class ConsignmentReceivalController extends Controller
         try {
             $normalizedLines = $this->receivalService->normalizeLines($setting, $request->input('lines', []));
 
-            DB::transaction(function () use ($receival, $request, $normalizedLines) {
-                $receival->update([
-                    'supplier_id' => $request->supplier_id,
-                    'date' => $request->date,
-                    'supplier_delivery_reference' => $request->supplier_delivery_reference,
-                    'note' => $request->note,
-                    'updated_by' => auth()->id(),
-                ]);
-
-                $receival->lines()->delete();
-
-                foreach ($normalizedLines as $lineData) {
-                    $lineData['consignment_receival_id'] = $receival->id;
-                    ConsignmentReceivalLine::create($lineData);
-                }
-            });
+            $this->lifecycleService->update(
+                $receival,
+                $request->only(['supplier_id', 'date', 'supplier_delivery_reference', 'note']),
+                $normalizedLines,
+                auth()->id()
+            );
 
             toast('Dokumen penerimaan konsinyasi berhasil diperbarui.', 'success');
             return redirect()->route('consignments.receivals.show', $receival->id);
@@ -274,14 +259,14 @@ class ConsignmentReceivalController extends Controller
 
         $receival = ConsignmentReceival::where('setting_id', $settingId)->findOrFail($id);
 
-        if (!$receival->canBeDeleted()) {
-            toast('Hanya draf dokumen yang belum memiliki riwayat penerimaan yang dapat dihapus.', 'error');
+        try {
+            $this->lifecycleService->delete($receival);
+            toast('Draft penerimaan konsinyasi berhasil dihapus.', 'info');
+            return redirect()->route('consignments.receivals.index');
+        } catch (Exception $e) {
+            toast($e->getMessage(), 'error');
             return redirect()->route('consignments.receivals.show', $receival->id);
         }
-
-        $receival->delete();
-        toast('Draft penerimaan konsinyasi berhasil dihapus.', 'info');
-        return redirect()->route('consignments.receivals.index');
     }
 
     public function submit(int $id): RedirectResponse

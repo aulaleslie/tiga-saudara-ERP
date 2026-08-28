@@ -44,10 +44,10 @@ class ConsignmentReceivingService
             }
 
             $locationId = (int) ($input['location_id'] ?? 0);
-            $location = Location::whereKey($locationId)->first();
+            $location = Location::whereKey($locationId)->lockForUpdate()->first();
 
-            if (!$location || $location->setting_id !== $lockedReceival->setting_id || !$location->is_consignment) {
-                throw new Exception("Lokasi penerimaan tidak valid atau bukan merupakan lokasi konsinyasi pada bisnis ini.");
+            if (!$location || $location->setting_id !== $lockedReceival->setting_id || !$location->is_consignment || !$location->is_active) {
+                throw new Exception("Lokasi penerimaan tidak valid, tidak aktif, atau bukan merupakan lokasi konsinyasi pada bisnis ini.");
             }
 
             $detailsInput = $input['details'] ?? [];
@@ -195,8 +195,8 @@ class ConsignmentReceivingService
 
             // Stable lock on location to prevent race conditions during first ProductStock creation
             $location = Location::whereKey($locationId)->lockForUpdate()->firstOrFail();
-            if (!$location->is_consignment || $location->setting_id !== $settingId) {
-                throw new Exception("Lokasi penerimaan tidak valid atau bukan merupakan lokasi konsinyasi.");
+            if (!$location->is_consignment || $location->setting_id !== $settingId || !$location->is_active) {
+                throw new Exception("Lokasi penerimaan tidak valid, tidak aktif, atau bukan merupakan lokasi konsinyasi.");
             }
 
             $settingLocationIds = Location::where('setting_id', $settingId)->pluck('id');

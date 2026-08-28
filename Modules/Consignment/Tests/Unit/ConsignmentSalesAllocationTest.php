@@ -1267,4 +1267,86 @@ class ConsignmentSalesAllocationTest extends TestCase
         $soldSource = ConsignmentSoldSource::where('dispatch_detail_id', $dd->id)->firstOrFail();
         $this->assertFalse((bool)$soldSource->has_reconstruction_blocker);
     }
+
+    public function test_discovery_skips_location_reclassified_between_selection_and_persistence()
+    {
+        $tempLoc = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Temp Consignment Location for Race Test',
+            'is_consignment' => true,
+            'is_active' => true,
+        ]);
+
+        $sale = $this->createTestSale('SALE-RACE-001');
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'status' => Dispatch::STATUS_APPROVED,
+            'approved_at' => now(),
+        ]);
+
+        $dd = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'location_id' => $tempLoc->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => true,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+        ]);
+
+        // Inject hook to reclassify location AFTER candidate selection but BEFORE in-transaction persistence
+        $this->discoveryService->beforePersistHook = function ($detail) use ($tempLoc) {
+            if ($detail->location_id === $tempLoc->id) {
+                Location::whereKey($tempLoc->id)->update(['is_consignment' => false]);
+            }
+        };
+
+        $result = $this->discoveryService->discoverForSetting($this->setting->id);
+
+        // Discovery candidate was selected as consignment, but in-transaction lock revalidates and rejects persistence
+        $this->assertEquals(0, ConsignmentSoldSource::where('dispatch_detail_id', $dd->id)->count());
+        $this->assertEquals(0, $result['created']);
+        $this->assertEquals(1, $result['excluded']);
+        $this->assertEquals('SKIPPED_RECLASSIFIED_OR_DUPLICATE', $result['details'][0]['status']);
+    }
+
+    public function test_discovery_uses_locked_dispatch_detail_recomputed_snapshot_if_detail_mutated_concurrently()
+    {
+        $sale = $this->createTestSale('SALE-MUTATION-001');
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'status' => Dispatch::STATUS_APPROVED,
+            'approved_at' => now(),
+        ]);
+
+        $dd = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'location_id' => $this->consignmentLocation->id,
+            'dispatched_quantity' => 2,
+            'is_inventory_managed' => true,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+        ]);
+
+        // Inject hook to mutate dispatched_quantity on DB row AFTER selection but BEFORE in-transaction locking/persistence
+        $this->discoveryService->beforePersistHook = function ($detail) use ($dd) {
+            if ($detail->id === $dd->id) {
+                DispatchDetail::whereKey($dd->id)->update(['dispatched_quantity' => 5]);
+            }
+        };
+
+        $result = $this->discoveryService->discoverForSetting($this->setting->id);
+
+        $this->assertEquals(1, $result['created']);
+        $soldSource = ConsignmentSoldSource::where('dispatch_detail_id', $dd->id)->firstOrFail();
+
+        // Verify that original_base_quantity and current_dispatched_quantity in snapshot reflect the locked DB state (5), not the stale state (2)
+        $this->assertEquals(5, (float) $soldSource->original_base_quantity);
+        $this->assertEquals(5, (float) $soldSource->source_snapshot['current_dispatched_quantity']);
+    }
 }

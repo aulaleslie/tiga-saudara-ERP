@@ -25,9 +25,17 @@ class ConsignmentReceivalService
 
         $isPkp = (bool) ($setting->is_pkp ?? false);
         $normalizedLines = [];
+        $seenProductIds = [];
 
         foreach ($linesInput as $index => $line) {
             $productId = (int) ($line['product_id'] ?? 0);
+
+            if (in_array($productId, $seenProductIds, true)) {
+                $productName = Product::where('id', $productId)->value('product_name') ?? "#{$productId}";
+                throw new InvalidArgumentException("Setiap produk hanya dapat dicatat satu kali per dokumen penerimaan konsinyasi (terdapat duplikasi produk '{$productName}').");
+            }
+            $seenProductIds[] = $productId;
+
             $product = Product::with(['unit', 'baseUnit'])->find($productId);
 
             if (!$product) {

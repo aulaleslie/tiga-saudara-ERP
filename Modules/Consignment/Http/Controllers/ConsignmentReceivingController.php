@@ -39,7 +39,7 @@ class ConsignmentReceivingController extends Controller
         }
 
         $receivings = $query->paginate(20)->withQueryString();
-        $locations = Location::where('setting_id', $settingId)->consignment()->get();
+        $locations = Location::where('setting_id', $settingId)->active()->consignment()->get();
 
         return view('consignment::receivings.index', compact('receivings', 'locations'));
     }
@@ -63,7 +63,7 @@ class ConsignmentReceivingController extends Controller
             return redirect()->route('consignments.receivals.show', $receival->id);
         }
 
-        $locations = Location::where('setting_id', $settingId)->consignment()->get();
+        $locations = Location::where('setting_id', $settingId)->active()->consignment()->get();
 
         return view('consignment::receivings.create', compact('receival', 'locations'));
     }

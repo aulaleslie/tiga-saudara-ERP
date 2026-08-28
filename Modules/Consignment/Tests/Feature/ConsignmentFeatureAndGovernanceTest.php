@@ -221,6 +221,113 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
         );
     }
 
+    public function test_receival_index_supplier_filter_is_scoped_to_active_setting()
+    {
+        $foreignSetting = Setting::create([
+            'company_name' => 'Foreign Business',
+            'company_email' => 'foreign@example.com',
+            'company_phone' => '08999888777',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'foreign@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Foreign Address',
+            'is_pkp' => false,
+            'document_prefix' => 'FRG',
+        ]);
+
+        $foreignSupplier = Supplier::create([
+            'setting_id' => $foreignSetting->id,
+            'supplier_name' => 'Foreign Vendor Unique Name',
+            'supplier_email' => 'vendor@foreign.com',
+            'supplier_phone' => '08777666555',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Foreign Vendor St 9',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.receivals.index'));
+
+        $response->assertOk();
+        $suppliersViewData = $response->viewData('suppliers');
+        $this->assertFalse($suppliersViewData->contains('id', $foreignSupplier->id));
+        $this->assertTrue($suppliersViewData->contains('id', $this->supplier->id));
+    }
+
+    public function test_receival_create_and_edit_reject_duplicate_product_ids_without_partial_persistence()
+    {
+        // 1. Create with duplicate products
+        $responseStore = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Duplicate product test',
+                'lines' => [
+                    [
+                        'product_id' => $this->product->id,
+                        'quantity' => 5,
+                        'unit_cost' => 150000,
+                    ],
+                    [
+                        'product_id' => $this->product->id, // Duplicate product!
+                        'quantity' => 10,
+                        'unit_cost' => 150000,
+                    ],
+                ],
+            ]);
+
+        $responseStore->assertSessionHasErrors('lines');
+        $this->assertEquals(0, ConsignmentReceival::count());
+        $this->assertEquals(0, ConsignmentReceivalLine::count());
+
+        // 2. Edit with duplicate products
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_DRAFT,
+        ]);
+
+        $originalLine = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 150000,
+            'unit_dpp' => 150000,
+            'subtotal_cost' => 750000,
+            'total_cost' => 750000,
+        ]);
+
+        $responseUpdate = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->put(route('consignments.receivals.update', $receival->id), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Update duplicate test',
+                'lines' => [
+                    [
+                        'product_id' => $this->product->id,
+                        'quantity' => 5,
+                        'unit_cost' => 150000,
+                    ],
+                    [
+                        'product_id' => $this->product->id, // Duplicate product!
+                        'quantity' => 10,
+                        'unit_cost' => 150000,
+                    ],
+                ],
+            ]);
+
+        $responseUpdate->assertSessionHasErrors('lines');
+        $this->assertEquals(1, $receival->lines()->count());
+        $this->assertEquals(5, (float) $originalLine->fresh()->quantity);
+    }
+
     public function test_purchase_receiving_rejects_consignment_location()
     {
         $purchase = Purchase::create([
@@ -569,5 +676,56 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
             ->get(route('consignments.reconciliation.index'));
 
         $response2->assertOk();
+    }
+
+    public function test_location_reclassification_is_blocked_when_pending_receiving_exists()
+    {
+        $role = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+        $permission = Permission::firstOrCreate(['name' => 'locations.edit', 'guard_name' => 'web']);
+        $role->givePermissionTo($permission);
+        $this->user->givePermissionTo($permission);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 150000,
+            'unit_dpp' => 150000,
+            'subtotal_cost' => 750000,
+            'total_cost' => 750000,
+        ]);
+
+        $receivingService = app(\Modules\Consignment\Services\ConsignmentReceivingService::class);
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 5,
+                ]
+            ]
+        ], $this->user->id);
+
+        $this->assertTrue($receiving->isPending());
+
+        // Attempting to reclassify consignment location to standard location via controller
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->put(route('locations.update', $this->consignmentLocation->id), [
+                'name' => $this->consignmentLocation->name,
+                'is_consignment' => 0,
+            ]);
+
+        $response->assertSessionHasErrors('is_consignment');
+        $this->assertTrue((bool) $this->consignmentLocation->fresh()->is_consignment);
     }
 }

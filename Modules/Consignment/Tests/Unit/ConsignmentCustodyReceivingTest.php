@@ -218,6 +218,237 @@ class ConsignmentCustodyReceivingTest extends TestCase
         $this->assertTrue($approved->isApproved());
     }
 
+    public function test_receival_valid_edit_updates_receival_and_lines_successfully()
+    {
+        $lifecycle = new ConsignmentReceivalLifecycleService();
+        $receivalService = new ConsignmentReceivalService();
+
+        $productA = Product::create([
+            'product_name' => 'Product Alpha',
+            'product_code' => 'PA-01',
+            'product_quantity' => 0,
+            'product_cost' => 50000,
+            'product_price' => 70000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $productB = Product::create([
+            'product_name' => 'Product Beta',
+            'product_code' => 'PB-01',
+            'product_quantity' => 0,
+            'product_cost' => 80000,
+            'product_price' => 120000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_DRAFT,
+            'note' => 'Original note',
+        ]);
+
+        ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $productA->id,
+            'product_name' => $productA->product_name,
+            'product_code' => $productA->product_code,
+            'quantity' => 5,
+            'unit_cost' => 50000,
+            'unit_dpp' => 50000,
+            'subtotal_cost' => 250000,
+            'total_cost' => 250000,
+        ]);
+
+        $normalizedLines = $receivalService->normalizeLines($this->setting, [
+            [
+                'product_id' => $productB->id,
+                'quantity' => 3,
+                'unit_cost' => 80000,
+            ]
+        ]);
+
+        $updatedReceival = $lifecycle->update($receival, [
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->addDay()->toDateString(),
+            'supplier_delivery_reference' => 'DEL-999',
+            'note' => 'Updated note',
+        ], $normalizedLines, $this->user->id);
+
+        $this->assertEquals('UPDATED NOTE', $updatedReceival->note);
+        $this->assertEquals('DEL-999', $updatedReceival->supplier_delivery_reference);
+        $this->assertEquals(1, $updatedReceival->lines->count());
+        $this->assertEquals($productB->id, $updatedReceival->lines->first()->product_id);
+        $this->assertEquals(3, (float) $updatedReceival->lines->first()->quantity);
+        $this->assertEquals(80000, (float) $updatedReceival->lines->first()->unit_cost);
+    }
+
+    public function test_receival_update_rejects_foreign_setting_supplier_without_mutating_header_or_lines()
+    {
+        $lifecycle = new ConsignmentReceivalLifecycleService();
+        $receivalService = new ConsignmentReceivalService();
+
+        $foreignSetting = Setting::create([
+            'company_name' => 'Foreign Setting Vendor Test',
+            'company_email' => 'foreign_vendor@example.com',
+            'company_phone' => '08123450000',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'foreign_vendor@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => false,
+            'document_prefix' => 'FRG',
+        ]);
+
+        $foreignSupplier = Supplier::create([
+            'setting_id' => $foreignSetting->id,
+            'supplier_name' => 'Foreign Setting Supplier',
+            'supplier_email' => 'vendor@foreignsetting.com',
+            'supplier_phone' => '08777000111',
+            'city' => 'Bandung',
+            'country' => 'Indonesia',
+            'address' => 'Foreign St 5',
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Foreign Supplier Test Product',
+            'product_code' => 'FSTP-01',
+            'product_quantity' => 0,
+            'product_cost' => 50000,
+            'product_price' => 70000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_DRAFT,
+            'note' => 'Original note prior to foreign supplier attempt',
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 50000,
+            'unit_dpp' => 50000,
+            'subtotal_cost' => 250000,
+            'total_cost' => 250000,
+        ]);
+
+        $normalizedLines = $receivalService->normalizeLines($this->setting, [
+            [
+                'product_id' => $product->id,
+                'quantity' => 10,
+                'unit_cost' => 50000,
+            ]
+        ]);
+
+        try {
+            $lifecycle->update($receival, [
+                'supplier_id' => $foreignSupplier->id, // Foreign setting supplier!
+                'date' => now()->toDateString(),
+                'note' => 'Attempted foreign supplier update',
+            ], $normalizedLines, $this->user->id);
+            $this->fail('Expected exception for foreign-setting supplier was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Supplier tidak valid atau tidak terdaftar pada bisnis ini', $e->getMessage());
+        }
+
+        // Verify document header and line were not mutated
+        $receival->refresh();
+        $this->assertEquals($this->supplier->id, $receival->supplier_id);
+        $this->assertEquals('ORIGINAL NOTE PRIOR TO FOREIGN SUPPLIER ATTEMPT', $receival->note);
+        $this->assertEquals(1, $receival->lines()->count());
+        $this->assertEquals(5, (float) $receival->lines()->first()->quantity);
+    }
+
+    public function test_receival_update_and_delete_with_stale_in_memory_model_revalidate_db_status()
+    {
+        $lifecycle = new ConsignmentReceivalLifecycleService();
+        $receivalService = new ConsignmentReceivalService();
+
+        $product = Product::create([
+            'product_name' => 'Sample Product for Stale Test',
+            'product_code' => 'SMP-STALE-01',
+            'product_quantity' => 0,
+            'product_cost' => 50000,
+            'product_price' => 70000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_DRAFT,
+        ]);
+
+        ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 50000,
+            'unit_dpp' => 50000,
+            'subtotal_cost' => 250000,
+            'total_cost' => 250000,
+        ]);
+
+        // Obtain two stale in-memory model instances holding STATUS_DRAFT
+        $staleReceival1 = ConsignmentReceival::find($receival->id);
+        $staleReceival2 = ConsignmentReceival::find($receival->id);
+
+        $this->assertEquals(ConsignmentReceival::STATUS_DRAFT, $staleReceival1->status);
+        $this->assertEquals(ConsignmentReceival::STATUS_DRAFT, $staleReceival2->status);
+
+        // Mutate database status directly to WAITING_APPROVAL (simulating concurrent submission)
+        ConsignmentReceival::where('id', $receival->id)->update(['status' => ConsignmentReceival::STATUS_WAITING_APPROVAL]);
+
+        // 1. Attempting update with stale in-memory model holding DRAFT must re-read DB status under lock and fail
+        try {
+            $normalizedLines = $receivalService->normalizeLines($this->setting, [
+                [
+                    'product_id' => $product->id,
+                    'quantity' => 10,
+                    'unit_cost' => 50000,
+                ]
+            ]);
+            $lifecycle->update($staleReceival1, [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Stale update attempt',
+            ], $normalizedLines, $this->user->id);
+            $this->fail('Expected exception when updating stale model was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString("Dokumen konsinyasi berstatus 'WAITING_APPROVAL' tidak dapat diubah", $e->getMessage());
+        }
+
+        // Verify lines were not mutated
+        $this->assertEquals(5, (float) ConsignmentReceivalLine::where('consignment_receival_id', $receival->id)->value('quantity'));
+
+        // 2. Attempting delete with stale in-memory model holding DRAFT must re-read DB status under lock and fail
+        try {
+            $lifecycle->delete($staleReceival2);
+            $this->fail('Expected exception when deleting stale model was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Hanya draf dokumen yang belum memiliki riwayat penerimaan yang dapat dihapus', $e->getMessage());
+        }
+
+        // Verify record was not deleted
+        $this->assertDatabaseHas('consignment_receivals', ['id' => $receival->id]);
+    }
+
     public function test_receiving_to_non_consignment_location_is_rejected()
     {
         $receivingService = new ConsignmentReceivingService();
@@ -254,7 +485,7 @@ class ConsignmentCustodyReceivingTest extends TestCase
         ]);
 
         // Attempting to receive to non-consignment location must fail
-        $this->expectExceptionMessage('Lokasi penerimaan tidak valid atau bukan merupakan lokasi konsinyasi pada bisnis ini.');
+        $this->expectExceptionMessage('Lokasi penerimaan tidak valid, tidak aktif, atau bukan merupakan lokasi konsinyasi pada bisnis ini.');
         $receivingService->createPendingReceiving($receival, [
             'location_id' => $this->standardLocation->id,
             'date' => now()->toDateString(),
@@ -452,5 +683,190 @@ class ConsignmentCustodyReceivingTest extends TestCase
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage('Pembalikan ditolak');
         $receivingService->reverseReceiving($approvedReceiving, $this->user->id, 'Coba pembalikan saat stok berubah');
+    }
+
+    public function test_inactive_consignment_location_is_rejected_on_pending_creation_and_approval()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $inactiveConsignmentLocation = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Rak Konsinyasi Nonaktif',
+            'is_consignment' => true,
+            'is_active' => false,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Produk Tes Inaktif',
+            'product_code' => 'INACT-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 500000,
+            'total_cost' => 500000,
+        ]);
+
+        // Attempt pending receiving to inactive consignment location
+        try {
+            $receivingService->createPendingReceiving($receival, [
+                'location_id' => $inactiveConsignmentLocation->id,
+                'date' => now()->toDateString(),
+                'details' => [
+                    $line->id => ['quantity_received' => 5]
+                ]
+            ], $this->user->id);
+            $this->fail('Expected exception for inactive location on pending creation was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('tidak aktif', $e->getMessage());
+        }
+
+        // Test deactivation between pending creation and approval
+        $activeLoc = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Rak Konsinyasi Sementara Active',
+            'is_consignment' => true,
+            'is_active' => true,
+        ]);
+
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $activeLoc->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => ['quantity_received' => 5]
+            ]
+        ], $this->user->id);
+
+        // Deactivate location before approval
+        $activeLoc->update(['is_active' => false]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('tidak aktif');
+        $receivingService->approveReceiving($receiving, $this->user->id);
+    }
+
+    public function test_location_classification_checker_blocks_reclassification_for_zero_stock_with_provenance()
+    {
+        $receivingService = new ConsignmentReceivingService();
+        $dependencyChecker = new \Modules\Consignment\Services\ConsignmentLocationDependencyChecker();
+
+        $loc = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Rak Konsinyasi Historical',
+            'is_consignment' => true,
+            'is_active' => true,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Produk Prove Test',
+            'product_code' => 'PROV-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 200000,
+            'total_cost' => 200000,
+        ]);
+
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $loc->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => ['quantity_received' => 2]
+            ]
+        ], $this->user->id);
+
+        $receivingService->approveReceiving($receiving, $this->user->id);
+        $receivingService->reverseReceiving($receiving->fresh(), $this->user->id, 'Reversal test');
+
+        // At this point, stock at $loc is 0, but historical receiving document provenance exists
+        $stockQty = \Modules\Product\Entities\ProductStock::where('location_id', $loc->id)->value('quantity') ?? 0;
+        $this->assertEquals(0, (float) $stockQty);
+
+        $blockers = $dependencyChecker->getReclassificationBlockers($loc);
+        $this->assertNotEmpty($blockers);
+        $this->assertStringContainsString('riwayat dokumen penerimaan fisik konsinyasi', implode('; ', $blockers));
+    }
+
+    public function test_unique_constraint_enforces_one_line_per_product_at_database_level()
+    {
+        $product = Product::create([
+            'product_name' => 'Produk Database Uniq Test',
+            'product_code' => 'DBUNIQ-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_DRAFT,
+        ]);
+
+        ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 500000,
+            'total_cost' => 500000,
+        ]);
+
+        $this->expectException(\Illuminate\Database\QueryException::class);
+
+        ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 10,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 1000000,
+            'total_cost' => 1000000,
+        ]);
     }
 }
