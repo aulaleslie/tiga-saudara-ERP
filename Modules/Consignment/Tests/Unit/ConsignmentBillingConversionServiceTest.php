@@ -498,6 +498,99 @@ class ConsignmentBillingConversionServiceTest extends TestCase
         );
     }
 
+    /**
+     * @test
+     *
+     * A preview that silently drops a receipt allocation must abort before any document
+     * is written, rather than producing a Purchase with incomplete lineage.
+     */
+    public function it_blocks_conversion_when_preview_omits_a_receipt_allocation()
+    {
+        [$confirmation, $receiptAllocationIds] = $this->createApprovedTwoLineSerializedConfirmation();
+
+        $previewService = new class extends ConsignmentBillingPreviewService {
+            public array $dropReceiptIds = [];
+
+            public function generatePreview(int $confirmationId, int $settingId, array $metadata): array
+            {
+                $preview = parent::generatePreview($confirmationId, $settingId, $metadata);
+
+                foreach ($preview['lines'] as $i => $line) {
+                    $preview['lines'][$i]['allocations'] = array_values(array_filter(
+                        $line['allocations'],
+                        fn ($a) => ! in_array((int) $a['receipt_allocation_id'], $this->dropReceiptIds, true)
+                    ));
+                }
+
+                return $preview;
+            }
+        };
+        $previewService->dropReceiptIds = [$receiptAllocationIds[1]];
+
+        $service = new ConsignmentBillingConversionService($previewService);
+        $purchasesBefore = Purchase::count();
+
+        try {
+            $service->convert($confirmation->id, $this->setting->id, $this->user->id, [
+                'supplier_invoice_number' => 'INV-OMIT-RA',
+                'invoice_date' => '2026-08-28',
+                'due_date' => '2026-09-28',
+            ]);
+            $this->fail('Conversion should have aborted on the omitted receipt allocation.');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('omits receipt allocation(s)', $e->getMessage());
+            $this->assertStringContainsString((string) $receiptAllocationIds[1], $e->getMessage());
+        }
+
+        $this->assertSame($purchasesBefore, Purchase::count(), 'No Purchase may be written.');
+        $this->assertNull($confirmation->fresh()->purchase_id);
+    }
+
+    /**
+     * @test
+     *
+     * A receipt allocation belonging to another confirmation must never be billed here.
+     */
+    public function it_blocks_conversion_when_preview_lists_a_foreign_receipt_allocation()
+    {
+        [$confirmation] = $this->createApprovedTwoLineSerializedConfirmation();
+
+        $previewService = new class extends ConsignmentBillingPreviewService {
+            public function generatePreview(int $confirmationId, int $settingId, array $metadata): array
+            {
+                $preview = parent::generatePreview($confirmationId, $settingId, $metadata);
+
+                // Append an allocation belonging to no line of this confirmation, as a
+                // grouping or join defect could. All authoritative allocations remain
+                // present, so this isolates the foreign-substitution branch from the
+                // omission branch.
+                $foreign = $preview['lines'][0]['allocations'][0];
+                $foreign['receipt_allocation_id'] = 999999;
+                $preview['lines'][0]['allocations'][] = $foreign;
+
+                return $preview;
+            }
+        };
+
+        $service = new ConsignmentBillingConversionService($previewService);
+        $purchasesBefore = Purchase::count();
+
+        try {
+            $service->convert($confirmation->id, $this->setting->id, $this->user->id, [
+                'supplier_invoice_number' => 'INV-FOREIGN-RA',
+                'invoice_date' => '2026-08-28',
+                'due_date' => '2026-09-28',
+            ]);
+            $this->fail('Conversion should have aborted on the foreign receipt allocation.');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('do not belong to this confirmation', $e->getMessage());
+            $this->assertStringContainsString('999999', $e->getMessage());
+        }
+
+        $this->assertSame($purchasesBefore, Purchase::count(), 'No Purchase may be written.');
+        $this->assertNull($confirmation->fresh()->purchase_id);
+    }
+
     /** @test */
     public function it_converts_confirmation_to_purchase_atomically_without_inventory_mutation()
     {

@@ -746,5 +746,33 @@ class ConsignmentBillingConversionService
                 . implode(', ', $unexpectedSerials) . "] that are not approved evidence; conversion aborted before writing any document."
             );
         }
+
+        // Receipt allocations get the same completeness treatment as serials: duplicates
+        // alone would not catch a group whose allocations were dropped, nor one carrying
+        // an allocation belonging to a different confirmation.
+        $authoritativeReceiptIds = ConsignmentReceiptAllocation::whereIn(
+            'consignment_billing_confirmation_line_id',
+            ConsignmentBillingConfirmationLine::where('consignment_billing_confirmation_id', $confirmation->id)->pluck('id')
+        )
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $missingReceipts = array_values(array_diff($authoritativeReceiptIds, array_keys($receiptCounts)));
+        if (! empty($missingReceipts)) {
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} omits receipt allocation(s) ["
+                . implode(', ', $missingReceipts) . "]; conversion aborted before writing any document."
+            );
+        }
+
+        $foreignReceipts = array_values(array_diff(array_keys($receiptCounts), $authoritativeReceiptIds));
+        if (! empty($foreignReceipts)) {
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} lists receipt allocation(s) ["
+                . implode(', ', $foreignReceipts) . "] that do not belong to this confirmation; conversion aborted before writing any document."
+            );
+        }
     }
 }
