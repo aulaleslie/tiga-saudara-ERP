@@ -885,7 +885,7 @@ class ConsignmentPhase3FeatureTest extends TestCase
     }
 
     /** @test */
-    public function it_scopes_the_reconciliation_product_selector_to_the_active_setting()
+    public function it_offers_shared_products_in_the_reconciliation_selector_across_settings()
     {
         $foreignUnit = \Modules\Setting\Entities\Unit::create([
             'name' => 'Boxes',
@@ -894,14 +894,18 @@ class ConsignmentPhase3FeatureTest extends TestCase
             'operation_value' => 1,
         ]);
 
-        $foreignProduct = Product::create([
+        // Products are shared master data: a product whose own setting_id points at
+        // another business must still be selectable from the active setting.
+        $sharedProduct = Product::create([
             'setting_id' => $this->setting2->id,
-            'product_name' => 'Foreign Secret Widget',
-            'product_code' => 'W-FOREIGN-SECRET',
+            'product_name' => 'Shared Secret Widget',
+            'product_code' => 'W-SHARED-SECRET',
             'product_unit' => $foreignUnit->id,
             'product_price' => 100000,
             'product_cost' => 80000,
             'product_quantity' => 5,
+            'is_active' => true,
+            'stock_managed' => true,
         ]);
 
         $this->grantReconciliationAccess();
@@ -912,8 +916,9 @@ class ConsignmentPhase3FeatureTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee($this->product->product_name);
-        $response->assertDontSee($foreignProduct->product_name);
-        $response->assertDontSee($foreignProduct->product_code);
+        // The selector renders product names only; product_code appears elsewhere on the
+        // page solely for products carrying transactions in the active setting.
+        $response->assertSee($sharedProduct->product_name);
     }
 
     /** @test */
@@ -1111,6 +1116,62 @@ class ConsignmentPhase3FeatureTest extends TestCase
      * Reconciliation lives behind the allocations permission, which the billing role
      * does not carry by default.
      */
+    /** @test */
+    public function it_rejects_an_inactive_shared_product_in_the_reconciliation_selector()
+    {
+        // Sharing removes the setting boundary but not the active/eligible boundary.
+        $unit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Crates',
+            'short_name' => 'CRT',
+            'operator' => '*',
+            'operation_value' => 1,
+        ]);
+
+        $inactiveProduct = Product::create([
+            'setting_id' => $this->setting2->id,
+            'product_name' => 'Inactive Shared Widget',
+            'product_code' => 'W-INACTIVE-SHARED',
+            'product_unit' => $unit->id,
+            'product_price' => 100000,
+            'product_cost' => 80000,
+            'product_quantity' => 5,
+            'is_active' => false,
+            'stock_managed' => true,
+        ]);
+
+        $this->grantReconciliationAccess();
+
+        $response = $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id])
+            ->get(route('consignments.reconciliation.index'));
+
+        $response->assertStatus(200);
+        $response->assertDontSee($inactiveProduct->product_name);
+    }
+
+    /** @test */
+    public function it_keeps_transactional_locations_from_another_setting_inaccessible()
+    {
+        // Locations are transactional infrastructure and stay setting-scoped even though
+        // suppliers and products no longer are.
+        $foreignLocation = Location::create([
+            'setting_id' => $this->setting2->id,
+            'name' => 'Foreign Rack Z Unique',
+            'is_consignment' => true,
+        ]);
+
+        $this->grantReconciliationAccess();
+
+        $response = $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id])
+            ->get(route('consignments.reconciliation.index'));
+
+        $response->assertStatus(200);
+        $locations = $response->viewData('locations');
+        $this->assertFalse($locations->contains('id', $foreignLocation->id));
+        $this->assertTrue($locations->contains('id', $this->location->id));
+    }
+
     private function grantReconciliationAccess(): void
     {
         Permission::findOrCreate('consignments.allocations.access', 'web');

@@ -47,9 +47,13 @@ class ConsignmentBillingConfirmationLifecycleService
         ?string $notes = null,
         ?int $userId = null
     ): ConsignmentBillingConfirmation {
+        // Suppliers are shared master data across settings; only active status is enforced.
         $supplier = \Modules\People\Entities\Supplier::find($supplierId);
-        if (!$supplier || $supplier->setting_id != $settingId) {
-            throw new InvalidArgumentException("Supplier must belong to the current setting.");
+        if (!$supplier) {
+            throw new InvalidArgumentException("Supplier is not available.");
+        }
+        if (isset($supplier->is_active) && !$supplier->is_active) {
+            throw new InvalidArgumentException("Supplier #{$supplier->id} is inactive.");
         }
 
         return DB::transaction(function () use ($settingId, $supplierId, $date, $linesData, $notes, $userId) {

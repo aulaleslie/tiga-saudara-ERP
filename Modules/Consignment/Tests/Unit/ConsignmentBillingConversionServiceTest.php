@@ -1057,7 +1057,7 @@ class ConsignmentBillingConversionServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_rejects_conversion_when_supplier_is_inactive_or_setting_mismatched()
+    public function it_rejects_conversion_when_supplier_is_inactive()
     {
         $confirmation = $this->createApprovedConfirmation();
         
@@ -1076,6 +1076,49 @@ class ConsignmentBillingConversionServiceTest extends TestCase
         } catch (\DomainException $e) {
             $this->assertStringContainsString('inactive', $e->getMessage());
         }
+    }
+
+    /** @test */
+    public function it_converts_using_a_shared_supplier_owned_by_another_setting()
+    {
+        // Suppliers are shared master data. Re-home the supplier's own setting_id to a
+        // different business; conversion must still succeed, and the generated Purchase
+        // must carry the ACTIVE transaction setting while referencing the shared supplier.
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Business',
+            'company_email' => 'other@example.com',
+            'company_phone' => '08123456999',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'other@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Other Address',
+            'is_pkp' => true,
+            'document_prefix' => 'OTH',
+        ]);
+
+        $confirmation = $this->createApprovedConfirmation();
+        $this->supplier->update(['setting_id' => $otherSetting->id, 'is_active' => true]);
+
+        $purchase = $this->conversionService->convert($confirmation->id, $this->setting->id, $this->user->id, [
+            'supplier_invoice_number' => 'INV-SHARED-SUPPLIER',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+
+        $this->assertEquals($this->setting->id, $purchase->setting_id, 'Purchase must retain the active transaction setting.');
+        $this->assertEquals($this->supplier->id, $purchase->supplier_id, 'Purchase must reference the shared supplier.');
+        $this->assertEquals($confirmation->supplier_id, $purchase->supplier_id, 'Supplier identity must stay consistent across the chain.');
+
+        // Idempotent re-conversion still validates supplier identity, Purchase setting,
+        // source type, and lineage against the shared supplier.
+        $again = $this->conversionService->convert($confirmation->id, $this->setting->id, $this->user->id, [
+            'supplier_invoice_number' => 'INV-SHARED-SUPPLIER',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+
+        $this->assertEquals($purchase->id, $again->id, 'Re-conversion must return the same linked Purchase.');
     }
 
     /** @test */

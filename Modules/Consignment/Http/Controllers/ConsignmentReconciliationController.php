@@ -115,13 +115,11 @@ class ConsignmentReconciliationController extends Controller
             }
         }
 
-        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
+        // Suppliers and products are shared master data: not scoped by setting.
+        // Locations stay setting-scoped as transactional infrastructure.
+        $suppliers = Supplier::orderBy('supplier_name')->get();
         $locations = Location::where('setting_id', $settingId)->consignment()->get();
-        // Product::active() applies activity/merge filters only, so the active-setting
-        // boundary must be applied explicitly — otherwise foreign product names and
-        // codes appear in the selector.
         $products = Product::active()
-            ->where('setting_id', $settingId)
             ->where('stock_managed', true)
             ->orderBy('product_name')
             ->get();

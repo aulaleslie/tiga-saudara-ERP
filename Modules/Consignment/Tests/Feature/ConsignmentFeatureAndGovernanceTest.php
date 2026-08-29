@@ -203,7 +203,7 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
         );
     }
 
-    public function test_consignment_supplier_search_fetches_current_setting_suppliers_server_side()
+    public function test_consignment_supplier_search_fetches_shared_active_suppliers_server_side()
     {
         $response = $this->actingAs($this->user)
             ->withSession(['setting_id' => $this->setting->id])
@@ -221,7 +221,7 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
         );
     }
 
-    public function test_receival_index_supplier_filter_is_scoped_to_active_setting()
+    public function test_receival_index_supplier_filter_includes_shared_suppliers_from_other_settings()
     {
         $foreignSetting = Setting::create([
             'company_name' => 'Foreign Business',
@@ -236,14 +236,16 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
             'document_prefix' => 'FRG',
         ]);
 
-        $foreignSupplier = Supplier::create([
+        // Suppliers are shared master data: a supplier whose own setting_id points at
+        // another business must still be selectable from the active setting.
+        $sharedSupplier = Supplier::create([
             'setting_id' => $foreignSetting->id,
-            'supplier_name' => 'Foreign Vendor Unique Name',
-            'supplier_email' => 'vendor@foreign.com',
+            'supplier_name' => 'Shared Vendor Unique Name',
+            'supplier_email' => 'vendor@shared.com',
             'supplier_phone' => '08777666555',
             'city' => 'Jakarta',
             'country' => 'Indonesia',
-            'address' => 'Foreign Vendor St 9',
+            'address' => 'Shared Vendor St 9',
         ]);
 
         $response = $this->actingAs($this->user)
@@ -252,8 +254,83 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
 
         $response->assertOk();
         $suppliersViewData = $response->viewData('suppliers');
-        $this->assertFalse($suppliersViewData->contains('id', $foreignSupplier->id));
+        $this->assertTrue($suppliersViewData->contains('id', $sharedSupplier->id));
         $this->assertTrue($suppliersViewData->contains('id', $this->supplier->id));
+    }
+
+    public function test_receival_store_accepts_a_shared_supplier_owned_by_another_setting()
+    {
+        $foreignSetting = Setting::create([
+            'company_name' => 'Shared Supplier Business',
+            'company_email' => 'shared@example.com',
+            'company_phone' => '08999111222',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'shared@example.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Shared Address',
+            'is_pkp' => false,
+            'document_prefix' => 'SHR',
+        ]);
+
+        // Suppliers are shared master data: a supplier homed in another setting must be
+        // usable by Consignment documents in the active setting.
+        $sharedSupplier = Supplier::create([
+            'setting_id' => $foreignSetting->id,
+            'supplier_name' => 'Shared Vendor For Store',
+            'supplier_email' => 'store@shared.com',
+            'supplier_phone' => '08777111222',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Shared Vendor St 1',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $sharedSupplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Shared supplier receival',
+                'lines' => [
+                    [
+                        'product_id' => $this->product->id,
+                        'quantity' => 5,
+                        'unit_cost' => 150000,
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $receival = ConsignmentReceival::latest('id')->first();
+        $this->assertNotNull($receival);
+        $this->assertEquals($sharedSupplier->id, $receival->supplier_id, 'Receival must reference the shared supplier.');
+        $this->assertEquals($this->setting->id, $receival->setting_id, 'Receival must stay scoped to the active setting.');
+    }
+
+    public function test_receival_store_rejects_an_inactive_supplier()
+    {
+        // Sharing removes the setting boundary but not the active boundary.
+        $this->supplier->update(['is_active' => false]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Inactive supplier receival',
+                'lines' => [
+                    [
+                        'product_id' => $this->product->id,
+                        'quantity' => 5,
+                        'unit_cost' => 150000,
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasErrors('supplier_id');
+        $this->assertEquals(0, ConsignmentReceival::count());
     }
 
     public function test_receival_create_and_edit_reject_duplicate_product_ids_without_partial_persistence()

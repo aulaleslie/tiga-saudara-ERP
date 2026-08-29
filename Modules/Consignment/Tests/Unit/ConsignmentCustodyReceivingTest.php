@@ -286,7 +286,7 @@ class ConsignmentCustodyReceivingTest extends TestCase
         $this->assertEquals(80000, (float) $updatedReceival->lines->first()->unit_cost);
     }
 
-    public function test_receival_update_rejects_foreign_setting_supplier_without_mutating_header_or_lines()
+    public function test_receival_update_accepts_shared_supplier_but_rejects_inactive_without_mutating_header_or_lines()
     {
         $lifecycle = new ConsignmentReceivalLifecycleService();
         $receivalService = new ConsignmentReceivalService();
@@ -352,23 +352,37 @@ class ConsignmentCustodyReceivingTest extends TestCase
             ]
         ]);
 
+        // Suppliers are shared master data: a supplier homed in another setting is a
+        // valid choice, and the receival stays scoped to its own setting.
+        $lifecycle->update($receival, [
+            'supplier_id' => $foreignSupplier->id,
+            'date' => now()->toDateString(),
+            'note' => 'Shared supplier update',
+        ], $normalizedLines, $this->user->id);
+
+        $receival->refresh();
+        $this->assertEquals($foreignSupplier->id, $receival->supplier_id);
+        $this->assertEquals($this->setting->id, $receival->setting_id);
+        $this->assertEquals(1, $receival->lines()->count());
+        $this->assertEquals(10, (float) $receival->lines()->first()->quantity);
+
+        // The active boundary still applies: an inactive supplier is rejected and the
+        // document is left unmutated.
+        $foreignSupplier->update(['is_active' => false]);
+
         try {
             $lifecycle->update($receival, [
-                'supplier_id' => $foreignSupplier->id, // Foreign setting supplier!
+                'supplier_id' => $foreignSupplier->id,
                 'date' => now()->toDateString(),
-                'note' => 'Attempted foreign supplier update',
+                'note' => 'Attempted inactive supplier update',
             ], $normalizedLines, $this->user->id);
-            $this->fail('Expected exception for foreign-setting supplier was not thrown.');
+            $this->fail('Expected exception for inactive supplier was not thrown.');
         } catch (\Exception $e) {
-            $this->assertStringContainsString('Supplier tidak valid atau tidak terdaftar pada bisnis ini', $e->getMessage());
+            $this->assertStringContainsString('Supplier tidak valid atau tidak aktif', $e->getMessage());
         }
 
-        // Verify document header and line were not mutated
         $receival->refresh();
-        $this->assertEquals($this->supplier->id, $receival->supplier_id);
-        $this->assertEquals('ORIGINAL NOTE PRIOR TO FOREIGN SUPPLIER ATTEMPT', $receival->note);
-        $this->assertEquals(1, $receival->lines()->count());
-        $this->assertEquals(5, (float) $receival->lines()->first()->quantity);
+        $this->assertEquals('SHARED SUPPLIER UPDATE', $receival->note);
     }
 
     public function test_receival_update_and_delete_with_stale_in_memory_model_revalidate_db_status()

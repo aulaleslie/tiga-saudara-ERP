@@ -47,7 +47,8 @@ class ConsignmentBillingConfirmationController extends Controller
         }
 
         $confirmations = $query->latest('id')->paginate(25)->withQueryString();
-        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
+        // Suppliers are shared master data: not scoped by setting.
+        $suppliers = Supplier::orderBy('supplier_name')->get();
 
         return view('consignment::confirmations.index', compact('confirmations', 'suppliers'));
     }
@@ -57,7 +58,8 @@ class ConsignmentBillingConfirmationController extends Controller
         abort_if(Gate::denies('consignments.allocations.create'), 403);
         $settingId = (int) session('setting_id');
 
-        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
+        // Suppliers are shared master data: not scoped by setting.
+        $suppliers = Supplier::orderBy('supplier_name')->get();
         $selectedSupplierId = $request->integer('supplier_id');
 
         $soldSources = ConsignmentSoldSource::forSetting($settingId)
@@ -139,7 +141,7 @@ class ConsignmentBillingConfirmationController extends Controller
         $request->validate([
             'supplier_id' => [
                 'required',
-                \Illuminate\Validation\Rule::exists('suppliers', 'id')->where('setting_id', $settingId),
+                \Illuminate\Validation\Rule::exists('suppliers', 'id')->where('is_active', true),
             ],
             'date' => 'required|date',
             'lines' => 'required|array|min:1',
@@ -206,7 +208,8 @@ class ConsignmentBillingConfirmationController extends Controller
             return redirect()->route('consignments.confirmations.show', $confirmation->id);
         }
 
-        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
+        // Suppliers are shared master data: not scoped by setting.
+        $suppliers = Supplier::orderBy('supplier_name')->get();
         $selectedSupplierId = $confirmation->supplier_id;
 
         $soldSources = ConsignmentSoldSource::forSetting($settingId)

@@ -72,12 +72,11 @@ class ConsignmentBillingPreviewService
         }
 
         /** @var \Modules\People\Entities\Supplier|null $supplier */
-        $supplier = \Modules\People\Entities\Supplier::where('id', $confirmation->supplier_id)
-            ->where('setting_id', $settingId)
-            ->first();
+        // Suppliers are shared master data across settings; only active status is enforced.
+        $supplier = \Modules\People\Entities\Supplier::find($confirmation->supplier_id);
 
         if (!$supplier) {
-            $blockers[] = "Supplier #{$confirmation->supplier_id} is not available under active setting.";
+            $blockers[] = "Supplier #{$confirmation->supplier_id} is not available.";
         } elseif (isset($supplier->is_active) && !$supplier->is_active) {
             $blockers[] = "Supplier #{$supplier->id} ({$supplier->supplier_name}) is inactive.";
         }

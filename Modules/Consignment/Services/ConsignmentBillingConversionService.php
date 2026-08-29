@@ -95,13 +95,14 @@ class ConsignmentBillingConversionService
                 }
 
                 /** @var \Modules\People\Entities\Supplier|null $supplier */
+                // Suppliers are shared master data across settings; the confirmation's
+                // supplier is locked by identity only, without a setting predicate.
                 $supplier = \Modules\People\Entities\Supplier::where('id', $confirmation->supplier_id)
-                    ->where('setting_id', $settingId)
                     ->lockForUpdate()
                     ->first();
 
                 if (!$supplier) {
-                    throw new \InvalidArgumentException("Supplier #{$confirmation->supplier_id} is not available under active setting.");
+                    throw new \InvalidArgumentException("Supplier #{$confirmation->supplier_id} is not available.");
                 }
 
                 if (isset($supplier->is_active) && !$supplier->is_active) {

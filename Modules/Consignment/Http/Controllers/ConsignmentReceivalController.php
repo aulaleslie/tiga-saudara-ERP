@@ -51,7 +51,8 @@ class ConsignmentReceivalController extends Controller
         }
 
         $receivals = $query->paginate(20)->withQueryString();
-        $suppliers = Supplier::where('setting_id', $settingId)->orderBy('supplier_name')->get();
+        // Suppliers are shared master data: not scoped by setting.
+        $suppliers = Supplier::orderBy('supplier_name')->get();
 
         return view('consignment::receivals.index', compact('receivals', 'suppliers'));
     }
@@ -72,7 +73,7 @@ class ConsignmentReceivalController extends Controller
         $setting = Setting::findOrFail($settingId);
 
         $request->validate([
-            'supplier_id' => ['required', 'integer', Rule::exists('suppliers', 'id')->where('setting_id', $settingId)],
+            'supplier_id' => ['required', 'integer', Rule::exists('suppliers', 'id')->where('is_active', true)],
             'date' => 'required|date',
             'supplier_delivery_reference' => 'nullable|string|max:100',
             'note' => 'nullable|string',
@@ -164,10 +165,10 @@ class ConsignmentReceivalController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $settingId = (int) session('setting_id');
         $term = $validated['q'];
+        // Suppliers are shared master data: searchable across settings, active only.
         $suppliers = Supplier::query()
-            ->where('setting_id', $settingId)
+            ->where('is_active', true)
             ->where(function ($query) use ($term) {
                 $query->where('supplier_name', 'like', "%{$term}%")
                     ->orWhere('contact_name', 'like', "%{$term}%");
@@ -223,7 +224,7 @@ class ConsignmentReceivalController extends Controller
         $receival = ConsignmentReceival::where('setting_id', $settingId)->findOrFail($id);
 
         $request->validate([
-            'supplier_id' => ['required', 'integer', Rule::exists('suppliers', 'id')->where('setting_id', $settingId)],
+            'supplier_id' => ['required', 'integer', Rule::exists('suppliers', 'id')->where('is_active', true)],
             'date' => 'required|date',
             'supplier_delivery_reference' => 'nullable|string|max:100',
             'note' => 'nullable|string',

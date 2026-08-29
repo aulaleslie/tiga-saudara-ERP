@@ -114,12 +114,13 @@ class ConsignmentReceivalLifecycleService
             }
 
             $supplierId = (int) ($data['supplier_id'] ?? 0);
+            // Suppliers are shared master data across settings; only active status is enforced.
             $supplier = Supplier::where('id', $supplierId)
-                ->where('setting_id', $lockedReceival->setting_id)
+                ->where('is_active', true)
                 ->first();
 
             if (!$supplier) {
-                throw new Exception("Supplier tidak valid atau tidak terdaftar pada bisnis ini.");
+                throw new Exception("Supplier tidak valid atau tidak aktif.");
             }
 
             $lockedReceival->update([
