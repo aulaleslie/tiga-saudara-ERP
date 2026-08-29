@@ -104,7 +104,7 @@ The system SHALL deduct a Sales Return detail from allocatable sold quantity onl
 - **AND** no new approval SHALL proceed against the conflicting quantity
 
 ### Requirement: One-supplier confirmations govern reservation and approval
-The system SHALL provide setting-scoped consignment billing confirmations belonging to exactly one supplier with lifecycle `DRAFT`, `WAITING_APPROVAL`, `APPROVED`, or `REJECTED`. Drafts SHALL NOT reserve quantity; successful submission SHALL reserve it; approval SHALL convert reservations into immutable allocations; rejection SHALL release reservations while preserving audit evidence.
+The system SHALL provide setting-scoped consignment billing confirmations belonging to exactly one supplier with allocation lifecycle `DRAFT`, `WAITING_APPROVAL`, `APPROVED`, or `REJECTED`. Drafts SHALL NOT reserve quantity; successful submission SHALL reserve it; approval SHALL convert reservations into immutable allocations and mark the confirmation ready for billing; rejection SHALL release reservations while preserving audit evidence. A successful Phase 3 conversion SHALL retain the `APPROVED` allocation state, link exactly one Purchase, clear further billing readiness, and preserve all earlier allocation evidence.
 
 #### Scenario: Valid draft is submitted
 - **WHEN** an authorized user submits a valid one-supplier confirmation
@@ -115,6 +115,7 @@ The system SHALL provide setting-scoped consignment billing confirmations belong
 - **WHEN** an authorized approver approves a still-valid waiting confirmation
 - **THEN** its allocations and commercial/source snapshots SHALL become immutable
 - **AND** its reservations SHALL become approved allocations exactly once
+- **AND** it SHALL become ready for supplier billing
 
 #### Scenario: Pending confirmation is rejected
 - **WHEN** an authorized approver rejects a waiting confirmation with a required reason
@@ -125,6 +126,12 @@ The system SHALL provide setting-scoped consignment billing confirmations belong
 - **WHEN** an authorized user revises and submits a rejected confirmation with currently valid quantities
 - **THEN** new reservations SHALL be established from authoritative capacity
 - **AND** earlier rejection evidence SHALL remain auditable
+
+#### Scenario: Approved confirmation is billed
+- **WHEN** Phase 3 successfully converts an approved billing-ready confirmation
+- **THEN** the confirmation SHALL remain `APPROVED` and link exactly one generated Purchase
+- **AND** it SHALL no longer be eligible for another conversion
+- **AND** its sold-source, receipt-allocation, serialized-allocation, and approval evidence SHALL remain unchanged
 
 ### Requirement: Confirmation lifecycle is tenant-safe, permissioned, and stale-safe
 All discovery, create, edit, submit, approve, reject, and detail actions SHALL enforce dedicated permissions and active setting boundaries in controllers and domain services. Submission and approval SHALL lock and revalidate authoritative dispatch, return, receipt, serial, supplier, product, location, and snapshot evidence inside one database transaction.
