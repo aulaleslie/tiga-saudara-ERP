@@ -10,6 +10,7 @@ use Modules\Setting\Entities\Tax;
 class ConsignmentReceiptAllocation extends BaseModel
 {
     use HasFactory;
+    use \Modules\Consignment\Entities\Concerns\ResolvesGuardConfirmationStatus;
 
     protected $table = 'consignment_receipt_allocations';
 
@@ -54,16 +55,32 @@ class ConsignmentReceiptAllocation extends BaseModel
         parent::boot();
 
         static::updating(function ($ra) {
-            if ($ra->line && $ra->line->confirmation && $ra->line->confirmation->isApproved()) {
+            $status = $ra->guardReceiptAllocationConfirmationStatus();
+            if ($ra->guardStatusIsApproved($status)) {
                 throw new \DomainException("Cannot modify receipt allocations of an approved confirmation.");
             }
         });
 
         static::deleting(function ($ra) {
-            if ($ra->line && $ra->line->confirmation && ($ra->line->confirmation->isApproved() || $ra->line->confirmation->isWaitingApproval())) {
+            $status = $ra->guardReceiptAllocationConfirmationStatus();
+            if ($ra->guardStatusIsApproved($status) || $ra->guardStatusIsWaitingApproval($status)) {
                 throw new \DomainException("Cannot delete receipt allocations of a submitted or approved confirmation.");
             }
         });
+    }
+
+    /**
+     * Resolve the owning confirmation's status through the parent line, without ever
+     * lazy loading either relation.
+     */
+    protected function guardReceiptAllocationConfirmationStatus(): ?string
+    {
+        return $this->guardConfirmationStatusVia(
+            'line',
+            'consignment_billing_confirmation_line_id',
+            ConsignmentBillingConfirmationLine::class,
+            'consignment_billing_confirmation_id'
+        );
     }
 
     public function line(): BelongsTo

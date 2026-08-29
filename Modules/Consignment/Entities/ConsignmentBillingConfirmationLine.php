@@ -12,6 +12,7 @@ use Modules\Setting\Entities\Location;
 class ConsignmentBillingConfirmationLine extends BaseModel
 {
     use HasFactory;
+    use \Modules\Consignment\Entities\Concerns\ResolvesGuardConfirmationStatus;
 
     protected $table = 'consignment_billing_confirmation_lines';
 
@@ -34,13 +35,15 @@ class ConsignmentBillingConfirmationLine extends BaseModel
         parent::boot();
 
         static::updating(function ($line) {
-            if ($line->confirmation && $line->confirmation->isApproved()) {
+            $status = $line->guardConfirmationStatus('confirmation', 'consignment_billing_confirmation_id');
+            if ($line->guardStatusIsApproved($status)) {
                 throw new \DomainException("Cannot modify lines of an approved confirmation.");
             }
         });
 
         static::deleting(function ($line) {
-            if ($line->confirmation && ($line->confirmation->isApproved() || $line->confirmation->isWaitingApproval())) {
+            $status = $line->guardConfirmationStatus('confirmation', 'consignment_billing_confirmation_id');
+            if ($line->guardStatusIsApproved($status) || $line->guardStatusIsWaitingApproval($status)) {
                 throw new \DomainException("Cannot delete lines of a submitted or approved confirmation.");
             }
         });

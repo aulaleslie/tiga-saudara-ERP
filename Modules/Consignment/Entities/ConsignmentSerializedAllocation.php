@@ -10,6 +10,7 @@ use Modules\Product\Entities\ProductSerialNumber;
 class ConsignmentSerializedAllocation extends BaseModel
 {
     use HasFactory;
+    use \Modules\Consignment\Entities\Concerns\ResolvesGuardConfirmationStatus;
 
     protected $table = 'consignment_serialized_allocations';
 
@@ -31,13 +32,15 @@ class ConsignmentSerializedAllocation extends BaseModel
         parent::boot();
 
         static::updating(function ($sa) {
-            if ($sa->confirmation && $sa->confirmation->isApproved() && $sa->getOriginal('status') === self::STATUS_APPROVED) {
+            $status = $sa->guardConfirmationStatus('confirmation', 'consignment_billing_confirmation_id');
+            if ($sa->guardStatusIsApproved($status) && $sa->getOriginal('status') === self::STATUS_APPROVED) {
                 throw new \DomainException("Cannot modify serialized allocations of an approved confirmation.");
             }
         });
 
         static::deleting(function ($sa) {
-            if ($sa->confirmation && ($sa->confirmation->isApproved() || $sa->confirmation->isWaitingApproval())) {
+            $status = $sa->guardConfirmationStatus('confirmation', 'consignment_billing_confirmation_id');
+            if ($sa->guardStatusIsApproved($status) || $sa->guardStatusIsWaitingApproval($status)) {
                 throw new \DomainException("Cannot delete serialized allocations of a submitted or approved confirmation.");
             }
         });

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Modules\Consignment\Entities\ConsignmentBillingConfirmation;
 use Modules\Consignment\Entities\ConsignmentSoldSource;
 use Modules\Consignment\Services\ConsignmentBillingConfirmationLifecycleService;
@@ -453,6 +454,7 @@ class ConsignmentBillingConfirmationController extends Controller
             toast('Konfirmasi alokasi berhasil diajukan untuk persetujuan.', 'success');
             return redirect()->route('consignments.confirmations.show', $submitted->id);
         } catch (Exception $e) {
+            $this->reportUnexpectedLifecycleFailure($e, 'submit', $confirmation);
             toast('Pengajuan gagal: ' . $e->getMessage(), 'error');
             return back();
         }
@@ -470,9 +472,40 @@ class ConsignmentBillingConfirmationController extends Controller
             toast('Konfirmasi alokasi berhasil disetujui.', 'success');
             return redirect()->route('consignments.confirmations.show', $approved->id);
         } catch (Exception $e) {
+            $this->reportUnexpectedLifecycleFailure($e, 'approve', $confirmation);
             toast('Persetujuan gagal: ' . $e->getMessage(), 'error');
             return back();
         }
+    }
+
+    /**
+     * Report unexpected failures so they reach the log, while leaving expected domain
+     * validation failures as user-facing messages only.
+     *
+     * Domain rule violations (DomainException / InvalidArgumentException) are normal
+     * outcomes of guarded workflows and would be log noise. Anything else — a lazy-loading
+     * violation, a query error, a programming fault — is a defect worth investigating, so
+     * it is reported with just the identifiers needed to find it. No invoice, attachment,
+     * or payload contents are logged.
+     */
+    private function reportUnexpectedLifecycleFailure(\Throwable $e, string $action, $confirmation): void
+    {
+        if ($e instanceof \DomainException || $e instanceof \InvalidArgumentException) {
+            return;
+        }
+
+        // One entry only: report() routes through the exception handler to the log, so a
+        // separate Log::error() here would duplicate every failure. The identifying
+        // context is attached to that single report via the handler's context mechanism.
+        // Passing the exception itself keeps the stack trace on this one entry, so the
+        // structured context and the trace stay together in a single log record.
+        Log::error("Consignment confirmation {$action} failed unexpectedly.", [
+            'action' => $action,
+            'confirmation_id' => $confirmation->id ?? null,
+            'setting_id' => $confirmation->setting_id ?? null,
+            'actor_id' => auth()->id(),
+            'exception' => $e,
+        ]);
     }
 
     public function reject(Request $request, $id)
@@ -491,6 +524,7 @@ class ConsignmentBillingConfirmationController extends Controller
             toast('Konfirmasi alokasi ditolak.', 'warning');
             return redirect()->route('consignments.confirmations.show', $rejected->id);
         } catch (Exception $e) {
+            $this->reportUnexpectedLifecycleFailure($e, 'reject', $confirmation);
             toast('Penolakan gagal: ' . $e->getMessage(), 'error');
             return back();
         }
