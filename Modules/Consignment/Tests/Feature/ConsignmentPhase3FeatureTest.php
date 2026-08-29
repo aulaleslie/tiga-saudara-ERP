@@ -915,10 +915,18 @@ class ConsignmentPhase3FeatureTest extends TestCase
             ->get(route('consignments.reconciliation.index'));
 
         $response->assertStatus(200);
-        $response->assertSee($this->product->product_name);
-        // The selector renders product names only; product_code appears elsewhere on the
-        // page solely for products carrying transactions in the active setting.
-        $response->assertSee($sharedProduct->product_name);
+
+        // The reconciliation product selector is AJAX-backed, so options are served by
+        // the search endpoint rather than rendered inline. Shared products from any
+        // setting must be offered there.
+        $search = $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id])
+            ->getJson(route('consignments.select.products', ['q' => 'Widget']));
+
+        $search->assertOk();
+        $ids = collect($search->json('results'))->pluck('id')->all();
+        // The shared product is homed in setting2 yet must still be offered here.
+        $this->assertContains($sharedProduct->id, $ids);
     }
 
     /** @test */

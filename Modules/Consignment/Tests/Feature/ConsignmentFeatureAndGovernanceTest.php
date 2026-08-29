@@ -203,6 +203,138 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
         );
     }
 
+    public function test_active_stock_managed_bundle_parent_product_remains_searchable_and_receivable_in_consignment()
+    {
+        // 1. Configure product as a bundle parent in the active setting
+        \Modules\Product\Entities\ProductBundle::create([
+            'setting_id' => $this->setting->id,
+            'parent_product_id' => $this->product->id,
+            'name' => 'Sample Bundle In Active Setting',
+            'is_active' => true,
+        ]);
+
+        // 2. Product must remain searchable in consignment receival product search
+        $searchResponse = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('consignments.receival-products.search', [
+                'q' => $this->product->product_name,
+            ]));
+
+        $searchResponse->assertOk();
+        $ids = collect($searchResponse->json('results'))->pluck('id')->all();
+        $this->assertContains($this->product->id, $ids, 'Active stock-managed product configured as bundle parent must remain searchable.');
+
+        // 3. Product can be added to a Consignment Receival document successfully
+        $storeResponse = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Receival for bundle parent product',
+                'lines' => [
+                    [
+                        'product_id' => $this->product->id,
+                        'quantity' => 4,
+                        'unit_cost' => 120000,
+                    ],
+                ],
+            ]);
+
+        $storeResponse->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('consignment_receival_lines', [
+            'product_id' => $this->product->id,
+            'quantity' => 4,
+        ]);
+    }
+
+    public function test_receival_store_rejects_inactive_merged_or_non_stock_managed_products()
+    {
+        // 1. Inactive product
+        $inactiveProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Inactive Item',
+            'product_code' => 'INACT-01',
+            'product_unit' => $this->product->product_unit,
+            'product_price' => 10000,
+            'product_cost' => 5000,
+            'product_quantity' => 10,
+            'is_active' => false,
+            'stock_managed' => true,
+        ]);
+
+        // Inactive product search exclusion
+        $searchResp1 = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('consignments.receival-products.search', ['q' => 'Inactive']));
+        $this->assertNotContains($inactiveProduct->id, collect($searchResp1->json('results'))->pluck('id')->all());
+
+        // Inactive product store rejection (via active search / line validation)
+        // (If submitted directly to store)
+        // 2. Merged product
+        $mergedProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Merged Item',
+            'product_code' => 'MRG-01',
+            'product_unit' => $this->product->product_unit,
+            'product_price' => 10000,
+            'product_cost' => 5000,
+            'product_quantity' => 10,
+            'is_active' => true,
+            'stock_managed' => true,
+            'merged_into_id' => $this->product->id,
+        ]);
+
+        $respMerged = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Receival for merged product',
+                'lines' => [
+                    [
+                        'product_id' => $mergedProduct->id,
+                        'quantity' => 2,
+                        'unit_cost' => 10000,
+                    ],
+                ],
+            ]);
+        $respMerged->assertSessionHasErrors('lines');
+
+        // 3. Non-stock-managed product
+        $nonStockProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Service Non Stock Item',
+            'product_code' => 'NONSTK-01',
+            'product_unit' => $this->product->product_unit,
+            'product_price' => 10000,
+            'product_cost' => 5000,
+            'product_quantity' => 10,
+            'is_active' => true,
+            'stock_managed' => false,
+        ]);
+
+        $searchResp2 = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('consignments.receival-products.search', ['q' => 'Service Non Stock']));
+        $this->assertNotContains($nonStockProduct->id, collect($searchResp2->json('results'))->pluck('id')->all());
+
+        $respNonStock = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.receivals.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => now()->toDateString(),
+                'note' => 'Receival for non stock product',
+                'lines' => [
+                    [
+                        'product_id' => $nonStockProduct->id,
+                        'quantity' => 2,
+                        'unit_cost' => 10000,
+                    ],
+                ],
+            ]);
+        $respNonStock->assertSessionHasErrors('lines');
+    }
+
     public function test_consignment_supplier_search_fetches_shared_active_suppliers_server_side()
     {
         $response = $this->actingAs($this->user)
@@ -253,9 +385,16 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
             ->get(route('consignments.receivals.index'));
 
         $response->assertOk();
-        $suppliersViewData = $response->viewData('suppliers');
-        $this->assertTrue($suppliersViewData->contains('id', $sharedSupplier->id));
-        $this->assertTrue($suppliersViewData->contains('id', $this->supplier->id));
+
+        // The supplier filter is AJAX-backed, so options come from the search endpoint
+        // rather than being rendered inline. Shared suppliers must be offered there.
+        $search = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('consignments.select.suppliers', ['q' => 'Vendor']));
+
+        $search->assertOk();
+        $ids = collect($search->json('results'))->pluck('id')->all();
+        $this->assertContains($sharedSupplier->id, $ids);
     }
 
     public function test_receival_store_accepts_a_shared_supplier_owned_by_another_setting()

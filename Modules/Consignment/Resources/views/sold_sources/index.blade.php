@@ -32,17 +32,16 @@
                 <!-- Filters -->
                 <form method="GET" action="{{ route('consignments.sold-sources.index') }}" class="row mb-4">
                     <div class="col-md-3 mb-2">
-                        <select name="product_id" class="form-control">
-                            <option value="">-- Semua Produk --</option>
-                            @foreach($products as $p)
-                                <option value="{{ $p->id }}" {{ request('product_id') == $p->id ? 'selected' : '' }}>
-                                    {{ $p->product_name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'product_id',
+                            'url' => route('consignments.select.products'),
+                            'selectedId' => request('product_id'),
+                            'selectedText' => $selectedProductText ?? null,
+                            'placeholder' => '-- Semua Produk --',
+                        ])
                     </div>
                     <div class="col-md-3 mb-2">
-                        <select name="location_id" class="form-control">
+                        <select name="location_id" class="form-control consignment-local-select">
                             <option value="">-- Semua Lokasi Konsinyasi --</option>
                             @foreach($locations as $loc)
                                 <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>
@@ -124,3 +123,8 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+    @include('consignment::partials.local-select-scripts')
+@endpush

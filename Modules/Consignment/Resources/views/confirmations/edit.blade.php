@@ -15,11 +15,55 @@
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <h4 class="card-title">Ubah Draft Konfirmasi #{{ $confirmation->confirmation_number }}</h4>
+                {{-- Supplier is read-only: identity cannot change once allocation evidence exists. --}}
                 <p class="text-muted small">Supplier: {{ $confirmation->supplier->supplier_name }}</p>
+
+                {{--
+                    Source filters use their own GET form so applying a filter never
+                    submits or discards allocations already checked in the draft.
+                --}}
+                <form method="GET" action="{{ route('consignments.confirmations.edit', $confirmation->id) }}" class="form-row align-items-end mb-3">
+                    <div class="form-group col-md-3">
+                        <label class="small text-muted mb-1">Filter Produk</label>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'filter_product_id',
+                            'url' => route('consignments.select.products'),
+                            'selectedId' => request('filter_product_id'),
+                            'selectedText' => $selectedFilterProductText ?? null,
+                            'placeholder' => '-- Semua Produk --',
+                        ])
+                    </div>
+                    <div class="form-group col-md-3">
+                        <label class="small text-muted mb-1">Filter Lokasi</label>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'filter_location_id',
+                            'url' => route('consignments.select.locations'),
+                            'selectedId' => request('filter_location_id'),
+                            'selectedText' => $selectedFilterLocationText ?? null,
+                            'placeholder' => '-- Semua Lokasi --',
+                        ])
+                    </div>
+                    <div class="form-group col-md-3">
+                        <label class="small text-muted mb-1">Cari Referensi / No. Seri</label>
+                        <input type="text" name="source_q" class="form-control" value="{{ request('source_q') }}" placeholder="Referensi penjualan atau nomor seri">
+                    </div>
+                    <div class="form-group col-md-3">
+                        <button type="submit" class="btn btn-secondary"><i class="bi bi-filter"></i> Filter Sumber</button>
+                    </div>
+                </form>
 
                 <form method="POST" action="{{ route('consignments.confirmations.update', $confirmation->id) }}">
                     @csrf
                     @method('PUT')
+
+                    {{--
+                        Declares which sources this page could actually show. The server
+                        deletes saved lines only within this set, so lines hidden by the
+                        current filter or page survive the submit untouched.
+                    --}}
+                    @foreach($eligibleSources as $visibleSrc)
+                        <input type="hidden" name="visible_sold_source_ids[]" value="{{ $visibleSrc->id }}">
+                    @endforeach
 
                     <div class="form-group">
                         <label>Catatan</label>
@@ -118,6 +162,9 @@
                     </div>
 
                     <div class="mt-4">
+                        @if($eligibleSources instanceof \Illuminate\Contracts\Pagination\Paginator)
+                            <div class="mb-2">{{ $eligibleSources->links() }}</div>
+                        @endif
                         <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Perbarui Draft</button>
                         <a href="{{ route('consignments.confirmations.show', $confirmation->id) }}" class="btn btn-secondary">Batal</a>
                     </div>
@@ -126,3 +173,7 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+@endpush

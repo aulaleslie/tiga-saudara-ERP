@@ -24,17 +24,16 @@
                 <!-- Filters -->
                 <form method="GET" action="{{ route('consignments.reconciliation.index') }}" class="row mb-4">
                     <div class="col-md-3 mb-2">
-                        <select name="supplier_id" class="form-control">
-                            <option value="">-- Semua Supplier --</option>
-                            @foreach($suppliers as $s)
-                                <option value="{{ $s->id }}" {{ request('supplier_id') == $s->id ? 'selected' : '' }}>
-                                    {{ $s->supplier_name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'supplier_id',
+                            'url' => route('consignments.select.suppliers'),
+                            'selectedId' => request('supplier_id'),
+                            'selectedText' => $selectedSupplierText ?? null,
+                            'placeholder' => '-- Semua Supplier --',
+                        ])
                     </div>
                     <div class="col-md-3 mb-2">
-                        <select name="location_id" class="form-control">
+                        <select name="location_id" class="form-control consignment-local-select">
                             <option value="">-- Semua Lokasi Konsinyasi --</option>
                             @foreach($locations as $loc)
                                 <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>
@@ -44,14 +43,13 @@
                         </select>
                     </div>
                     <div class="col-md-2 mb-2">
-                        <select name="product_id" class="form-control">
-                            <option value="">-- Semua Produk --</option>
-                            @foreach($products as $p)
-                                <option value="{{ $p->id }}" {{ request('product_id') == $p->id ? 'selected' : '' }}>
-                                    {{ $p->product_name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'product_id',
+                            'url' => route('consignments.select.products'),
+                            'selectedId' => request('product_id'),
+                            'selectedText' => $selectedProductText ?? null,
+                            'placeholder' => '-- Semua Produk --',
+                        ])
                     </div>
                     <div class="col-md-2 mb-2">
                         <select name="status" class="form-control">
@@ -317,3 +315,8 @@
         @endif
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+    @include('consignment::partials.local-select-scripts')
+@endpush

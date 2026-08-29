@@ -4,8 +4,15 @@ use Illuminate\Support\Facades\Route;
 use Modules\Consignment\Http\Controllers\ConsignmentReceivalController;
 use Modules\Consignment\Http\Controllers\ConsignmentReceivingController;
 use Modules\Consignment\Http\Controllers\ConsignmentReconciliationController;
+use Modules\Consignment\Http\Controllers\ConsignmentSelectSearchController;
 
 Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignments', 'as' => 'consignments.'], function () {
+
+    // Shared AJAX Select2 endpoints for filter dropdowns
+    Route::get('select/suppliers', [ConsignmentSelectSearchController::class, 'suppliers'])->name('select.suppliers');
+    Route::get('select/products', [ConsignmentSelectSearchController::class, 'products'])->name('select.products');
+    Route::get('select/locations', [ConsignmentSelectSearchController::class, 'locations'])->name('select.locations');
+    Route::get('select/sold-sources', [ConsignmentSelectSearchController::class, 'soldSources'])->name('select.sold-sources');
 
     // Consignment Receivals
     Route::get('receival-suppliers/search', [ConsignmentReceivalController::class, 'searchSuppliers'])->name('receival-suppliers.search');

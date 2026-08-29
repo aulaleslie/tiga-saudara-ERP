@@ -31,14 +31,13 @@
                 <!-- Filters -->
                 <form method="GET" action="{{ route('consignments.confirmations.index') }}" class="row mb-4">
                     <div class="col-md-4 mb-2">
-                        <select name="supplier_id" class="form-control">
-                            <option value="">-- Semua Supplier --</option>
-                            @foreach($suppliers as $s)
-                                <option value="{{ $s->id }}" {{ request('supplier_id') == $s->id ? 'selected' : '' }}>
-                                    {{ $s->supplier_name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'supplier_id',
+                            'url' => route('consignments.select.suppliers'),
+                            'selectedId' => request('supplier_id'),
+                            'selectedText' => $selectedSupplierText ?? null,
+                            'placeholder' => '-- Semua Supplier --',
+                        ])
                     </div>
                     <div class="col-md-4 mb-2">
                         <select name="status" class="form-control">
@@ -113,3 +112,7 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+@endpush

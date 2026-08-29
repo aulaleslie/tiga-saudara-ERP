@@ -40,14 +40,13 @@
                                 </select>
                             </div>
                             <div class="col-md-3">
-                                <select name="supplier_id" class="form-control">
-                                    <option value="">-- Semua Supplier --</option>
-                                    @foreach($suppliers as $supplier)
-                                        <option value="{{ $supplier->id }}" {{ request('supplier_id') == $supplier->id ? 'selected' : '' }}>
-                                            {{ $supplier->supplier_name }}
-                                        </option>
-                                    @endforeach
-                                </select>
+                                @include('consignment::partials.ajax-select', [
+                                    'name' => 'supplier_id',
+                                    'url' => route('consignments.select.suppliers'),
+                                    'selectedId' => request('supplier_id'),
+                                    'selectedText' => $selectedSupplierText ?? null,
+                                    'placeholder' => '-- Semua Supplier --',
+                                ])
                             </div>
                             <div class="col-md-2">
                                 <button type="submit" class="btn btn-secondary"><i class="bi bi-filter"></i> Filter</button>
@@ -145,3 +144,7 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+@endpush

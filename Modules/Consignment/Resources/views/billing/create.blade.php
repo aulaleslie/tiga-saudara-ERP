@@ -161,7 +161,14 @@
                 dueDateInput.value = `${yyyy}-${mm}-${dd}`;
             }
 
-            paymentTermSelect.addEventListener('change', updateDueDate);
+            // Payment terms are a small bounded list rendered inline with a local
+            // Select2. Select2 dispatches a jQuery change event, which a native
+            // addEventListener would not receive, so bind through jQuery instead.
+            $(paymentTermSelect).select2({
+                width: '100%',
+                allowClear: true,
+                placeholder: '-- Pilih Termin Pembayaran --'
+            }).on('change', updateDueDate);
             invoiceDateInput.addEventListener('change', function () {
                 if (paymentTermSelect.value && !dueDateInput.value) {
                     updateDueDate();

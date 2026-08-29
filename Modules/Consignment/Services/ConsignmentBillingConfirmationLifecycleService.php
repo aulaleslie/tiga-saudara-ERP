@@ -85,14 +85,31 @@ class ConsignmentBillingConfirmationLifecycleService
 
     /**
      * Update an existing draft or rejected confirmation.
+     *
+     * The submitted payload describes only the sources the user could actually see
+     * (one filtered/paginated page), never the whole draft. Passing the set of
+     * visible sold-source ids lets this method distinguish:
+     *
+     *   - hidden saved lines      -> outside $visibleSoldSourceIds, left untouched
+     *   - visible updated lines   -> present in $linesData, rewritten
+     *   - explicit deselections   -> visible but absent from $linesData, deleted
+     *   - newly selected lines    -> present in $linesData with no saved counterpart
+     *
+     * Reconciliation is keyed by consignment_sold_source_id, never by row index,
+     * because pagination reuses indexes across pages.
+     *
+     * @param int[]|null $visibleSoldSourceIds Sources rendered on the submitted page.
+     *                                         Null means the payload is authoritative
+     *                                         for the entire draft (legacy behaviour).
      */
     public function updateDraft(
         ConsignmentBillingConfirmation $confirmation,
         array $linesData,
         ?string $notes = null,
-        ?int $userId = null
+        ?int $userId = null,
+        ?array $visibleSoldSourceIds = null
     ): ConsignmentBillingConfirmation {
-        return DB::transaction(function () use ($confirmation, $linesData, $notes, $userId) {
+        return DB::transaction(function () use ($confirmation, $linesData, $notes, $userId, $visibleSoldSourceIds) {
             // Re-fetch with lock to prevent race with concurrent submit
             $header = ConsignmentBillingConfirmation::where('id', $confirmation->id)->lockForUpdate()->firstOrFail();
 
@@ -105,8 +122,35 @@ class ConsignmentBillingConfirmationLifecycleService
                 'status' => ConsignmentBillingConfirmation::STATUS_DRAFT,
             ]);
 
-            // Clear existing lines & child allocations
-            $header->lines()->delete();
+            $submittedSourceIds = collect($linesData)
+                ->pluck('consignment_sold_source_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            if ($visibleSoldSourceIds === null) {
+                // No visibility scope declared: the payload is the complete draft.
+                $header->lines()->delete();
+            } else {
+                // Delete only lines the user could actually see and did not resubmit
+                // (explicit deselection), plus any visible line being rewritten.
+                $deletableSourceIds = array_unique(array_merge(
+                    array_map('intval', $visibleSoldSourceIds),
+                    $submittedSourceIds
+                ));
+
+                if (! empty($deletableSourceIds)) {
+                    // Delete per model so the line's deleting hook (which guards
+                    // submitted/approved confirmations) runs. The hook reads the
+                    // parent confirmation, so eager-load it: lazy loading is
+                    // disabled in tests and would throw here.
+                    $header->lines()
+                        ->with('confirmation')
+                        ->whereIn('consignment_sold_source_id', $deletableSourceIds)
+                        ->get()
+                        ->each(fn ($line) => $line->delete());
+                }
+            }
 
             $this->saveLinesAndAllocations($header, $linesData);
 

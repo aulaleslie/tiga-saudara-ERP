@@ -103,4 +103,24 @@ class ConsignmentSoldSource extends BaseModel
     {
         return $query->where('setting_id', $settingId);
     }
+
+    /**
+     * Free-text search across product, location, sale reference and serial number.
+     */
+    public function scopeSearchTerm(Builder $query, string $term): Builder
+    {
+        if ($term === '') {
+            return $query;
+        }
+
+        return $query->where(function (Builder $sub) use ($term) {
+            $sub->whereHas('product', function (Builder $p) use ($term) {
+                $p->where('product_name', 'like', "%{$term}%")
+                    ->orWhere('product_code', 'like', "%{$term}%");
+            })
+                ->orWhereHas('location', fn (Builder $l) => $l->where('name', 'like', "%{$term}%"))
+                ->orWhereHas('sale', fn (Builder $s) => $s->where('reference', 'like', "%{$term}%"))
+                ->orWhereHas('serials.serialNumber', fn (Builder $sn) => $sn->where('serial_number', 'like', "%{$term}%"));
+        });
+    }
 }

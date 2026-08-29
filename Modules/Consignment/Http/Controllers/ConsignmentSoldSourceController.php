@@ -51,10 +51,14 @@ class ConsignmentSoldSourceController extends Controller
             $source->eligibility = $this->eligibilityService->calculateSoldEligibility($source);
         }
 
-        $products = Product::active()->where('stock_managed', true)->orderBy('product_name')->get();
-        $locations = Location::where('setting_id', $settingId)->consignment()->get();
+        // The product filter is an AJAX Select2 over shared master data: resolve
+        // only the selected label instead of loading the whole collection.
+        $selectedProductText = Product::whereKey($request->integer('product_id'))->value('product_name');
 
-        return view('consignment::sold_sources.index', compact('sources', 'products', 'locations'));
+        // Locations are a small bounded, setting-scoped list rendered inline.
+        $locations = Location::where('setting_id', $settingId)->consignment()->orderBy('name')->get();
+
+        return view('consignment::sold_sources.index', compact('sources', 'locations', 'selectedProductText'));
     }
 
     public function discover(Request $request)

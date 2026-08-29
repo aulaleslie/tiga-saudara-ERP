@@ -115,15 +115,22 @@ class ConsignmentReconciliationController extends Controller
             }
         }
 
-        // Suppliers and products are shared master data: not scoped by setting.
-        // Locations stay setting-scoped as transactional infrastructure.
-        $suppliers = Supplier::orderBy('supplier_name')->get();
-        $locations = Location::where('setting_id', $settingId)->consignment()->get();
-        $products = Product::active()
-            ->where('stock_managed', true)
-            ->orderBy('product_name')
-            ->get();
+        // Supplier and Product filters are AJAX Select2 over shared master data:
+        // resolve only the selected labels rather than loading whole collections.
+        $selectedSupplierText = Supplier::whereKey($request->integer('supplier_id'))->value('supplier_name');
+        $selectedProductText = Product::whereKey($request->integer('product_id'))->value('product_name');
 
-        return view('consignment::reconciliation.index', compact('details', 'suppliers', 'locations', 'products', 'returnedQuantities', 'blockers'));
+        // Locations are a small bounded, setting-scoped list: rendered inline for
+        // a local Select2.
+        $locations = Location::where('setting_id', $settingId)->consignment()->orderBy('name')->get();
+
+        return view('consignment::reconciliation.index', compact(
+            'details',
+            'locations',
+            'returnedQuantities',
+            'blockers',
+            'selectedSupplierText',
+            'selectedProductText'
+        ));
     }
 }

@@ -33,11 +33,21 @@ class ConsignmentBillingConversionController extends Controller
 
         $readyConfirmations = ConsignmentBillingConfirmation::forSetting($settingId)
             ->readyForBilling()
+            // Eager loads keep the row rendering free of N+1 queries.
             ->with(['supplier', 'approver'])
+            ->when($request->filled('supplier_id'), fn ($q) => $q->where('supplier_id', $request->integer('supplier_id')))
+            ->when($request->filled('confirmation_number'), fn ($q) => $q->where('confirmation_number', 'like', '%' . trim($request->input('confirmation_number')) . '%'))
+            ->when($request->filled('supplier_invoice_number'), fn ($q) => $q->where('supplier_invoice_number', 'like', '%' . trim($request->input('supplier_invoice_number')) . '%'))
+            ->when($request->filled('approved_from'), fn ($q) => $q->whereDate('approved_at', '>=', $request->input('approved_from')))
+            ->when($request->filled('approved_to'), fn ($q) => $q->whereDate('approved_at', '<=', $request->input('approved_to')))
             ->latest('id')
-            ->paginate(25);
+            ->paginate(25)
+            ->withQueryString();
 
-        return view('consignment::billing.index', compact('readyConfirmations'));
+        // Supplier filter is an AJAX Select2: resolve only the selected label.
+        $selectedSupplierText = \Modules\People\Entities\Supplier::whereKey($request->integer('supplier_id'))->value('supplier_name');
+
+        return view('consignment::billing.index', compact('readyConfirmations', 'selectedSupplierText'));
     }
 
     public function create(int $id)

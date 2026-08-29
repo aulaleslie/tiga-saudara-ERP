@@ -21,6 +21,39 @@
                     </div>
                 </div>
 
+                <!-- Filters -->
+                <form method="GET" action="{{ route('consignments.billing.index') }}" class="form-row align-items-end mb-4">
+                    <div class="form-group col-md-3">
+                        <label class="small text-muted mb-1">Supplier</label>
+                        @include('consignment::partials.ajax-select', [
+                            'name' => 'supplier_id',
+                            'url' => route('consignments.select.suppliers'),
+                            'selectedId' => request('supplier_id'),
+                            'selectedText' => $selectedSupplierText ?? null,
+                            'placeholder' => '-- Semua Supplier --',
+                        ])
+                    </div>
+                    <div class="form-group col-md-2">
+                        <label class="small text-muted mb-1">No. Konfirmasi</label>
+                        <input type="text" name="confirmation_number" class="form-control" value="{{ request('confirmation_number') }}" placeholder="No. Konfirmasi">
+                    </div>
+                    <div class="form-group col-md-2">
+                        <label class="small text-muted mb-1">No. Faktur Supplier</label>
+                        <input type="text" name="supplier_invoice_number" class="form-control" value="{{ request('supplier_invoice_number') }}" placeholder="No. Faktur">
+                    </div>
+                    <div class="form-group col-md-2">
+                        <label class="small text-muted mb-1">Approval Dari</label>
+                        <input type="date" name="approved_from" class="form-control" value="{{ request('approved_from') }}">
+                    </div>
+                    <div class="form-group col-md-2">
+                        <label class="small text-muted mb-1">Approval Sampai</label>
+                        <input type="date" name="approved_to" class="form-control" value="{{ request('approved_to') }}">
+                    </div>
+                    <div class="form-group col-md-1">
+                        <button type="submit" class="btn btn-secondary btn-block"><i class="bi bi-filter"></i></button>
+                    </div>
+                </form>
+
                 <div class="table-responsive">
                     <table class="table table-bordered table-hover mb-0">
                         <thead class="thead-light">
@@ -67,3 +100,7 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    @include('consignment::partials.ajax-select-scripts')
+@endpush

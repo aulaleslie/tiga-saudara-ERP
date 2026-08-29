@@ -13,6 +13,7 @@ use Modules\Consignment\Services\ConsignmentReceiptAllocationService;
 use Modules\Consignment\Services\ConsignmentReturnEligibilityService;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Location;
 
 class ConsignmentBillingConfirmationController extends Controller
 {
@@ -47,10 +48,12 @@ class ConsignmentBillingConfirmationController extends Controller
         }
 
         $confirmations = $query->latest('id')->paginate(25)->withQueryString();
-        // Suppliers are shared master data: not scoped by setting.
-        $suppliers = Supplier::orderBy('supplier_name')->get();
 
-        return view('consignment::confirmations.index', compact('confirmations', 'suppliers'));
+        // The supplier filter is an AJAX Select2: resolve only the selected label
+        // instead of loading the whole shared supplier collection into the view.
+        $selectedSupplierText = Supplier::whereKey($request->integer('supplier_id'))->value('supplier_name');
+
+        return view('consignment::confirmations.index', compact('confirmations', 'selectedSupplierText'));
     }
 
     public function create(Request $request)
@@ -58,14 +61,25 @@ class ConsignmentBillingConfirmationController extends Controller
         abort_if(Gate::denies('consignments.allocations.create'), 403);
         $settingId = (int) session('setting_id');
 
-        // Suppliers are shared master data: not scoped by setting.
-        $suppliers = Supplier::orderBy('supplier_name')->get();
         $selectedSupplierId = $request->integer('supplier_id');
 
+        // Selector labels are resolved individually; the shared Supplier/Product
+        // collections are never loaded into the view.
+        $selectedSupplierText = Supplier::whereKey($selectedSupplierId)->value('supplier_name');
+        $selectedFilterProductText = Product::whereKey($request->integer('filter_product_id'))->value('product_name');
+        $selectedFilterLocationText = Location::whereKey($request->integer('filter_location_id'))->value('name');
+
+        // Eligible sources are Consignment evidence: setting-scoped, searchable and
+        // paginated so the page never loads every source at once.
         $soldSources = ConsignmentSoldSource::forSetting($settingId)
             ->where('has_reconstruction_blocker', false)
+            ->when($request->filled('filter_product_id'), fn ($q) => $q->where('product_id', $request->integer('filter_product_id')))
+            ->when($request->filled('filter_location_id'), fn ($q) => $q->where('location_id', $request->integer('filter_location_id')))
+            ->when($request->filled('source_q'), fn ($q) => $q->searchTerm(trim($request->input('source_q'))))
             ->with(['sale', 'product', 'location', 'serials.serialNumber'])
-            ->get();
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString();
 
         // Attach eligibility calculation & receipt pools to available sold sources
         $eligibleSources = [];
@@ -113,7 +127,71 @@ class ConsignmentBillingConfirmationController extends Controller
             }
         }
 
-        return view('consignment::confirmations.create', compact('suppliers', 'eligibleSources', 'selectedSupplierId'));
+        // Keep the paginator instance (so links() renders) while showing only the
+        // eligible subset of the current page.
+        $eligibleSources = $soldSources->setCollection(collect($eligibleSources));
+
+        return view('consignment::confirmations.create', compact(
+            'eligibleSources',
+            'selectedSupplierId',
+            'selectedSupplierText',
+            'selectedFilterProductText',
+            'selectedFilterLocationText'
+        ));
+    }
+
+    /**
+     * Normalize submitted allocation lines.
+     *
+     * Rows arrive keyed by consignment_sold_source_id rather than by row index,
+     * because filtering and pagination reuse indexes across pages. Only rows the
+     * user actually checked are kept, and each row keeps only its selected serial
+     * allocations, so receipt-pool quantities and serial choices survive exactly
+     * rather than collapsing to the parent checkbox.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeSubmittedLines($rawLines): array
+    {
+        if (! is_array($rawLines)) {
+            return [];
+        }
+
+        $lines = [];
+
+        foreach ($rawLines as $key => $line) {
+            if (! is_array($line) || empty($line['selected'])) {
+                continue;
+            }
+
+            // Fall back to the array key, which is the sold-source id.
+            $sourceId = $line['consignment_sold_source_id'] ?? $key;
+            if (empty($sourceId)) {
+                continue;
+            }
+            $line['consignment_sold_source_id'] = (int) $sourceId;
+
+            if (! empty($line['receipt_allocations']) && is_array($line['receipt_allocations'])) {
+                $line['receipt_allocations'] = array_values(array_filter(
+                    $line['receipt_allocations'],
+                    fn ($ra) => is_array($ra)
+                        && ! empty($ra['consignment_receiving_detail_id'])
+                        && (float) ($ra['allocated_base_quantity'] ?? 0) > 0
+                ));
+            }
+
+            if (! empty($line['serialized_allocations']) && is_array($line['serialized_allocations'])) {
+                $line['serialized_allocations'] = array_values(array_filter(
+                    $line['serialized_allocations'],
+                    fn ($sa) => is_array($sa) && ! empty($sa['selected'])
+                ));
+            }
+
+            // Last write wins if the same source somehow appears twice.
+            $lines[$line['consignment_sold_source_id']] = $line;
+        }
+
+        return array_values($lines);
     }
 
     public function store(Request $request)
@@ -121,20 +199,10 @@ class ConsignmentBillingConfirmationController extends Controller
         abort_if(Gate::denies('consignments.allocations.create'), 403);
         $settingId = (int) session('setting_id');
 
-        // Filter lines to only include selected/checked rows
-        $rawLines = $request->input('lines', []);
-        $filteredLines = array_values(array_filter($rawLines, function ($line) {
-            return ! empty($line['consignment_sold_source_id']) && ! empty($line['selected']);
-        }));
-
-        foreach ($filteredLines as &$line) {
-            if (!empty($line['serialized_allocations'])) {
-                $line['serialized_allocations'] = array_values(array_filter($line['serialized_allocations'], function ($sa) {
-                    return !empty($sa['selected']);
-                }));
-            }
-        }
-        unset($line);
+        // Lines arrive keyed by consignment_sold_source_id (pagination reuses row
+        // indexes, so indexes are never authoritative) and may include sources the
+        // user selected on other filtered pages.
+        $filteredLines = $this->normalizeSubmittedLines($request->input('lines', []));
 
         $request->merge(['lines' => $filteredLines]);
 
@@ -165,8 +233,10 @@ class ConsignmentBillingConfirmationController extends Controller
             toast('Draft konfirmasi alokasi berhasil dibuat.', 'success');
             return redirect()->route('consignments.confirmations.show', $confirmation->id);
         } catch (Exception $e) {
+            // Surface as a validation error too, so the failure is visible in the
+            // form (and to tests) rather than only in a transient toast.
             toast($e->getMessage(), 'error');
-            return back()->withInput();
+            return back()->withInput()->withErrors(['lines' => $e->getMessage()]);
         }
     }
 
@@ -194,7 +264,7 @@ class ConsignmentBillingConfirmationController extends Controller
         return view('consignment::confirmations.show', compact('confirmation'));
     }
 
-    public function edit($id)
+    public function edit(Request $request, $id)
     {
         abort_if(Gate::denies('consignments.allocations.edit'), 403);
         $settingId = (int) session('setting_id');
@@ -208,14 +278,22 @@ class ConsignmentBillingConfirmationController extends Controller
             return redirect()->route('consignments.confirmations.show', $confirmation->id);
         }
 
-        // Suppliers are shared master data: not scoped by setting.
-        $suppliers = Supplier::orderBy('supplier_name')->get();
+        // Supplier is read-only on edit: identity cannot change once allocation
+        // evidence exists, so only its label is needed.
         $selectedSupplierId = $confirmation->supplier_id;
+        $selectedSupplierText = Supplier::whereKey($selectedSupplierId)->value('supplier_name');
+        $selectedFilterProductText = Product::whereKey($request->integer('filter_product_id'))->value('product_name');
+        $selectedFilterLocationText = Location::whereKey($request->integer('filter_location_id'))->value('name');
 
         $soldSources = ConsignmentSoldSource::forSetting($settingId)
             ->where('has_reconstruction_blocker', false)
+            ->when($request->filled('filter_product_id'), fn ($q) => $q->where('product_id', $request->integer('filter_product_id')))
+            ->when($request->filled('filter_location_id'), fn ($q) => $q->where('location_id', $request->integer('filter_location_id')))
+            ->when($request->filled('source_q'), fn ($q) => $q->searchTerm(trim($request->input('source_q'))))
             ->with(['sale', 'product', 'location', 'serials.serialNumber'])
-            ->get();
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString();
 
         $eligibleSources = [];
         foreach ($soldSources as $src) {
@@ -259,7 +337,16 @@ class ConsignmentBillingConfirmationController extends Controller
             }
         }
 
-        return view('consignment::confirmations.edit', compact('confirmation', 'suppliers', 'eligibleSources'));
+        $eligibleSources = $soldSources->setCollection(collect($eligibleSources));
+
+        return view('consignment::confirmations.edit', compact(
+            'confirmation',
+            'eligibleSources',
+            'selectedSupplierId',
+            'selectedSupplierText',
+            'selectedFilterProductText',
+            'selectedFilterLocationText'
+        ));
     }
 
     public function update(Request $request, $id)
@@ -274,45 +361,66 @@ class ConsignmentBillingConfirmationController extends Controller
             return redirect()->route('consignments.confirmations.show', $confirmation->id);
         }
 
-        // Filter lines to only include selected/checked rows
-        $rawLines = $request->input('lines', []);
-        $filteredLines = array_values(array_filter($rawLines, function ($line) {
-            return ! empty($line['consignment_sold_source_id']) && ! empty($line['selected']);
-        }));
-
-        foreach ($filteredLines as &$line) {
-            if (!empty($line['serialized_allocations'])) {
-                $line['serialized_allocations'] = array_values(array_filter($line['serialized_allocations'], function ($sa) {
-                    return !empty($sa['selected']);
-                }));
-            }
-        }
-        unset($line);
+        $filteredLines = $this->normalizeSubmittedLines($request->input('lines', []));
 
         $request->merge(['lines' => $filteredLines]);
 
+        // The submitted page only ever shows a filtered/paginated slice of the
+        // sources, so the payload alone is not the complete draft. The visible set
+        // scopes which saved lines this submit is allowed to delete.
         $request->validate([
-            'lines' => 'required|array|min:1',
+            'lines' => 'array',
             'lines.*.consignment_sold_source_id' => [
                 'required',
                 \Illuminate\Validation\Rule::exists('consignment_sold_sources', 'id')->where('setting_id', $settingId),
             ],
             'lines.*.allocated_base_quantity' => 'required|numeric|min:0.001',
+            'visible_sold_source_ids' => 'array',
+            'visible_sold_source_ids.*' => [
+                'integer',
+                \Illuminate\Validation\Rule::exists('consignment_sold_sources', 'id')->where('setting_id', $settingId),
+            ],
         ]);
+
+        $visibleSoldSourceIds = $request->has('visible_sold_source_ids')
+            ? array_map('intval', $request->input('visible_sold_source_ids', []))
+            : null;
+
+        // Reconstruct the complete resulting draft (submitted lines plus saved lines
+        // that were not visible) and require that it is not left empty.
+        if ($visibleSoldSourceIds !== null) {
+            $submittedIds = collect($request->lines)->pluck('consignment_sold_source_id')->map(fn ($v) => (int) $v)->all();
+            $survivingHidden = $confirmation->lines()
+                ->whereNotIn('consignment_sold_source_id', array_unique(array_merge($visibleSoldSourceIds, $submittedIds)))
+                ->count();
+
+            if (count($submittedIds) === 0 && $survivingHidden === 0) {
+                return back()->withInput()->withErrors([
+                    'lines' => 'Konfirmasi harus memiliki minimal satu baris alokasi.',
+                ]);
+            }
+        } elseif (empty($request->lines)) {
+            return back()->withInput()->withErrors([
+                'lines' => 'Konfirmasi harus memiliki minimal satu baris alokasi.',
+            ]);
+        }
 
         try {
             $updated = $this->lifecycleService->updateDraft(
                 $confirmation,
                 $request->lines,
                 $request->notes,
-                auth()->id()
+                auth()->id(),
+                $visibleSoldSourceIds
             );
 
             toast('Draft konfirmasi alokasi berhasil diperbarui.', 'success');
             return redirect()->route('consignments.confirmations.show', $updated->id);
         } catch (Exception $e) {
+            // Surface as a validation error too, so the failure is visible in the
+            // form (and to tests) rather than only in a transient toast.
             toast($e->getMessage(), 'error');
-            return back()->withInput();
+            return back()->withInput()->withErrors(['lines' => $e->getMessage()]);
         }
     }
 

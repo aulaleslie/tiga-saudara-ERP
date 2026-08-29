@@ -42,14 +42,9 @@ class ConsignmentReceivalService
                 throw new InvalidArgumentException("Produk pada baris #" . ($index + 1) . " tidak ditemukan.");
             }
 
-            // Guard: active and stock-managed non-bundle product using the
-            // canonical Product schema and setting-scoped bundle relation.
+            // Guard: active and stock-managed product using canonical Product schema.
             if ($product->merged_into_id !== null) {
                 throw new InvalidArgumentException("Produk '{$product->product_name}' tidak aktif.");
-            }
-
-            if ($product->bundles()->where('setting_id', $setting->id)->exists()) {
-                throw new InvalidArgumentException("Produk bundle '{$product->product_name}' tidak dapat diterima sebagai konsinyasi.");
             }
 
             if (!$product->stock_managed) {

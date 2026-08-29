@@ -51,10 +51,12 @@ class ConsignmentReceivalController extends Controller
         }
 
         $receivals = $query->paginate(20)->withQueryString();
-        // Suppliers are shared master data: not scoped by setting.
-        $suppliers = Supplier::orderBy('supplier_name')->get();
 
-        return view('consignment::receivals.index', compact('receivals', 'suppliers'));
+        // The supplier filter is an AJAX Select2: resolve only the selected label
+        // instead of loading the whole shared supplier collection into the view.
+        $selectedSupplierText = Supplier::whereKey($request->integer('supplier_id'))->value('supplier_name');
+
+        return view('consignment::receivals.index', compact('receivals', 'selectedSupplierText'));
     }
 
     public function create()
@@ -196,11 +198,9 @@ class ConsignmentReceivalController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $settingId = (int) session('setting_id');
         $products = Product::query()
             ->active()
             ->where('stock_managed', true)
-            ->whereDoesntHave('bundles', fn ($query) => $query->where('setting_id', $settingId))
             ->globalSearch($validated['q'])
             ->orderBy('product_name')
             ->simplePaginate(20, ['products.id', 'products.product_name', 'products.product_code', 'products.serial_number_required']);

@@ -243,6 +243,109 @@ class ConsignmentPhase2FeatureTest extends TestCase
         ];
     }
 
+    /**
+     * A second, non-serialized sold source from the same supplier, used to prove that
+     * saved lines outside a filtered/paginated view survive a submit.
+     */
+    protected function createSecondSoldSource(): array
+    {
+        $product = Product::create([
+            'product_name' => 'Plain Consignment Widget',
+            'product_code' => 'PCW-002',
+            'product_price' => 120000,
+            'product_cost' => 90000,
+            'product_quantity' => 0,
+            'product_unit' => $this->serializedProduct->product_unit,
+            'unit_id' => $this->serializedProduct->unit_id,
+            'category_id' => $this->serializedProduct->category_id,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReceival::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'reference' => 'CR-002',
+            'receival_number' => 'CR-002',
+            'date' => date('Y-m-d'),
+            'status' => 'APPROVED',
+        ]);
+        $receivalLine = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'unit_cost' => 90000,
+            'unit_dpp' => 90000,
+            'subtotal_cost' => 180000,
+            'subtotal_dpp' => 180000,
+            'total_cost' => 180000,
+            'total_dpp' => 180000,
+            'is_serialized' => false,
+        ]);
+        $receiving = ConsignmentReceiving::create([
+            'consignment_receival_id' => $receival->id,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->consignmentLocation->id,
+            'receiving_number' => 'RCV-002',
+            'date' => date('Y-m-d'),
+            'status' => ConsignmentReceiving::STATUS_APPROVED,
+        ]);
+        $receivingDetail = ConsignmentReceivingDetail::create([
+            'consignment_receiving_id' => $receiving->id,
+            'consignment_receival_line_id' => $receivalLine->id,
+            'product_id' => $product->id,
+            'quantity_received' => 2,
+            'unit_cost' => 90000,
+            'unit_dpp' => 90000,
+            'is_serialized' => false,
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'General Customer',
+            'reference' => 'SL-PLAIN-02',
+            'date' => date('Y-m-d'),
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 120000,
+            'paid_amount' => 120000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+        ]);
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        $dd = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'location_id' => $this->consignmentLocation->id,
+            'dispatched_quantity' => 1,
+            'is_inventory_managed' => true,
+        ]);
+
+        app(ConsignmentSoldSourceDiscoveryService::class)->discoverForSetting($this->setting->id);
+
+        $source = ConsignmentSoldSource::where('dispatch_detail_id', $dd->id)->firstOrFail();
+
+        return [
+            'product' => $product,
+            'source' => $source,
+            'receivingDetail' => $receivingDetail,
+            'sale' => $sale,
+        ];
+    }
+
     public function test_confirmation_create_renders_with_serialized_sources()
     {
         $setup = $this->createSerializedSetup();
@@ -312,6 +415,408 @@ class ConsignmentPhase2FeatureTest extends TestCase
         
         $source = $sources[0];
         $this->assertCount(2, $source->resolved_serials);
+    }
+
+    public function test_confirmation_edit_source_filtering_preserves_saved_draft_allocations()
+    {
+        $setup = $this->createSerializedSetup();
+
+        $lifecycleService = app(ConsignmentBillingConfirmationLifecycleService::class);
+        $confirmation = $lifecycleService->createDraft(
+            $this->setting->id,
+            $this->supplier->id,
+            date('Y-m-d'),
+            [
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $setup['source']->id,
+                    'product_id' => $setup['source']->product_id,
+                    'location_id' => $setup['source']->location_id,
+                    'allocated_base_quantity' => 2,
+                    'receipt_allocations' => [
+                        [
+                            'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                            'allocated_base_quantity' => 2,
+                        ]
+                    ],
+                ]
+            ],
+            'Draft kept across filtering',
+            $this->user->id
+        );
+
+        $savedLineCount = $confirmation->lines()->count();
+        $this->assertGreaterThan(0, $savedLineCount);
+
+        // Applying a source filter is a GET on its own form: the saved draft rows
+        // must survive untouched.
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.confirmations.edit', [
+                $confirmation->id,
+                'filter_product_id' => $setup['source']->product_id,
+            ]));
+
+        $response->assertOk();
+
+        $sources = $response->viewData('eligibleSources');
+        foreach ($sources as $src) {
+            $this->assertEquals($setup['source']->product_id, $src->product_id, 'Filter must be applied at query level.');
+        }
+
+        $this->assertEquals(
+            $savedLineCount,
+            $confirmation->fresh()->lines()->count(),
+            'Filtering the source list must not drop saved draft allocations.'
+        );
+
+        // A filter that matches nothing still leaves the persisted draft intact.
+        $empty = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.confirmations.edit', [
+                $confirmation->id,
+                'source_q' => 'NO-SUCH-REFERENCE-XYZ',
+            ]));
+
+        $empty->assertOk();
+        $this->assertCount(0, $empty->viewData('eligibleSources'));
+        $this->assertEquals($savedLineCount, $confirmation->fresh()->lines()->count());
+    }
+
+    public function test_update_from_filtered_page_preserves_saved_lines_outside_the_visible_set()
+    {
+        $setup = $this->createSerializedSetup();
+        $second = $this->createSecondSoldSource();
+
+        $lifecycleService = app(ConsignmentBillingConfirmationLifecycleService::class);
+        $confirmation = $lifecycleService->createDraft(
+            $this->setting->id,
+            $this->supplier->id,
+            date('Y-m-d'),
+            [
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $setup['source']->id,
+                    'allocated_base_quantity' => 2,
+                    'receipt_allocations' => [
+                        [
+                            'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                            'allocated_base_quantity' => 2,
+                        ]
+                    ],
+                    'serialized_allocations' => [
+                        [
+                            'selected' => true,
+                            'product_serial_number_id' => $setup['psn1']->id,
+                            'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                        ],
+                    ],
+                ],
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $second['source']->id,
+                    'allocated_base_quantity' => 1,
+                    'receipt_allocations' => [
+                        [
+                            'consignment_receiving_detail_id' => $second['receivingDetail']->id,
+                            'allocated_base_quantity' => 1,
+                        ]
+                    ],
+                ],
+            ],
+            'Two saved lines',
+            $this->user->id
+        );
+
+        $this->assertEquals(2, $confirmation->lines()->count());
+        $hiddenLine = $confirmation->lines()->where('consignment_sold_source_id', $second['source']->id)->firstOrFail();
+
+        // Submit from a page showing ONLY the first source. The second saved line is
+        // not in the payload because it is not visible, not because it was deselected.
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->put(route('consignments.confirmations.update', $confirmation->id), [
+                'notes' => 'Updated from a filtered page',
+                'visible_sold_source_ids' => [$setup['source']->id],
+                'lines' => [
+                    [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $setup['source']->id,
+                        'allocated_base_quantity' => 2,
+                        'receipt_allocations' => [
+                            [
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                                'allocated_base_quantity' => 2,
+                            ]
+                        ],
+                        'serialized_allocations' => [
+                            [
+                                'selected' => '1',
+                                'product_serial_number_id' => $setup['psn1']->id,
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $confirmation->refresh();
+        $this->assertEquals(2, $confirmation->lines()->count(), 'A saved line outside the visible page must not be deleted.');
+        $this->assertDatabaseHas('consignment_billing_confirmation_lines', [
+            'id' => $hiddenLine->id,
+            'consignment_sold_source_id' => $second['source']->id,
+            'allocated_base_quantity' => 1,
+        ]);
+
+        // The hidden line keeps its receipt allocation intact.
+        $this->assertEquals(1, $hiddenLine->fresh()->receiptAllocations()->count());
+    }
+
+    public function test_sources_selected_on_separate_pages_are_persisted_together()
+    {
+        $setup = $this->createSerializedSetup();
+        $second = $this->createSecondSoldSource();
+
+        // The client re-emits selections made on other pages, so a single POST
+        // carries sources the user picked on page 1 and page 2. Rows are keyed by
+        // sold-source id, never by row index.
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.confirmations.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => date('Y-m-d'),
+                'notes' => 'Selections from two pages',
+                'lines' => [
+                    $setup['source']->id => [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $setup['source']->id,
+                        'allocated_base_quantity' => 2,
+                        'receipt_allocations' => [
+                            [
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                                'allocated_base_quantity' => 2,
+                            ]
+                        ],
+                    ],
+                    $second['source']->id => [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $second['source']->id,
+                        'allocated_base_quantity' => 1,
+                        'receipt_allocations' => [
+                            [
+                                'consignment_receiving_detail_id' => $second['receivingDetail']->id,
+                                'allocated_base_quantity' => 1,
+                            ]
+                        ],
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $confirmation = ConsignmentBillingConfirmation::latest('id')->firstOrFail();
+        $this->assertEquals(2, $confirmation->lines()->count());
+
+        $sourceIds = $confirmation->lines()->pluck('consignment_sold_source_id')->all();
+        $this->assertContains($setup['source']->id, $sourceIds);
+        $this->assertContains($second['source']->id, $sourceIds);
+    }
+
+    public function test_receipt_and_serial_allocations_survive_a_paginated_submit()
+    {
+        $setup = $this->createSerializedSetup();
+        $second = $this->createSecondSoldSource();
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.confirmations.store'), [
+                'supplier_id' => $this->supplier->id,
+                'date' => date('Y-m-d'),
+                'lines' => [
+                    // Carried over from another page, complete with its children.
+                    $setup['source']->id => [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $setup['source']->id,
+                        'allocated_base_quantity' => 2,
+                        'receipt_allocations' => [
+                            [
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                                'allocated_base_quantity' => 2,
+                            ]
+                        ],
+                        'serialized_allocations' => [
+                            [
+                                'selected' => '1',
+                                'product_serial_number_id' => $setup['psn1']->id,
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                            ],
+                            [
+                                // Unchecked: must not be persisted.
+                                'product_serial_number_id' => $setup['psn2']->id,
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $confirmation = ConsignmentBillingConfirmation::latest('id')->firstOrFail();
+        $line = $confirmation->lines()->where('consignment_sold_source_id', $setup['source']->id)->firstOrFail();
+
+        // Receipt-pool quantity is preserved exactly, not collapsed to the checkbox.
+        $this->assertEquals(1, $line->receiptAllocations()->count());
+        $this->assertEquals(2.0, (float) $line->receiptAllocations()->first()->allocated_base_quantity);
+
+        // Only the checked serial is allocated.
+        $serialIds = $line->serializedAllocations()->pluck('product_serial_number_id')->all();
+        $this->assertEquals([$setup['psn1']->id], $serialIds);
+    }
+
+    public function test_explicit_deselection_deletes_only_the_intended_line()
+    {
+        $setup = $this->createSerializedSetup();
+        $second = $this->createSecondSoldSource();
+
+        $lifecycleService = app(ConsignmentBillingConfirmationLifecycleService::class);
+        $confirmation = $lifecycleService->createDraft(
+            $this->setting->id,
+            $this->supplier->id,
+            date('Y-m-d'),
+            [
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $setup['source']->id,
+                    'allocated_base_quantity' => 2,
+                ],
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $second['source']->id,
+                    'allocated_base_quantity' => 1,
+                ],
+            ],
+            'Two lines',
+            $this->user->id
+        );
+
+        $this->assertEquals(2, $confirmation->lines()->count());
+        $keptLine = $confirmation->lines()->where('consignment_sold_source_id', $setup['source']->id)->firstOrFail();
+
+        // Both sources are visible; the second is unchecked. That is an explicit
+        // deselection, so only that line may be deleted.
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->put(route('consignments.confirmations.update', $confirmation->id), [
+                'visible_sold_source_ids' => [$setup['source']->id, $second['source']->id],
+                'lines' => [
+                    $setup['source']->id => [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $setup['source']->id,
+                        'allocated_base_quantity' => 2,
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $confirmation->refresh();
+        $this->assertEquals(1, $confirmation->lines()->count());
+        $this->assertEquals(
+            $setup['source']->id,
+            $confirmation->lines()->first()->consignment_sold_source_id,
+            'Only the deselected line may be removed.'
+        );
+        $this->assertDatabaseMissing('consignment_billing_confirmation_lines', [
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'consignment_sold_source_id' => $second['source']->id,
+        ]);
+        $this->assertDatabaseHas('consignment_billing_confirmation_lines', [
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'consignment_sold_source_id' => $keptLine->consignment_sold_source_id,
+        ]);
+    }
+
+    public function test_update_rejects_a_payload_that_would_empty_the_draft()
+    {
+        $setup = $this->createSerializedSetup();
+
+        $lifecycleService = app(ConsignmentBillingConfirmationLifecycleService::class);
+        $confirmation = $lifecycleService->createDraft(
+            $this->setting->id,
+            $this->supplier->id,
+            date('Y-m-d'),
+            [
+                [
+                    'selected' => true,
+                    'consignment_sold_source_id' => $setup['source']->id,
+                    'allocated_base_quantity' => 2,
+                ],
+            ],
+            'Single line',
+            $this->user->id
+        );
+
+        // Deselecting the only visible line leaves nothing behind: the complete
+        // reconstructed draft would be empty, so the submit is rejected.
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->put(route('consignments.confirmations.update', $confirmation->id), [
+                'visible_sold_source_ids' => [$setup['source']->id],
+                'lines' => [],
+            ]);
+
+        $response->assertSessionHasErrors('lines');
+        $this->assertEquals(1, $confirmation->fresh()->lines()->count());
+    }
+
+    public function test_changing_supplier_cannot_retain_incompatible_allocations()
+    {
+        $setup = $this->createSerializedSetup();
+
+        // A different supplier: the receipt lot belongs to the original supplier, so
+        // carrying the allocation over must be rejected server-side rather than
+        // silently persisted against the wrong supplier.
+        $otherSupplier = Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Supplier Beta',
+            'supplier_email' => 'beta@example.com',
+            'supplier_phone' => '082222222',
+            'city' => 'Bandung',
+            'country' => 'Indonesia',
+            'address' => 'Beta St',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('consignments.confirmations.store'), [
+                'supplier_id' => $otherSupplier->id,
+                'date' => date('Y-m-d'),
+                'lines' => [
+                    $setup['source']->id => [
+                        'selected' => '1',
+                        'consignment_sold_source_id' => $setup['source']->id,
+                        'allocated_base_quantity' => 2,
+                        'receipt_allocations' => [
+                            [
+                                // Lot belongs to $this->supplier, not $otherSupplier.
+                                'consignment_receiving_detail_id' => $setup['receivingDetail']->id,
+                                'allocated_base_quantity' => 2,
+                            ]
+                        ],
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasErrors();
+        $this->assertEquals(
+            0,
+            ConsignmentBillingConfirmation::where('supplier_id', $otherSupplier->id)->count(),
+            'A confirmation must not be created with allocations from another supplier.'
+        );
     }
 
     public function test_reconciliation_filtering_by_sale_reference()
