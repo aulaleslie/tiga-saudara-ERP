@@ -24,7 +24,7 @@ class PurchaseReportingDateController extends Controller
 
         $validated = $request->validate([
             'reporting_date' => 'required|date',
-            'reason' => 'required|string|min:1',
+            'reason' => 'required|string|min:1|max:255',
         ]);
 
         try {
@@ -54,7 +54,7 @@ class PurchaseReportingDateController extends Controller
         $this->authorize('overrideReportingDate', $purchase);
 
         $validated = $request->validate([
-            'reason' => 'required|string|min:1',
+            'reason' => 'required|string|min:1|max:255',
         ]);
 
         try {

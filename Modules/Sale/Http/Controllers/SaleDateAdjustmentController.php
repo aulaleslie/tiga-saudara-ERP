@@ -25,7 +25,7 @@ class SaleDateAdjustmentController extends Controller
             'reporting_date' => 'nullable|date',
             'due_date_action' => 'sometimes|string|in:keep,set',
             'due_date' => 'nullable|date',
-            'reason' => 'required|string|min:1',
+            'reason' => 'required|string|min:1|max:255',
         ]);
 
         $command = DateAdjustmentCommand::fromArray($validated);

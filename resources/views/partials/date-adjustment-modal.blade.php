@@ -6,7 +6,7 @@
     $updateRoute = $isPurchase ? route('purchases.date-adjustment.update', $document->id) : route('sales.date-adjustment.update', $document->id);
 @endphp
 
-@if($hasAnyPermission)
+@if($hasAnyPermission && !(isset($globalMode) && $globalMode))
     <button type="button" id="dateAdjustmentModalButton" class="btn btn-secondary" data-toggle="modal" data-target="#dateAdjustmentModal">
         <i class="bi bi-calendar-event mr-2"></i> Penyesuaian Tanggal
     </button>
@@ -148,7 +148,7 @@
 
                         <div class="form-group">
                             <label for="adjustment_reason">Alasan Penyesuaian <span class="text-danger">*</span></label>
-                            <textarea id="adjustment_reason" name="reason" class="form-control" rows="3" required placeholder="Masukkan alasan penyesuaian tanggal..."></textarea>
+                            <textarea id="adjustment_reason" name="reason" class="form-control" rows="3" required maxlength="255" placeholder="Masukkan alasan penyesuaian tanggal..."></textarea>
                         </div>
 
                         <button type="submit" class="btn btn-primary btn-block">Simpan Penyesuaian Tanggal</button>

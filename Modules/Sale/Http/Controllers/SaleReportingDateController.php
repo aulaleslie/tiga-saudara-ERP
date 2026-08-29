@@ -23,7 +23,7 @@ class SaleReportingDateController extends Controller
 
         $validated = $request->validate([
             'reporting_date' => 'required|date',
-            'reason' => 'required|string|min:1',
+            'reason' => 'required|string|min:1|max:255',
         ]);
 
         try {
@@ -53,7 +53,7 @@ class SaleReportingDateController extends Controller
         $this->authorize('overrideReportingDate', $sale);
 
         $validated = $request->validate([
-            'reason' => 'required|string|min:1',
+            'reason' => 'required|string|min:1|max:255',
         ]);
 
         try {

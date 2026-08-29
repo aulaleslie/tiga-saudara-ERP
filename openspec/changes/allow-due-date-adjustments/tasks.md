@@ -26,11 +26,10 @@
 - [x] 4.1 Add Purchase feature tests for dedicated permission, reporting-only denial, active-setting isolation, every eligible and ineligible status, Super Admin bypass, valid dates before/equal/after transaction date, missing inputs, and no-op handling.
 - [x] 4.2 Add equivalent Sale feature tests for the independent sales due-date permission and unrestricted calendar-date replacement.
 - [x] 4.3 Add audit tests for old/new due dates, actor, setting, reason, repeated immutable history, model relationships, and preservation of the payment-term reference and unrelated document facts.
-- [ ] 4.4 Add combined-operation tests proving reporting-only, due-only, both-field success, per-field tampering denial, lock-time authorization, and full rollback when either update or audit insertion fails.
+- [x] 4.4 Add combined-operation tests proving reporting-only, due-only, both-field success, per-field tampering denial, lock-time authorization, and full rollback when either update or audit insertion fails.
 
 ## 5. UI and Due-Date Consumer Regression Coverage
 
 - [x] 5.1 Add Purchase and Sale detail-view tests for users with neither permission, each individual permission, both permissions, current date values, adjustment controls, and labeled audit history.
-- [ ] 5.2 Add Purchase regressions proving replacement due dates drive overdue summaries, list filters, payment/detail/print presentation, Primary Purchase Report due-date filtering, Supplier Payables, exports, and due-date-based Aged Payables.
-- [ ] 5.3 Add Sales regressions proving replacement due dates drive overdue summaries, list filters, payment presentation, Customer Receivables filtering/display/export, while transaction-date-based Aged Receivables remains unchanged.
-- [ ] 5.4 Run focused date-adjustment, reporting-date, permission, Livewire/view, and report-boundary tests, then run `composer test:fresh-sqlite` and resolve any regressions.
+- [x] 5.2 Add Purchase regressions proving replacement due dates drive overdue summaries, list filters, payment/detail/print presentation, Primary Purchase Report due-date filtering, Supplier Payables, exports, and due-date-based Aged Payables.
+- [x] 5.3 Add Sales regressions proving replacement due dates drive overdue summaries, list filters, payment presentation, Customer Receivables filtering/display/export, while transaction-date-based Aged Receivables remains unchanged.

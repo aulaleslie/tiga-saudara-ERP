@@ -47,6 +47,7 @@ class GlobalSalePaymentController extends Controller
             'saleDispatches.details.location',
             'salePayments.paymentMethod',
             'reportingDateAudits.actor',
+            'dueDateAudits.actor',
         ]);
 
         $customer = \Modules\People\Entities\Customer::findOrFail($sale->customer_id);

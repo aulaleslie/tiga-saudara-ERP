@@ -26,6 +26,7 @@ class GlobalPurchasePaymentController extends Controller
         $purchase->load([
             'tags',
             'reportingDateAudits.actor',
+            'dueDateAudits.actor',
             'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',

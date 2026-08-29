@@ -442,7 +442,43 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
         $this->assertEquals($date2 . ' 00:00:00', $audits[1]->resulting_due_date->format('Y-m-d H:i:s'));
     }
 
-    public function test_per_field_tampering_denied_and_lock_time_authorization()
+    public function test_reporting_date_only_adjustment_success()
+    {
+        $this->user->givePermissionTo('purchases.reporting-date.override');
+
+        $originalDueDate = now()->addDays(10)->format('Y-m-d');
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'due_date' => $originalDueDate,
+            'reference' => 'TST-RPT-ONLY',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        $newReportingDate = now()->subDays(3)->format('Y-m-d');
+
+        $response = $this->putJson(route('purchases.date-adjustment.update', $purchase), [
+            'reporting_action' => 'set',
+            'reporting_date' => $newReportingDate,
+            'due_date_action' => 'keep',
+            'reason' => 'Reporting date adjustment only',
+        ]);
+
+        $response->assertStatus(200);
+        $purchase->refresh();
+
+        $this->assertEquals($newReportingDate, $purchase->reporting_date->format('Y-m-d'));
+        $this->assertEquals($originalDueDate, $purchase->due_date->format('Y-m-d'));
+        $this->assertDatabaseHas('reporting_date_audits', ['auditable_id' => $purchase->id]);
+        $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
+    }
+
+    public function test_per_field_tampering_denied()
     {
         // User has ONLY due-date override permission, NOT reporting-date permission
         $this->user->givePermissionTo('purchases.due-date.override');
@@ -470,11 +506,27 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
         ]);
 
         $response->assertStatus(403);
+    }
 
-        // Test mid-execution lock-time reauthorization rejection
+    public function test_authorization_is_repeated_after_document_row_is_locked()
+    {
         $this->user->givePermissionTo('purchases.reporting-date.override');
+        $this->user->givePermissionTo('purchases.due-date.override');
 
-        // Revoke permission right before locked service execution
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'due_date' => now()->addDays(5),
+            'reference' => 'TST-LOCK-AUTH',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        // Revoke permission right after lock / retrieval inside service execution
         \Illuminate\Support\Facades\Event::listen('eloquent.retrieved: Modules\Purchase\Entities\Purchase', function () {
             $this->user->revokePermissionTo('purchases.due-date.override');
             app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
@@ -493,7 +545,7 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
         $lockService->adjustDates($purchase, $command, $this->user, authorize: true);
     }
 
-    public function test_forced_transactional_rollback_on_failure()
+    public function test_forced_reporting_date_audit_failure_rolls_back_all_changes()
     {
         $this->user->givePermissionTo('purchases.due-date.override');
         $this->user->givePermissionTo('purchases.reporting-date.override');
@@ -507,7 +559,7 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
             'date' => now()->subDays(10),
             'reporting_date' => $originalReportingDate,
             'due_date' => $originalDueDate,
-            'reference' => 'TST-ROLLBACK',
+            'reference' => 'TST-ROLLBACK-RPT-AUDIT',
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
             'total_amount' => 100,
@@ -515,9 +567,8 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
             'paid_amount' => 0,
         ]);
 
-        // Listen for DueDateAudit insertion and throw an exception to force rollback of BOTH fields
-        \Illuminate\Support\Facades\Event::listen('eloquent.creating: Modules\Purchase\Entities\DueDateAudit', function () {
-            throw new \RuntimeException('Forced audit creation failure');
+        \Illuminate\Support\Facades\Event::listen('eloquent.creating: Modules\Purchase\Entities\ReportingDateAudit', function () {
+            throw new \RuntimeException('Forced reporting audit creation failure');
         });
 
         try {
@@ -534,10 +585,174 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
 
         $purchase->refresh();
 
-        // Assert NEITHER field changed and NEITHER audit persisted
         $this->assertNull($purchase->reporting_date);
         $this->assertEquals($originalDueDate, $purchase->due_date->format('Y-m-d'));
         $this->assertDatabaseMissing('reporting_date_audits', ['auditable_id' => $purchase->id]);
         $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
+    }
+
+    public function test_forced_due_date_audit_failure_rolls_back_all_changes()
+    {
+        $this->user->givePermissionTo('purchases.due-date.override');
+        $this->user->givePermissionTo('purchases.reporting-date.override');
+
+        $originalReportingDate = null;
+        $originalDueDate = now()->addDays(5)->format('Y-m-d');
+
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'reporting_date' => $originalReportingDate,
+            'due_date' => $originalDueDate,
+            'reference' => 'TST-ROLLBACK-DUE-AUDIT',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        \Illuminate\Support\Facades\Event::listen('eloquent.creating: Modules\Purchase\Entities\DueDateAudit', function () {
+            throw new \RuntimeException('Forced due date audit creation failure');
+        });
+
+        try {
+            $this->putJson(route('purchases.date-adjustment.update', $purchase), [
+                'reporting_action' => 'set',
+                'reporting_date' => now()->subDays(2)->format('Y-m-d'),
+                'due_date_action' => 'set',
+                'due_date' => now()->addDays(20)->format('Y-m-d'),
+                'reason' => 'Trigger failure on combined update',
+            ]);
+        } catch (\RuntimeException $e) {
+            // Expected
+        }
+
+        $purchase->refresh();
+
+        $this->assertNull($purchase->reporting_date);
+        $this->assertEquals($originalDueDate, $purchase->due_date->format('Y-m-d'));
+        $this->assertDatabaseMissing('reporting_date_audits', ['auditable_id' => $purchase->id]);
+        $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
+    }
+
+    public function test_forced_document_update_failure_rolls_back_all_changes()
+    {
+        $this->user->givePermissionTo('purchases.due-date.override');
+        $this->user->givePermissionTo('purchases.reporting-date.override');
+
+        $originalReportingDate = null;
+        $originalDueDate = now()->addDays(5)->format('Y-m-d');
+
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'reporting_date' => $originalReportingDate,
+            'due_date' => $originalDueDate,
+            'reference' => 'TST-ROLLBACK-DOC-UPDATE',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        \Illuminate\Support\Facades\Event::listen('eloquent.updating: Modules\Purchase\Entities\Purchase', function () {
+            throw new \RuntimeException('Forced purchase update failure');
+        });
+
+        try {
+            $this->putJson(route('purchases.date-adjustment.update', $purchase), [
+                'reporting_action' => 'set',
+                'reporting_date' => now()->subDays(2)->format('Y-m-d'),
+                'due_date_action' => 'set',
+                'due_date' => now()->addDays(20)->format('Y-m-d'),
+                'reason' => 'Trigger failure on purchase update',
+            ]);
+        } catch (\RuntimeException $e) {
+            // Expected
+        }
+
+        $purchase->refresh();
+
+        $this->assertNull($purchase->reporting_date);
+        $this->assertEquals($originalDueDate, $purchase->due_date->format('Y-m-d'));
+        $this->assertDatabaseMissing('reporting_date_audits', ['auditable_id' => $purchase->id]);
+        $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
+    }
+
+    /** @test */
+    public function test_reason_length_exceeding_255_characters_is_rejected()
+    {
+        $this->user->givePermissionTo('purchases.due-date.override');
+
+        $purchase = Purchase::create([
+            'setting_id' => $this->setting->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'date' => now()->subDays(10)->format('Y-m-d'),
+            'due_date' => now()->addDays(20)->format('Y-m-d'),
+            'reference' => 'PR-RSN-01',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'due_amount' => 1000,
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->putJson(route('purchases.date-adjustment.update', $purchase->id), [
+            'due_date_action' => 'set',
+            'due_date' => now()->addDays(5)->format('Y-m-d'),
+            'reason' => str_repeat('A', 256),
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['reason']);
+    }
+
+    /** @test */
+    public function test_global_purchase_detail_loads_due_date_audits_without_lazy_loading_violation()
+    {
+        \Spatie\Permission\Models\Permission::findOrCreate('purchasePayments.global.access', 'web');
+        $this->user->givePermissionTo(['purchases.due-date.override', 'purchasePayments.global.access']);
+
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Global PR Supplier',
+            'supplier_email' => 'supplier@example.com',
+            'supplier_phone' => '12345',
+            'address' => 'Test Address',
+            'city' => 'Test City',
+            'country' => 'Test Country',
+        ]);
+
+        $purchase = Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'date' => now()->subDays(10)->format('Y-m-d'),
+            'due_date' => now()->addDays(20)->format('Y-m-d'),
+            'reference' => 'PR-RSN-02',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'due_amount' => 1000,
+            'paid_amount' => 0,
+        ]);
+
+        // Create a due date audit record
+        $service = app(\App\Services\DocumentDateAdjustmentService::class);
+        $service->adjustDates($purchase, new \App\DTOs\DateAdjustmentCommand(
+            reportingAction: 'keep',
+            reportingDate: null,
+            dueDateAction: 'set',
+            dueDate: now()->addDays(10)->format('Y-m-d'),
+            reason: 'Audit history test',
+        ), $this->user);
+
+        $response = $this->get(route('purchases.global-payments.show', $purchase->id));
+        $response->assertStatus(200);
+        $response->assertDontSee('id="dateAdjustmentModalButton"', false);
     }
 }
