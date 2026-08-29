@@ -382,6 +382,67 @@ class SalesImportProductSplitNoStockTest extends TestCase
         // Transactions should NOT have increased because inventory mutation is skipped
         $finalTransactions = \Modules\Product\Entities\Transaction::count();
         $this->assertEquals($initialTransactions, $finalTransactions);
+
+        // Because no inventory moved, the audit rows must say so explicitly rather than
+        // leaving null for downstream consumers to interpret as historical evidence.
+        foreach ($dispatch->details as $importedDetail) {
+            $this->assertNotNull(
+                $importedDetail->getAttribute('is_inventory_managed'),
+                'Imported dispatch details must not rely on nullable historical classification.'
+            );
+            $this->assertFalse((bool) $importedDetail->is_inventory_managed);
+        }
+
+        // The canonical status must be persisted, not left to the lowercase column default.
+        $this->assertSame(\Modules\Sale\Entities\Dispatch::STATUS_APPROVED, $dispatch->status);
+        $this->assertSame(
+            \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
+            (string) \Illuminate\Support\Facades\DB::table('dispatches')->where('id', $dispatch->id)->value('status'),
+            'Stored status casing must match what consumers query for.'
+        );
+    }
+
+    public function test_imported_consignment_sale_rows_never_become_allocatable_sold_sources()
+    {
+        $batch = SalesImportBatch::create([
+            'status' => SalesImportBatch::STATUS_QUEUED,
+            'total_rows' => 1,
+            'user_id' => $this->user->id, 'source_csv_path' => 'dummy.csv', 'file_sha256' => 'dummy',
+        ]);
+
+        SalesImportRow::create([
+            'batch_id' => $batch->id,
+            'row_number' => 1,
+            'raw_json' => [
+                'no_faktur' => 'INV-CONSIGN',
+                'tanggal' => '01/01/2023',
+                'customer' => 'Cust A',
+                'produk' => 'Minyak',
+                'kuantitas' => '10',
+                'harga_satuan' => '1000',
+            ],
+        ]);
+
+        $this->service->processBatch($batch);
+
+        $sale = Sale::where('imported_sales_reference_number', 'INV-CONSIGN')->first();
+        $dispatch = $sale->saleDispatches->first();
+        $detail = $dispatch->details->first();
+
+        // Reclassify the import's destination location as consignment so discovery sees it.
+        $location = \Modules\Setting\Entities\Location::findOrFail($detail->location_id);
+        $location->forceFill(['is_consignment' => true, 'is_active' => true])->saveQuietly();
+
+        app(\Modules\Consignment\Services\ConsignmentSoldSourceDiscoveryService::class)
+            ->discoverForSetting((int) $location->setting_id);
+
+        // The row is now visible to discovery (canonical APPROVED status) but is explicitly
+        // non-inventory, so it is captured as a blocker and never as billable stock.
+        $source = \Modules\Consignment\Entities\ConsignmentSoldSource::where('dispatch_detail_id', $detail->id)->first();
+        $this->assertNotNull($source, 'Canonical approved status must make imported rows visible to discovery.');
+        $this->assertTrue((bool) $source->has_reconstruction_blocker);
+        $this->assertStringContainsStringIgnoringCase('Non-inventory', $source->blocker_reason);
+        $this->assertEquals('EXPLICIT_NON_INVENTORY', $source->source_snapshot['inventory_classification']);
     }
 
     public function test_document_level_adjustments_and_drift_allocated_pro_rata()

@@ -288,6 +288,77 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
+    public function it_classifies_stock_affecting_replacement_dispatch_details_as_inventory_managed(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, , $replacementSaleReturn] = $this->createPendingApprovalMixedResolutionReturn();
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $generated = DispatchDetail::query()
+            ->whereNotNull('replacement_of_dispatch_detail_id')
+            ->get();
+
+        $this->assertNotEmpty($generated, 'The replacement flow must generate dispatch details.');
+        foreach ($generated as $row) {
+            $this->assertNotNull(
+                $row->getRawOriginal('is_inventory_managed'),
+                'Classification must be persisted explicitly, never left null.'
+            );
+            $this->assertSame(
+                1,
+                (int) $row->getRawOriginal('is_inventory_managed'),
+                'A stock-affecting replacement must persist an explicit true classification.'
+            );
+        }
+    }
+
+    /** @test */
+    public function it_classifies_stockless_replacement_dispatch_details_as_non_inventory(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        [$posReturn, , $replacementSaleReturn] = $this->createPendingApprovalMixedResolutionReturn();
+
+        // A stockless replacement acknowledges the swap without moving inventory.
+        SaleReturnDetail::query()
+            ->where('sale_return_id', $replacementSaleReturn->id)
+            ->update(['stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS]);
+
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
+
+        $generated = DispatchDetail::query()
+            ->whereNotNull('replacement_of_dispatch_detail_id')
+            ->get();
+
+        $this->assertNotEmpty($generated);
+        foreach ($generated as $row) {
+            // (bool) null is also false, so assert the stored value explicitly: leaving
+            // null would let discovery classify this as HISTORICAL_COMPATIBILITY.
+            $this->assertNotNull(
+                $row->getRawOriginal('is_inventory_managed'),
+                'A stockless replacement must persist an explicit false, never null.'
+            );
+            $this->assertSame(0, (int) $row->getRawOriginal('is_inventory_managed'));
+        }
+
+        // Prove the downstream consequence: discovery must classify these as explicitly
+        // non-inventory blockers, never as billable historical-compatibility evidence.
+        $row = $generated->first();
+        $location = \Modules\Setting\Entities\Location::findOrFail($row->location_id);
+        $location->forceFill(['is_consignment' => true, 'is_active' => true])->saveQuietly();
+
+        app(\Modules\Consignment\Services\ConsignmentSoldSourceDiscoveryService::class)
+            ->discoverForSetting((int) $location->setting_id);
+
+        $source = \Modules\Consignment\Entities\ConsignmentSoldSource::where('dispatch_detail_id', $row->id)->first();
+        $this->assertNotNull($source);
+        $this->assertTrue((bool) $source->has_reconstruction_blocker);
+        $this->assertEquals('EXPLICIT_NON_INVENTORY', $source->source_snapshot['inventory_classification']);
+    }
+
+    /** @test */
     public function it_reduces_source_sale_detail_quantity_and_prorated_amounts_for_cash_return_lines(): void
     {
         $this->actingAsInSetting($this->actor, $this->setting);

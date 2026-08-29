@@ -772,6 +772,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'dispatched_quantity' => $qty,
             'location_id' => $locationId,
             'serial_numbers' => null,
+            // Audit-only evidence: this row performs no stock, serial, or inventory mutation.
+            'is_inventory_managed' => false,
         ]);
     }
 
@@ -871,6 +873,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'dispatched_quantity' => $chunkQty,
                 'location_id' => $chunkLocId,
                 'serial_numbers' => $assignedSerialsForChunk ? json_encode($assignedSerialsForChunk) : null,
+                // This row deducts stock and carries serial lineage: an authoritative inventory movement.
+                'is_inventory_managed' => true,
             ]);
 
             if ($assignedSerialsForChunk) {

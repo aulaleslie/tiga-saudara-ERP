@@ -81,6 +81,7 @@ class PosNonStockDispatchAuditTest extends TestCase
         $this->assertSame(2, (int) $detail->dispatched_quantity);
         $this->assertSame($location->id, (int) $detail->location_id);
         $this->assertNull($detail->serial_numbers);
+        $this->assertFalse((bool) $detail->is_inventory_managed, 'Audit-only rows must classify as non-inventory.');
 
         // No inventory effects whatsoever.
         $this->assertDatabaseMissing('product_stocks', ['product_id' => $service->id]);
@@ -154,11 +155,13 @@ class PosNonStockDispatchAuditTest extends TestCase
         // Service: audit detail, zero inventory effect.
         $serviceDetail = DispatchDetail::query()->where('product_id', $service->id)->firstOrFail();
         $this->assertSame(1, (int) $serviceDetail->dispatched_quantity);
+        $this->assertFalse((bool) $serviceDetail->is_inventory_managed);
         $this->assertDatabaseMissing('transactions', ['product_id' => $service->id]);
 
         // RAM: unchanged normal allocation, dispatch and deduction.
         $ramDetail = DispatchDetail::query()->where('product_id', $ram->id)->firstOrFail();
         $this->assertSame(2, (int) $ramDetail->dispatched_quantity);
+        $this->assertTrue((bool) $ramDetail->is_inventory_managed, 'Stock-deducting rows must classify as inventory-managed.');
         $this->assertSame($location->id, (int) $ramDetail->location_id);
         $this->assertSame(8, (int) ProductStock::query()
             ->where('product_id', $ram->id)
@@ -214,8 +217,15 @@ class PosNonStockDispatchAuditTest extends TestCase
         $parentDetails = DispatchDetail::query()->where('product_id', $serviceParent->id)->get();
         $this->assertCount(1, $parentDetails);
         $this->assertSame(3, (int) $parentDetails->first()->dispatched_quantity);
+        $this->assertFalse((bool) $parentDetails->first()->is_inventory_managed);
         $this->assertDatabaseMissing('transactions', ['product_id' => $serviceParent->id]);
         $this->assertDatabaseMissing('product_stocks', ['product_id' => $serviceParent->id]);
+
+        // Each generated row carries the classification of its own posting path.
+        foreach (DispatchDetail::query()->where('product_id', $ram->id)->get() as $ramRow) {
+            $this->assertTrue((bool) $ramRow->is_inventory_managed);
+            $this->assertNotNull($ramRow->bundle_id, 'Component rows keep bundle provenance.');
+        }
 
         // RAM component: quantity multiplied by bundle qty, deducted exactly once.
         $ramDispatched = (int) DispatchDetail::query()->where('product_id', $ram->id)->sum('dispatched_quantity');
@@ -525,6 +535,7 @@ class PosNonStockDispatchAuditTest extends TestCase
         $serviceDetail = DispatchDetail::query()->where('product_id', $serviceParent->id)->firstOrFail();
         $this->assertSame($locationA->id, (int) $serviceDetail->location_id);
         $this->assertSame(3, (int) $serviceDetail->dispatched_quantity);
+        $this->assertFalse((bool) $serviceDetail->is_inventory_managed);
 
         $serviceSale = Sale::query()->findOrFail((int) $serviceDetail->sale_id);
         $this->assertSame($businessA->id, (int) $serviceSale->setting_id);

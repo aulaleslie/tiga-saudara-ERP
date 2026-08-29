@@ -185,6 +185,79 @@ class POSReturnCrossOwnerReplacementTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
+    public function cross_owner_stock_affecting_replacement_persists_explicit_inventory_classification(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->settingA);
+
+        [$posReturn] = $this->createPendingApprovalCrossOwnerReplacement();
+
+        $this->service->executeApprovalFromPreview($posReturn->id);
+
+        $newSale = Sale::query()
+            ->where('setting_id', $this->settingB->id)
+            ->where('note', 'like', '%' . $posReturn->reference . '%')
+            ->latest('id')
+            ->firstOrFail();
+
+        $detail = DispatchDetail::query()
+            ->whereIn('dispatch_id', Dispatch::query()->where('sale_id', $newSale->id)->pluck('id'))
+            ->firstOrFail();
+
+        $this->assertNotNull(
+            $detail->getRawOriginal('is_inventory_managed'),
+            'The cross-owner producer must persist classification explicitly, never null.'
+        );
+        $this->assertSame(1, (int) $detail->getRawOriginal('is_inventory_managed'));
+    }
+
+    /** @test */
+    public function cross_owner_stockless_replacement_is_classified_non_inventory_and_never_allocatable(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->settingA);
+
+        [$posReturn, , $saleReturn] = $this->createPendingApprovalCrossOwnerReplacement();
+
+        // A stockless cross-owner replacement moves no inventory at Setting B.
+        SaleReturnDetail::query()
+            ->where('sale_return_id', $saleReturn->id)
+            ->update(['stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS]);
+        PosReturnLine::query()
+            ->where('pos_return_id', $posReturn->id)
+            ->update(['stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS]);
+
+        $this->service->executeApprovalFromPreview($posReturn->id);
+
+        $newSale = Sale::query()
+            ->where('setting_id', $this->settingB->id)
+            ->where('note', 'like', '%' . $posReturn->reference . '%')
+            ->latest('id')
+            ->firstOrFail();
+
+        $detail = DispatchDetail::query()
+            ->whereIn('dispatch_id', Dispatch::query()->where('sale_id', $newSale->id)->pluck('id'))
+            ->firstOrFail();
+
+        // (bool) null is also false, so assert the stored value explicitly.
+        $this->assertNotNull(
+            $detail->getRawOriginal('is_inventory_managed'),
+            'A stockless cross-owner replacement must persist an explicit false, never null.'
+        );
+        $this->assertSame(0, (int) $detail->getRawOriginal('is_inventory_managed'));
+
+        // Downstream: discovery must block it rather than treat it as historical evidence.
+        $location = Location::findOrFail($detail->location_id);
+        $location->forceFill(['is_consignment' => true, 'is_active' => true])->saveQuietly();
+
+        app(\Modules\Consignment\Services\ConsignmentSoldSourceDiscoveryService::class)
+            ->discoverForSetting((int) $location->setting_id);
+
+        $source = \Modules\Consignment\Entities\ConsignmentSoldSource::where('dispatch_detail_id', $detail->id)->first();
+        $this->assertNotNull($source);
+        $this->assertTrue((bool) $source->has_reconstruction_blocker);
+        $this->assertEquals('EXPLICIT_NON_INVENTORY', $source->source_snapshot['inventory_classification']);
+    }
+
+    /** @test */
     public function cross_owner_replacement_marks_replacement_serial_sold_under_setting_b_dispatch(): void
     {
         $this->actingAsInSetting($this->actor, $this->settingA);

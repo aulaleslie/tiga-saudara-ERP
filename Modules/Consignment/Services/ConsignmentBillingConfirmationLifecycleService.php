@@ -20,6 +20,7 @@ class ConsignmentBillingConfirmationLifecycleService
     protected ConsignmentReturnEligibilityService $eligibilityService;
     protected ConsignmentReceiptAllocationService $receiptAllocationService;
 
+
     public function __construct(
         ConsignmentReturnEligibilityService $eligibilityService,
         ConsignmentReceiptAllocationService $receiptAllocationService
@@ -237,7 +238,7 @@ class ConsignmentBillingConfirmationLifecycleService
                         throw new Exception("Sold source #{$soldSource->id} snapshot hash mismatch (stale or altered source).");
                     }
 
-                    $liveHash = $this->computeCanonicalLiveHash($soldSource);
+                    $liveHash = $this->computeCanonicalLiveHash($soldSource, true);
                     if (! empty($expectedHash) && ! empty($liveHash) && strcasecmp($expectedHash, $liveHash) !== 0) {
                         throw new Exception("Sold source #{$soldSource->id} live hash mismatch (authoritative dispatch detail altered).");
                     }
@@ -443,7 +444,7 @@ class ConsignmentBillingConfirmationLifecycleService
                         throw new Exception("Approval failed: sold source #{$soldSource->id} snapshot hash mismatch (stale or altered source).");
                     }
 
-                    $liveHash = $this->computeCanonicalLiveHash($soldSource);
+                    $liveHash = $this->computeCanonicalLiveHash($soldSource, true);
                     if (! empty($expectedHash) && ! empty($liveHash) && strcasecmp($expectedHash, $liveHash) !== 0) {
                         throw new Exception("Approval failed: sold source #{$soldSource->id} live hash mismatch (authoritative dispatch detail altered).");
                     }
@@ -679,13 +680,39 @@ class ConsignmentBillingConfirmationLifecycleService
         // Lock details
         if (!empty($dispatchDetailIds) && class_exists(\Modules\SalesReturn\Entities\SaleReturnDetail::class)) \Modules\SalesReturn\Entities\SaleReturnDetail::whereIn('dispatch_detail_id', $dispatchDetailIds)->orderBy('id')->lockForUpdate()->get();
         if (!empty($dispatchDetailIds) && class_exists(\Modules\Pos\Entities\PosReturnLine::class)) \Modules\Pos\Entities\PosReturnLine::whereIn('dispatch_detail_id', $dispatchDetailIds)->orderBy('id')->lockForUpdate()->get();
-        if (!empty($dispatchDetailIds)) \Modules\Sale\Entities\DispatchDetail::whereIn('id', $dispatchDetailIds)->orderBy('id')->lockForUpdate()->get();
+        $lockedDetails = collect();
+        if (!empty($dispatchDetailIds)) $lockedDetails = \Modules\Sale\Entities\DispatchDetail::whereIn('id', $dispatchDetailIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
         if (!empty($crdIds)) ConsignmentReceivingDetail::whereIn('id', $crdIds)->orderBy('id')->lockForUpdate()->get();
 
+        // Lock Products in deterministic ID order BEFORE ProductSerialNumber rows, matching
+        // the Product -> ProductSerialNumber order used by Consignment physical receiving.
+        // Acquiring them one-by-one during revalidation would both break ID ordering and
+        // invert that hierarchy, which can deadlock against a concurrent receiving.
+        $productIds = $lockedDetails->pluck('product_id')->filter()->unique()->sort()->values()->toArray();
+
+        $lockedProducts = ! empty($productIds)
+            ? \Modules\Product\Entities\Product::whereIn('id', $productIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')
+            : collect();
+
+        // Carry the locked Product on its locked DispatchDetail so revalidation consumes
+        // authority scoped to THIS transaction, rather than mutable service state that
+        // could outlive the transaction that acquired the locks.
+        foreach ($lockedDetails as $lockedDetail) {
+            $lockedDetail->setRelation('product', $lockedProducts->get((int) $lockedDetail->product_id));
+        }
+
         // Finally lock the exact consignment targets
-        $soldSources = ConsignmentSoldSource::whereIn('id', $soldSourceIds)->with('serials')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        $soldSources = ConsignmentSoldSource::whereIn('id', $soldSourceIds)->with(['serials', 'dispatchDetail'])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
         if (!empty($serialIds)) ProductSerialNumber::whereIn('id', $serialIds)->orderBy('id')->lockForUpdate()->get();
-        
+
+        // Replace each sold source's eager-loaded detail with the locked instance.
+        foreach ($soldSources as $soldSource) {
+            $lockedDetail = $lockedDetails->get((int) $soldSource->dispatch_detail_id);
+            if ($lockedDetail) {
+                $soldSource->setRelation('dispatchDetail', $lockedDetail);
+            }
+        }
+
         return $soldSources;
     }
 
@@ -790,14 +817,19 @@ class ConsignmentBillingConfirmationLifecycleService
 
     /**
      * Compute canonical live hash from underlying dispatch detail.
+     *
+     * @param  bool  $requireLockedProduct  Pass true from lifecycle paths that hold the
+     *   deterministic locks: the authoritative Product must then already be injected on
+     *   the sold source's DispatchDetail, and a missing one fails closed rather than
+     *   falling back to an unlocked read. Read-only callers leave this false.
      */
-    public function computeCanonicalLiveHash(ConsignmentSoldSource $soldSource): string
+    public function computeCanonicalLiveHash(ConsignmentSoldSource $soldSource, bool $requireLockedProduct = false): string
     {
         $detail = $soldSource->dispatchDetail;
         if (! $detail) {
             return $soldSource->source_hash ?? '';
         }
-        $detail->loadMissing('dispatch');
+        $detail->loadMissing(['dispatch', 'location']);
 
         $posCashReturnedQty = 0.0;
         if (class_exists(\Modules\Pos\Entities\PosReturnLine::class)) {
@@ -841,7 +873,89 @@ class ConsignmentBillingConfirmationLifecycleService
             }
         }
 
-        $hashPayload = [
+        // The payload shape is selected from the stored snapshot version, never inferred
+        // from the presence of a JSON key, so historical hashes keep validating exactly.
+        $version = ConsignmentSoldSourceDiscoveryService::resolveSnapshotVersion($soldSource->source_snapshot);
+
+        if ($version === null) {
+            $stored = $soldSource->source_snapshot['snapshot_version'] ?? null;
+            $rendered = is_scalar($stored) ? var_export($stored, true) : gettype($stored);
+            throw new Exception("Sold source #{$soldSource->id} uses unsupported snapshot/hash version {$rendered}; upgrade the application or re-discover this source before continuing this operation.");
+        }
+
+        // Version 2 records how the row was classified, not just its persisted nullable
+        // flag. A compatibility source stays eligible only while the live classifier still
+        // reaches the same decision, so a product that later becomes non-stock-managed
+        // blocks the lifecycle instead of hashing to the same null value as before.
+        if ($version >= 2) {
+            $snapshot = $soldSource->source_snapshot ?? [];
+
+            // Version-2 evidence is mandatory, not best-effort: a snapshot missing these
+            // keys (or carrying junk in them) cannot be revalidated, so it must block
+            // rather than silently skip classification revalidation and fail open.
+            if (! array_key_exists('inventory_classification', $snapshot)) {
+                throw new Exception("Sold source #{$soldSource->id} has corrupted version-2 evidence: inventory_classification is missing; re-discover this source before continuing this operation.");
+            }
+
+            $storedClassification = $snapshot['inventory_classification'];
+            if (! in_array($storedClassification, ConsignmentSoldSourceDiscoveryService::SUPPORTED_CLASSIFICATIONS, true)) {
+                $rendered = is_scalar($storedClassification) ? var_export($storedClassification, true) : gettype($storedClassification);
+                throw new Exception("Sold source #{$soldSource->id} has corrupted version-2 evidence: unknown inventory_classification {$rendered}; re-discover this source before continuing this operation.");
+            }
+
+            if (! array_key_exists('used_historical_compatibility_rule', $snapshot) || ! is_bool($snapshot['used_historical_compatibility_rule'])) {
+                throw new Exception("Sold source #{$soldSource->id} has corrupted version-2 evidence: used_historical_compatibility_rule must be a boolean; re-discover this source before continuing this operation.");
+            }
+
+            // stock_managed is decisive for compatibility sources and can change
+            // concurrently, so it must be read under lock. Consume the Product that
+            // acquireDeterministicLocks() locked in ID order and injected onto this
+            // detail; locking here would acquire rows out of order and after
+            // ProductSerialNumber, inverting the receiving hierarchy.
+            $productId = (int) ($detail->product_id ?? 0);
+            $lockedProduct = null;
+
+            if ($productId > 0) {
+                if ($requireLockedProduct) {
+                    // A lifecycle caller states that it holds the deterministic locks, so
+                    // the authoritative Product must already be injected on this detail.
+                    // Reading it here would take an unlocked row, or a lock out of
+                    // hierarchy order, so fail closed rather than weaken the contract.
+                    if (! $detail->relationLoaded('product') || $detail->getRelation('product') === null) {
+                        throw new Exception("Sold source #{$soldSource->id} was revalidated without its locked Product; acquire deterministic locks before computing the canonical hash.");
+                    }
+
+                    $lockedProduct = $detail->getRelation('product');
+                } else {
+                    // Read-only computation: a plain read is the documented behavior.
+                    $lockedProduct = $detail->relationLoaded('product')
+                        ? $detail->getRelation('product')
+                        : \Modules\Product\Entities\Product::whereKey($productId)->first();
+                }
+            }
+
+            $location = $detail->location;
+            $locationIsValid = $location
+                && (int) $location->setting_id === (int) $soldSource->setting_id
+                && $location->is_consignment
+                && $location->is_active;
+
+            $live = app(ConsignmentSoldSourceDiscoveryService::class)->classifyInventoryEvidence(
+                $detail,
+                $lockedProduct,
+                $locationIsValid ? $location : null
+            );
+
+            if ($live['classification'] !== $storedClassification) {
+                throw new Exception("Sold source #{$soldSource->id} inventory classification changed since capture ({$storedClassification} → {$live['classification']}); re-verify the authoritative dispatch detail before billing.");
+            }
+
+            if ($live['used_compatibility_rule'] !== $snapshot['used_historical_compatibility_rule']) {
+                throw new Exception("Sold source #{$soldSource->id} historical compatibility evidence changed since capture; re-verify the authoritative dispatch detail before billing.");
+            }
+        }
+
+        $hashPayload = ConsignmentSoldSourceDiscoveryService::buildCanonicalPayload($version, [
             'dispatch_detail_id' => $detail->id,
             'setting_id' => $soldSource->setting_id,
             'location_id' => $detail->location_id,
@@ -853,7 +967,11 @@ class ConsignmentBillingConfirmationLifecycleService
             'is_consignment_location' => $detail->location->is_consignment ?? true,
             'pos_checkout_id' => $posCheckoutId,
             'tax_id' => $detail->tax_id,
-        ];
+            'bundle_id' => $detail->bundle_id,
+            'is_inventory_managed' => $detail->getAttribute('is_inventory_managed') === null
+                ? null
+                : (bool) $detail->is_inventory_managed,
+        ]);
 
         return hash('sha256', json_encode($hashPayload));
     }

@@ -845,6 +845,9 @@ class PosReturnLifecycleService
                 'pos_return_line_id' => $detail->pos_return_line_id,
                 'replacement_of_dispatch_detail_id' => $detail->dispatch_detail_id,
                 'replacement_returned_serial_id' => $detail->posReturnLine?->returned_serial_id,
+                // Classification must match the stock decision made just below: a stockless
+                // replacement moves no inventory and must never be billable as one.
+                'is_inventory_managed' => $this->shouldDispatchReplacementAffectStock($detail),
             ]);
 
             $this->applyReplacementSerialDispatch($saleReturn, $detail, $dispatchDetail, $dispatch);
@@ -1123,6 +1126,8 @@ class PosReturnLifecycleService
             'tax_id' => $detail->tax_id,
             'bundle_id' => null,
             'pos_return_line_id' => $detail->pos_return_line_id,
+            // Classification must match the stock decision made just below.
+            'is_inventory_managed' => $this->shouldDispatchReplacementAffectStock($detail),
         ]);
 
         if ($this->shouldDispatchReplacementAffectStock($detail)) {

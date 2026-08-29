@@ -1546,9 +1546,13 @@ class SalesImportService
     protected function dispatchSale(Sale $sale, array $details, Setting $setting, ?string $tag, Carbon $saleDate, bool $isDaizu = false, ?string $gudang = null): void
     {
         // Create Dispatch record
+        // Persist the canonical status explicitly rather than relying on the lowercase
+        // database default: consumers compare against Dispatch::STATUS_APPROVED.
         $dispatch = Dispatch::create([
             'sale_id' => $sale->id,
             'dispatch_date' => $saleDate,
+            'status' => Dispatch::STATUS_APPROVED,
+            'approved_at' => $saleDate,
         ]);
 
         foreach ($details as $detail) {
@@ -1598,6 +1602,10 @@ class SalesImportService
                 'dispatched_quantity' => $quantity,
                 'location_id' => $location->id,
                 'serial_numbers' => json_encode([]),
+                // Historical import records the sale that already happened; it performs no
+                // ProductStock or inventory Transaction mutation, so this row is audit
+                // evidence and must not be classified as an authoritative stock movement.
+                'is_inventory_managed' => false,
             ]);
 
 
