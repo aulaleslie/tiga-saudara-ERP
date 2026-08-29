@@ -170,6 +170,11 @@ class Sale extends BaseModel implements HasMedia
         return $this->morphMany(ReportingDateAudit::class, 'auditable');
     }
 
+    public function dueDateAudits()
+    {
+        return $this->morphMany(\Modules\Purchase\Entities\DueDateAudit::class, 'auditable');
+    }
+
     public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
         return $this->reporting_date ?? $this->date;
     }

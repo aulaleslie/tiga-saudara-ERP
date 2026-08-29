@@ -270,6 +270,7 @@ class PurchaseController extends Controller
 
         $purchase->load([
             'reportingDateAudits.actor',
+            'dueDateAudits.actor',
             'consignmentBillingConfirmation',
             'purchaseDetails.consignmentLineages.confirmationLine',
             'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',

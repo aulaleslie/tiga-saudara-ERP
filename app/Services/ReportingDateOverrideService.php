@@ -23,40 +23,18 @@ class ReportingDateOverrideService
      */
     public function setOverride(Model $document, $newDate, string $reason, User $user): ReportingDateAudit
     {
-        if (empty($reason)) {
-            throw new \InvalidArgumentException('Reason is required for reporting-date overrides.');
-        }
+        $command = new \App\DTOs\DateAdjustmentCommand(
+            reportingAction: $newDate !== null ? 'set' : 'clear',
+            reportingDate: $newDate !== null ? (string) $newDate : null,
+            dueDateAction: 'keep',
+            dueDate: null,
+            reason: $reason,
+        );
 
-        if ($newDate !== null && !($newDate instanceof Carbon)) {
-            $newDate = Carbon::parse($newDate);
-        }
+        $service = app(DocumentDateAdjustmentService::class);
+        $result = $service->adjustDates($document, $command, $user, authorize: true);
 
-        return DB::transaction(function () use ($document, $newDate, $reason, $user) {
-            // Lock the document row for update
-            $locked = $document::where('id', $document->id)->lockForUpdate()->first();
-
-            if ($locked instanceof Purchase) {
-                \Modules\Purchase\Services\PurchaseSourceGuard::assertReportingDateOverrideAllowed($locked);
-            }
-
-            // Record the prior override for audit
-            $priorOverride = $locked->reporting_date;
-
-            // Update the document with the new override
-            $locked->update(['reporting_date' => $newDate]);
-
-            // Create immutable audit entry
-            return ReportingDateAudit::create([
-                'auditable_type' => $locked::class,
-                'auditable_id' => $locked->id,
-                'setting_id' => $locked->setting_id,
-                'user_id' => $user->id,
-                'reason' => $reason,
-                'original_date' => $locked->date,
-                'prior_override' => $priorOverride,
-                'resulting_override' => $newDate,
-            ]);
-        });
+        return $result->reportingAudit;
     }
 
     /**

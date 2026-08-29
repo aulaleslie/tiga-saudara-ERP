@@ -180,6 +180,7 @@ class SaleController extends Controller
             'saleDispatches.details.location',
             'salePayments.paymentMethod',
             'reportingDateAudits.actor',
+            'dueDateAudits.actor',
         ]);
         Log::info('SaleController::show: relationships loaded');
 

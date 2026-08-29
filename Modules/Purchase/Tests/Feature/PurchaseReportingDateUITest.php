@@ -59,6 +59,7 @@ class PurchaseReportingDateUITest extends TestCase
         // if the permission row is absent, so define it for every test and grant
         // it only where the override UI is under test.
         Permission::findOrCreate('purchases.reporting-date.override', 'web');
+        Permission::findOrCreate('purchases.due-date.override', 'web');
 
         $this->grantPermission('purchases.show');
         $this->grantPermission('purchases.access');
@@ -101,6 +102,7 @@ class PurchaseReportingDateUITest extends TestCase
 
     public function test_effective_date_displays_on_purchase_detail_when_override_exists()
     {
+        $this->grantPermission('purchases.reporting-date.override');
         $purchase = $this->createPurchase();
 
         $overrideDate = now()->addDays(5);
@@ -141,7 +143,7 @@ class PurchaseReportingDateUITest extends TestCase
         $response = $this->get(route('purchases.show', $purchase));
 
         $this->assertEquals(200, $response->status());
-        $this->assertStringContainsString('Riwayat Perubahan Tanggal Pelaporan', $response->getContent());
+        $this->assertStringContainsString('Riwayat Penyesuaian Tanggal', $response->getContent());
         $this->assertStringContainsString('First Override', $response->getContent());
         $this->assertStringContainsString($this->user->name, $response->getContent());
     }
@@ -193,8 +195,41 @@ class PurchaseReportingDateUITest extends TestCase
         $response = $this->get(route('purchases.show', $purchase));
 
         $this->assertEquals(200, $response->status());
-        $response->assertSee('id="reportingDateOverrideButton"', false);
-        $response->assertSee('reportingDateOverrideModal', false);
+        $response->assertSee('id="dateAdjustmentModalButton"', false);
+        $response->assertSee('dateAdjustmentModal', false);
+        $response->assertSee('<select id="reporting_action"', false);
+        $response->assertDontSee('<select id="due_date_action"', false);
+    }
+
+    public function test_due_date_only_permitted_user_sees_due_date_action()
+    {
+        $this->grantPermission('purchases.due-date.override');
+
+        $purchase = $this->createPurchase();
+
+        $response = $this->get(route('purchases.show', $purchase));
+
+        $this->assertEquals(200, $response->status());
+        $response->assertSee('id="dateAdjustmentModalButton"', false);
+        $response->assertSee('dateAdjustmentModal', false);
+        $response->assertSee('<select id="due_date_action"', false);
+        $response->assertDontSee('<select id="reporting_action"', false);
+    }
+
+    public function test_both_permissions_user_sees_all_adjustment_controls()
+    {
+        $this->grantPermission('purchases.reporting-date.override');
+        $this->grantPermission('purchases.due-date.override');
+
+        $purchase = $this->createPurchase();
+
+        $response = $this->get(route('purchases.show', $purchase));
+
+        $this->assertEquals(200, $response->status());
+        $response->assertSee('id="dateAdjustmentModalButton"', false);
+        $response->assertSee('dateAdjustmentModal', false);
+        $response->assertSee('<select id="reporting_action"', false);
+        $response->assertSee('<select id="due_date_action"', false);
     }
 
     public function test_unpermitted_user_does_not_see_action()
@@ -205,12 +240,9 @@ class PurchaseReportingDateUITest extends TestCase
 
         $this->assertEquals(200, $response->status());
         // Button should not be present
-        $this->assertStringNotContainsString('id="reportingDateOverrideButton"', $response->getContent());
-        // Modal markup should not be present. The page's unconditional script block
-        // still references the modal id, so assert on the modal element itself
-        // rather than on any occurrence of the name.
-        $this->assertStringNotContainsString('id="reportingDateOverrideModal"', $response->getContent());
-        $this->assertStringNotContainsString('id="reportingDateOverrideForm"', $response->getContent());
+        $this->assertStringNotContainsString('id="dateAdjustmentModalButton"', $response->getContent());
+        $this->assertStringNotContainsString('id="dateAdjustmentModal"', $response->getContent());
+        $this->assertStringNotContainsString('id="dateAdjustmentForm"', $response->getContent());
     }
 
     /**
@@ -223,11 +255,14 @@ class PurchaseReportingDateUITest extends TestCase
         // Audit history renders inside @can('overrideReportingDate').
         $this->grantPermission('purchases.reporting-date.override');
 
-        $purchase = $this->createPurchase();
-
-        // Create multiple audits owned by distinct actors.
         $actor1 = User::factory()->create(['name' => 'First Actor', 'is_active' => true]);
         $actor2 = User::factory()->create(['name' => 'Second Actor', 'is_active' => true]);
+
+        Permission::findOrCreate('purchases.reporting-date.override', 'web');
+        $actor1->givePermissionTo('purchases.reporting-date.override');
+        $actor2->givePermissionTo('purchases.reporting-date.override');
+
+        $purchase = $this->createPurchase();
 
         $this->service->setOverride($purchase, now()->addDays(5), 'First', $actor1);
         $purchase->refresh();
@@ -280,6 +315,8 @@ class PurchaseReportingDateUITest extends TestCase
 
         foreach (['Actor One', 'Actor Two', 'Actor Three'] as $index => $name) {
             $actor = User::factory()->create(['name' => $name, 'is_active' => true]);
+            Permission::findOrCreate('purchases.reporting-date.override', 'web');
+            $actor->givePermissionTo('purchases.reporting-date.override');
             $this->service->setOverride($purchase, now()->addDays(5 + $index), $name, $actor);
             $purchase->refresh();
         }
@@ -312,6 +349,7 @@ class PurchaseReportingDateUITest extends TestCase
      */
     public function test_purchase_list_displays_effective_date_when_override_exists()
     {
+        $this->grantPermission('purchases.reporting-date.override');
         $purchaseWithOverride = $this->createPurchase();
         $overrideDate = now()->addDays(5);
         $this->service->setOverride($purchaseWithOverride, $overrideDate, 'List Test', $this->user);

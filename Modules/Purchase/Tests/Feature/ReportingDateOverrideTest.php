@@ -38,10 +38,15 @@ class ReportingDateOverrideTest extends TestCase
 
         $this->service = app(ReportingDateOverrideService::class);
 
-        // Get or create a user
+        \Spatie\Permission\Models\Permission::findOrCreate('purchases.reporting-date.override', 'web');
+        \Spatie\Permission\Models\Role::findOrCreate('Super Admin', 'web');
+
+        // Get or create a user and assign Super Admin role for policy authorization
         $this->user = User::first() ?: User::factory()->create([
             'is_active' => true,
         ]);
+        $this->user->assignRole('Super Admin');
+        $this->actingAs($this->user);
 
         // Get or create a setting
         $this->setting = Setting::first() ?: Setting::create([

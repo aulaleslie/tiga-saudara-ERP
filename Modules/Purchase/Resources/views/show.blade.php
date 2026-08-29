@@ -596,61 +596,13 @@
                                     @endif
                                 @endcan
 
-                                @can('overrideReportingDate', $purchase)
-                                    <button type="button" id="reportingDateOverrideButton" class="btn btn-secondary" data-toggle="modal" data-target="#reportingDateOverrideModal">
-                                        <i class="bi bi-calendar-event mr-2"></i> Ubah Tanggal Pelaporan
-                                    </button>
-                                @endcan
+                                @include('partials.date-adjustment-modal', ['document' => $purchase])
                             </div>
                         @endif
                     </div>
                 </div>
             </div>
         </div>
-
-        {{-- Reporting Date Override Modal (rendered only with permission) --}}
-        @can('overrideReportingDate', $purchase)
-        {{-- Reporting Date Audit History --}}
-        @if($purchase->reportingDateAudits->isNotEmpty() || $purchase->reporting_date)
-        <div class="card mt-4">
-            <div class="card-header">
-                <h5 class="mb-0">Riwayat Perubahan Tanggal Pelaporan</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover">
-                        <thead>
-                            <tr>
-                                <th>Tanggal Asli</th>
-                                <th>Tanggal Sebelumnya</th>
-                                <th>Tanggal Saat Ini</th>
-                                <th>Alasan</th>
-                                <th>Petugas</th>
-                                <th>Waktu</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse($purchase->reportingDateAudits->sortByDesc('id') as $audit)
-                                <tr>
-                                    <td>{{ $audit->original_date ? \Carbon\Carbon::parse($audit->original_date)->format('d M, Y') : '-' }}</td>
-                                    <td>{{ $audit->prior_override ? \Carbon\Carbon::parse($audit->prior_override)->format('d M, Y') : '-' }}</td>
-                                    <td>{{ $audit->resulting_override ? \Carbon\Carbon::parse($audit->resulting_override)->format('d M, Y') : '-' }}</td>
-                                    <td>{{ $audit->reason }}</td>
-                                    <td>{{ $audit->actor->name ?? '-' }}</td>
-                                    <td>{{ $audit->created_at->format('d M, Y H:i') }}</td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="6" class="text-center text-muted">Belum ada perubahan tanggal pelaporan</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        @endif
-    </div>
 
     {{-- Over-Receive Error Modal --}}
     @include('purchase::partials.over-receive-error-modal')
@@ -683,73 +635,6 @@
             </div>
         </div>
     </div>
-
-        {{-- Reporting Date Override Modal --}}
-        @if(!(isset($globalMode) && $globalMode))
-        <div class="modal fade" id="reportingDateOverrideModal" tabindex="-1" role="dialog" aria-labelledby="reportingDateOverrideModalLabel" aria-hidden="true">
-            <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="reportingDateOverrideModalLabel">Ubah Tanggal Pelaporan</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <div id="reportingDateErrorAlert" class="alert alert-danger d-none" role="alert"></div>
-
-                        <div class="alert alert-info small mb-3">
-                            <strong>Tanggal Dokumen Asli:</strong> {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}<br>
-                            @if($purchase->reporting_date)
-                                <strong>Tanggal Pelaporan Saat Ini:</strong> {{ \Carbon\Carbon::parse($purchase->reporting_date)->format('d M, Y') }}
-                            @else
-                                <strong>Tanggal Pelaporan Saat Ini:</strong> -
-                            @endif
-                        </div>
-
-                        <!-- Create/Replace Tab -->
-                        <div class="reportingDateMode" id="createOverrideMode">
-                            <form id="reportingDateOverrideForm">
-                                @csrf
-                                <div class="form-group">
-                                    <label for="reporting_date">Tanggal Pelaporan <span class="text-danger">*</span></label>
-                                    <input type="date" id="reporting_date" name="reporting_date" class="form-control" value="{{ $purchase->reporting_date ? $purchase->reporting_date->format('Y-m-d') : '' }}" required>
-                                    <small class="form-text text-muted">Tanggal pelaporan bisa berupa tanggal lampau, sekarang, atau masa depan</small>
-                                </div>
-                                <div class="form-group">
-                                    <label for="reason">Alasan <span class="text-danger">*</span></label>
-                                    <textarea id="reason" name="reason" class="form-control" rows="3" required placeholder="Masukkan alasan perubahan tanggal pelaporan..."></textarea>
-                                </div>
-                                <button type="submit" class="btn btn-primary btn-block">Simpan Tanggal Pelaporan</button>
-                            </form>
-                        </div>
-
-                        <!-- Clear Tab -->
-                        @if($purchase->reporting_date)
-                        <div class="reportingDateMode d-none mt-3 pt-3 border-top" id="clearOverrideMode">
-                            <form id="clearReportingDateForm">
-                                @csrf
-                                <p class="text-muted mb-3">Untuk menghapus override tanggal pelaporan, masukkan alasan:</p>
-                                <div class="form-group">
-                                    <label for="clearReason">Alasan Penghapusan <span class="text-danger">*</span></label>
-                                    <textarea id="clearReason" name="reason" class="form-control" rows="3" required placeholder="Masukkan alasan penghapusan override..."></textarea>
-                                </div>
-                                <button type="submit" class="btn btn-outline-danger btn-block">Hapus Override</button>
-                            </form>
-                        </div>
-                        @endif
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
-                        @if($purchase->reporting_date)
-                        <button type="button" class="btn btn-outline-warning" id="toggleClearMode">Tampilkan Mode Hapus</button>
-                        @endif
-                    </div>
-                </div>
-            </div>
-        </div>
-        @endif
-        @endcan
 
     {{-- Receiving Completion Modal --}}
     @can('purchases.receive.complete_shortfall')

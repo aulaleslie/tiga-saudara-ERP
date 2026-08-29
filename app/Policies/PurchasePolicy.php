@@ -59,4 +59,31 @@ class PurchasePolicy
         // Check if user has the reporting-date override permission
         return $user->hasPermissionTo('purchases.reporting-date.override');
     }
+
+    public function overrideDueDate(User $user, Purchase $purchase): bool
+    {
+        if ($purchase->isConsignmentBilling()) {
+            return false;
+        }
+
+        // Verify purchase is in an eligible post-approval status
+        if (!in_array($purchase->status, [
+            Purchase::STATUS_APPROVED,
+            Purchase::STATUS_RECEIVED_PARTIALLY,
+            Purchase::STATUS_RECEIVED,
+            Purchase::STATUS_RETURNED_PARTIALLY,
+            Purchase::STATUS_RETURNED,
+        ])) {
+            return false;
+        }
+
+        // Verify purchase belongs to user's current setting (tenant scoped)
+        $currentSettingId = session('setting_id');
+        if ($purchase->setting_id !== $currentSettingId) {
+            return false;
+        }
+
+        // Check if user has the due-date override permission
+        return $user->hasPermissionTo('purchases.due-date.override');
+    }
 }

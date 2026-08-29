@@ -1050,4 +1050,51 @@ class PurchaseReportHardeningTest extends TestCase
 
         $this->assertEquals('Disetujui', $mapped['Status Dokumen']);
     }
+
+    /** @test */
+    public function it_filters_by_adjusted_due_date()
+    {
+        Permission::findOrCreate('purchases.due-date.override', 'web');
+        Permission::findOrCreate('purchases.show', 'web');
+        $this->user->givePermissionTo('purchases.due-date.override');
+        $this->user->givePermissionTo('purchases.show');
+
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $supplier = $this->makeSupplier();
+        $purchase = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'due_date' => now()->addDays(30)->format('Y-m-d'),
+        ]);
+        $detail = $this->makePurchaseDetail($purchase);
+
+        // Adjust due date to next month
+        $newDueDate = now()->addMonth()->startOfMonth()->format('Y-m-d');
+        app(\App\Services\DocumentDateAdjustmentService::class)->adjustDates(
+            $purchase,
+            new \App\DTOs\DateAdjustmentCommand(
+                reportingAction: 'keep',
+                reportingDate: null,
+                dueDateAction: 'set',
+                dueDate: $newDueDate,
+                reason: 'Extend payment terms',
+            ),
+            $this->user,
+            authorize: true
+        );
+
+        // Filter purchase report by new due date range
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\PurchaseReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('dateBasis', 'due_date')
+            ->set('startDate', now()->addMonth()->startOfMonth()->format('Y-m-d'))
+            ->set('endDate', now()->addMonth()->endOfMonth()->format('Y-m-d'))
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) use ($purchase) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($purchase->id, $ids);
+            });
+    }
 }

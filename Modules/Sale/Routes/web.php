@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Sale\Http\Controllers\SaleController;
 use Modules\Sale\Http\Controllers\SalesUploadController;
 use Modules\Sale\Http\Controllers\GlobalSalePaymentController;
+use Modules\Sale\Http\Controllers\SaleDateAdjustmentController;
 use Modules\Sale\Http\Controllers\SaleReportingDateController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -62,7 +63,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::patch('sales/{sale}/status', [SaleController::class, 'updateStatus'])->name('sales.updateStatus');
     Route::put('sales/{sale}/archive', [SaleController::class, 'archive'])->name('sales.archive');
 
-    // Sale Reporting Date Overrides
+    // Sale Reporting Date Overrides & Combined Date Adjustments
+    Route::put('/sales/{sale}/date-adjustment', [SaleDateAdjustmentController::class, 'update'])->name('sales.date-adjustment.update');
     Route::post('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'store'])->name('sales.reporting-date.store');
     Route::delete('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'destroy'])->name('sales.reporting-date.destroy');
 

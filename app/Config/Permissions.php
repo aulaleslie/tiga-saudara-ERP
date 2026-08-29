@@ -182,6 +182,7 @@ return [
         'purchases.archive' => 'Arsipkan',
         'purchases.received.correct' => 'Koreksi Penerimaan',
         'purchases.reporting-date.override' => 'Ubah Tanggal Pelaporan',
+        'purchases.due-date.override' => 'Ubah Tanggal Jatuh Tempo',
         'purchases.approved.edit' => 'Ubah Pembelian Disetujui',
         'purchases.received.monetary.edit' => 'Ubah Moneter Pembelian Diterima',
         'purchases.received.uom-normalize' => 'Normalisasi UOM Penerimaan',
@@ -264,6 +265,7 @@ return [
         'sales.approval' => 'Persetujuan',
         'sales.archive' => 'Arsipkan',
         'sales.reporting-date.override' => 'Ubah Tanggal Pelaporan',
+        'sales.due-date.override' => 'Ubah Tanggal Jatuh Tempo',
         'sales.dispatched.monetary.edit' => 'Ubah Moneter Penjualan Dikirim',
     ],
 
