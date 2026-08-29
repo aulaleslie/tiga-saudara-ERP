@@ -13,13 +13,17 @@ return new class extends Migration
      */
     public function up()
     {
-        Schema::table('pos_transactions', function (Blueprint $table) {
-            $table->string('note', 1000)->nullable();
-        });
+        if (!Schema::hasColumn('pos_transactions', 'note')) {
+            Schema::table('pos_transactions', function (Blueprint $table) {
+                $table->string('note', 1000)->nullable();
+            });
+        }
 
-        Schema::table('pos_checkouts', function (Blueprint $table) {
-            $table->string('note', 1000)->nullable();
-        });
+        if (!Schema::hasColumn('pos_checkouts', 'note')) {
+            Schema::table('pos_checkouts', function (Blueprint $table) {
+                $table->string('note', 1000)->nullable();
+            });
+        }
     }
 
     /**
@@ -29,12 +33,16 @@ return new class extends Migration
      */
     public function down()
     {
-        Schema::table('pos_transactions', function (Blueprint $table) {
-            $table->dropColumn('note');
-        });
+        if (Schema::hasColumn('pos_transactions', 'note')) {
+            Schema::table('pos_transactions', function (Blueprint $table) {
+                $table->dropColumn('note');
+            });
+        }
 
-        Schema::table('pos_checkouts', function (Blueprint $table) {
-            $table->dropColumn('note');
-        });
+        if (Schema::hasColumn('pos_checkouts', 'note')) {
+            Schema::table('pos_checkouts', function (Blueprint $table) {
+                $table->dropColumn('note');
+            });
+        }
     }
 };
