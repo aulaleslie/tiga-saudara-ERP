@@ -78,6 +78,12 @@ php artisan view:cache
 REM Step 8: Run database migrations
 echo [7/10] Running database migrations...
 php artisan migrate --force
+if errorlevel 1 goto :deployment_failed
+
+REM Seed permissions required by deployed modules
+echo [7/10] Seeding permissions...
+php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeeder"
+if errorlevel 1 goto :deployment_failed
 
 REM Step 9: Optimize autoloader
 echo [8/10] Optimizing application...
@@ -98,3 +104,12 @@ echo ============================================
 echo.
 
 pause
+goto :eof
+
+:deployment_failed
+echo.
+echo ============================================
+echo   Deployment failed. Disabling maintenance mode...
+echo ============================================
+php artisan up
+exit /b 1
