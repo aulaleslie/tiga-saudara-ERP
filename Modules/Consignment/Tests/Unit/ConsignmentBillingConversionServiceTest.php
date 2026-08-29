@@ -240,6 +240,264 @@ class ConsignmentBillingConversionServiceTest extends TestCase
         return $confirmation;
     }
 
+    /**
+     * Build the shape that exposed the preview grouping defect: two confirmation lines
+     * for the SAME product with identical commercial terms (so they group into one
+     * Purchase line), each drawing on a different receiving detail and receipt
+     * allocation, and each carrying one distinct serial.
+     *
+     * @return array{0: ConsignmentBillingConfirmation, 1: array<int,int>, 2: array<int,int>}
+     */
+    protected function createApprovedTwoLineSerializedConfirmation(): array
+    {
+        $this->product->forceFill(['serial_number_required' => true])->saveQuietly();
+
+        $confirmation = ConsignmentBillingConfirmation::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'confirmation_number' => 'CBC-CONV-2LINE',
+            'status' => ConsignmentBillingConfirmation::STATUS_APPROVED,
+            'date' => now(),
+            'is_ready_for_billing' => true,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::create([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'Cust 2L',
+            'customer_email' => '2l@example.com',
+            'customer_phone' => '08123126',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Addr',
+        ]);
+
+        $receiptAllocationIds = [];
+        $serializedAllocationIds = [];
+
+        // Distinct unit costs so the two lines form TWO preview groups. The lingering
+        // foreach reference only corrupts the LAST group once a later value-loop runs,
+        // so a single-group fixture cannot expose it.
+        $unitCosts = [1 => 50000, 2 => 60000];
+
+        foreach ([1, 2] as $n) {
+            $unitCost = $unitCosts[$n];
+            $sale = \Modules\Sale\Entities\Sale::create([
+                'date' => now(),
+                'customer_id' => $customer->id,
+                'customer_name' => 'Cust 2L',
+                'tax_percentage' => 0,
+                'tax_amount' => 0,
+                'discount_percentage' => 0,
+                'discount_amount' => 0,
+                'shipping_amount' => 0,
+                'total_amount' => 100000,
+                'paid_amount' => 100000,
+                'due_amount' => 0,
+                'status' => 'Completed',
+                'payment_status' => 'Paid',
+                'payment_method' => 'Cash',
+                'setting_id' => $this->setting->id,
+            ]);
+
+            $dispatch = \Modules\Sale\Entities\Dispatch::create([
+                'sale_id' => $sale->id,
+                'status' => 'APPROVED',
+            ]);
+
+            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
+                'dispatch_id' => $dispatch->id,
+                'sale_id' => $sale->id,
+                'product_id' => $this->product->id,
+                'location_id' => $this->location->id,
+                'dispatched_quantity' => 1,
+                'is_inventory_managed' => true,
+            ]);
+
+            $soldSource = ConsignmentSoldSource::create([
+                'setting_id' => $this->setting->id,
+                'dispatch_detail_id' => $dispatchDetail->id,
+                'sale_id' => $sale->id,
+                'product_id' => $this->product->id,
+                'location_id' => $this->location->id,
+                'original_base_quantity' => 1,
+                'dispatched_at' => now(),
+                'source_hash' => "hash_conv_2line_{$n}",
+                'source_snapshot' => [],
+                'serial_identities' => ["SN-CONV-2LINE-{$n}"],
+            ]);
+
+            $confLine = ConsignmentBillingConfirmationLine::create([
+                'consignment_billing_confirmation_id' => $confirmation->id,
+                'consignment_sold_source_id' => $soldSource->id,
+                'product_id' => $this->product->id,
+                'location_id' => $this->location->id,
+                'allocated_base_quantity' => 1,
+            ]);
+
+            // Distinct receival/receiving per confirmation line (one receival line per
+            // product per receival), but with identical commercial terms so both group
+            // into one Purchase line.
+            $receival = ConsignmentReceival::create([
+                'setting_id' => $this->setting->id,
+                'supplier_id' => $this->supplier->id,
+                'reference' => "CR-CONV-2LINE-{$n}",
+                'receival_number' => "CR-CONV-2LINE-{$n}",
+                'status' => 'APPROVED',
+                'date' => now(),
+            ]);
+
+            $receiving = ConsignmentReceiving::create([
+                'setting_id' => $this->setting->id,
+                'supplier_id' => $this->supplier->id,
+                'location_id' => $this->location->id,
+                'consignment_receival_id' => $receival->id,
+                'receiving_number' => "CR-CONV-2LINE-{$n}",
+                'status' => ConsignmentReceiving::STATUS_APPROVED,
+                'date' => now(),
+            ]);
+
+            $recLine = ConsignmentReceivalLine::create([
+                'consignment_receival_id' => $receival->id,
+                'product_id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'quantity' => 1,
+                'unit_cost' => $unitCost,
+                'unit_dpp' => $unitCost,
+                'subtotal_cost' => $unitCost,
+                'subtotal_dpp' => $unitCost,
+                'total_cost' => $unitCost,
+                'total_dpp' => $unitCost,
+                'is_serialized' => true,
+            ]);
+
+            $crd = ConsignmentReceivingDetail::create([
+                'consignment_receiving_id' => $receiving->id,
+                'consignment_receival_line_id' => $recLine->id,
+                'product_id' => $this->product->id,
+                'quantity_received' => 1,
+                'received_base_quantity' => 1,
+                'unit_cost' => $unitCost,
+                'unit_dpp' => $unitCost,
+                'tax_id' => $this->tax11->id,
+                'tax_rate' => 11,
+                'tax_amount' => round($unitCost * 0.11, 2),
+            ]);
+
+            $receiptAllocation = ConsignmentReceiptAllocation::create([
+                'consignment_billing_confirmation_line_id' => $confLine->id,
+                'consignment_receiving_detail_id' => $crd->id,
+                'allocated_base_quantity' => 1,
+                'unit_cost' => $unitCost,
+                'unit_dpp' => $unitCost,
+                'tax_id' => $this->tax11->id,
+                'tax_rate' => 11,
+                'tax_amount' => round($unitCost * 0.11, 2),
+                'tax_snapshot_version' => ConsignmentReceiptAllocation::TAX_SNAPSHOT_VERSION_PROPORTIONAL,
+            ]);
+            $receiptAllocationIds[] = (int) $receiptAllocation->id;
+
+            $psn = \Modules\Product\Entities\ProductSerialNumber::create([
+                'product_id' => $this->product->id,
+                'location_id' => $this->location->id,
+                'serial_number' => "SN-CONV-2LINE-{$n}",
+                'consignment_receiving_detail_id' => $crd->id,
+                'status' => 'SOLD',
+            ]);
+
+            // Receiving-side provenance for the serial.
+            \Modules\Consignment\Entities\ConsignmentReceivingDetailSerialNumber::create([
+                'consignment_receiving_detail_id' => $crd->id,
+                'product_serial_number_id' => $psn->id,
+                'linked_at' => now(),
+            ]);
+
+            $serializedAllocation = \Modules\Consignment\Entities\ConsignmentSerializedAllocation::create([
+                'consignment_billing_confirmation_id' => $confirmation->id,
+                'consignment_billing_confirmation_line_id' => $confLine->id,
+                'consignment_sold_source_id' => $soldSource->id,
+                'product_serial_number_id' => $psn->id,
+                'consignment_receiving_detail_id' => $crd->id,
+                'status' => \Modules\Consignment\Entities\ConsignmentSerializedAllocation::STATUS_APPROVED,
+            ]);
+            $serializedAllocationIds[] = (int) $serializedAllocation->id;
+        }
+
+        return [$confirmation, $receiptAllocationIds, $serializedAllocationIds];
+    }
+
+    /**
+     * @test
+     *
+     * Regression for the preview grouping defect: iterating `$groups` by reference and
+     * never releasing it left later value-loops overwriting the final group, so one
+     * group's evidence was duplicated across preview lines while another's vanished.
+     * Conversion then inserted the same serialized lineage twice and hit uniq_cpdl_csa.
+     */
+    public function it_groups_two_serialized_lines_without_duplicating_or_dropping_evidence()
+    {
+        [$confirmation, $receiptAllocationIds, $serializedAllocationIds] = $this->createApprovedTwoLineSerializedConfirmation();
+
+        $previewService = new ConsignmentBillingPreviewService();
+        $preview = $previewService->generatePreview($confirmation->id, $this->setting->id, [
+            'supplier_invoice_number' => 'INV-CONV-2LINE',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+
+        $this->assertTrue($preview['valid'], 'Preview blockers: ' . implode('; ', $preview['blockers'] ?? []));
+
+        // Distinct costs => two grouped lines, each of quantity 1.
+        $this->assertCount(2, $preview['lines']);
+        foreach ($preview['lines'] as $line) {
+            $this->assertEquals(1, (float) $line['quantity']);
+        }
+
+        // Across ALL lines each receipt allocation and each serial appears exactly once:
+        // none duplicated onto another group, none dropped.
+        $previewReceiptIds = [];
+        $previewSerialIds = [];
+        foreach ($preview['lines'] as $line) {
+            foreach ($line['allocations'] as $allocMeta) {
+                $previewReceiptIds[] = (int) $allocMeta['receipt_allocation_id'];
+            }
+            foreach ($line['serialized_allocations'] as $serMeta) {
+                $previewSerialIds[] = (int) $serMeta['serialized_allocation_id'];
+            }
+        }
+        sort($previewReceiptIds);
+        sort($previewSerialIds);
+        $this->assertSame($receiptAllocationIds, $previewReceiptIds);
+        $this->assertSame($serializedAllocationIds, $previewSerialIds);
+
+        // Conversion must persist one lineage row per serialized allocation.
+        $purchase = $this->conversionService->convert(
+            $confirmation->id,
+            $this->setting->id,
+            $this->user->id,
+            [
+                'supplier_invoice_number' => 'INV-CONV-2LINE',
+                'invoice_date' => '2026-08-28',
+                'due_date' => '2026-09-28',
+            ]
+        );
+
+        $lineageSerialIds = \Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::query()
+            ->where('purchase_id', $purchase->id)
+            ->whereNotNull('consignment_serialized_allocation_id')
+            ->pluck('consignment_serialized_allocation_id')
+            ->map(fn ($id) => (int) $id)
+            ->sort()
+            ->values()
+            ->all();
+
+        $this->assertSame(
+            $serializedAllocationIds,
+            $lineageSerialIds,
+            'Each approved serialized allocation must produce exactly one lineage row.'
+        );
+    }
+
     /** @test */
     public function it_converts_confirmation_to_purchase_atomically_without_inventory_mutation()
     {

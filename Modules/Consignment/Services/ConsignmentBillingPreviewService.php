@@ -496,14 +496,19 @@ class ConsignmentBillingPreviewService
 
             $matchedGroup = false;
 
-            foreach ($groups as $gk => &$grp) {
-                foreach ($grp['allocations'] as $allocMeta) {
+            // Write through $groups[$groupKey] rather than iterating by reference. A
+            // `foreach ($groups as $gk => &$grp)` leaves $grp bound to the final element
+            // after the loop, so every later `foreach ($groups as $grp)` would overwrite
+            // that element with each value it visits, silently duplicating one group's
+            // contents and dropping another's.
+            foreach ($groups as $groupKey => $group) {
+                foreach ($group['allocations'] as $allocMeta) {
                     if ((int) $allocMeta['receiving_detail_id'] === $crdId && (int) $allocMeta['confirmation_line_id'] === $confLineId) {
                         if (empty($allocMeta['is_serialized'])) {
                             $blockers[] = "Non-serialized confirmation line #{$confLineId} receiving detail #{$crdId} has attached serial allocation #{$serAlloc->id}.";
                         }
 
-                        $grp['serialized_allocations'][] = [
+                        $groups[$groupKey]['serialized_allocations'][] = [
                             'serialized_allocation_id' => $serAlloc->id,
                             'confirmation_line_id' => $confLineId,
                             'product_serial_number_id' => $serAlloc->product_serial_number_id,
@@ -514,6 +519,7 @@ class ConsignmentBillingPreviewService
                         break;
                     }
                 }
+
                 if ($matchedGroup) {
                     break;
                 }

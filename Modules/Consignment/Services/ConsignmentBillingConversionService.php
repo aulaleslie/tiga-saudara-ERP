@@ -222,6 +222,11 @@ class ConsignmentBillingConversionService
                     throw new \DomainException("Billing conversion blocked: {$reasonStr}");
                 }
 
+                // Fail before consuming a reference number or writing any document: a
+                // malformed preview must not burn a sequence value or reach the unique
+                // lineage constraint as a raw duplicate-key error.
+                $this->assertPreviewLineageIsUnique($confirmation, $preview);
+
                 $invoiceDate = \Carbon\Carbon::parse($metadata['invoice_date']);
 
                 // Allocate Purchase reference transactionally
@@ -667,5 +672,79 @@ class ConsignmentBillingConversionService
         }
 
         return $purchase;
+    }
+
+    /**
+     * Assert the preview describes each approved allocation exactly once before any
+     * document is written.
+     *
+     * Grouping bugs can duplicate one group's evidence while dropping another's. Without
+     * this check the first symptom is a raw duplicate-key error on uniq_cpdl_csa, after a
+     * reference number has already been consumed. These are programming faults rather
+     * than user-correctable domain states, so they raise LogicException.
+     */
+    protected function assertPreviewLineageIsUnique(ConsignmentBillingConfirmation $confirmation, array $preview): void
+    {
+        $serialCounts = [];
+        $receiptCounts = [];
+
+        foreach ($preview['lines'] ?? [] as $line) {
+            foreach ($line['serialized_allocations'] ?? [] as $serMeta) {
+                $id = (int) ($serMeta['serialized_allocation_id'] ?? 0);
+                if ($id > 0) {
+                    $serialCounts[$id] = ($serialCounts[$id] ?? 0) + 1;
+                }
+            }
+
+            foreach ($line['allocations'] ?? [] as $allocMeta) {
+                $id = (int) ($allocMeta['receipt_allocation_id'] ?? 0);
+                if ($id > 0) {
+                    $receiptCounts[$id] = ($receiptCounts[$id] ?? 0) + 1;
+                }
+            }
+        }
+
+        $duplicateSerials = array_keys(array_filter($serialCounts, fn ($n) => $n > 1));
+        if (! empty($duplicateSerials)) {
+            sort($duplicateSerials);
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} lists serialized allocation(s) ["
+                . implode(', ', $duplicateSerials) . "] more than once; conversion aborted before writing any document."
+            );
+        }
+
+        $duplicateReceipts = array_keys(array_filter($receiptCounts, fn ($n) => $n > 1));
+        if (! empty($duplicateReceipts)) {
+            sort($duplicateReceipts);
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} lists receipt allocation(s) ["
+                . implode(', ', $duplicateReceipts) . "] more than once; conversion aborted before writing any document."
+            );
+        }
+
+        // Every approved serialized allocation must be represented, or lineage would be
+        // silently incomplete rather than duplicated.
+        $approvedSerialIds = ConsignmentSerializedAllocation::where('consignment_billing_confirmation_id', $confirmation->id)
+            ->where('status', ConsignmentSerializedAllocation::STATUS_APPROVED)
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $missingSerials = array_values(array_diff($approvedSerialIds, array_keys($serialCounts)));
+        if (! empty($missingSerials)) {
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} omits approved serialized allocation(s) ["
+                . implode(', ', $missingSerials) . "]; conversion aborted before writing any document."
+            );
+        }
+
+        $unexpectedSerials = array_values(array_diff(array_keys($serialCounts), $approvedSerialIds));
+        if (! empty($unexpectedSerials)) {
+            throw new \LogicException(
+                "Billing preview for confirmation #{$confirmation->id} lists serialized allocation(s) ["
+                . implode(', ', $unexpectedSerials) . "] that are not approved evidence; conversion aborted before writing any document."
+            );
+        }
     }
 }
