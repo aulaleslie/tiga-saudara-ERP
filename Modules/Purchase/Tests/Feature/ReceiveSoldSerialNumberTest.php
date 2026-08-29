@@ -86,6 +86,17 @@ class ReceiveSoldSerialNumberTest extends TestCase
             'name' => 'Test Location',
             'setting_id' => $this->setting->id,
         ]);
+
+        \Modules\People\Entities\Supplier::create([
+            'id' => 1,
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Supplier A',
+            'supplier_email' => 'supplier@example.com',
+            'supplier_phone' => '0812345678',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+        ]);
     }
 
     public function test_can_use_sold_serial_as_replacement_in_settlement()

@@ -20,38 +20,10 @@ class SerialNumberController extends Controller
             'serial_number' => 'required|string|max:255',
         ]);
 
-        // Check if serial number already exists in committed product_serial_numbers
-        $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
-            ->where('serial_number', $validated['serial_number'])
-            ->first();
+        $service = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
+        $result = $service->validateForReceiving((int) $validated['product_id'], (string) $validated['serial_number']);
 
-        if ($serial) {
-            // BLOCK: Return in process
-            if ($serial->is_in_return_process || $serial->status === ProductSerialNumber::STATUS_RETURN_IN_PROCESS) {
-                return response()->json([
-                    'valid' => false,
-                    'message' => 'Serial number sedang dalam proses retur.',
-                ], 200);
-            }
-
-            // ALLOW: Returned status (Reuse)
-            if ($serial->status === ProductSerialNumber::STATUS_RETURNED) {
-                return response()->json([
-                    'valid' => true,
-                    'info_message' => 'Serial number ini adalah hasil retur dan akan digunakan kembali.',
-                ], 200);
-            }
-
-            // BLOCK: Active or other statuses
-            return response()->json([
-                'valid' => false,
-                'message' => 'Serial number sudah ada untuk produk ini.',
-            ], 200);
-        }
-
-        // Remove cross-pending checks completely as per requirement
-
-        return response()->json(['valid' => true], 200);
+        return response()->json($result, 200);
     }
 
     /**

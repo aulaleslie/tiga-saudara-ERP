@@ -91,33 +91,34 @@ class ConsignmentReceivingService
 
                     $cleanSerials = array_values(array_filter(array_map('trim', $rawSerials)));
 
-                    if (count($cleanSerials) !== (int) $line->quantity) {
-                        throw new Exception("Jumlah nomor seri (" . count($cleanSerials) . ") tidak sesuai dengan jumlah produk '{$line->product_name}' ({$line->quantity}).");
+                    if (count($cleanSerials) !== (int) $line->quantity || count($cleanSerials) !== (int) $quantityReceived) {
+                        throw new Exception("Jumlah nomor seri (" . count($cleanSerials) . ") harus persis sama dengan jumlah disetujui untuk produk '{$line->product_name}' ({$line->quantity}).");
                     }
 
-                    // Check uniqueness within request
+                    // Check uniqueness within line input
                     if (count($cleanSerials) !== count(array_unique($cleanSerials))) {
                         throw new Exception("Terdapat duplikasi nomor seri dalam input untuk produk '{$line->product_name}'.");
                     }
 
                     // Check for cross-product duplicates in this receiving
+                    $validationService = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
                     foreach ($cleanSerials as $s) {
                         if (in_array($s, $allSubmittedSerials, true)) {
                             throw new Exception("Nomor seri '{$s}' digunakan lebih dari satu kali dalam penerimaan ini.");
                         }
                         $allSubmittedSerials[] = $s;
-                    }
 
-                    // Prevalidate active serial conflicts in database
-                    $existingActive = ProductSerialNumber::where('serial_number', $cleanSerials)
-                        ->where('status', ProductSerialNumber::STATUS_ACTIVE)
-                        ->first();
-
-                    if ($existingActive) {
-                        throw new Exception("Nomor seri '{$existingActive->serial_number}' sudah aktif di sistem.");
+                        $valRes = $validationService->validateForReceiving((int) $line->product_id, $s);
+                        if (!$valRes['valid']) {
+                            throw new Exception($valRes['message']);
+                        }
                     }
 
                     $pendingSerials = $cleanSerials;
+                } else {
+                    if (!empty($detailData['serial_numbers'])) {
+                        throw new Exception("Payload nomor seri tidak diizinkan untuk produk non-serial '{$line->product_name}'.");
+                    }
                 }
 
                 ConsignmentReceivingDetail::create([
@@ -193,19 +194,25 @@ class ConsignmentReceivingService
             $settingId = $lockedReceiving->setting_id;
             $locationId = $lockedReceiving->location_id;
 
-            // Stable lock on location to prevent race conditions during first ProductStock creation
+            // Global Consignment lock hierarchy: Receival -> Receival lines -> Receiving details -> Location -> Products -> Serials
+            $lockedReceival = ConsignmentReceival::whereKey($lockedReceiving->consignment_receival_id)->lockForUpdate()->firstOrFail();
+            ConsignmentReceivalLine::where('consignment_receival_id', $lockedReceival->id)->orderBy('id')->lockForUpdate()->get();
+            ConsignmentReceivingDetail::where('consignment_receiving_id', $lockedReceiving->id)->orderBy('id')->lockForUpdate()->get();
+
+            // Lock location
             $location = Location::whereKey($locationId)->lockForUpdate()->firstOrFail();
             if (!$location->is_consignment || $location->setting_id !== $settingId || !$location->is_active) {
                 throw new Exception("Lokasi penerimaan tidak valid, tidak aktif, atau bukan merupakan lokasi konsinyasi.");
             }
 
             $settingLocationIds = Location::where('setting_id', $settingId)->pluck('id');
-            $productIds = $lockedReceiving->details->pluck('product_id')->unique();
+            $productIds = $lockedReceiving->details->pluck('product_id')->unique()->sort()->values();
 
-            // Lock products and product prices
-            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get()->keyBy('id');
+            // Lock products in deterministic ID order
+            $products = Product::whereIn('id', $productIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $productPrices = ProductPrice::whereIn('product_id', $productIds)
                 ->where('setting_id', $settingId)
+                ->orderBy('product_id')
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('product_id');
@@ -213,9 +220,54 @@ class ConsignmentReceivingService
             // Lock existing product stocks for location
             $productStocks = ProductStock::whereIn('product_id', $productIds)
                 ->where('location_id', $locationId)
+                ->orderBy('product_id')
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('product_id');
+
+            // Collect all pending serials to lock existing ProductSerialNumber rows in deterministic ID order
+            $allPendingSerials = [];
+            foreach ($lockedReceiving->details as $detail) {
+                if ($detail->receivalLine->is_serialized && !empty($detail->pending_serial_numbers)) {
+                    foreach ($detail->pending_serial_numbers as $psn) {
+                        $allPendingSerials[] = $psn;
+                    }
+                }
+            }
+            if (!empty($allPendingSerials)) {
+                ProductSerialNumber::whereIn('serial_number', array_unique($allPendingSerials))
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+            }
+
+            // Re-validate details & pending serials under lock
+            $validationService = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
+            foreach ($lockedReceiving->details as $detail) {
+                $line = $detail->receivalLine;
+                $qtyReceived = (float) $detail->quantity_received;
+
+                if (abs($qtyReceived - (float) $line->quantity) > 0.0001) {
+                    throw new Exception("Jumlah diterima tidak sesuai dengan jumlah dokumen disetujui untuk produk '{$line->product_name}'.");
+                }
+
+                if ($line->is_serialized) {
+                    $pendingSerials = $detail->pending_serial_numbers ?? [];
+                    if (count($pendingSerials) !== (int) $line->quantity || count($pendingSerials) !== (int) $qtyReceived) {
+                        throw new Exception("Jumlah nomor seri pending tidak sesuai dengan jumlah produk '{$line->product_name}'.");
+                    }
+                    foreach ($pendingSerials as $s) {
+                        $valRes = $validationService->validateForReceiving((int) $detail->product_id, $s);
+                        if (!$valRes['valid']) {
+                            throw new Exception("Nomor seri '{$s}' tidak lagi valid saat persetujuan: {$valRes['message']}");
+                        }
+                    }
+                } else {
+                    if (!empty($detail->pending_serial_numbers)) {
+                        throw new Exception("Payload nomor seri tidak diizinkan untuk produk non-serial '{$line->product_name}'.");
+                    }
+                }
+            }
 
             foreach ($lockedReceiving->details as $detail) {
                 $product = $products->get($detail->product_id);
@@ -371,7 +423,7 @@ class ConsignmentReceivingService
                     }
                 }
 
-                // 6. Update Detail with Snapshots & Transaction ID
+                // 6. Update Detail with Snapshots, Transaction ID, and clear pending_serial_numbers
                 $detail->update([
                     'stock_before' => $stockBefore,
                     'stock_after' => $stockAfter,
@@ -384,6 +436,7 @@ class ConsignmentReceivingService
                     'setting_avg_cost_before' => $settingAvgCostBefore,
                     'setting_avg_cost_after' => $settingAvgCostAfter,
                     'transaction_id' => $transaction->id,
+                    'pending_serial_numbers' => null,
                 ]);
             }
 

@@ -944,4 +944,67 @@ class ConsignmentFeatureAndGovernanceTest extends TestCase
         $response->assertSessionHasErrors('is_consignment');
         $this->assertTrue((bool) $this->consignmentLocation->fresh()->is_consignment);
     }
+
+    public function test_consignment_receivings_create_view_renders_scanner_inputs_and_restores_old_pills()
+    {
+        $product = Product::create([
+            'product_name' => 'UI Test Serial Product',
+            'product_code' => 'UIR-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 200000,
+            'total_cost' => 200000,
+            'is_serialized' => true,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('consignments.receivings.create', $receival->id));
+
+        $response->assertOk();
+        $response->assertSee('serial-number-wrapper');
+        $response->assertSee('serial-input-' . $line->id);
+        $response->assertSee('0 / 2 serials scanned');
+        $response->assertSee('This product requires exactly 2 serial numbers; 0 have been captured.');
+
+        // Test restoring old input pills after validation failure
+        $oldSession = [
+            '_old_input' => [
+                'details' => [
+                    $line->id => [
+                        'serial_numbers' => ['SN-OLD-1', 'SN-OLD-2']
+                    ]
+                ]
+            ]
+        ];
+
+        $responseWithOld = $this->actingAs($this->user)
+            ->withSession(array_merge(['setting_id' => $this->setting->id], $oldSession))
+            ->get(route('consignments.receivings.create', $receival->id));
+
+        $responseWithOld->assertOk();
+        $responseWithOld->assertSee('SN-OLD-1');
+        $responseWithOld->assertSee('SN-OLD-2');
+    }
 }

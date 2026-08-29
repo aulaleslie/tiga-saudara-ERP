@@ -756,16 +756,11 @@ class PurchaseController extends Controller
                 }
                 $checkedSerials[$key] = true;
 
-                // 2. Check against committed serials for this product
-                // Allow reuse if status is RETURNED
-                $existing = ProductSerialNumber::where('product_id', $productId)
-                    ->where('serial_number', $serial)
-                    ->first();
-
-                if ($existing) {
-                    if (!in_array($existing->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
-                        $duplicateErrors[] = "Serial number '$serial' sudah ada untuk produk ini (Status: {$existing->status}).";
-                    }
+                // 2. Authoritative receiving validation service
+                $validationService = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
+                $res = $validationService->validateForReceiving((int) $productId, (string) $serial);
+                if (!$res['valid']) {
+                    $duplicateErrors[] = $res['message'];
                 }
             }
         }

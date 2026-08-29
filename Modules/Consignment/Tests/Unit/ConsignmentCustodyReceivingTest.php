@@ -9,6 +9,7 @@ use Modules\Consignment\Entities\ConsignmentReceival;
 use Modules\Consignment\Entities\ConsignmentReceivalLine;
 use Modules\Consignment\Entities\ConsignmentReceiving;
 use Modules\Consignment\Entities\ConsignmentReceivingDetail;
+use Modules\Consignment\Entities\ConsignmentReceivingDetailSerialNumber;
 use Modules\Consignment\Services\ConsignmentReceivalLifecycleService;
 use Modules\Consignment\Services\ConsignmentReceivalService;
 use Modules\Consignment\Services\ConsignmentReceivingService;
@@ -882,5 +883,407 @@ class ConsignmentCustodyReceivingTest extends TestCase
             'subtotal_cost' => 1000000,
             'total_cost' => 1000000,
         ]);
+    }
+
+    public function test_serialized_line_requires_exact_serial_count_on_pending_creation()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $product = Product::create([
+            'product_name' => 'Laptop Seri',
+            'product_code' => 'LPT-SER',
+            'product_quantity' => 0,
+            'product_cost' => 5000000,
+            'product_price' => 6000000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 3,
+            'unit_cost' => 5000000,
+            'unit_dpp' => 5000000,
+            'subtotal_cost' => 15000000,
+            'total_cost' => 15000000,
+            'is_serialized' => true,
+        ]);
+
+        // Too few serials
+        try {
+            $receivingService->createPendingReceiving($receival, [
+                'location_id' => $this->consignmentLocation->id,
+                'date' => now()->toDateString(),
+                'details' => [
+                    $line->id => [
+                        'quantity_received' => 3,
+                        'serial_numbers' => ['SN-LPT-1', 'SN-LPT-2'],
+                    ]
+                ]
+            ], $this->user->id);
+            $this->fail('Expected exception for too few serials was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Jumlah nomor seri (2) harus persis sama', $e->getMessage());
+        }
+
+        // Duplicate serials within line
+        try {
+            $receivingService->createPendingReceiving($receival, [
+                'location_id' => $this->consignmentLocation->id,
+                'date' => now()->toDateString(),
+                'details' => [
+                    $line->id => [
+                        'quantity_received' => 3,
+                        'serial_numbers' => ['SN-LPT-1', 'SN-LPT-1', 'SN-LPT-2'],
+                    ]
+                ]
+            ], $this->user->id);
+            $this->fail('Expected exception for duplicate serials in line was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('duplikasi nomor seri', $e->getMessage());
+        }
+
+        // Exact count succeeds
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 3,
+                    'serial_numbers' => ['SN-LPT-1', 'SN-LPT-2', 'SN-LPT-3'],
+                ]
+            ]
+        ], $this->user->id);
+
+        $this->assertTrue($receiving->isPending());
+        $detail = $receiving->details->first();
+        $this->assertEquals(['SN-LPT-1', 'SN-LPT-2', 'SN-LPT-3'], $detail->pending_serial_numbers);
+    }
+
+    public function test_non_serialized_line_rejects_serial_payload()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $product = Product::create([
+            'product_name' => 'Flashdisk Non-Serial',
+            'product_code' => 'FD-NONSER',
+            'product_quantity' => 0,
+            'product_cost' => 50000,
+            'product_price' => 70000,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 5,
+            'unit_cost' => 50000,
+            'unit_dpp' => 50000,
+            'subtotal_cost' => 250000,
+            'total_cost' => 250000,
+            'is_serialized' => false,
+        ]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Payload nomor seri tidak diizinkan untuk produk non-serial');
+
+        $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 5,
+                    'serial_numbers' => ['UNWANTED-SN-1'],
+                ]
+            ]
+        ], $this->user->id);
+    }
+
+    public function test_composite_database_identity_permits_same_serial_text_for_different_products()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $productA = Product::create([
+            'product_name' => 'Product A Serial',
+            'product_code' => 'PA-SER',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $productB = Product::create([
+            'product_name' => 'Product B Serial',
+            'product_code' => 'PB-SER',
+            'product_quantity' => 0,
+            'product_cost' => 200000,
+            'product_price' => 250000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Pre-create active serial for Product A with serial number "SHARED-SN-100"
+        ProductSerialNumber::create([
+            'product_id' => $productA->id,
+            'location_id' => $this->consignmentLocation->id,
+            'serial_number' => 'SHARED-SN-100',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        $receivalB = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $lineB = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receivalB->id,
+            'product_id' => $productB->id,
+            'product_name' => $productB->product_name,
+            'product_code' => $productB->product_code,
+            'quantity' => 1,
+            'unit_cost' => 200000,
+            'unit_dpp' => 200000,
+            'subtotal_cost' => 200000,
+            'total_cost' => 200000,
+            'is_serialized' => true,
+        ]);
+
+        // Receiving Product B with serial number "SHARED-SN-100" should succeed because composite identity (product_id, serial_number) is different
+        $receiving = $receivingService->createPendingReceiving($receivalB, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $lineB->id => [
+                    'quantity_received' => 1,
+                    'serial_numbers' => ['SHARED-SN-100'],
+                ]
+            ]
+        ], $this->user->id);
+
+        $approved = $receivingService->approveReceiving($receiving, $this->user->id);
+        $this->assertTrue($approved->isApproved());
+
+        $snB = ProductSerialNumber::where('product_id', $productB->id)->where('serial_number', 'SHARED-SN-100')->first();
+        $this->assertNotNull($snB);
+        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $snB->status);
+    }
+
+    public function test_pending_receiving_produces_no_stock_serial_or_history_mutation()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $product = Product::create([
+            'product_name' => 'Zero Mutation Product',
+            'product_code' => 'ZMUT-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 200000,
+            'total_cost' => 200000,
+            'is_serialized' => true,
+        ]);
+
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 2,
+                    'serial_numbers' => ['SN-PENDING-1', 'SN-PENDING-2'],
+                ]
+            ]
+        ], $this->user->id);
+
+        $this->assertTrue($receiving->isPending());
+        $this->assertEquals(0, ProductStock::where('product_id', $product->id)->count());
+        $this->assertEquals(0, ProductSerialNumber::where('product_id', $product->id)->count());
+        $this->assertEquals(0, SerialNumberHistory::count());
+        $this->assertEquals(0, ConsignmentReceivingDetailSerialNumber::count());
+    }
+
+    public function test_stale_serial_status_change_before_approval_fails_and_rolls_back()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $product = Product::create([
+            'product_name' => 'Stale Serial Product',
+            'product_code' => 'STALE-SER-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Pre-existing serial in RETURNED status (reusable at pending creation time)
+        $serial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->consignmentLocation->id,
+            'serial_number' => 'SN-REUSE-STALE',
+            'status' => ProductSerialNumber::STATUS_RETURNED,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 100000,
+            'total_cost' => 100000,
+            'is_serialized' => true,
+        ]);
+
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 1,
+                    'serial_numbers' => ['SN-REUSE-STALE'],
+                ]
+            ]
+        ], $this->user->id);
+
+        // Before approval, serial becomes ACTIVE via another process
+        $serial->update(['status' => ProductSerialNumber::STATUS_ACTIVE]);
+
+        try {
+            $receivingService->approveReceiving($receiving, $this->user->id);
+            $this->fail('Expected exception for stale serial status change was not thrown.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('tidak lagi valid saat persetujuan', $e->getMessage());
+        }
+
+        // Verify full rollback: no stock increment, no histories created, receiving stays PENDING
+        $this->assertEquals(0, ProductStock::where('product_id', $product->id)->value('quantity') ?? 0);
+        $this->assertEquals(0, SerialNumberHistory::count());
+        $this->assertEquals(0, ConsignmentReceivingDetailSerialNumber::count());
+        $this->assertTrue($receiving->fresh()->isPending());
+    }
+
+    public function test_reversal_is_blocked_after_later_serial_activity()
+    {
+        $receivingService = new ConsignmentReceivingService();
+
+        $product = Product::create([
+            'product_name' => 'Serial Movement Product',
+            'product_code' => 'SMP-MV-01',
+            'product_quantity' => 0,
+            'product_cost' => 100000,
+            'product_price' => 150000,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $receival = ConsignmentReferenceService::createReceivalWithReference([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'date' => now()->toDateString(),
+            'status' => ConsignmentReceival::STATUS_APPROVED,
+        ]);
+
+        $line = ConsignmentReceivalLine::create([
+            'consignment_receival_id' => $receival->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_cost' => 100000,
+            'unit_dpp' => 100000,
+            'subtotal_cost' => 100000,
+            'total_cost' => 100000,
+            'is_serialized' => true,
+        ]);
+
+        $receiving = $receivingService->createPendingReceiving($receival, [
+            'location_id' => $this->consignmentLocation->id,
+            'date' => now()->toDateString(),
+            'details' => [
+                $line->id => [
+                    'quantity_received' => 1,
+                    'serial_numbers' => ['SN-MOVE-1'],
+                ]
+            ]
+        ], $this->user->id);
+
+        $approved = $receivingService->approveReceiving($receiving, $this->user->id);
+
+        $serial = ProductSerialNumber::where('product_id', $product->id)->where('serial_number', 'SN-MOVE-1')->first();
+
+        // Add a later history event simulating serial movement/sale
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_SOLD,
+            'location_id' => $this->consignmentLocation->id,
+            'user_id' => $this->user->id,
+            'note' => 'Serial sold in POS',
+        ]);
+
+        $preview = $receivingService->previewReversal($approved);
+        $this->assertFalse($preview['can_reverse']);
+        $this->assertStringContainsString('riwayat transaksi lanjutan', implode('; ', $preview['blockers']));
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Pembalikan ditolak');
+        $receivingService->reverseReceiving($approved, $this->user->id, 'Attempt reversal on sold serial');
     }
 }
