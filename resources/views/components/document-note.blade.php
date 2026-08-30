@@ -31,7 +31,7 @@
 @endphp
 
 @if ($hasNote)
-    <div class="document-note-container text-muted small mt-1">
+    <div class="document-note-container text-muted small">
         @if ($isExpandable)
             <div x-data="{ expanded: false }">
                 <div id="{{ $previewId }}" x-show="!expanded">
@@ -61,4 +61,6 @@
             <span>{{ $rawNote }}</span>
         @endif
     </div>
+@else
+    <span class="text-muted">-</span>
 @endif

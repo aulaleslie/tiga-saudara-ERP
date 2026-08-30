@@ -309,10 +309,10 @@ class GlobalSalePaymentTableTest extends TestCase
             ->assertSee('UniqueSaleNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false)
             ->assertDontSee($otherSale->reference);
 
-        // Normal mode does not render the note element in table cell
+        // Normal mode renders escaped note in Catatan column
         Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => false, 'settingId' => $this->setting1->id])
             ->assertSee($noteSale->reference)
-            ->assertDontSee('UniqueSaleNoteSpecialTag');
+            ->assertSee('UniqueSaleNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false);
     }
 
     public function test_global_mode_renders_note_containing_exact_string_zero()
@@ -324,7 +324,7 @@ class GlobalSalePaymentTableTest extends TestCase
 
         Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
             ->assertSee($zeroNoteSale->reference)
-            ->assertSeeHtml('<div class="document-note-container text-muted small mt-1"')
+            ->assertSeeHtml('<div class="document-note-container text-muted small"')
             ->assertSee('<span>0</span>', false);
     }
 
@@ -359,15 +359,37 @@ class GlobalSalePaymentTableTest extends TestCase
             ->assertSee($blankSale->reference);
     }
 
-    public function test_global_mode_whitespace_only_sale_note_renders_no_note_container()
+    public function test_global_mode_whitespace_only_sale_note_renders_blank_placeholder()
     {
         $whitespaceSale = $this->createSale([
             'note' => "   \n  \t ",
             'setting_id' => $this->setting1->id,
         ]);
 
-        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+        $html = Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
             ->assertSee($whitespaceSale->reference)
-            ->assertDontSeeHtml('<div class="document-note-container');
+            ->assertDontSeeHtml('<div class="document-note-container')
+            ->html();
+
+        $this->assertMatchesRegularExpression('/<td class="document-note-cell">[\s\S]*?<span class="text-muted">-<\/span>[\s\S]*?<\/td>/s', $html);
+    }
+
+    public function test_sale_table_renders_dedicated_catatan_column_after_ref_for_normal_and_global_modes()
+    {
+        $sale = $this->createSale([
+            'note' => 'Header note for column test',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        foreach ([true, false] as $isGlobal) {
+            $html = Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => $isGlobal, 'settingId' => $this->setting1->id])->html();
+
+            // Header position: Ref followed by Catatan
+            $this->assertMatchesRegularExpression('/<th[^>]*>\s*Ref.*<\/th>\s*<th[^>]*>\s*Catatan\s*<\/th>/s', $html);
+
+            // Note is in dedicated document-note-cell immediately following the reference td, and not inside the reference anchor tag
+            $this->assertDoesNotMatchRegularExpression('/(?:<a|<span)[^>]*>.*?' . preg_quote($sale->reference, '/') . '.*?<\/(?:a|span)>\s*<div class="document-note-container/s', $html);
+            $this->assertMatchesRegularExpression('/<td[^>]*>[\s\S]*?(?:<a|<span)[^>]*>[\s\S]*?' . preg_quote($sale->reference, '/') . '[\s\S]*?<\/(?:a|span)>[\s\S]*?<\/td>\s*<td class="document-note-cell">[\s\S]*?<div class="document-note-container/s', $html);
+        }
     }
 }

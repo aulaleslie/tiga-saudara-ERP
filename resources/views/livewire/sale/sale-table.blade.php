@@ -125,6 +125,7 @@
                 <th wire:click="sortBy('reference')" style="cursor:pointer">
                     Ref {!! $this->sortIcon('reference') !!}
                 </th>
+                <th>Catatan</th>
                 <th>POS</th>
                 <th wire:click="sortBy('date')" style="cursor:pointer">
                     Tanggal {!! $this->sortIcon('date') !!}
@@ -179,9 +180,9 @@
                             <br>
                             <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
                         @endif
-                        @if ($globalMode)
-                            <x-document-note :note="$sale->note" :row-id="'sale-note-'.$sale->id" />
-                        @endif
+                    </td>
+                    <td class="document-note-cell">
+                        <x-document-note :note="$sale->note" :row-id="'sale-note-'.$sale->id" />
                     </td>
                     <td>
                         @php
@@ -247,7 +248,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="12">Tidak ada data yang ditemukan.</td>
+                    <td colspan="{{ $globalMode ? 15 : 14 }}">Tidak ada data yang ditemukan.</td>
                 </tr>
             @endforelse
             </tbody>

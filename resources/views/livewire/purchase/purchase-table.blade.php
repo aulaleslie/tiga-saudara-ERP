@@ -127,6 +127,7 @@
                 <th wire:click="sortBy('reference')" style="cursor:pointer">
                     Ref {!! $this->sortIcon('reference') !!}
                 </th>
+                <th>Catatan</th>
                 <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">
                     Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}
                 </th>
@@ -173,9 +174,9 @@
                            title="{{ $productsTooltip }}">
                             {{ $purchase->reference }}
                         </a>
-                        @if ($globalMode)
-                            <x-document-note :note="$purchase->note" :row-id="'purchase-note-'.$purchase->id" />
-                        @endif
+                    </td>
+                    <td class="document-note-cell">
+                        <x-document-note :note="$purchase->note" :row-id="'purchase-note-'.$purchase->id" />
                     </td>
                     <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
                     <td>{{ $purchase->tax_ref_no ?? '-' }}</td>
@@ -214,7 +215,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="{{ $globalMode ? ($supplierId ? 12 : 13) : ($supplierId ? 11 : 12) }}">Tidak ada data yang ditemukan.</td>
+                    <td colspan="{{ $globalMode ? ($supplierId ? 13 : 14) : ($supplierId ? 12 : 13) }}">Tidak ada data yang ditemukan.</td>
                 </tr>
             @endforelse
             </tbody>
