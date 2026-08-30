@@ -27,10 +27,10 @@ class CrossBusinessPriceUpdateRequest extends FormRequest
         return [
             'prices' => 'required|array|min:1',
             'prices.*.setting_id' => 'required|integer|exists:settings,id|distinct',
-            'prices.*.sale_price' => 'required|numeric|min:0',
-            'prices.*.tier_1_price' => 'required|numeric|min:0',
-            'prices.*.tier_2_price' => 'required|numeric|min:0',
-            'prices.*.last_purchase_price' => 'required|numeric|min:0',
+            'prices.*.sale_price' => 'required|numeric|decimal:0,2|min:0',
+            'prices.*.tier_1_price' => 'required|numeric|decimal:0,2|min:0',
+            'prices.*.tier_2_price' => 'required|numeric|decimal:0,2|min:0',
+            'prices.*.last_purchase_price' => 'required|numeric|decimal:0,2|min:0',
             'prices.*.version' => 'nullable|string',
         ];
     }

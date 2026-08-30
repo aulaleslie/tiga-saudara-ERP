@@ -73,13 +73,18 @@
                                                     <input type="hidden" name="prices[{{ $index }}][version]" value="{{ $price['version'] }}">
                                                 </td>
                                                 @php
-                                                    $normalizePrice = function($val) {
-                                                        return is_numeric($val) ? round((float) $val) : $val;
+                                                    $formatDecimalDisplay = function($val) {
+                                                        if (!is_numeric($val)) return $val;
+                                                        return number_format((float) $val, 2, ',', '.');
+                                                    };
+                                                    $formatCanonicalDecimal = function($val) {
+                                                        if (!is_numeric($val)) return $val;
+                                                        return number_format((float) $val, 2, '.', '');
                                                     };
                                                 @endphp
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][sale_price]" value="{{ $normalizePrice(old('prices.'.$index.'.sale_price', $price['sale_price'])) }}" data-original="{{ $normalizePrice($price['sale_price']) }}" data-column="sale_price" readonly>
+                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][sale_price]" value="{{ $formatDecimalDisplay(old('prices.'.$index.'.sale_price', $price['sale_price'])) }}" data-original="{{ $formatCanonicalDecimal($price['sale_price']) }}" data-column="sale_price" readonly>
                                                         <button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="sale_price" title="Terapkan ke semua bisnis" style="display: none;">
                                                             <i class="bi bi-arrows-expand"></i>
                                                         </button>
@@ -87,7 +92,7 @@
                                                 </td>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_1_price]" value="{{ $normalizePrice(old('prices.'.$index.'.tier_1_price', $price['tier_1_price'])) }}" data-original="{{ $normalizePrice($price['tier_1_price']) }}" data-column="tier_1_price" readonly>
+                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_1_price]" value="{{ $formatDecimalDisplay(old('prices.'.$index.'.tier_1_price', $price['tier_1_price'])) }}" data-original="{{ $formatCanonicalDecimal($price['tier_1_price']) }}" data-column="tier_1_price" readonly>
                                                         <button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="tier_1_price" title="Terapkan ke semua bisnis" style="display: none;">
                                                             <i class="bi bi-arrows-expand"></i>
                                                         </button>
@@ -95,7 +100,7 @@
                                                 </td>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_2_price]" value="{{ $normalizePrice(old('prices.'.$index.'.tier_2_price', $price['tier_2_price'])) }}" data-original="{{ $normalizePrice($price['tier_2_price']) }}" data-column="tier_2_price" readonly>
+                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][tier_2_price]" value="{{ $formatDecimalDisplay(old('prices.'.$index.'.tier_2_price', $price['tier_2_price'])) }}" data-original="{{ $formatCanonicalDecimal($price['tier_2_price']) }}" data-column="tier_2_price" readonly>
                                                         <button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="tier_2_price" title="Terapkan ke semua bisnis" style="display: none;">
                                                             <i class="bi bi-arrows-expand"></i>
                                                         </button>
@@ -103,14 +108,14 @@
                                                 </td>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][last_purchase_price]" value="{{ $normalizePrice(old('prices.'.$index.'.last_purchase_price', $price['last_purchase_price'])) }}" data-original="{{ $normalizePrice($price['last_purchase_price']) }}" data-column="last_purchase_price" readonly>
+                                                        <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][last_purchase_price]" value="{{ $formatDecimalDisplay(old('prices.'.$index.'.last_purchase_price', $price['last_purchase_price'])) }}" data-original="{{ $formatCanonicalDecimal($price['last_purchase_price']) }}" data-column="last_purchase_price" readonly>
                                                         <button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="last_purchase_price" title="Terapkan ke semua bisnis" style="display: none;">
                                                             <i class="bi bi-arrows-expand"></i>
                                                         </button>
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    <input type="text" class="form-control price-mask" value="{{ $normalizePrice($price['average_purchase_price']) }}" readonly disabled>
+                                                    <input type="text" class="form-control price-mask" value="{{ $formatDecimalDisplay($price['average_purchase_price']) }}" readonly disabled>
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -126,43 +131,103 @@
 @endsection
 
 @section('third_party_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(document).ready(function () {
-            // Apply mask to all price fields
-            $('.price-mask').maskMoney({
-                prefix: '',
-                thousands: '.',
-                decimal: ',',
-                precision: 0,
-                allowZero: true
-            });
-
-            // Ensure masks are initialized properly with values
-            $('.price-mask').each(function() {
-                $(this).maskMoney('mask');
-            });
-
-            // State elements
             const $btnEdit = $('#btn-edit');
             const $btnCancel = $('#btn-cancel');
             const $btnSave = $('#btn-save');
             const $form = $('#cross-business-price-form');
             const $editableInputs = $('.editable-price');
 
-            // Numeric normalization helper
-            function parseNumericValue(val) {
-                if (val === null || val === undefined) return 0;
-                let cleaned = String(val).replace(/\./g, '').replace(',', '.');
-                let num = parseFloat(cleaned);
-                return isNaN(num) ? 0 : Math.round(num);
+            // Regex patterns for strict decimal validation
+            const idPattern = /^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+(,\d{1,2})?$/;
+            const canonicalPattern = /^\d+(\.\d{1,2})?$/;
+
+            // Convert string (Indonesian or canonical) to canonical decimal string ("1.234,56" -> "1234.56", "6853" -> "6853.00")
+            function parseCanonicalDecimal(val) {
+                if (val === null || val === undefined) return '';
+                let str = String(val).trim();
+                if (str === '') return '';
+
+                if (idPattern.test(str)) {
+                    let cleaned = str.replace(/\./g, '').replace(',', '.');
+                    let num = parseFloat(cleaned);
+                    return isNaN(num) ? str : num.toFixed(2);
+                }
+
+                if (canonicalPattern.test(str)) {
+                    let num = parseFloat(str);
+                    return isNaN(num) ? str : num.toFixed(2);
+                }
+
+                return str;
             }
+
+            // Format float or canonical string to Indonesian display format ("1234.56" -> "1.234,56", "6853" -> "6.853,00")
+            function formatLocaleDisplay(val) {
+                if (val === null || val === undefined) return '';
+                let str = String(val).trim();
+                if (str === '') return '';
+
+                let canonical = parseCanonicalDecimal(str);
+                let num = parseFloat(canonical);
+                if (isNaN(num)) return str;
+
+                let parts = num.toFixed(2).split('.');
+                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                return parts.join(',');
+            }
+
+            // Convert formatted display value to raw editable canonical value on focus ("1.234,56" -> "1234.56" or "1234")
+            function getRawCanonicalValue(val) {
+                if (val === null || val === undefined) return '';
+                let str = String(val).trim();
+                if (str === '') return '';
+
+                let canonical = parseCanonicalDecimal(str);
+                let num = parseFloat(canonical);
+                if (isNaN(num)) return str;
+
+                // If whole number, present cleanly as raw digits e.g. "6853", else "1111.23"
+                if (num % 1 === 0) {
+                    return String(Math.round(num));
+                }
+                return num.toFixed(2);
+            }
+
+            // Prevent key, paste, or change events in view mode
+            $editableInputs.on('keydown keypress keyup input paste change', function(e) {
+                if ($(this).prop('readonly')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            });
+
+            // On focus in edit mode: reveal canonical raw value for easy typing (e.g. 6853 or 1111.23)
+            $editableInputs.on('focus', function() {
+                if (!$(this).prop('readonly')) {
+                    let currentVal = $(this).val();
+                    let rawVal = getRawCanonicalValue(currentVal);
+                    $(this).val(rawVal);
+                }
+            });
+
+            // On blur in edit mode: re-format to Indonesian display format if valid
+            $editableInputs.on('blur', function() {
+                if (!$(this).prop('readonly')) {
+                    let currentVal = $(this).val();
+                    let formatted = formatLocaleDisplay(currentVal);
+                    $(this).val(formatted);
+                    updateInputDirtyState($(this));
+                }
+            });
 
             // Dirty state detection for a single input
             function updateInputDirtyState($input) {
                 const currentVal = $input.val();
                 const originalVal = $input.data('original');
-                const isDirty = parseNumericValue(currentVal) !== parseNumericValue(originalVal);
+                const isDirty = parseCanonicalDecimal(currentVal) !== parseCanonicalDecimal(originalVal);
                 const $btn = $input.siblings('.btn-apply-all');
 
                 if ($btn.length) {
@@ -187,15 +252,19 @@
                 $btnSave.removeClass('d-none');
 
                 // Enable inputs
-                $editableInputs.prop('readonly', false);
+                $editableInputs.each(function() {
+                    $(this).prop('readonly', false);
+                });
 
                 // Update dirty state for all inputs
                 updateAllDirtyStates();
             });
 
-            // Handle manual edit inputs
-            $editableInputs.on('input change keyup blur', function() {
-                updateInputDirtyState($(this));
+            // Handle manual edit inputs when enabled
+            $editableInputs.on('input change keyup', function() {
+                if (!$(this).prop('readonly')) {
+                    updateInputDirtyState($(this));
+                }
             });
 
             // Handle Apply-to-all button click
@@ -209,9 +278,10 @@
                 // Target all inputs for the same column
                 $editableInputs.filter('[data-column="' + column + '"]').each(function() {
                     const $targetInput = $(this);
-                    $targetInput.val(sourceVal);
-                    $targetInput.maskMoney('mask');
-                    updateInputDirtyState($targetInput);
+                    if (!$targetInput.prop('readonly')) {
+                        $targetInput.val(sourceVal);
+                        updateInputDirtyState($targetInput);
+                    }
                 });
             });
 
@@ -221,26 +291,30 @@
                 $btnSave.addClass('d-none');
                 $btnEdit.removeClass('d-none');
 
-                // Revert values, make readonly, and hide apply-all controls
+                // Revert values to original localized display and make readonly
                 $editableInputs.each(function () {
-                    const original = $(this).data('original');
-                    $(this).val(original).prop('readonly', true);
-                    $(this).maskMoney('mask'); // Re-apply mask to update UI
+                    const originalCanonical = $(this).data('original');
+                    const formattedDisplay = formatLocaleDisplay(originalCanonical);
+                    $(this).val(formattedDisplay).prop('readonly', true);
                     updateInputDirtyState($(this));
                 });
             });
 
-            // Handle "Simpan" (Submit) protection
-            $form.on('submit', function () {
+            // Handle "Simpan" (Submit) protection & canonical unmasking
+            $form.on('submit', function (e) {
                 if ($btnSave.prop('disabled')) {
+                    e.preventDefault();
                     return false;
                 }
 
-                // Unmask before submit
-                $('.price-mask').each(function() {
+                // Ensure all editable inputs are enabled so they are included in request payload
+                $editableInputs.prop('readonly', false).prop('disabled', false);
+
+                // Unmask editable prices to canonical dot decimal format before submit
+                $editableInputs.each(function() {
                     let val = $(this).val();
-                    let unmasked = val.replace(/\./g, '');
-                    $(this).val(unmasked);
+                    let canonical = parseCanonicalDecimal(val);
+                    $(this).val(canonical);
                 });
 
                 $btnSave.prop('disabled', true).html('<i class="spinner-border spinner-border-sm"></i> Menyimpan...');
