@@ -27,6 +27,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sales/{sale_id}/global-payments/show', [GlobalSalePaymentController::class, 'show'])
         ->name('sales.global-payments.show')
         ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/edit-monetary', [GlobalSalePaymentController::class, 'editMonetary'])
+        ->name('sales.global-payments.edit-monetary')
+        ->middleware('permission:salePayments.global.access');
+    Route::put('/sales/{sale_id}/global-payments/date-adjustment', [GlobalSalePaymentController::class, 'updateDateAdjustment'])
+        ->name('sales.global-payments.date-adjustment.update')
+        ->middleware('permission:salePayments.global.access');
     Route::get('/sales/{sale_id}/global-payments/history', [GlobalSalePaymentController::class, 'history'])
         ->name('sales.global-payments.history')
         ->middleware('permission:salePayments.global.access');

@@ -7,7 +7,7 @@ use Modules\Sale\Entities\Sale;
 
 class SalePolicy
 {
-    public function overrideReportingDate(User $user, Sale $sale): bool
+    public function overrideReportingDate(User $user, Sale $sale, bool $isGlobal = false): bool
     {
         // Verify sale is in an eligible post-approval status
         if (!in_array($sale->status, [
@@ -20,17 +20,23 @@ class SalePolicy
             return false;
         }
 
-        // Verify sale belongs to user's current setting (tenant scoped)
-        $currentSettingId = session('setting_id');
-        if ($sale->setting_id !== $currentSettingId) {
-            return false;
+        if ($isGlobal) {
+            if (!$user->hasPermissionTo('salePayments.global.access')) {
+                return false;
+            }
+        } else {
+            // Verify sale belongs to user's current setting (tenant scoped)
+            $currentSettingId = session('setting_id');
+            if ($sale->setting_id !== $currentSettingId) {
+                return false;
+            }
         }
 
         // Check if user has the reporting-date override permission
         return $user->hasPermissionTo('sales.reporting-date.override');
     }
 
-    public function overrideDueDate(User $user, Sale $sale): bool
+    public function overrideDueDate(User $user, Sale $sale, bool $isGlobal = false): bool
     {
         // Verify sale is in an eligible post-approval status
         if (!in_array($sale->status, [
@@ -43,10 +49,16 @@ class SalePolicy
             return false;
         }
 
-        // Verify sale belongs to user's current setting (tenant scoped)
-        $currentSettingId = session('setting_id');
-        if ($sale->setting_id !== $currentSettingId) {
-            return false;
+        if ($isGlobal) {
+            if (!$user->hasPermissionTo('salePayments.global.access')) {
+                return false;
+            }
+        } else {
+            // Verify sale belongs to user's current setting (tenant scoped)
+            $currentSettingId = session('setting_id');
+            if ($sale->setting_id !== $currentSettingId) {
+                return false;
+            }
         }
 
         // Check if user has the due-date override permission

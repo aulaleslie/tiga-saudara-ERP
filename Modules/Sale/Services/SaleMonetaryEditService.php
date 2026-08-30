@@ -47,6 +47,31 @@ class SaleMonetaryEditService extends AbstractMonetaryEditService
         }
     }
 
+    protected function assertGlobalAuthorizationAndEligibility(Model $document, mixed $user): void
+    {
+        if (! $user->can('salePayments.global.access')
+            || ! $user->can('sales.edit')
+            || ! $user->can('sales.dispatched.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah penjualan ini secara global.');
+        }
+
+        $eligible = Sale::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->whereKey($document->getKey())
+            ->exists();
+
+        if (! $eligible) {
+            throw new MonetaryEditException('Penjualan ini tidak memenuhi syarat untuk penyesuaian pembayaran global.');
+        }
+    }
+
+    protected function assertNormalAuthorization(Model $document, mixed $user): void
+    {
+        if (! $user->can('sales.edit') || ! $user->can('sales.dispatched.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah nilai moneter penjualan ini.');
+        }
+    }
+
     protected function resolveSubmittedDetailId(mixed $cartItem): ?int
     {
         // Sale cart hydration keys each row by its persisted sale_details.id.

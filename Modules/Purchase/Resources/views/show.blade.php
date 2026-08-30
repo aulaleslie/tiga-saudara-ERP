@@ -535,8 +535,21 @@
                             </div>
                         </div>
 
-                        @if(!(isset($globalMode) && $globalMode))
-                            <div class="card-footer text-end">
+                        <div class="card-footer text-end">
+                            @if(isset($globalMode) && $globalMode)
+                                @php
+                                    $canMonetaryEditGlobal = auth()->user()->can('purchasePayments.global.access')
+                                        && auth()->user()->can('purchases.update')
+                                        && auth()->user()->can('purchases.received.monetary.edit')
+                                        && $purchase->resolveEditMode() === \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY;
+                                @endphp
+                                @if($canMonetaryEditGlobal)
+                                    <a href="{{ route('purchases.global-payments.edit-monetary', $purchase->id) }}" class="btn btn-warning">
+                                        <i class="bi bi-pencil-square mr-2"></i> Ubah Nilai (Moneter)
+                                    </a>
+                                @endif
+                                @include('partials.date-adjustment-modal', ['document' => $purchase, 'globalMode' => true])
+                            @else
                                 @if ($purchase->status === Purchase::STATUS_DRAFTED)
                                     <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                         @csrf
@@ -597,8 +610,8 @@
                                 @endcan
 
                                 @include('partials.date-adjustment-modal', ['document' => $purchase])
-                            </div>
-                        @endif
+                            @endif
+                        </div>
                     </div>
                 </div>
             </div>

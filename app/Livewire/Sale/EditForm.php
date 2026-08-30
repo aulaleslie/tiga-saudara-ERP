@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -41,6 +42,8 @@ class EditForm extends Component
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
     public $editMode;
+    #[Locked]
+    public bool $isGlobal = false;
     public ?string $lifecycleWarning = null;
     public bool $acknowledgeLifecycleWarning = false;
 
@@ -80,13 +83,24 @@ class EditForm extends Component
         $this->shipping = $shipping;
     }
 
-    public function mount(Sale $sale)
+    public function mount(Sale $sale, bool $isGlobal = false)
     {
+        $this->isGlobal = $isGlobal;
         $sale->loadMissing(['customer', 'tags', 'saleDetails.bundleItems', 'saleDetails.product']);
 
-        $editMode = $sale->resolveEditMode();
-        if ($editMode === Sale::EDIT_MODE_NONE) {
-            abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan ini pada status saat ini.');
+        if ($this->isGlobal) {
+            abort_unless(
+                auth()->user()->can('salePayments.global.access') &&
+                auth()->user()->can('sales.edit') &&
+                auth()->user()->can('sales.dispatched.monetary.edit'),
+                403
+            );
+            $editMode = Sale::EDIT_MODE_MONETARY_ONLY;
+        } else {
+            $editMode = $sale->resolveEditMode();
+            if ($editMode === Sale::EDIT_MODE_NONE) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan ini pada status saat ini.');
+            }
         }
         $this->editMode = $editMode;
 
@@ -735,7 +749,7 @@ class EditForm extends Component
                 'global_discount' => $this->global_discount,
                 'global_discount_type' => $this->global_discount_type,
                 'shipping' => $this->shipping,
-            ]);
+            ], isGlobal: $this->isGlobal);
         } catch (MonetaryEditException $e) {
             Log::warning('sale.submit.monetary_only.rejected', [
                 'sale_id' => $this->sale->id,
@@ -760,6 +774,18 @@ class EditForm extends Component
         $this->dispatch('sale:submit-finish');
 
         session()->flash('success', "Pembaruan moneter penjualan '{$this->sale->reference}' berhasil.");
+        if ($this->isGlobal) {
+            $stillEligible = Sale::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->find($this->sale->id);
+
+            if ($stillEligible) {
+                return redirect()->route('sales.global-payments.show', $this->sale->id);
+            }
+
+            return redirect()->route('sales.global-payments.index');
+        }
+
         return redirect()->route('sales.index');
     }
 

@@ -111,6 +111,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/purchases/global-payments/history/{purchase_id}', [GlobalPurchasePaymentController::class, 'history'])->name('purchases.global-payments.history');
         Route::get('/purchases/global-payments/datatable/{purchase_id}', [GlobalPurchasePaymentController::class, 'datatable'])->name('datatable.global_purchase_payments');
         Route::get('/purchases/global-payments/{purchase_id}', [GlobalPurchasePaymentController::class, 'show'])->name('purchases.global-payments.show');
+        Route::get('/purchases/global-payments/{purchase_id}/edit-monetary', [GlobalPurchasePaymentController::class, 'editMonetary'])->name('purchases.global-payments.edit-monetary');
+        Route::put('/purchases/global-payments/{purchase_id}/date-adjustment', [GlobalPurchasePaymentController::class, 'updateDateAdjustment'])->name('purchases.global-payments.date-adjustment.update');
     });
 
     Route::resource('purchases', 'PurchaseController')->middleware('idempotency');

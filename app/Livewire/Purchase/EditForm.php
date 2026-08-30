@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -38,6 +39,9 @@ class EditForm extends Component
     public $purchase;
     public $editMode;
 
+    #[Locked]
+    public bool $isGlobal = false;
+
     public array $tags = [];
 
     public $listeners = [
@@ -61,16 +65,27 @@ class EditForm extends Component
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
 
-    public function mount($purchaseId): void
+    public function mount($purchaseId, bool $isGlobal = false): void
     {
+        $this->isGlobal = $isGlobal;
         $this->purchaseId = $purchaseId;
         $this->purchase = Purchase::with('purchaseDetails')->findOrFail($purchaseId);
         $this->selectedSettingId = $this->purchase->setting_id;
         $this->isPkp = $this->isPkpEnabled();
 
-        $editMode = $this->purchase->resolveEditMode();
-        if ($editMode === Purchase::EDIT_MODE_NONE) {
-            abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
+        if ($this->isGlobal) {
+            abort_unless(
+                auth()->user()->can('purchasePayments.global.access') &&
+                auth()->user()->can('purchases.update') &&
+                auth()->user()->can('purchases.received.monetary.edit'),
+                403
+            );
+            $editMode = Purchase::EDIT_MODE_MONETARY_ONLY;
+        } else {
+            $editMode = $this->purchase->resolveEditMode();
+            if ($editMode === Purchase::EDIT_MODE_NONE) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
+            }
         }
         $this->editMode = $editMode;
 
@@ -894,7 +909,7 @@ class EditForm extends Component
                 'global_discount' => $this->global_discount,
                 'global_discount_type' => $this->global_discount_type,
                 'shipping' => $this->shipping,
-            ]);
+            ], isGlobal: $this->isGlobal);
         } catch (MonetaryEditException $e) {
             $this->purchaseSubmitWarning('purchase.submit.monetary_only.rejected', [
                 'purchase_id' => $this->purchaseId,
@@ -916,6 +931,18 @@ class EditForm extends Component
         Cart::instance('purchase')->destroy();
 
         session()->flash('success', 'Pembaruan moneter pembelian berhasil.');
+        if ($this->isGlobal) {
+            $stillEligible = Purchase::globalPaymentEligible()
+                ->whereNull('archived_at')
+                ->find($this->purchase->id);
+
+            if ($stillEligible) {
+                return redirect()->route('purchases.global-payments.show', $this->purchase->id);
+            }
+
+            return redirect()->route('purchases.global-payments.index');
+        }
+
         return redirect()->route('purchases.index');
     }
 

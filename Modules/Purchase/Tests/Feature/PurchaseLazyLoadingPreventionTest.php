@@ -404,4 +404,177 @@ class PurchaseLazyLoadingPreventionTest extends TestCase
             $this->assertStringContainsString('DUS', $html);
         }
     }
+
+    /**
+     * Test 6: Global purchase-payment show with consignment billing purchase (lazy loading disabled).
+     */
+    public function test_global_purchase_payment_show_with_consignment_billing_purchase_does_not_lazy_load(): void
+    {
+        [$purchase, $purchaseDetail] = $this->createPurchaseWithExecutedNormalization(asLegacy: false);
+
+        $purchase->update([
+            'source_type' => Purchase::SOURCE_CONSIGNMENT_BILLING,
+        ]);
+
+        $confirmation = \Modules\Consignment\Entities\ConsignmentBillingConfirmation::forceCreate([
+            'purchase_id' => $purchase->id,
+            'confirmation_number' => 'CBC-TEST-001',
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => 'APPROVED',
+            'billed_at' => now(),
+            'date' => now(),
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::forceCreate([
+            'customer_name' => 'Customer Test',
+            'customer_email' => 'cust@test.com',
+            'customer_phone' => '0812345678',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $sale = \Modules\Sale\Entities\Sale::forceCreate([
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(7)->format('Y-m-d'),
+            'reference' => 'SO-' . uniqid(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => 'Completed',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $saleDetail = \Modules\Sale\Entities\SaleDetails::forceCreate([
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_discount_type' => 'Fixed',
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+        ]);
+
+        $dispatch = \Modules\Sale\Entities\Dispatch::forceCreate([
+            'sale_id' => $sale->id,
+            'location_id' => $this->location->id,
+            'status' => 'APPROVED',
+        ]);
+
+        $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::forceCreate([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'product_id' => $this->product->id,
+            'dispatched_quantity' => 10,
+        ]);
+
+        $soldSource = \Modules\Consignment\Entities\ConsignmentSoldSource::forceCreate([
+            'setting_id' => $this->setting->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'original_base_quantity' => 10,
+            'dispatched_at' => now(),
+            'source_hash' => 'hash_test_123',
+            'source_snapshot' => [],
+        ]);
+
+        $confirmationLine = \Modules\Consignment\Entities\ConsignmentBillingConfirmationLine::forceCreate([
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'consignment_sold_source_id' => $soldSource->id,
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'allocated_base_quantity' => 10,
+        ]);
+
+        $consignmentReceival = \Modules\Consignment\Entities\ConsignmentReceival::forceCreate([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $this->supplier->id,
+            'reference' => 'CR-' . uniqid(),
+            'date' => now()->format('Y-m-d'),
+            'status' => 'APPROVED',
+        ]);
+
+        $consignmentReceiving = \Modules\Consignment\Entities\ConsignmentReceiving::forceCreate([
+            'consignment_receival_id' => $consignmentReceival->id,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'receiving_number' => 'REC-001',
+            'status' => 'APPROVED',
+            'date' => now()->format('Y-m-d'),
+        ]);
+
+        $receivalLine = \Modules\Consignment\Entities\ConsignmentReceivalLine::forceCreate([
+            'consignment_receival_id' => $consignmentReceival->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'unit_cost' => 10000,
+            'unit_dpp' => 10000,
+            'subtotal_cost' => 100000,
+            'total_cost' => 100000,
+        ]);
+
+        $consignmentReceivingDetail = \Modules\Consignment\Entities\ConsignmentReceivingDetail::forceCreate([
+            'consignment_receiving_id' => $consignmentReceiving->id,
+            'consignment_receival_line_id' => $receivalLine->id,
+            'product_id' => $this->product->id,
+            'quantity_received' => 10,
+            'unit_cost' => 10000,
+            'unit_dpp' => 10000,
+            'tax_rate' => 0,
+            'tax_amount' => 0,
+        ]);
+
+        \Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::forceCreate([
+            'setting_id' => $this->setting->id,
+            'purchase_id' => $purchase->id,
+            'purchase_detail_id' => $purchaseDetail->id,
+            'product_id' => $this->product->id,
+            'unit_cost' => 10000,
+            'unit_dpp' => 10000,
+            'tax_rate' => 0,
+            'tax_amount' => 0,
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'consignment_billing_confirmation_line_id' => $confirmationLine->id,
+            'consignment_receiving_detail_id' => $consignmentReceivingDetail->id,
+            'billed_base_quantity' => 10,
+        ]);
+
+        $otherSetting = Setting::create([
+            'company_name' => 'SETTING GLOBAL CONSIGNMENT VIEWER',
+            'company_email' => 'consignviewer@test.com',
+            'company_phone' => '0811111112',
+            'company_address' => 'Jl. Consign Viewer No. 3',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'consignviewer@test.com',
+            'footer_text' => 'Footer Consign Viewer',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $otherSetting->id])
+            ->get(route('purchases.global-payments.show', $purchase->id));
+
+        $response->assertStatus(200);
+        $response->assertViewIs('purchase::show');
+        $response->assertViewHas('globalMode', true);
+        $response->assertSee('#CBC-TEST-001');
+        $response->assertSee('Asal Konsinyasi');
+    }
 }

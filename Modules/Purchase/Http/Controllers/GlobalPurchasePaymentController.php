@@ -27,6 +27,8 @@ class GlobalPurchasePaymentController extends Controller
             'tags',
             'reportingDateAudits.actor',
             'dueDateAudits.actor',
+            'consignmentBillingConfirmation',
+            'purchaseDetails.consignmentLineages.confirmationLine',
             'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
@@ -159,5 +161,72 @@ class GlobalPurchasePaymentController extends Controller
 
         toast('Pembayaran Global berhasil dibuat!', 'success');
         return redirect()->route('purchases.global-payments.index');
+    }
+
+    public function editMonetary($purchase_id)
+    {
+        abort_unless(
+            Gate::allows('purchasePayments.global.access') &&
+            Gate::allows('purchases.update') &&
+            Gate::allows('purchases.received.monetary.edit'),
+            403
+        );
+
+        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->findOrFail($purchase_id);
+
+        abort_unless($purchase->resolveEditMode() === \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY, 403);
+
+        $editMode = \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY;
+
+        return view('purchase::edit', [
+            'purchase' => $purchase,
+            'editMode' => $editMode,
+            'globalMode' => true,
+        ]);
+    }
+
+    public function updateDateAdjustment(Request $request, $purchase_id)
+    {
+        abort_if(Gate::denies('purchasePayments.global.access'), 403);
+
+        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->findOrFail($purchase_id);
+
+        $validated = $request->validate([
+            'reporting_action' => 'sometimes|string|in:keep,set,clear',
+            'reporting_date' => 'nullable|date',
+            'due_date_action' => 'sometimes|string|in:keep,set',
+            'due_date' => 'nullable|date',
+            'reason' => 'required|string|min:1|max:255',
+        ]);
+
+        $command = \App\DTOs\DateAdjustmentCommand::fromArray($validated);
+
+        try {
+            $result = app(\App\Services\DocumentDateAdjustmentService::class)->adjustDates(
+                $purchase,
+                $command,
+                auth()->user(),
+                authorize: true,
+                isGlobal: true
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Penyesuaian tanggal berhasil disimpan',
+                'effective_date' => $result->document->effective_date,
+                'due_date' => $result->document->due_date,
+                'reporting_audit' => $result->reportingAudit,
+                'due_date_audit' => $result->dueDateAudit,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 }

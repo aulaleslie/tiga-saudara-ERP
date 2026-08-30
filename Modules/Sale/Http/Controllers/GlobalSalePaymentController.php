@@ -179,4 +179,71 @@ class GlobalSalePaymentController extends Controller
             }
         }
     }
+
+    public function editMonetary($sale_id)
+    {
+        abort_unless(
+            Gate::allows('salePayments.global.access') &&
+            Gate::allows('sales.edit') &&
+            Gate::allows('sales.dispatched.monetary.edit'),
+            403
+        );
+
+        $sale = Sale::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->findOrFail($sale_id);
+
+        abort_unless($sale->resolveEditMode() === Sale::EDIT_MODE_MONETARY_ONLY, 403);
+
+        $editMode = Sale::EDIT_MODE_MONETARY_ONLY;
+
+        return view('sale::edit', [
+            'sale' => $sale,
+            'editMode' => $editMode,
+            'globalMode' => true,
+        ]);
+    }
+
+    public function updateDateAdjustment(Request $request, $sale_id)
+    {
+        abort_if(Gate::denies('salePayments.global.access'), 403);
+
+        $sale = Sale::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->findOrFail($sale_id);
+
+        $validated = $request->validate([
+            'reporting_action' => 'sometimes|string|in:keep,set,clear',
+            'reporting_date' => 'nullable|date',
+            'due_date_action' => 'sometimes|string|in:keep,set',
+            'due_date' => 'nullable|date',
+            'reason' => 'required|string|min:1|max:255',
+        ]);
+
+        $command = \App\DTOs\DateAdjustmentCommand::fromArray($validated);
+
+        try {
+            $result = app(\App\Services\DocumentDateAdjustmentService::class)->adjustDates(
+                $sale,
+                $command,
+                auth()->user(),
+                authorize: true,
+                isGlobal: true
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Penyesuaian tanggal berhasil disimpan',
+                'effective_date' => $result->document->effective_date,
+                'due_date' => $result->document->due_date,
+                'reporting_audit' => $result->reportingAudit,
+                'due_date_audit' => $result->dueDateAudit,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
 }

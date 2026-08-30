@@ -564,44 +564,59 @@
 
             @if(!$sale->isArchived())
             <div class="card-footer text-end">
-                @if ($sale->status === Sale::STATUS_DRAFTED)
-                    <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
-                        @csrf
-                        @method('PATCH')
-                        <input type="hidden" name="status" value="{{ Sale::STATUS_WAITING_APPROVAL }}">
-                        <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
-                    </form>
-                    <a href="{{ route('sales.edit', $sale->id) }}" class="btn btn-primary">
-                        <i class="bi bi-pencil mr-2"></i> Ubah
-                    </a>
-                @endif
-
-                @can('sales.approval')
-                    @if ($sale->status === Sale::STATUS_WAITING_APPROVAL)
-                        <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline" data-sale-approval-id="{{ $sale->id }}" data-status="{{ Sale::STATUS_APPROVED }}">
-                            @csrf
-                            @method('PATCH')
-                            <input type="hidden" name="status" value="{{ Sale::STATUS_APPROVED }}">
-                            <button type="submit" class="btn btn-success">Setuju</button>
-                        </form>
+                @if(isset($globalMode) && $globalMode)
+                    @php
+                        $canMonetaryEditGlobal = auth()->user()->can('salePayments.global.access')
+                            && auth()->user()->can('sales.edit')
+                            && auth()->user()->can('sales.dispatched.monetary.edit')
+                            && $sale->resolveEditMode() === \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY;
+                    @endphp
+                    @if($canMonetaryEditGlobal)
+                        <a href="{{ route('sales.global-payments.edit-monetary', $sale->id) }}" class="btn btn-warning">
+                            <i class="bi bi-pencil-square mr-2"></i> Ubah Nilai (Moneter)
+                        </a>
+                    @endif
+                    @include('partials.date-adjustment-modal', ['document' => $sale, 'globalMode' => true])
+                @else
+                    @if ($sale->status === Sale::STATUS_DRAFTED)
                         <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
                             @csrf
                             @method('PATCH')
-                            <input type="hidden" name="status" value="{{ Sale::STATUS_REJECTED }}">
-                            <button type="submit" class="btn btn-danger">Tolak</button>
+                            <input type="hidden" name="status" value="{{ Sale::STATUS_WAITING_APPROVAL }}">
+                            <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
                         </form>
-                    @endif
-                @endcan
-
-                @can('sales.dispatch')
-                    @if ($sale->status === Sale::STATUS_APPROVED || $sale->status === Sale::STATUS_DISPATCHED_PARTIALLY)
-                        <a href="{{ route('sales.dispatch', $sale->id) }}" class="btn btn-primary">
-                            Keluarkan
+                        <a href="{{ route('sales.edit', $sale->id) }}" class="btn btn-primary">
+                            <i class="bi bi-pencil mr-2"></i> Ubah
                         </a>
                     @endif
-                @endcan
 
-                @include('partials.date-adjustment-modal', ['document' => $sale])
+                    @can('sales.approval')
+                        @if ($sale->status === Sale::STATUS_WAITING_APPROVAL)
+                            <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline" data-sale-approval-id="{{ $sale->id }}" data-status="{{ Sale::STATUS_APPROVED }}">
+                                @csrf
+                                @method('PATCH')
+                                <input type="hidden" name="status" value="{{ Sale::STATUS_APPROVED }}">
+                                <button type="submit" class="btn btn-success">Setuju</button>
+                            </form>
+                            <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
+                                @csrf
+                                @method('PATCH')
+                                <input type="hidden" name="status" value="{{ Sale::STATUS_REJECTED }}">
+                                <button type="submit" class="btn btn-danger">Tolak</button>
+                            </form>
+                        @endif
+                    @endcan
+
+                    @can('sales.dispatch')
+                        @if ($sale->status === Sale::STATUS_APPROVED || $sale->status === Sale::STATUS_DISPATCHED_PARTIALLY)
+                            <a href="{{ route('sales.dispatch', $sale->id) }}" class="btn btn-primary">
+                                Keluarkan
+                            </a>
+                        @endif
+                    @endcan
+
+                    @include('partials.date-adjustment-modal', ['document' => $sale])
+                @endif
             </div>
             @endif
         </div>

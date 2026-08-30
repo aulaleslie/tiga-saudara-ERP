@@ -25,7 +25,7 @@
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <livewire:purchase.edit-form :purchaseId="$purchase->id" wire:key="purchase-edit-form" />
+                    <livewire:purchase.edit-form :purchaseId="$purchase->id" :isGlobal="isset($globalMode) && $globalMode" wire:key="purchase-edit-form" />
                 </div>
             </div>
         </div>

@@ -33,7 +33,7 @@ class DocumentDateAdjustmentService
      * @param User $user
      * @return DateAdjustmentResult
      */
-    public function adjustDates(Model $document, DateAdjustmentCommand $command, User $user, bool $authorize = true): DateAdjustmentResult
+    public function adjustDates(Model $document, DateAdjustmentCommand $command, User $user, bool $authorize = true, bool $isGlobal = false): DateAdjustmentResult
     {
         if (empty($command->reason)) {
             throw new \InvalidArgumentException('Alasan wajib diisi untuk penyesuaian tanggal.');
@@ -43,20 +43,35 @@ class DocumentDateAdjustmentService
             throw new \InvalidArgumentException('Tidak ada perubahan tanggal yang diminta.');
         }
 
-        return DB::transaction(function () use ($document, $command, $user, $authorize) {
+        return DB::transaction(function () use ($document, $command, $user, $authorize, $isGlobal) {
             // Lock the document row for update
             $locked = $document::where('id', $document->id)->lockForUpdate()->firstOrFail();
 
             // Re-authorize inside transaction after acquiring row lock if requested
             if ($authorize) {
+                if (method_exists($locked, 'isArchived') && $locked->isArchived()) {
+                    throw new \Illuminate\Auth\Access\AuthorizationException('Transaksi yang telah diarsipkan tidak dapat diubah.');
+                }
+
+                if ($isGlobal) {
+                    $isPurchase = $locked instanceof \Modules\Purchase\Entities\Purchase;
+                    $eligible = $isPurchase
+                        ? \Modules\Purchase\Entities\Purchase::globalPaymentEligible()->whereNull('archived_at')->whereKey($locked->getKey())->exists()
+                        : \Modules\Sale\Entities\Sale::globalPaymentEligible()->whereNull('archived_at')->whereKey($locked->getKey())->exists();
+
+                    if (! $eligible) {
+                        throw new \Illuminate\Auth\Access\AuthorizationException('Transaksi ini tidak memenuhi syarat penyesuaian tanggal global.');
+                    }
+                }
+
                 if ($command->reportingAction !== 'keep') {
-                    if (!Gate::forUser($user)->allows('overrideReportingDate', $locked)) {
+                    if (!Gate::forUser($user)->allows('overrideReportingDate', [$locked, $isGlobal])) {
                         throw new \Illuminate\Auth\Access\AuthorizationException('Tidak memiliki hak akses untuk mengubah tanggal pelaporan.');
                     }
                 }
 
                 if ($command->dueDateAction !== 'keep') {
-                    if (!Gate::forUser($user)->allows('overrideDueDate', $locked)) {
+                    if (!Gate::forUser($user)->allows('overrideDueDate', [$locked, $isGlobal])) {
                         throw new \Illuminate\Auth\Access\AuthorizationException('Tidak memiliki hak akses untuk mengubah tanggal jatuh tempo.');
                     }
                 }

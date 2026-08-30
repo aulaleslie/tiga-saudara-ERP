@@ -37,7 +37,7 @@ abstract class AbstractMonetaryEditService
      *
      * @throws MonetaryEditException on any lifecycle, identity, or payment violation
      */
-    public function apply(Model $document, iterable $cartItems, array $input): Model
+    public function apply(Model $document, iterable $cartItems, array $input, bool $isGlobal = false): Model
     {
         $cartItems = $cartItems instanceof Collection
             ? $cartItems
@@ -47,11 +47,11 @@ abstract class AbstractMonetaryEditService
             throw new MonetaryEditException('Produk tidak boleh kosong.');
         }
 
-        return DB::transaction(function () use ($document, $cartItems, $input) {
+        return DB::transaction(function () use ($document, $cartItems, $input, $isGlobal) {
             $locked = $this->lockDocument($document);
 
             $this->assertMonetaryOnlyMode($locked);
-            $this->assertBelongsToActiveSetting($locked);
+            $this->assertAuthorizationAndEligibility($locked, $isGlobal);
 
             $details = $this->lockDetails($locked);
             $rows = $this->mapRows($cartItems, $details);
@@ -216,6 +216,25 @@ abstract class AbstractMonetaryEditService
         return $isPkp && (bool) $document->is_tax_included;
     }
 
+    protected function assertAuthorizationAndEligibility(Model $document, bool $isGlobal): void
+    {
+        $user = auth()->user();
+        if (! $user) {
+            throw new MonetaryEditException('Pengguna belum terautentikasi.');
+        }
+
+        if (method_exists($document, 'isArchived') && $document->isArchived()) {
+            throw new MonetaryEditException('Transaksi yang telah diarsipkan tidak dapat diubah.');
+        }
+
+        if ($isGlobal) {
+            $this->assertGlobalAuthorizationAndEligibility($document, $user);
+        } else {
+            $this->assertBelongsToActiveSetting($document);
+            $this->assertNormalAuthorization($document, $user);
+        }
+    }
+
     /** Lock and return the document's current detail rows, keyed by ID. */
     abstract protected function lockDetails(Model $document): Collection;
 
@@ -224,6 +243,12 @@ abstract class AbstractMonetaryEditService
 
     /** Reject documents outside the caller's active setting. */
     abstract protected function assertBelongsToActiveSetting(Model $document): void;
+
+    /** Validate global authorization and global payment document eligibility. */
+    abstract protected function assertGlobalAuthorizationAndEligibility(Model $document, mixed $user): void;
+
+    /** Validate normal tenant authorization for monetary edit. */
+    abstract protected function assertNormalAuthorization(Model $document, mixed $user): void;
 
     /** Read the persisted detail ID a submitted cart row claims. */
     abstract protected function resolveSubmittedDetailId(mixed $cartItem): ?int;

@@ -33,7 +33,7 @@ class PurchasePolicy
         return $user->hasPermissionTo('purchases.received.correct');
     }
 
-    public function overrideReportingDate(User $user, Purchase $purchase): bool
+    public function overrideReportingDate(User $user, Purchase $purchase, bool $isGlobal = false): bool
     {
         if ($purchase->isConsignmentBilling()) {
             return false;
@@ -50,17 +50,23 @@ class PurchasePolicy
             return false;
         }
 
-        // Verify purchase belongs to user's current setting (tenant scoped)
-        $currentSettingId = session('setting_id');
-        if ($purchase->setting_id !== $currentSettingId) {
-            return false;
+        if ($isGlobal) {
+            if (!$user->hasPermissionTo('purchasePayments.global.access')) {
+                return false;
+            }
+        } else {
+            // Verify purchase belongs to user's current setting (tenant scoped)
+            $currentSettingId = session('setting_id');
+            if ($purchase->setting_id !== $currentSettingId) {
+                return false;
+            }
         }
 
         // Check if user has the reporting-date override permission
         return $user->hasPermissionTo('purchases.reporting-date.override');
     }
 
-    public function overrideDueDate(User $user, Purchase $purchase): bool
+    public function overrideDueDate(User $user, Purchase $purchase, bool $isGlobal = false): bool
     {
         if ($purchase->isConsignmentBilling()) {
             return false;
@@ -77,10 +83,16 @@ class PurchasePolicy
             return false;
         }
 
-        // Verify purchase belongs to user's current setting (tenant scoped)
-        $currentSettingId = session('setting_id');
-        if ($purchase->setting_id !== $currentSettingId) {
-            return false;
+        if ($isGlobal) {
+            if (!$user->hasPermissionTo('purchasePayments.global.access')) {
+                return false;
+            }
+        } else {
+            // Verify purchase belongs to user's current setting (tenant scoped)
+            $currentSettingId = session('setting_id');
+            if ($purchase->setting_id !== $currentSettingId) {
+                return false;
+            }
         }
 
         // Check if user has the due-date override permission

@@ -1,12 +1,15 @@
 @php
-    $canOverrideReporting = auth()->user()->can('overrideReportingDate', $document);
-    $canOverrideDue = auth()->user()->can('overrideDueDate', $document);
+    $isGlobal = isset($globalMode) && $globalMode;
+    $canOverrideReporting = auth()->user()->can('overrideReportingDate', [$document, $isGlobal]);
+    $canOverrideDue = auth()->user()->can('overrideDueDate', [$document, $isGlobal]);
     $hasAnyPermission = $canOverrideReporting || $canOverrideDue;
     $isPurchase = $document instanceof \Modules\Purchase\Entities\Purchase;
-    $updateRoute = $isPurchase ? route('purchases.date-adjustment.update', $document->id) : route('sales.date-adjustment.update', $document->id);
+    $updateRoute = $isGlobal
+        ? ($isPurchase ? route('purchases.global-payments.date-adjustment.update', $document->id) : route('sales.global-payments.date-adjustment.update', $document->id))
+        : ($isPurchase ? route('purchases.date-adjustment.update', $document->id) : route('sales.date-adjustment.update', $document->id));
 @endphp
 
-@if($hasAnyPermission && !(isset($globalMode) && $globalMode))
+@if($hasAnyPermission)
     <button type="button" id="dateAdjustmentModalButton" class="btn btn-secondary" data-toggle="modal" data-target="#dateAdjustmentModal">
         <i class="bi bi-calendar-event mr-2"></i> Penyesuaian Tanggal
     </button>
@@ -83,7 +86,7 @@
 @endif
 
 {{-- Date Adjustment Modal --}}
-@if($hasAnyPermission && !(isset($globalMode) && $globalMode))
+@if($hasAnyPermission)
     <div class="modal fade" id="dateAdjustmentModal" tabindex="-1" role="dialog" aria-labelledby="dateAdjustmentModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content text-start">

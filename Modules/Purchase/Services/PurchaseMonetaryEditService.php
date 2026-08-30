@@ -50,6 +50,31 @@ class PurchaseMonetaryEditService extends AbstractMonetaryEditService
         }
     }
 
+    protected function assertGlobalAuthorizationAndEligibility(Model $document, mixed $user): void
+    {
+        if (! $user->can('purchasePayments.global.access')
+            || ! $user->can('purchases.update')
+            || ! $user->can('purchases.received.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah pembelian ini secara global.');
+        }
+
+        $eligible = Purchase::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->whereKey($document->getKey())
+            ->exists();
+
+        if (! $eligible) {
+            throw new MonetaryEditException('Pembelian ini tidak memenuhi syarat untuk penyesuaian pembayaran global.');
+        }
+    }
+
+    protected function assertNormalAuthorization(Model $document, mixed $user): void
+    {
+        if (! $user->can('purchases.update') || ! $user->can('purchases.received.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah nilai moneter pembelian ini.');
+        }
+    }
+
     protected function resolveSubmittedDetailId(mixed $cartItem): ?int
     {
         $detailId = data_get($cartItem, 'options.' . self::DETAIL_ID_OPTION);
