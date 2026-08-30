@@ -82,7 +82,7 @@ if errorlevel 1 goto :deployment_failed
 
 REM Seed permissions required by deployed modules
 echo [7/10] Seeding permissions...
-php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeeder"
+php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeeder" --force
 if errorlevel 1 goto :deployment_failed
 
 REM Step 9: Optimize autoloader
