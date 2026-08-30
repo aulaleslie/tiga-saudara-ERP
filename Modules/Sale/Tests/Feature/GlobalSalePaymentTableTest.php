@@ -324,6 +324,50 @@ class GlobalSalePaymentTableTest extends TestCase
 
         Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
             ->assertSee($zeroNoteSale->reference)
-            ->assertSeeHtml('<small class="text-muted">0</small>');
+            ->assertSeeHtml('<div class="document-note-container text-muted small mt-1"')
+            ->assertSee('<span>0</span>', false);
+    }
+
+    public function test_global_mode_renders_long_or_multiline_sale_note_preview_with_expansion_controls()
+    {
+        $longText = str_repeat('A', 130);
+        $longSale = $this->createSale([
+            'note' => $longText,
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $multilineText = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+        $multilineSale = $this->createSale([
+            'note' => $multilineText,
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $blankSale = $this->createSale([
+            'note' => '',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee($longSale->reference)
+            ->assertSee(str_repeat('A', 120) . '...', false)
+            ->assertSee('Lihat selengkapnya')
+            ->assertSee('Tampilkan lebih sedikit')
+            ->assertSee(':aria-expanded="expanded ? \'true\' : \'false\'"', false)
+            ->assertSee('aria-controls="sale-note-' . $longSale->id . '-preview sale-note-' . $longSale->id . '-full"', false)
+            ->assertSee($multilineSale->reference)
+            ->assertSee("Line 1\nLine 2\nLine 3...", false)
+            ->assertSee($blankSale->reference);
+    }
+
+    public function test_global_mode_whitespace_only_sale_note_renders_no_note_container()
+    {
+        $whitespaceSale = $this->createSale([
+            'note' => "   \n  \t ",
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee($whitespaceSale->reference)
+            ->assertDontSeeHtml('<div class="document-note-container');
     }
 }

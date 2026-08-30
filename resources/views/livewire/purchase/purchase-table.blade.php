@@ -173,9 +173,8 @@
                            title="{{ $productsTooltip }}">
                             {{ $purchase->reference }}
                         </a>
-                        @if ($globalMode && filled($purchase->note))
-                            <br>
-                            <small class="text-muted">{{ $purchase->note }}</small>
+                        @if ($globalMode)
+                            <x-document-note :note="$purchase->note" :row-id="'purchase-note-'.$purchase->id" />
                         @endif
                     </td>
                     <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>

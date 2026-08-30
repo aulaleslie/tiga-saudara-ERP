@@ -179,9 +179,8 @@
                             <br>
                             <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
                         @endif
-                        @if ($globalMode && filled($sale->note))
-                            <br>
-                            <small class="text-muted">{{ $sale->note }}</small>
+                        @if ($globalMode)
+                            <x-document-note :note="$sale->note" :row-id="'sale-note-'.$sale->id" />
                         @endif
                     </td>
                     <td>

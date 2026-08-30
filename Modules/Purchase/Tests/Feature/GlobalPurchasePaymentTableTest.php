@@ -342,6 +342,50 @@ class GlobalPurchasePaymentTableTest extends TestCase
 
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->assertSee($zeroNotePurchase->reference)
-            ->assertSeeHtml('<small class="text-muted">0</small>');
+            ->assertSeeHtml('<div class="document-note-container text-muted small mt-1"')
+            ->assertSee('<span>0</span>', false);
+    }
+
+    public function test_global_mode_renders_long_or_multiline_purchase_note_preview_with_expansion_controls()
+    {
+        $longText = str_repeat('B', 130);
+        $longPurchase = $this->createPurchase([
+            'note' => $longText,
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $multilineText = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+        $multilinePurchase = $this->createPurchase([
+            'note' => $multilineText,
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $blankPurchase = $this->createPurchase([
+            'note' => '',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->assertSee($longPurchase->reference)
+            ->assertSee(str_repeat('B', 120) . '...', false)
+            ->assertSee('Lihat selengkapnya')
+            ->assertSee('Tampilkan lebih sedikit')
+            ->assertSee(':aria-expanded="expanded ? \'true\' : \'false\'"', false)
+            ->assertSee('aria-controls="purchase-note-' . $longPurchase->id . '-preview purchase-note-' . $longPurchase->id . '-full"', false)
+            ->assertSee($multilinePurchase->reference)
+            ->assertSee("Line 1\nLine 2\nLine 3...", false)
+            ->assertSee($blankPurchase->reference);
+    }
+
+    public function test_global_mode_whitespace_only_purchase_note_renders_no_note_container()
+    {
+        $whitespacePurchase = $this->createPurchase([
+            'note' => "   \n  \t ",
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->assertSee($whitespacePurchase->reference)
+            ->assertDontSeeHtml('<div class="document-note-container');
     }
 }

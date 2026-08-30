@@ -56,6 +56,14 @@
         text-align: left;
     }
 
+    .document-note-container {
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        text-align: left;
+        max-width: 280px;
+    }
+
     [data-sale-table-root],
     [data-purchase-table-root] {
         width: 100%;
