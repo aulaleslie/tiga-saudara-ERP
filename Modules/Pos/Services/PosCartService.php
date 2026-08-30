@@ -571,68 +571,35 @@ class PosCartService
         $cart['selected_customer_id'] = $customerId;
         $cart['selected_customer_tier'] = $customerTier;
 
-        // Reprice all non-OVERRIDE lines based on new customer tier
+        // Reprice all lines based on new customer tier, invalidating any applied price overrides and restoring standard pricing
         $repricedLines = [];
         foreach ($cart['lines'] as $lineId => $line) {
-            $priceSource = (string) ($line['price_source'] ?? 'BASE');
-
-            // Skip OVERRIDE, TOTAL_OVERRIDE, LINE_UNIT_PRICE_OVERRIDE, LINE_TOTAL_OVERRIDE, or BUNDLE lines - keep existing price.
-            // Bundled row prices and explicit overrides are authoritative and bypass customer tier repricing.
-            if ($priceSource === 'OVERRIDE' || $priceSource === 'BUNDLE' || $priceSource === 'TOTAL_OVERRIDE' || $priceSource === 'LINE_UNIT_PRICE_OVERRIDE' || $priceSource === 'LINE_TOTAL_OVERRIDE') {
-                $repricedLines[$lineId] = $line;
-                continue;
-            }
-
-            // For PACKED lines, re-pack using cached pricing_basis with new tier
-            if ($priceSource === 'PACKED' && isset($line['pricing_basis'])) {
-                $pricingBasis = $line['pricing_basis'];
-                $qty = (int) ($line['qty'] ?? 0);
-                // Use cached tier to avoid DB query
-                $pricingService = new PackedLinePricingService();
-                $priceResult = $pricingService->price($qty, $customerTier, $pricingBasis);
-
-                $line['unit_price'] = round($priceResult['blended_unit_price'] / 100.0, 2);
-                $line['line_total'] = $priceResult['line_total_minor'];
-                $line['breakdown'] = $priceResult['breakdown'];
-                $repricedLines[$lineId] = $line;
-                continue;
-            }
+            $line = $this->restoreStandardPricing($settingId, $line, $cart);
 
             $productId = (int) ($line['product_id'] ?? 0);
-            $currentTaxId = $line['tax_id'] ?? null;
-
-            // Resolve new price for this line with customer tier
-            $priceResolution = $this->resolveLinePrice($settingId, $productId, $customerId, $currentTaxId);
-
-            if (! (bool) ($priceResolution['price_valid'] ?? false)) {
-                // Price resolution failed - keep line as-is
-                $repricedLines[$lineId] = $line;
-                continue;
-            }
-
-            // Update line with new price and tax info
-            $newUnitPrice = (float) ($priceResolution['unit_price'] ?? 0);
-            $bundlePrice = round((float) ($line['bundle_price'] ?? 0), 2);
-            if ((int) ($line['bundle_id'] ?? 0) > 0) {
-                $newUnitPrice = round($newUnitPrice + $bundlePrice, 2);
-            }
-            $newTaxId = $priceResolution['tax_id'];
             $conversionIdForKey = (int) ($line['conversion_id'] ?? 0) > 0 ? (int) $line['conversion_id'] : null;
             $bundleIdForKey = (int) ($line['bundle_id'] ?? 0) > 0 ? (int) $line['bundle_id'] : null;
-            $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId, $conversionIdForKey, $bundleIdForKey);
+            $priceSource = (string) ($line['price_source'] ?? 'BASE');
 
-            // Repricing replaces an applied override with a standard source, so
-            // every canonical override field must go with it. Leaving them
-            // behind would let the calculator keep reporting the overridden
-            // total under a TIER price.
-            $line = $this->clearCanonicalOverrideMetadata($line);
-
-            $line['unit_price'] = round($newUnitPrice, 2);
-            $line['tax_id'] = $newTaxId;
-            $line['tax_name'] = (string) ($priceResolution['tax_name'] ?? null);
-            $line['tax_rate'] = (float) ($priceResolution['tax_rate'] ?? 0);
-            $line['merge_key'] = $newMergeKey;
-            $line['price_source'] = 'TIER';
+            if ($priceSource === 'PACKED') {
+                $line['merge_key'] = PosMergeKeyGenerator::build(
+                    $productId,
+                    $line['unit_price'],
+                    $line['tax_id'] ?? null,
+                    $conversionIdForKey,
+                    null,
+                    $customerTier,
+                    'PACKED'
+                );
+            } else {
+                $line['merge_key'] = $this->buildMergeKey(
+                    $productId,
+                    (float) ($line['unit_price'] ?? 0.0),
+                    $line['tax_id'] ?? null,
+                    $conversionIdForKey,
+                    $bundleIdForKey
+                );
+            }
 
             $repricedLines[$lineId] = $line;
         }

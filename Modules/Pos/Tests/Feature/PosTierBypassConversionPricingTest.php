@@ -169,6 +169,97 @@ class PosTierBypassConversionPricingTest extends TestCase
     }
 
     /**
+     * Verify customer change invalidates applied row overrides and restores standard/packed pricing.
+     */
+    public function test_customer_selection_change_invalidates_applied_price_overrides(): void
+    {
+        $setting = $this->createSetting('OVERRIDE-INVALIDATE-SETTING');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-OVERRIDE-INV');
+
+        Permission::findOrCreate('pos.overrides.price', 'web');
+        $cashier->givePermissionTo('pos.overrides.price');
+
+        $product = $this->createStockedProductWithTiers(
+            $setting,
+            $location,
+            'SKU-OVR-INV',
+            'Produk Override Invalidation',
+            10000.00,
+            8000.00,
+            7000.00,
+            $cashier->id
+        );
+
+        // 1. Add line (qty 1) -> base price 10000
+        $response1 = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ]);
+
+        $response1->assertOk();
+        $lines = $response1->json('cart_snapshot.lines');
+        $lineData = reset($lines);
+        $lineId = $lineData['line_id'];
+
+        // 2. Apply unit price override -> 5000
+        $response2 = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.unit-price-override', ['lineId' => $lineId]), [
+                'unit_price' => 5000,
+            ]);
+
+        $response2->assertOk();
+        $snapshotLines = $response2->json('cart_snapshot.lines');
+        $line2 = collect($snapshotLines)->firstWhere('line_id', $lineId);
+        $this->assertEquals('LINE_UNIT_PRICE_OVERRIDE', $line2['price_source']);
+        $this->assertEquals(5000, $line2['unit_price']);
+
+        // 3. Select Reseller customer -> override is invalidated, reseller tier price 7000 is applied
+        $resellerCustomer = Customer::create([
+            'customer_name' => 'Reseller Override Test',
+            'customer_email' => 'resellerovr@example.com',
+            'customer_phone' => '0812999999',
+            'tier' => 'RESELLER',
+        ]);
+
+        $response3 = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $resellerCustomer->id,
+            ]);
+
+        $response3->assertOk();
+        $line3 = collect($response3->json('cart_snapshot.lines'))->firstWhere('line_id', $lineId);
+        $this->assertEquals('TIER', $line3['price_source']);
+        $this->assertEquals(7000, $line3['unit_price']);
+
+        // 4. Apply row total override -> 3000
+        $response4 = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.line-total-override', ['lineId' => $lineId]), [
+                'line_total' => 3000,
+            ]);
+
+        $response4->assertOk();
+        $line4 = collect($response4->json('cart_snapshot.lines'))->firstWhere('line_id', $lineId);
+        $this->assertEquals('LINE_TOTAL_OVERRIDE', $line4['price_source']);
+
+        // 5. Clear customer back to non-tier -> override is invalidated, standard base price 10000 is restored
+        $response5 = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => null,
+            ]);
+
+        $response5->assertOk();
+        $line5 = collect($response5->json('cart_snapshot.lines'))->firstWhere('line_id', $lineId);
+        $this->assertEquals('BASE', $line5['price_source']);
+        $this->assertEquals(10000, $line5['unit_price']);
+    }
+
+    /**
      * Task 4.4: Formatting coverage verifying 78999.96 is rendered with two decimal places.
      */
     public function test_sell_view_formatting_contains_two_decimal_places_for_fractional_totals(): void

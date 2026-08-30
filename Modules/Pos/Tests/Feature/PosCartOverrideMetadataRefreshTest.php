@@ -290,7 +290,7 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
     public function test_customer_repricing_clears_unit_price_override_metadata(): void
     {
         $lineId = $this->seedLine(2);
-        $this->applyUnitPriceOverride($lineId, 10000.0);
+        $this->applyUnitPriceOverride($lineId, 4500.0);
 
         $customer = \Modules\People\Entities\Customer::create([
             'setting_id' => $this->settingId,
@@ -306,11 +306,8 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
 
         $line = $this->storedLine($lineId);
 
-        if (($line['price_source'] ?? '') !== 'LINE_UNIT_PRICE_OVERRIDE') {
-            $this->assertNoCanonicalMetadata($line, 'customer repricing away from a unit-price override');
-        } else {
-            $this->addToAssertionCount(1);
-        }
+        $this->assertNotEquals('LINE_UNIT_PRICE_OVERRIDE', $line['price_source'] ?? '');
+        $this->assertNoCanonicalMetadata($line, 'customer repricing away from a unit-price override');
     }
 
     public function test_customer_repricing_clears_row_total_override_metadata(): void
@@ -332,11 +329,8 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
 
         $line = $this->storedLine($lineId);
 
-        if (($line['price_source'] ?? '') !== 'LINE_TOTAL_OVERRIDE') {
-            $this->assertNoCanonicalMetadata($line, 'customer repricing away from a row-total override');
-        } else {
-            $this->addToAssertionCount(1);
-        }
+        $this->assertNotEquals('LINE_TOTAL_OVERRIDE', $line['price_source'] ?? '');
+        $this->assertNoCanonicalMetadata($line, 'customer repricing away from a row-total override');
     }
 
     // ------------------------------------------------- serial append

@@ -19,6 +19,8 @@ POS packed-line pricing currently allows conversion/box pricing to compete with 
 ### Modified Capabilities
 
 - `pos-conversion-packing-pricing`: Changes packed pricing so wholesaler and reseller tiers bypass conversion prices and use their respective base-unit tier price exclusively.
+- `pos-line-unit-price-override`: Specifies that customer selection changes invalidate applied unit-price overrides and restore standard pricing.
+- `pos-line-total-override`: Specifies that customer selection changes invalidate applied row-total overrides and restore standard pricing.
 
 ## Impact
 

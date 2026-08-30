@@ -10,6 +10,7 @@ Packed totals already have an exact minor-unit `line_total`, while the blended `
 
 - Make wholesaler and reseller tier-unit pricing authoritative for every automatic non-bundle packed line.
 - Preserve conversion grouping and conversion pricing for non-tier customers.
+- Invalidate applied manual/supervisor unit-price and row-total price overrides upon customer selection change, restoring standard/packed pricing for the new customer.
 - Keep quantity and customer changes deterministic using the cached pricing basis.
 - Preserve exact two-decimal line and cart totals independently of blended-unit-price rounding.
 - Render active-cart and checkout-facing totals consistently with two decimal places.
@@ -17,7 +18,8 @@ Packed totals already have an exact minor-unit `line_total`, while the blended `
 
 **Non-Goals:**
 
-- Changing product price configuration, tier assignment, conversion records, bundles, or manual/supervisor price overrides.
+- Changing product price configuration, tier assignment, conversion records, or bundles.
+- Allowing manual/supervisor price overrides to survive customer selection changes across customer tiers.
 - Changing the existing fallback used when a tier price is zero or absent; any fallback remains a base-unit price and MUST NOT select a conversion price.
 - Repricing historical completed transactions or changing persisted database schemas.
 - Reformatting unrelated reporting and administrative POS pages.
