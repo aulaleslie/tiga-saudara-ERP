@@ -132,6 +132,9 @@
                                                     @if($candidate->imported_sales_reference_number)
                                                         <br><small class="text-muted">{{ $candidate->imported_sales_reference_number }}</small>
                                                     @endif
+                                                    @if(filled($candidate->note))
+                                                        <br><small class="text-muted d-block text-wrap">{{ $candidate->note }}</small>
+                                                    @endif
                                                 </td>
                                                 <td>{{ $candidate->tenantSetting->company_name ?? 'N/A' }}</td>
                                                 <td>{{ $candidate->due_date ? \Carbon\Carbon::parse($candidate->due_date)->format('d M Y') : '-' }}</td>

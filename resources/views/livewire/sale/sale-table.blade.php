@@ -179,6 +179,10 @@
                             <br>
                             <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
                         @endif
+                        @if ($globalMode && filled($sale->note))
+                            <br>
+                            <small class="text-muted">{{ $sale->note }}</small>
+                        @endif
                     </td>
                     <td>
                         @php

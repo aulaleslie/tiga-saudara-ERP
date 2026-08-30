@@ -100,15 +100,26 @@ class GlobalPurchasePaymentController extends Controller
 
         $supplier = \Modules\People\Entities\Supplier::findOrFail($supplier_id);
 
+        $startingPurchaseId = request('purchase_id');
+
         // Find candidate purchases for this supplier
         // Conditions: global-payment-eligible status, non-archived, positive live outstanding balance, across all settings
-        $candidates = \Modules\Purchase\Entities\Purchase::where('supplier_id', $supplier->id)
+        $candidatesQuery = \Modules\Purchase\Entities\Purchase::where('supplier_id', $supplier->id)
             ->globalPaymentEligible()
             ->whereNull('archived_at')
             ->whereLiveDueAmountGreaterThan(0)
             ->withSum(['purchasePayments as active_payments_sum' => function($q) {
                 $q->where('status', \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE);
-            }], 'amount')
+            }], 'amount');
+
+        if ($startingPurchaseId) {
+            $candidatesQuery->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END', [(int) $startingPurchaseId]);
+        }
+
+        $candidates = $candidatesQuery
+            ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('due_date', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
             
         // If a starting purchase is provided, ensure it's eligible

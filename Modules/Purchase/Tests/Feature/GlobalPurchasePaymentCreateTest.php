@@ -146,4 +146,89 @@ class GlobalPurchasePaymentCreateTest extends TestCase
         // Should redirect back to index
         $response->assertRedirect(route('purchases.global-payments.index'));
     }
+
+    public function test_purchase_create_form_pins_starting_purchase_and_orders_candidates_by_due_date_and_id()
+    {
+        session(['setting_id' => $this->setting1->id]);
+
+        $entryPurchase = Purchase::create(array_merge($this->purchase1->toArray(), [
+            'reference' => 'ENTRY-PURCHASE',
+            'due_date' => '2026-10-01',
+            'note' => 'Entry purchase note',
+            'setting_id' => $this->setting1->id,
+        ]));
+
+        $earlierPurchase = Purchase::create(array_merge($this->purchase1->toArray(), [
+            'reference' => 'EARLIER-PURCHASE',
+            'due_date' => '2026-09-01',
+            'note' => 'Earlier purchase note',
+            'setting_id' => $this->setting1->id,
+        ]));
+
+        $latePurchase = Purchase::create(array_merge($this->purchase1->toArray(), [
+            'reference' => 'LATE-PURCHASE',
+            'due_date' => '2026-12-31',
+            'note' => 'Late purchase note',
+            'setting_id' => $this->setting1->id,
+        ]));
+
+        $tie1 = Purchase::create(array_merge($this->purchase1->toArray(), [
+            'reference' => 'TIE-1',
+            'due_date' => '2026-09-15',
+            'setting_id' => $this->setting1->id,
+        ]));
+
+        $tie2 = Purchase::create(array_merge($this->purchase1->toArray(), [
+            'reference' => 'TIE-2',
+            'due_date' => '2026-09-15',
+            'setting_id' => $this->setting1->id,
+        ]));
+
+        // Request with starting purchase_id
+        $response = $this->actingAs($this->user)->get(route('purchases.global-payments.create', [
+            'supplier' => $this->supplier->id,
+            'purchase_id' => $entryPurchase->id,
+        ]));
+
+        $response->assertOk();
+
+        /** @var \Illuminate\Database\Eloquent\Collection $candidates */
+        $candidates = $response->viewData('candidates');
+        $candidateIds = $candidates->pluck('id')->filter(fn ($id) => in_array($id, [
+            $entryPurchase->id, $earlierPurchase->id, $latePurchase->id, $tie1->id, $tie2->id,
+        ]))->values()->all();
+
+        $this->assertEquals([
+            $entryPurchase->id,
+            $earlierPurchase->id,
+            min($tie1->id, $tie2->id),
+            max($tie1->id, $tie2->id),
+            $latePurchase->id,
+        ], $candidateIds);
+
+        // Verify escaped note rendering
+        $response->assertSee('Entry purchase note');
+        $response->assertSee('Earlier purchase note');
+        $response->assertSee('Late purchase note');
+
+        // Request without starting purchase_id (supplier context entry)
+        $supplierResponse = $this->actingAs($this->user)->get(route('purchases.global-payments.create', [
+            'supplier' => $this->supplier->id,
+        ]));
+
+        $supplierResponse->assertOk();
+        /** @var \Illuminate\Database\Eloquent\Collection $supplierCandidates */
+        $supplierCandidates = $supplierResponse->viewData('candidates');
+        $supplierCandidateIds = $supplierCandidates->pluck('id')->filter(fn ($id) => in_array($id, [
+            $entryPurchase->id, $earlierPurchase->id, $latePurchase->id, $tie1->id, $tie2->id,
+        ]))->values()->all();
+
+        $this->assertEquals([
+            $earlierPurchase->id,
+            min($tie1->id, $tie2->id),
+            max($tie1->id, $tie2->id),
+            $entryPurchase->id,
+            $latePurchase->id,
+        ], $supplierCandidateIds);
+    }
 }

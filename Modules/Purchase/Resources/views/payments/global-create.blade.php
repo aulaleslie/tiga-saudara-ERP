@@ -92,6 +92,9 @@
                                                 <a href="{{ route('purchases.global-payments.show', $candidate->id) }}" target="_blank">
                                                     {{ $candidate->reference }}
                                                 </a>
+                                                @if(filled($candidate->note))
+                                                    <br><small class="text-muted d-block text-wrap">{{ $candidate->note }}</small>
+                                                @endif
                                             </td>
                                             <td>{{ $candidate->supplier_purchase_number ?? '-' }}</td>
                                             <td>Pembelian</td>

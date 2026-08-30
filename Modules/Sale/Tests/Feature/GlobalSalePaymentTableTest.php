@@ -285,4 +285,45 @@ class GlobalSalePaymentTableTest extends TestCase
 
         $this->assertEquals('unpaid', $component->get('selectedCardFilter'));
     }
+
+    public function test_global_mode_renders_escaped_sale_note_and_supports_note_search()
+    {
+        $noteSale = $this->createSale([
+            'note' => 'UniqueSaleNoteSpecialTag<script>alert("xss")</script>',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $otherSale = $this->createSale([
+            'note' => 'Ordinary note',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        // Global mode renders escaped note
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee($noteSale->reference)
+            ->assertSee('UniqueSaleNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false);
+
+        // Note-only search matches sale and renders note
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->set('search', 'UniqueSaleNoteSpecialTag')
+            ->assertSee($noteSale->reference)
+            ->assertSee('UniqueSaleNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false)
+            ->assertDontSee($otherSale->reference);
+
+        // Normal mode does not render the note element in table cell
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => false, 'settingId' => $this->setting1->id])
+            ->assertSee($noteSale->reference)
+            ->assertDontSee('UniqueSaleNoteSpecialTag');
+    }
+
+    public function test_global_mode_renders_note_containing_exact_string_zero()
+    {
+        $zeroNoteSale = $this->createSale([
+            'note' => '0',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee($zeroNoteSale->reference)
+            ->assertSeeHtml('<small class="text-muted">0</small>');
+    }
 }

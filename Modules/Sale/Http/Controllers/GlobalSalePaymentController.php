@@ -112,7 +112,10 @@ class GlobalSalePaymentController extends Controller
             ->whereNull('archived_at')
             ->whereLiveDueAmountGreaterThan(0)
             ->with(['customer', 'tenantSetting', 'posCheckout.transactions', 'checkoutSale.checkout.transactions'])
-            ->orderBy('id')
+            ->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END', [(int) $startingSale->id])
+            ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('due_date', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
 
         if ($candidates->isEmpty()) {

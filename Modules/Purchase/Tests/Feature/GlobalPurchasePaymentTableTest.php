@@ -303,4 +303,45 @@ class GlobalPurchasePaymentTableTest extends TestCase
 
         $this->assertEquals('unpaid', $component->get('selectedCardFilter'));
     }
+
+    public function test_global_mode_renders_escaped_purchase_note_and_supports_note_search()
+    {
+        $notePurchase = $this->createPurchase([
+            'note' => 'UniquePurchaseNoteSpecialTag<script>alert("xss")</script>',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $otherPurchase = $this->createPurchase([
+            'note' => 'Ordinary note',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        // Global mode renders escaped note
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->assertSee($notePurchase->reference)
+            ->assertSee('UniquePurchaseNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false);
+
+        // Note-only search matches purchase and renders note
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->set('search', 'UniquePurchaseNoteSpecialTag')
+            ->assertSee($notePurchase->reference)
+            ->assertSee('UniquePurchaseNoteSpecialTag&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;', false)
+            ->assertDontSee($otherPurchase->reference);
+
+        // Normal mode does not render the note element in table cell
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => false, 'settingId' => $this->setting1->id])
+            ->assertSee($notePurchase->reference)
+            ->assertDontSee('UniquePurchaseNoteSpecialTag');
+    }
+
+    public function test_global_mode_renders_note_containing_exact_string_zero()
+    {
+        $zeroNotePurchase = $this->createPurchase([
+            'note' => '0',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
+            ->assertSee($zeroNotePurchase->reference)
+            ->assertSeeHtml('<small class="text-muted">0</small>');
+    }
 }

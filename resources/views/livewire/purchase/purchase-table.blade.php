@@ -173,6 +173,10 @@
                            title="{{ $productsTooltip }}">
                             {{ $purchase->reference }}
                         </a>
+                        @if ($globalMode && filled($purchase->note))
+                            <br>
+                            <small class="text-muted">{{ $purchase->note }}</small>
+                        @endif
                     </td>
                     <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
                     <td>{{ $purchase->tax_ref_no ?? '-' }}</td>
