@@ -17,23 +17,30 @@ class PackedLinePricingService
         $tierBasePrice = $this->resolveTierBasePrice($tier, $pricingBasis);
         $boxPrice = (int) ($pricingBasis['box_price'] ?? 0);
 
-        $boxGroupPrice = min($boxPrice, $factor * $tierBasePrice);
+        $normalizedTier = $this->normalizeCustomerTier($tier);
 
-        $lineTotalMinor = ($boxCount * $boxGroupPrice) + ($remainder * $tierBasePrice);
+        // Tier customers (WHOLESALER / RESELLER) bypass conversion box pricing
+        if ($normalizedTier === 'tier_1' || $normalizedTier === 'tier_2') {
+            $boxGroupPrice = $factor * $tierBasePrice;
+            $lineTotalMinor = $qty * $tierBasePrice;
+        } else {
+            $boxGroupPrice = min($boxPrice, $factor * $tierBasePrice);
+            $lineTotalMinor = ($boxCount * $boxGroupPrice) + ($remainder * $tierBasePrice);
+        }
 
         $blendedUnitPrice = $qty > 0 ? intdiv($lineTotalMinor, $qty) : 0;
 
-        $normalizedTier = $this->normalizeCustomerTier($tier);
+        $isTierCustomer = ($normalizedTier === 'tier_1' || $normalizedTier === 'tier_2');
 
         $breakdown = [
             // Keep the minor-unit total explicit when this breakdown is persisted
             // with a transaction snapshot. The cart's rendered line_total is Rupiah.
             'line_total_minor' => $lineTotalMinor,
-            'box_count' => $boxCount,
-            'loose_count' => $remainder,
-            'box_price_applied' => $boxGroupPrice,
+            'box_count' => $isTierCustomer ? 0 : $boxCount,
+            'loose_count' => $isTierCustomer ? $qty : $remainder,
+            'box_price_applied' => $isTierCustomer ? 0 : $boxGroupPrice,
             'loose_price_applied' => $tierBasePrice,
-            'is_box_cheaper' => $boxPrice < ($factor * $tierBasePrice),
+            'is_box_cheaper' => $isTierCustomer ? false : ($boxPrice < ($factor * $tierBasePrice)),
             'box_price' => $boxPrice,
             'tier_base_price' => $tierBasePrice,
             'factor_by_tier_base_price' => $factor * $tierBasePrice,

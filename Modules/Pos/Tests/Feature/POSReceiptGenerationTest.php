@@ -846,9 +846,9 @@ class POSReceiptGenerationTest extends TestCase
         // Verify line_total updated for qty 11 (2 boxes + 1 loose)
         $cartFinal = $cartService->getSnapshot($setting->id, $context['cashier']->id);
         $lineFinal = $cartFinal['lines'][0];
-        // Verify correct box/loose split
-        $this->assertSame(2, $lineFinal['breakdown']['box_count']);
-        $this->assertSame(1, $lineFinal['breakdown']['loose_count']);
+        // Verify correct box/loose split (tier customer has box_count = 0, loose_count = qty)
+        $this->assertSame(0, $lineFinal['breakdown']['box_count']);
+        $this->assertSame(11, $lineFinal['breakdown']['loose_count']);
         // Verify tier_2 is still applied
         $this->assertSame('tier_2', $lineFinal['breakdown']['tier']);
 
@@ -922,10 +922,10 @@ class POSReceiptGenerationTest extends TestCase
         $line = $cartAfter['lines'][0];
         $this->assertSame('PACKED', $line['price_source']);
         $this->assertSame(10, $line['qty']);
-        $this->assertSame(2, $line['breakdown']['box_count']);
-        $this->assertSame(0, $line['breakdown']['loose_count']);
+        $this->assertSame(0, $line['breakdown']['box_count']);
+        $this->assertSame(10, $line['breakdown']['loose_count']);
         $this->assertSame('tier_2', $line['breakdown']['tier']);
-        $this->assertEquals(420000, $line['line_total']); // 2 boxes * 210000
+        $this->assertEquals(420000, $line['line_total']); // 10 units * 42000 tier price
         
         // Now test qty update - verify zero queries
         \Illuminate\Support\Facades\DB::flushQueryLog();
@@ -951,9 +951,9 @@ class POSReceiptGenerationTest extends TestCase
 
         $cartFinal = $cartService->getSnapshot($setting->id, $context['cashier']->id);
         $lineFinal = $cartFinal['lines'][0];
-        $this->assertSame(2, $lineFinal['breakdown']['box_count']);
-        $this->assertSame(1, $lineFinal['breakdown']['loose_count']);
-        $this->assertEquals(462000, $lineFinal['line_total']); // 2 boxes * 210000 + 1 loose * 42000 = 462000
+        $this->assertSame(0, $lineFinal['breakdown']['box_count']);
+        $this->assertSame(11, $lineFinal['breakdown']['loose_count']);
+        $this->assertEquals(462000, $lineFinal['line_total']); // 11 units * 42000 tier price = 462000
     }
 
     /**

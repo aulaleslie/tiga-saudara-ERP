@@ -346,7 +346,8 @@
             const idrFormatter = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
                 currency: 'IDR',
-                maximumFractionDigits: 0
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
             });
 
             function setSearchStatus(message, tone) {
@@ -3635,7 +3636,8 @@
                 return new Intl.NumberFormat('id-ID', {
                     style: 'currency',
                     currency: 'IDR',
-                    maximumFractionDigits: 0
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
                 }).format(amount || 0);
             }
 

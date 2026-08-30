@@ -385,10 +385,10 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         // Assert: loaded line price_source is PACKED
         $this->assertEquals('PACKED', $cartAfterLoad['lines'][0]['price_source']);
 
-        // Assert: breakdown is visible and correct
+        // Assert: breakdown is visible and correct (tier customer has box_count = 0, loose_count = qty)
         $this->assertNotNull($cartAfterLoad['lines'][0]['breakdown']);
-        $this->assertEquals(1, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
-        $this->assertEquals(2, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
+        $this->assertEquals(0, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(7, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
 
         // Assert: quantity is 7 base units
         $this->assertEquals(7, $cartAfterLoad['lines'][0]['qty']);
@@ -402,23 +402,22 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         // Verify breakdown tier state shows RESELLER pricing was applied (tier_2)
         $this->assertEquals('tier_2', $cartAfterLoad['lines'][0]['breakdown']['tier']);
 
-        // Assert: reseller line total is exactly Rp352.000
-        // 1 box × Rp250.000 + 2 units × Rp51.000 = Rp250.000 + Rp102.000 = Rp352.000
-        $this->assertEquals(352000, $cartAfterLoad['lines'][0]['line_total']);
-        $this->assertEquals(352000, $cartAfterLoad['totals']['subtotal']);
-        $this->assertEquals(352000, $cartAfterLoad['totals']['grand_total']);
+        // Assert: reseller line total is exactly Rp357.000 (7 units × Rp51.000 = Rp357.000, bypassing box pricing)
+        $this->assertEquals(357000, $cartAfterLoad['lines'][0]['line_total']);
+        $this->assertEquals(357000, $cartAfterLoad['totals']['subtotal']);
+        $this->assertEquals(357000, $cartAfterLoad['totals']['grand_total']);
 
-        // Assert: explicit reseller packed-breakdown details
-        // 25000000 minor units = Rp250.000 box price
-        // 5100000 minor units = Rp51.000 reseller loose-unit price
-        $this->assertEquals(1, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
-        $this->assertEquals(2, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
-        $this->assertEquals(25000000, $cartAfterLoad['lines'][0]['breakdown']['box_price_applied']);
+        // Assert: explicit reseller tier breakdown details
+        // box_count = 0, loose_count = 7
+        // loose_price_applied = 5100000 minor units (Rp51.000 reseller unit price)
+        $this->assertEquals(0, $cartAfterLoad['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(7, $cartAfterLoad['lines'][0]['breakdown']['loose_count']);
+        $this->assertEquals(0, $cartAfterLoad['lines'][0]['breakdown']['box_price_applied']);
         $this->assertEquals(5100000, $cartAfterLoad['lines'][0]['breakdown']['loose_price_applied']);
 
-        // Reject scaling errors: 100× (35200000) or /100 (3520)
-        $this->assertNotEquals(35200000, $cartAfterLoad['lines'][0]['line_total']);
-        $this->assertNotEquals(3520, $cartAfterLoad['lines'][0]['line_total']);
+        // Reject scaling errors: 100× (35700000) or /100 (3570)
+        $this->assertNotEquals(35700000, $cartAfterLoad['lines'][0]['line_total']);
+        $this->assertNotEquals(3570, $cartAfterLoad['lines'][0]['line_total']);
 
         // Verify receipt displays correctly with PACKED source preserved
         $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
@@ -430,13 +429,13 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         $this->assertNotNull($receiptData['lines'][0]['unit_breakdown']);
         // Verify quantity is displayed raw (no x100 or /100 errors)
         $this->assertEquals(7, $receiptData['lines'][0]['qty']);
-        // Verify receipt line subtotal is exactly Rp352.000 (no x100 scaling)
-        $this->assertEquals(352000, $receiptData['lines'][0]['sub_total']);
-        $this->assertEquals(352000, $receiptData['grand_total']);
+        // Verify receipt line subtotal is exactly Rp357.000 (no x100 scaling)
+        $this->assertEquals(357000, $receiptData['lines'][0]['sub_total']);
+        $this->assertEquals(357000, $receiptData['grand_total']);
 
-        // Ensure no decimal padding or 100× scaling errors (35200000 = ×100, 3520 = /100)
-        $this->assertNotEquals(35200000, $receiptData['lines'][0]['sub_total']);
-        $this->assertNotEquals(3520, $receiptData['lines'][0]['sub_total']);
+        // Ensure no decimal padding or 100× scaling errors (35700000 = ×100, 3570 = /100)
+        $this->assertNotEquals(35700000, $receiptData['lines'][0]['sub_total']);
+        $this->assertNotEquals(3570, $receiptData['lines'][0]['sub_total']);
 
         // ===== TIER SWITCHING TEST: Create wholesaler and switch to tier_1 =====
 
@@ -474,13 +473,13 @@ class POSTransactionLoadTest extends PosTransactionFeatureTestCase
         $this->assertNotNull($cartAfterSwitch['lines'][0]['breakdown']);
         $this->assertEquals('tier_1', $cartAfterSwitch['lines'][0]['breakdown']['tier']);
 
-        // Assert the tier_1 packed breakdown prices:
-        // box_count = 1, loose_count = 2
-        // box_price_applied = 24500000 minor units (min(25000000, 5 × 4900000))
+        // Assert the tier_1 base-unit breakdown prices:
+        // box_count = 0, loose_count = 7, line_total = 7 × Rp49.000 = Rp343.000
+        // box_price_applied = 0
         // loose_price_applied = 4900000 minor units (1 × 4900000)
-        $this->assertEquals(1, $cartAfterSwitch['lines'][0]['breakdown']['box_count']);
-        $this->assertEquals(2, $cartAfterSwitch['lines'][0]['breakdown']['loose_count']);
-        $this->assertEquals(24500000, $cartAfterSwitch['lines'][0]['breakdown']['box_price_applied']);
+        $this->assertEquals(0, $cartAfterSwitch['lines'][0]['breakdown']['box_count']);
+        $this->assertEquals(7, $cartAfterSwitch['lines'][0]['breakdown']['loose_count']);
+        $this->assertEquals(0, $cartAfterSwitch['lines'][0]['breakdown']['box_price_applied']);
         $this->assertEquals(4900000, $cartAfterSwitch['lines'][0]['breakdown']['loose_price_applied']);
 
         // Assert: cart totals are exactly Rp343.000 for tier_1
