@@ -3,9 +3,7 @@
 ## Purpose
 
 This specification defines how POS cart lines for products with a box (unit) conversion are quantified in base units and priced by decomposing the quantity into full box groups and a loose remainder, charging the cheaper of box price versus per-unit tier price for each group, so that packed lines reprice deterministically on quantity and customer-tier changes without additional database queries.
-
 ## Requirements
-
 ### Requirement: Base-unit quantity tracking
 
 The system SHALL track POS cart line quantity in the product's base unit. When a line is added by scanning a conversion (box) barcode, the system SHALL set the initial quantity to the conversion factor (number of base units per box) and record the conversion as a packing hint on the line.
@@ -54,15 +52,25 @@ The system SHALL re-pack and re-price a line on every quantity change and on eve
 
 ### Requirement: Blended-line storage with authoritative line total
 
-The system SHALL store a packed line as a single line whose `line_total` is authoritative (integer minor units) and whose `unit_price` is a display-only blended value equal to `line_total / qty`. Cart totals SHALL be derived from the authoritative `line_total` so that displayed totals tie out exactly, independent of blended-price rounding.
+The system SHALL store a packed line as a single line whose `line_total` is authoritative (integer minor units) and whose `unit_price` is a display-only blended value equal to `line_total / qty`. For an automatically priced packed row recalculated by user interaction, the system SHALL first compute the internal packed total, then round the final tax-inclusive customer-facing line total using the effective business configuration. Cart totals SHALL derive from the authoritative line total so displayed totals tie out exactly, independent of blended-price rounding. Explicit unit-price and line-total overrides SHALL bypass automatic row-total rounding.
 
 #### Scenario: Totals derive from authoritative line total
-- **WHEN** a packed line has an authoritative line total of 255000 and quantity 6 (blended unit price 42500)
+- **WHEN** a packed line has an authoritative line total of 255000 and quantity 6 with a blended unit price of 42500
 - **THEN** the cart subtotal contribution for that line is exactly 255000
 
 #### Scenario: Blended unit price that does not divide evenly does not corrupt the total
-- **WHEN** a packed line has an authoritative line total of 100000 and quantity 3 (blended unit price rounds to 33333.33)
+- **WHEN** a packed line has an authoritative line total of 100000 and quantity 3 with a blended unit price that rounds to 33333.33
 - **THEN** the cart subtotal contribution for that line is exactly 100000, not 99999.99
+
+#### Scenario: Automatic packed result rounds only after packing
+- **WHEN** packing rules produce an automatic final tax-inclusive line amount of `78999.00` and the business increment is `100.00`
+- **THEN** the authoritative customer-facing packed line total SHALL be `79000.00`
+- **AND** the system SHALL NOT round individual full-box groups or loose-unit remainder charges
+
+#### Scenario: Overridden packed total remains exact
+- **WHEN** an authorized user explicitly overrides a packed row total to `78949.00`
+- **THEN** the authoritative packed row total SHALL remain `78949.00`
+- **AND** automatic row-total rounding SHALL NOT apply
 
 ### Requirement: Cached pricing basis with zero-DB re-pricing
 
@@ -84,3 +92,4 @@ The system SHALL capture `pricing_basis` including the box candidate for any sto
 #### Scenario: Product-search line still benefits from box packing
 - **WHEN** a product with a box conversion is added via product search (not box scan) and quantity is set to 6 (non-tier)
 - **THEN** the line is priced with box packing to a line total of 255000
+

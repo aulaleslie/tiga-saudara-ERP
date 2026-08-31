@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Define how Sales cart pricing resolves product base and tier prices from setting-scoped product_prices records, handles customer-driven repricing, manages bundle pricing and component informational values, and applies row-total rounding to automatically priced rows.
+## Requirements
 ### Requirement: Sales cart uses setting-scoped product prices for new lines
 When a product is added to the sales cart on create or edit pages, the system SHALL derive the line's base and tier pricing from the active setting's `product_prices` record for that product.
 
@@ -153,3 +155,27 @@ When an existing sale is opened in edit mode, the cart SHALL hydrate pricing met
 - **THEN** the existing non-bundled cart lines SHALL reprice using the same rules as sales create
 - **AND** the repriced non-bundled lines SHALL use the active setting's current tier metadata
 - **AND** existing bundled cart lines SHALL preserve their current parent row prices
+
+### Requirement: Sales bundled rows apply row-total rounding to automatically priced visible totals
+When a user selects a product bundle in Sales create or Sales edit cart flows and the resulting automatically priced visible row is calculated through an eligible user interaction, Sales SHALL round its final tax-inclusive row total using the effective business configuration without modifying bundle component informational values or affecting manual unit-price or manual-line-total overrides.
+
+#### Scenario: Automatic bundle rows receive row-total rounding
+- **WHEN** a user adds a product to the Sales cart
+- **AND** selects a product bundle whose `bundle_sale_price` is set
+- **AND** the row calculation results in an automatically priced visible total
+- **THEN** the final tax-inclusive visible row total SHALL use configured row-total rounding
+- **AND** bundle component informational prices SHALL remain unchanged
+- **AND** the rounding difference SHALL be absorbed by the parent row total
+
+#### Scenario: Manual bundle row price override bypasses rounding
+- **WHEN** a Sales cart row has a selected bundle
+- **AND** the user manually changes the parent row price or row total
+- **THEN** the row SHALL NOT receive automatic row-total rounding
+- **AND** the user-edited price SHALL be preserved exactly as entered
+
+#### Scenario: Bundle component prices remain non-billable after rounding
+- **WHEN** an automatically priced visible bundle row changes from `78999.00` to a rounded total of `79000.00`
+- **THEN** each bundle component informational price SHALL retain its existing value
+- **AND** the rounding difference SHALL NOT be distributed into component prices
+- **AND** components SHALL remain non-billable context rows
+

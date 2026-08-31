@@ -2,26 +2,31 @@
 
 ## Purpose
 This specification defines the authoritative pricing behavior for selected bundles in the POS cart and checkout flow, ensuring `bundle_sale_price` is used for parent rows and informational prices are used for internal revenue allocation without becoming billable.
-
 ## Requirements
-
 ### Requirement: POS SHALL use bundle sale price as selected bundle row price
-When a cashier selects a bundle, POS SHALL initialize the parent row from `product_bundles.bundle_sale_price`, allow the cashier to override that parent row price, and preserve the captured transaction price without adding legacy bundle prices.
+When a cashier selects a bundle, POS SHALL initialize the parent row from `product_bundles.bundle_sale_price`, apply configured automatic tax-inclusive row-total rounding to the customer-facing row, allow the cashier to override that parent row price, and preserve the captured transaction price without adding legacy bundle prices. POS SHALL leave captured component informational allocations unchanged and SHALL assign the difference between the rounded customer total and those allocations to the parent residual.
 
 #### Scenario: Selected bundle initializes from configured bundle price
-- **WHEN** a cashier selects a bundle for a POS parent row
-- **THEN** the row SHALL initialize from `bundle_sale_price`
+- **WHEN** a cashier selects a bundle whose automatic tax-inclusive row amount is `78999.00` under a `100.00` increment
+- **THEN** the customer-facing row total SHALL be `79000.00`
 - **AND** legacy `product_bundles.price` SHALL NOT be added
 
 #### Scenario: Cashier override becomes captured customer price
 - **WHEN** a cashier changes the bundled parent row price
 - **THEN** POS SHALL preserve the overridden value as the customer-facing unit price
-- **AND** cart, checkout, and receipt totals SHALL use that captured value
+- **AND** cart, checkout, and receipt totals SHALL use that captured value without automatic row-total rounding
 
 #### Scenario: Parent override leaves component allocations fixed
 - **WHEN** a cashier changes the bundled parent row price
 - **THEN** component informational allocation snapshots SHALL remain unchanged
 - **AND** the parent residual SHALL absorb the entire difference
+
+#### Scenario: Automatic rounding leaves component allocations fixed
+- **WHEN** an automatic bundled customer row rounds from `78999.00` to `79000.00`
+- **AND** one captured component allocation is `8999.00`
+- **THEN** the component allocation SHALL remain `8999.00`
+- **AND** the parent residual settlement SHALL be `70001.00`
+- **AND** aggregate transaction settlement SHALL equal `79000.00`
 
 #### Scenario: Price below component allocations is rejected
 - **WHEN** the captured bundled row amount is less than the sum of its fixed component allocations
@@ -139,3 +144,4 @@ Non-zero internal `SaleBundleItem` allocation values SHALL NOT make a component 
 - **AND** internal reversal SHALL proportionally use the persisted original parent residual and component allocations
 - **AND** the full physical composition for each returned bundle unit SHALL follow its original owner and location lineage
 - **AND** current product prices, bundle definitions, and average costs SHALL NOT revalue the return
+
