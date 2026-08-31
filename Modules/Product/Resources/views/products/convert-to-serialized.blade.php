@@ -52,11 +52,45 @@
                         @if(! $eligibility->isEligible)
                             <div class="alert alert-warning">
                                 <h6 class="font-weight-bold"><i class="bi bi-exclamation-triangle-fill mr-1"></i> Produk Tidak Dapat Dikonversi Saat Ini</h6>
-                                <ul class="mb-0 pl-3">
-                                    @foreach($eligibility->blockingReasons as $reason)
-                                        <li>{{ $reason }}</li>
-                                    @endforeach
-                                </ul>
+                                
+                                @if(!empty($eligibility->structuredBlockers))
+                                    <div class="mb-3">
+                                        <div class="font-weight-bold mb-2">Dokumen Aktif Memblokir Konversi:</div>
+                                        <div class="list-group">
+                                            @foreach($eligibility->structuredBlockers as $blocker)
+                                                <div class="list-group-item list-group-item-warning flex-column align-items-start py-2">
+                                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                                        <span class="font-weight-bold">
+                                                            <i class="bi bi-file-earmark-text mr-1"></i>
+                                                            <span class="text-uppercase">{{ str_replace('_', ' ', $blocker['type']) }}</span>:
+                                                            @if($blocker['can_view'] && $blocker['url'])
+                                                                <a href="{{ $blocker['url'] }}" target="_blank" rel="noopener noreferrer" class="font-weight-bold text-primary">
+                                                                    {{ $blocker['document_number'] }}
+                                                                    <i class="bi bi-box-arrow-up-right small ml-1"></i>
+                                                                </a>
+                                                            @else
+                                                                <span>{{ $blocker['document_number'] }}</span>
+                                                            @endif
+                                                        </span>
+                                                        <span class="badge badge-secondary">{{ $blocker['status'] }}</span>
+                                                    </div>
+                                                    <p class="mb-1 text-dark">{{ $blocker['reason'] }}</p>
+                                                    @if(! $blocker['can_view'])
+                                                        <small class="text-muted italic"><i class="bi bi-lock mr-1"></i>Anda tidak memiliki izin untuk membuka dokumen ini.</small>
+                                                    @endif
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+
+                                @if(!empty($eligibility->nonDocumentReasons))
+                                    <ul class="mb-0 pl-3">
+                                        @foreach($eligibility->nonDocumentReasons as $reason)
+                                            <li>{{ $reason }}</li>
+                                        @endforeach
+                                    </ul>
+                                @endif
                             </div>
                         @else
                             <!-- Eligibility Passed -> Main Scanner Interface -->

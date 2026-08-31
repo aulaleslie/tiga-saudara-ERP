@@ -9,7 +9,9 @@ class SerialConversionEligibilityResult
     public function __construct(
         public readonly bool $isEligible,
         public readonly array $blockingReasons = [],
-        public readonly ?Product $product = null
+        public readonly ?Product $product = null,
+        public readonly array $structuredBlockers = [],
+        public readonly array $nonDocumentReasons = []
     ) {}
 
     public function toArray(): array
@@ -17,6 +19,8 @@ class SerialConversionEligibilityResult
         return [
             'is_eligible' => $this->isEligible,
             'blocking_reasons' => $this->blockingReasons,
+            'structured_blockers' => $this->structuredBlockers,
+            'non_document_reasons' => $this->nonDocumentReasons,
         ];
     }
 }

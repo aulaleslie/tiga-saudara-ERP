@@ -100,14 +100,69 @@ class SerialConversionEligibilityService
         }
 
         // 6. Active stock-moving dependencies check
+        $structuredBlockers = [];
+        $user = auth()->user();
+
+        // Separate non-document reasons before adding document fallbacks
+        $nonDocumentReasons = array_values(array_unique($blockingReasons));
+
+        // Helper to safely format document blocker
+        $addDocumentBlocker = function (
+            string $type,
+            int|string $documentId,
+            string $documentNumber,
+            string $status,
+            string $reason,
+            ?string $routeName,
+            array $routeParams,
+            ?string $permissionName,
+            string $fallbackReasonText
+        ) use (&$blockingReasons, &$structuredBlockers, $user) {
+            $canView = false;
+            $url = null;
+
+            if ($permissionName === null || ($user && $user->can($permissionName))) {
+                if ($routeName && \Illuminate\Support\Facades\Route::has($routeName)) {
+                    $url = route($routeName, $routeParams);
+                    $canView = true;
+                }
+            }
+
+            $structuredBlockers[] = [
+                'type' => $type,
+                'document_id' => $documentId,
+                'document_number' => $documentNumber,
+                'status' => $status,
+                'reason' => $reason,
+                'url' => $url,
+                'can_view' => $canView,
+            ];
+
+            $blockingReasons[] = $fallbackReasonText;
+        };
+
         // - Pending Received Notes (status PENDING)
-        $hasPendingReceiving = ReceivedNote::where('status', ReceivedNote::STATUS_PENDING)
+        $pendingReceivings = ReceivedNote::select(['id', 'po_id', 'external_delivery_number', 'internal_invoice_number', 'status'])
+            ->where('status', ReceivedNote::STATUS_PENDING)
             ->whereHas('purchase.purchaseDetails', function ($q) use ($product) {
                 $q->where('product_id', $product->id);
-            })->exists();
+            })->get();
 
-        if ($hasPendingReceiving) {
-            $blockingReasons[] = 'Terdapat dokumen Penerimaan Barang (Received Note) berstatus PENDING untuk produk ini.';
+        foreach ($pendingReceivings as $rn) {
+            $docNum = $rn->external_delivery_number
+                ?: ($rn->internal_invoice_number ?: "Penerimaan #{$rn->id}");
+            $purchaseId = $rn->po_id;
+            $addDocumentBlocker(
+                type: 'received_note',
+                documentId: $purchaseId,
+                documentNumber: $docNum,
+                status: (string) $rn->status,
+                reason: 'Dokumen penerimaan barang masih pending.',
+                routeName: 'purchases.receivings',
+                routeParams: [$purchaseId],
+                permissionName: 'purchases.receive.access',
+                fallbackReasonText: 'Terdapat dokumen Penerimaan Barang (Received Note) berstatus PENDING untuk produk ini.'
+            );
         }
 
         // - Active Purchase Returns
@@ -123,13 +178,25 @@ class SerialConversionEligibilityService
                 PurchaseReturn::STATUS_PARTIAL_SETTLEMENT,
             ];
 
-            $hasActivePurchaseReturn = PurchaseReturn::whereIn('status', $activeReturnStatuses)
+            $activePurchaseReturns = PurchaseReturn::select(['id', 'reference', 'status'])
+                ->whereIn('status', $activeReturnStatuses)
                 ->whereHas('purchaseReturnDetails', function ($q) use ($product) {
                     $q->where('product_id', $product->id);
-                })->exists();
+                })->get();
 
-            if ($hasActivePurchaseReturn) {
-                $blockingReasons[] = 'Terdapat dokumen Retur Pembelian yang belum selesai untuk produk ini.';
+            foreach ($activePurchaseReturns as $pr) {
+                $docNum = $pr->reference ?? "ID #{$pr->id}";
+                $addDocumentBlocker(
+                    type: 'purchase_return',
+                    documentId: $pr->id,
+                    documentNumber: $docNum,
+                    status: (string) $pr->status,
+                    reason: 'Dokumen retur pembelian masih aktif.',
+                    routeName: 'purchase-returns.show',
+                    routeParams: [$pr->id],
+                    permissionName: 'purchaseReturns.show',
+                    fallbackReasonText: 'Terdapat dokumen Retur Pembelian yang belum selesai untuk produk ini.'
+                );
             }
         }
 
@@ -144,77 +211,137 @@ class SerialConversionEligibilityService
                 \Modules\Adjustment\Entities\Transfer::STATUS_RETURN_DISPATCHED,
             ];
 
-            $hasActiveTransfer = \Modules\Adjustment\Entities\Transfer::whereIn('status', $activeTransferStatuses)
+            $activeTransfers = \Modules\Adjustment\Entities\Transfer::select(['id', 'document_number', 'status'])
+                ->whereIn('status', $activeTransferStatuses)
                 ->whereHas('products', function ($q) use ($product) {
                     $q->where('product_id', $product->id);
-                })->exists();
+                })->get();
 
-            if ($hasActiveTransfer) {
-                $blockingReasons[] = 'Terdapat dokumen Transfer Stok yang sedang aktif/berjalan untuk produk ini.';
+            foreach ($activeTransfers as $tr) {
+                $docNum = $tr->document_number ?? "ID #{$tr->id}";
+                $addDocumentBlocker(
+                    type: 'transfer',
+                    documentId: $tr->id,
+                    documentNumber: $docNum,
+                    status: (string) $tr->status,
+                    reason: 'Dokumen transfer stok masih aktif.',
+                    routeName: 'transfers.show',
+                    routeParams: [$tr->id],
+                    permissionName: 'stockTransfers.show',
+                    fallbackReasonText: 'Terdapat dokumen Transfer Stok yang sedang aktif/berjalan untuk produk ini.'
+                );
             }
         }
 
         // - Active Consignment Receivings
         if (class_exists(\Modules\Consignment\Entities\ConsignmentReceiving::class)) {
-            $hasActiveConsignment = \Modules\Consignment\Entities\ConsignmentReceiving::where('status', \Modules\Consignment\Entities\ConsignmentReceiving::STATUS_PENDING)
+            $activeConsignments = \Modules\Consignment\Entities\ConsignmentReceiving::select(['id', 'receiving_number', 'status'])
+                ->where('status', \Modules\Consignment\Entities\ConsignmentReceiving::STATUS_PENDING)
                 ->whereHas('details', function ($q) use ($product) {
                     $q->where('product_id', $product->id);
-                })->exists();
+                })->get();
 
-            if ($hasActiveConsignment) {
-                $blockingReasons[] = 'Terdapat dokumen Penerimaan Konsinyasi berstatus PENDING untuk produk ini.';
+            foreach ($activeConsignments as $cr) {
+                $docNum = $cr->receiving_number ?? "ID #{$cr->id}";
+                $addDocumentBlocker(
+                    type: 'consignment_receiving',
+                    documentId: $cr->id,
+                    documentNumber: $docNum,
+                    status: (string) $cr->status,
+                    reason: 'Dokumen penerimaan konsinyasi berstatus PENDING.',
+                    routeName: 'consignments.receivings.show',
+                    routeParams: [$cr->id],
+                    permissionName: 'consignments.access',
+                    fallbackReasonText: 'Terdapat dokumen Penerimaan Konsinyasi berstatus PENDING untuk produk ini.'
+                );
             }
         }
 
         // - Active Sales and Dispatches
         if (class_exists(\Modules\Sale\Entities\Sale::class)) {
-            $hasActiveSale = \Modules\Sale\Entities\Sale::whereIn('status', [
-                \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
-                \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
-                \Modules\Sale\Entities\Sale::STATUS_APPROVED,
-                \Modules\Sale\Entities\Sale::STATUS_DISPATCHED_PARTIALLY,
-            ])->whereHas('saleDetails', function ($q) use ($product) {
-                $q->where('product_id', $product->id);
-            })->exists();
+            $activeSales = \Modules\Sale\Entities\Sale::select(['id', 'reference', 'status'])
+                ->whereIn('status', [
+                    \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
+                    \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
+                    \Modules\Sale\Entities\Sale::STATUS_APPROVED,
+                    \Modules\Sale\Entities\Sale::STATUS_DISPATCHED_PARTIALLY,
+                ])->whereHas('saleDetails', function ($q) use ($product) {
+                    $q->where('product_id', $product->id);
+                })->get();
 
-            if ($hasActiveSale) {
-                $blockingReasons[] = 'Terdapat dokumen Penjualan atau Pengiriman yang belum selesai untuk produk ini.';
+            foreach ($activeSales as $sl) {
+                $docNum = $sl->reference ?? "ID #{$sl->id}";
+                $addDocumentBlocker(
+                    type: 'sale',
+                    documentId: $sl->id,
+                    documentNumber: $docNum,
+                    status: (string) $sl->status,
+                    reason: 'Dokumen penjualan masih aktif dan dapat mengubah stok produk.',
+                    routeName: 'sales.show',
+                    routeParams: [$sl->id],
+                    permissionName: 'sales.show',
+                    fallbackReasonText: 'Terdapat dokumen Penjualan atau Pengiriman yang belum selesai untuk produk ini.'
+                );
             }
         }
 
         // - Active Adjustments
         if (class_exists(\Modules\Adjustment\Entities\Adjustment::class)) {
-            $hasActiveAdjustment = \Modules\Adjustment\Entities\Adjustment::whereIn('status', ['pending', 'PENDING', 'draft', 'DRAFT'])
+            $activeAdjustments = \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status'])
+                ->whereIn('status', ['pending', 'PENDING', 'draft', 'DRAFT'])
                 ->whereHas('adjustedProducts', function ($q) use ($product) {
                     $q->where('product_id', $product->id);
-                })->exists();
+                })->get();
 
-            if ($hasActiveAdjustment) {
-                $blockingReasons[] = 'Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/DRAFT untuk produk ini.';
+            foreach ($activeAdjustments as $adj) {
+                $docNum = $adj->reference ?? "ID #{$adj->id}";
+                $addDocumentBlocker(
+                    type: 'adjustment',
+                    documentId: $adj->id,
+                    documentNumber: $docNum,
+                    status: (string) $adj->status,
+                    reason: 'Dokumen penyesuaian stok berstatus PENDING atau DRAFT.',
+                    routeName: 'adjustments.show',
+                    routeParams: [$adj->id],
+                    permissionName: 'adjustments.show',
+                    fallbackReasonText: 'Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/DRAFT untuk produk ini.'
+                );
             }
         }
 
         // - Active Sales Returns (covering full lifecycle: header status, approval status, and active item settlements)
         if (class_exists(\Modules\SalesReturn\Entities\SaleReturn::class)) {
-            $hasActiveSaleReturn = \Modules\SalesReturn\Entities\SaleReturn::where(function ($q) {
-                $q->whereIn('status', ['Pending', 'PENDING', 'Awaiting Settlement', 'AWAITING_SETTLEMENT', 'Draft', 'DRAFT'])
-                    ->orWhereIn('approval_status', ['Pending', 'PENDING'])
-                    ->orWhereHas('settlementItems', function ($sq) {
-                        $sq->whereIn('status', [
-                            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_DRAFT,
-                            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED,
-                            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_APPROVED,
-                            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH,
-                            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED,
-                        ]);
-                    });
-            })
-            ->whereHas('saleReturnDetails', function ($q) use ($product) {
-                $q->where('product_id', $product->id);
-            })->exists();
+            $activeSaleReturns = \Modules\SalesReturn\Entities\SaleReturn::select(['id', 'reference', 'status'])
+                ->where(function ($q) {
+                    $q->whereIn('status', ['Pending', 'PENDING', 'Awaiting Settlement', 'AWAITING_SETTLEMENT', 'Draft', 'DRAFT'])
+                        ->orWhereIn('approval_status', ['Pending', 'PENDING'])
+                        ->orWhereHas('settlementItems', function ($sq) {
+                            $sq->whereIn('status', [
+                                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_DRAFT,
+                                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED,
+                                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_APPROVED,
+                                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH,
+                                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED,
+                            ]);
+                        });
+                })
+                ->whereHas('saleReturnDetails', function ($q) use ($product) {
+                    $q->where('product_id', $product->id);
+                })->get();
 
-            if ($hasActiveSaleReturn) {
-                $blockingReasons[] = 'Terdapat dokumen Retur Penjualan yang belum selesai untuk produk ini.';
+            foreach ($activeSaleReturns as $sr) {
+                $docNum = $sr->reference ?? "ID #{$sr->id}";
+                $addDocumentBlocker(
+                    type: 'sale_return',
+                    documentId: $sr->id,
+                    documentNumber: $docNum,
+                    status: (string) $sr->status,
+                    reason: 'Dokumen retur penjualan belum selesai.',
+                    routeName: 'sale-returns.show',
+                    routeParams: [$sr->id],
+                    permissionName: 'saleReturns.show',
+                    fallbackReasonText: 'Terdapat dokumen Retur Penjualan yang belum selesai untuk produk ini.'
+                );
             }
         }
 
@@ -224,7 +351,9 @@ class SerialConversionEligibilityService
         return new SerialConversionEligibilityResult(
             isEligible: empty($blockingReasons),
             blockingReasons: $blockingReasons,
-            product: $product
+            product: $product,
+            structuredBlockers: $structuredBlockers,
+            nonDocumentReasons: $nonDocumentReasons
         );
     }
 }
