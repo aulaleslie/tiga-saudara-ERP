@@ -14,12 +14,36 @@ class PurchaseNormalizer
      *     computed_discount_amount: float
      * }
      */
-    public function normalize(array $header, iterable $detailInputs, bool $isPkp): array
+    /** @var array<int, float> Tax rates by id, memoized per normalize() call. */
+    private array $taxRateCache = [];
+
+    private ?float $defaultTaxRate = null;
+
+    public function normalize(array $header, iterable $detailInputs, bool $isPkp, ?int $settingId = null): array
     {
         $details = [];
 
+        // Resolved once per call rather than once per row: a large document would
+        // otherwise issue one Setting query per detail line.
+        $settingIncrement = $settingId !== null
+            ? (float) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('row_total_rounding_increment') ?? 100.00)
+            : 100.00;
+
+        // Whether the submitted prices already contain tax. Without this the
+        // automatic branch would re-apply the tax rate to a tax-inclusive price.
+        $isTaxIncluded = (bool) ($header['is_tax_included'] ?? false);
+
+        $this->taxRateCache = [];
+        $this->defaultTaxRate = null;
+
         foreach ($detailInputs as $detailInput) {
-            $details[] = $this->normalizeDetail($detailInput, $isPkp);
+            $details[] = $this->normalizeDetail(
+                $detailInput,
+                $isPkp,
+                $settingId,
+                $settingIncrement,
+                $isTaxIncluded
+            );
         }
 
         $totalSubTotal = array_sum(array_map(
@@ -64,22 +88,74 @@ class PurchaseNormalizer
     /**
      * @return array<string, mixed>
      */
-    private function normalizeDetail(mixed $detailInput, bool $isPkp): array
-    {
+    private function normalizeDetail(
+        mixed $detailInput,
+        bool $isPkp,
+        ?int $settingId = null,
+        float $settingIncrement = 100.00,
+        bool $isTaxIncluded = false
+    ): array {
         $options = $this->extractOptions($detailInput);
         $quantity = $this->normalizeQuantity($detailInput, $options);
-        $unitPrice = $this->toFloat($options['unit_price'] ?? data_get($detailInput, 'unit_price') ?? data_get($detailInput, 'price'));
+        $unitPrice = array_key_exists('unit_price', $options)
+            ? $this->toFloat($options['unit_price'])
+            : $this->toFloat(data_get($detailInput, 'unit_price', data_get($detailInput, 'price')));
         $price = $this->toFloat(data_get($detailInput, 'price', $unitPrice));
         $discountAmount = $this->toFloat($options['product_discount'] ?? data_get($detailInput, 'discount') ?? data_get($detailInput, 'product_discount_amount'));
+        $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
 
-        $incomingSubTotal = $this->resolveIncomingSubTotal($detailInput, $options, $price, $quantity, $discountAmount);
-        $incomingTaxAmount = $this->resolveIncomingTaxAmount($detailInput, $options, $incomingSubTotal);
-        $subTotalBeforeTax = $this->resolveSubTotalBeforeTax($detailInput, $options, $incomingSubTotal, $incomingTaxAmount, $price, $quantity, $discountAmount);
+        if ($settingId && $pricingSource === 'automatic') {
+            $rawTaxOption = $options['product_tax'] ?? data_get($detailInput, 'options.product_tax') ?? data_get($detailInput, 'tax_id') ?? data_get($detailInput, 'product_tax');
+            $normalizedTaxIdTemp = $isPkp
+                ? $this->normalizeNullableInt($rawTaxOption)
+                : null;
+            $taxRate = $this->resolveTaxRate($normalizedTaxIdTemp, $isPkp);
+
+            // Only the server-side cart sets this, and only for a row it just
+            // recalculated. Absent/false means the supplied total is a stored
+            // value being carried through a load/save and must be preserved.
+            $recalcRequired = (bool) (
+                $options[\App\Support\RowTotalRoundingCalculator::RECALC_FLAG]
+                    ?? data_get($detailInput, \App\Support\RowTotalRoundingCalculator::RECALC_FLAG)
+                    ?? false
+            );
+
+            $suppliedSubTotal = array_key_exists('sub_total', $options)
+                ? $this->toFloat($options['sub_total'])
+                : (data_get($detailInput, 'sub_total') !== null ? $this->toFloat(data_get($detailInput, 'sub_total')) : null);
+
+            if (! $recalcRequired && $suppliedSubTotal !== null) {
+                $roundedSubTotal = $this->roundMoney($suppliedSubTotal);
+            } else {
+                $rawNetUnitPrice = max($unitPrice - $discountAmount, 0);
+                // A tax-inclusive unit price already carries the tax, so the row
+                // total is the price itself; only a tax-exclusive price is grossed up.
+                $rawSubTotal = $isTaxIncluded
+                    ? $rawNetUnitPrice * $quantity
+                    : $rawNetUnitPrice * $quantity * (1 + $taxRate);
+                $roundedSubTotal = \App\Support\RowTotalRoundingCalculator::round($rawSubTotal, $settingIncrement);
+            }
+
+            if ($taxRate > 0 && $roundedSubTotal > 0) {
+                $incomingTaxAmount = round($roundedSubTotal - ($roundedSubTotal / (1 + $taxRate)), 2);
+                $subTotalBeforeTax = round($roundedSubTotal - $incomingTaxAmount, 2);
+            } else {
+                $incomingTaxAmount = 0.0;
+                $subTotalBeforeTax = $roundedSubTotal;
+            }
+            $incomingSubTotal = $roundedSubTotal;
+        } else {
+            $incomingSubTotal = $this->resolveIncomingSubTotal($detailInput, $options, $price, $quantity, $discountAmount);
+            $incomingTaxAmount = $this->resolveIncomingTaxAmount($detailInput, $options, $incomingSubTotal);
+            $subTotalBeforeTax = $this->resolveSubTotalBeforeTax($detailInput, $options, $incomingSubTotal, $incomingTaxAmount, $price, $quantity, $discountAmount);
+        }
 
         $normalizedTaxId = $isPkp
             ? $this->normalizeNullableInt($options['product_tax'] ?? data_get($detailInput, 'tax_id'))
             : null;
         $normalizedTaxAmount = $isPkp ? $this->roundMoney($incomingTaxAmount) : 0.0;
+        // A non-PKP business stores no tax, so the authoritative row total there is
+        // the tax-stripped DPP rather than the tax-inclusive amount.
         $normalizedSubTotal = $isPkp
             ? $this->roundMoney($incomingSubTotal)
             : $this->roundMoney($subTotalBeforeTax);
@@ -97,7 +173,35 @@ class PurchaseNormalizer
             'product_tax_amount' => $normalizedTaxAmount,
             'tax_id' => $normalizedTaxId,
             'sub_total_before_tax' => $this->roundMoney($subTotalBeforeTax),
+            'pricing_source' => $pricingSource,
         ];
+    }
+
+    /**
+     * Resolve a tax rate as a fraction, memoized for the current normalize() call
+     * so a many-line document does not issue one Tax query per row.
+     */
+    private function resolveTaxRate(?int $taxId, bool $isPkp): float
+    {
+        if ($taxId) {
+            if (! array_key_exists($taxId, $this->taxRateCache)) {
+                $value = \Modules\Setting\Entities\Tax::query()->whereKey($taxId)->value('value');
+                $this->taxRateCache[$taxId] = $value !== null ? (float) $value / 100 : 0.0;
+            }
+
+            return $this->taxRateCache[$taxId];
+        }
+
+        if (! $isPkp) {
+            return 0.0;
+        }
+
+        if ($this->defaultTaxRate === null) {
+            $defaultTaxVal = \Modules\Setting\Entities\Tax::query()->where('is_default', true)->value('value');
+            $this->defaultTaxRate = $defaultTaxVal !== null ? (float) $defaultTaxVal / 100 : 0.0;
+        }
+
+        return $this->defaultTaxRate;
     }
 
     /**
@@ -131,28 +235,33 @@ class PurchaseNormalizer
 
     private function resolveIncomingSubTotal(mixed $detailInput, array $options, float $price, int $quantity, float $discountAmount): float
     {
-        if (array_key_exists('sub_total', $options)) {
+        $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
+
+        if ($pricingSource !== 'automatic' && array_key_exists('sub_total', $options)) {
             return $this->toFloat($options['sub_total']);
         }
 
-        if (data_get($detailInput, 'sub_total') !== null) {
+        if ($pricingSource !== 'automatic' && data_get($detailInput, 'sub_total') !== null) {
             return $this->toFloat(data_get($detailInput, 'sub_total'));
         }
 
-        return $this->roundMoney(max($price - $discountAmount, 0) * $quantity);
+        $effectivePrice = array_key_exists('unit_price', $options) ? $this->toFloat($options['unit_price']) : $price;
+        return $this->roundMoney(max($effectivePrice - $discountAmount, 0) * $quantity);
     }
 
     private function resolveIncomingTaxAmount(mixed $detailInput, array $options, float $incomingSubTotal): float
     {
-        if (array_key_exists('product_tax_amount', $options)) {
+        $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
+
+        if ($pricingSource !== 'automatic' && array_key_exists('product_tax_amount', $options)) {
             return $this->toFloat($options['product_tax_amount']);
         }
 
-        if (data_get($detailInput, 'product_tax_amount') !== null) {
+        if ($pricingSource !== 'automatic' && data_get($detailInput, 'product_tax_amount') !== null) {
             return $this->toFloat(data_get($detailInput, 'product_tax_amount'));
         }
 
-        if (array_key_exists('sub_total_before_tax', $options)) {
+        if ($pricingSource !== 'automatic' && array_key_exists('sub_total_before_tax', $options)) {
             return $this->roundMoney($incomingSubTotal - $this->toFloat($options['sub_total_before_tax']));
         }
 
@@ -168,11 +277,13 @@ class PurchaseNormalizer
         int $quantity,
         float $discountAmount
     ): float {
-        if (array_key_exists('sub_total_before_tax', $options)) {
+        $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
+
+        if ($pricingSource !== 'automatic' && array_key_exists('sub_total_before_tax', $options)) {
             return $this->toFloat($options['sub_total_before_tax']);
         }
 
-        if (data_get($detailInput, 'sub_total_before_tax') !== null) {
+        if ($pricingSource !== 'automatic' && data_get($detailInput, 'sub_total_before_tax') !== null) {
             return $this->toFloat(data_get($detailInput, 'sub_total_before_tax'));
         }
 

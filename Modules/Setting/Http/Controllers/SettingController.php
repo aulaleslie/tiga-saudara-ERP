@@ -72,6 +72,7 @@ class SettingController extends Controller
             'pos_walk_in_customer_id'  => $request->input('pos_walk_in_customer_id') !== null
                 ? (int) $request->input('pos_walk_in_customer_id')
                 : null,
+            'row_total_rounding_increment' => (float) $request->input('row_total_rounding_increment', 100.00),
         ];
 
         // Uppercase text-type columns
@@ -118,6 +119,7 @@ class SettingController extends Controller
                 'pos_enabled',
                 'pos_transactions_enabled',
                 'pos_walk_in_customer_id',
+                'row_total_rounding_increment',
             ];
 
             $current = session('user_settings');

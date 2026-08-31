@@ -55,7 +55,7 @@ class SaleService
                 'discount_amount' => $data['discount_amount'] ?? 0,
                 'shipping_amount' => $data['shipping_amount'] ?? 0,
                 'paid_amount' => $data['paid_amount'] ?? 0,
-            ], $cartItems, $isPkp);
+            ], $cartItems, $isPkp, (int) $data['setting_id']);
             $header = $normalizedSale['header'];
 
             $sale = DocumentReferenceService::createSaleWithReference([
@@ -195,7 +195,7 @@ class SaleService
                 'discount_amount' => $data['discount_amount'] ?? $sale->discount_amount,
                 'shipping_amount' => $data['shipping_amount'] ?? $sale->shipping_amount,
                 'paid_amount' => $data['paid_amount'] ?? $sale->paid_amount,
-            ], $cartItems, $isPkp);
+            ], $cartItems, $isPkp, (int) $targetSettingId);
             $header = $normalizedSale['header'];
 
             if (round($header['due_amount'], 2) >= $header['total_amount']) {

@@ -5,6 +5,50 @@ namespace Modules\Pos\Services;
 class PosCartTotalsCalculator
 {
     /**
+     * Marks a line whose stored authoritative total must be consumed as-is
+     * rather than recalculated: a draft row loaded from the database that has
+     * not been touched by a pricing interaction in this session.
+     *
+     * Cleared by quantity, discount, tax, packing, bundle, customer-tier, and
+     * automatic-price changes, so those recalculate under the business's
+     * current rounding increment. Set only by server-side cart operations.
+     */
+    public const LINE_CLEAN_FLAG = 'line_pricing_clean';
+
+    /**
+     * Fingerprint of the pricing inputs behind a clean row's stored total.
+     *
+     * A cached total is reused only while this still matches the line's current
+     * inputs. That way a mutation path that forgets to dirty the row fails safe
+     * — the fingerprint no longer matches and the row is recalculated — rather
+     * than silently serving a stale total.
+     */
+    public const LINE_PRICING_FINGERPRINT = 'line_pricing_fingerprint';
+
+    /**
+     * Fingerprint the inputs that determine a row's automatic price.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function pricingFingerprint(array $line): string
+    {
+        return hash('sha256', json_encode([
+            'product_id' => (int) ($line['product_id'] ?? 0),
+            'qty' => (int) ($line['qty'] ?? 0),
+            'unit_price' => round((float) ($line['unit_price'] ?? 0), 2),
+            'discount_type' => (string) ($line['line_discount_type'] ?? 'fixed'),
+            'discount_value' => round((float) ($line['line_discount_value'] ?? 0), 2),
+            'tax_id' => $line['tax_id'] ?? null,
+            'tax_rate' => round((float) ($line['tax_rate'] ?? 0), 4),
+            'price_source' => (string) ($line['price_source'] ?? 'BASE'),
+            'conversion_id' => $line['conversion_id'] ?? null,
+            'bundle_id' => $line['bundle_id'] ?? null,
+            'bundle_price' => $line['bundle_price'] ?? null,
+            'pricing_basis' => $line['pricing_basis'] ?? null,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $lines
      * @param  array{type?: string, value?: float|int|string|null}  $billDiscount
      * @return array{
@@ -19,9 +63,11 @@ class PosCartTotalsCalculator
      *     }
      * }
      */
-    public function calculate(array $lines, array $billDiscount, bool $isPkp): array
+    public function calculate(array $lines, array $billDiscount, bool $isPkp, ?int $settingId = null): array
     {
-        $normalizedLines = array_map(function (array $line): array {
+        $settingIncrement = (float) ($settingId ? (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('row_total_rounding_increment') ?? 0.00) : 0.00);
+
+        $normalizedLines = array_map(function (array $line) use ($settingIncrement): array {
             $lineId = (int) ($line['line_id'] ?? 0);
             $qty = max(0, (int) ($line['qty'] ?? 0));
             $unitPriceCents = $this->toMinor((float) ($line['unit_price'] ?? 0));
@@ -29,7 +75,48 @@ class PosCartTotalsCalculator
             $discountType = $this->normalizeDiscountType((string) ($line['line_discount_type'] ?? 'fixed'));
             $discountValue = (float) ($line['line_discount_value'] ?? 0);
 
-            if ($this->hasCanonicalOverrideMetadata($line)) {
+            // A stored fingerprint must still match the row's current pricing
+            // inputs. A mutation that failed to dirty the row therefore falls
+            // back to recalculation rather than serving a stale total.
+            //
+            // An ABSENT fingerprint is deliberately treated as matching, not as
+            // a mismatch: drafts saved before this change carry none, and they
+            // are trusted persisted state. Failing them safe would reprice every
+            // historical draft on its first load after deploy, which is what the
+            // loaded-document stability requirement forbids. Legacy rows keep
+            // their stored total until an eligible interaction dirties them.
+            $storedFingerprint = $line[self::LINE_PRICING_FINGERPRINT] ?? null;
+            $fingerprintMatches = $storedFingerprint === null
+                || hash_equals((string) $storedFingerprint, self::pricingFingerprint($line));
+
+            $isCleanLoadedLine = ! empty($line[self::LINE_CLEAN_FLAG])
+                && isset($line['line_total_minor'])
+                && $fingerprintMatches
+                && ! $this->hasCanonicalOverrideMetadata($line);
+
+            if ($isCleanLoadedLine) {
+                // A loaded draft row untouched by any pricing interaction. Its
+                // stored total already reflects the increment in force when the
+                // row was calculated, so recalculating here would silently
+                // reprice an unedited draft after the business changed its
+                // configuration. Bundle and owner fragments then allocate from
+                // this same authoritative amount.
+                $lineNetBeforeBillCents = (int) $line['line_total_minor'];
+
+                if (isset($line['line_gross_minor'], $line['line_discount_minor'])) {
+                    // Increment rounding is not reversible, so the gross and
+                    // discount behind this net are consumed as persisted. Deriving
+                    // them backwards from a rounded net would drift line_gross,
+                    // percentage-derived discount amounts, receipt presentation,
+                    // and posted discount values.
+                    $lineGrossCents = (int) $line['line_gross_minor'];
+                    $lineDiscountCents = (int) $line['line_discount_minor'];
+                } else {
+                    // Legacy rows persisted before the trio was stored.
+                    $lineDiscountCents = $this->reverseLineDiscountCents($discountType, $discountValue, $lineNetBeforeBillCents);
+                    $lineGrossCents = $lineNetBeforeBillCents + $lineDiscountCents;
+                }
+            } elseif ($this->hasCanonicalOverrideMetadata($line)) {
                 // A row override already computed these through the canonical
                 // arithmetic authority. Re-deriving them here is what previously
                 // produced two disagreeing sets of numbers, so they are consumed
@@ -51,11 +138,28 @@ class PosCartTotalsCalculator
             } elseif ($priceSource === 'PACKED' && isset($line['line_total'])) {
                 $lineGrossCents = (int) $line['line_total'];
                 $lineDiscountCents = $this->lineDiscountCents($discountType, $discountValue, $lineGrossCents);
-                $lineNetBeforeBillCents = max(0, $lineGrossCents - $lineDiscountCents);
+                $rawNetCents = max(0, $lineGrossCents - $lineDiscountCents);
+
+                if ($settingIncrement > 0) {
+                    $rawNet = $this->fromMinor($rawNetCents);
+                    $roundedNet = \App\Support\RowTotalRoundingCalculator::round($rawNet, $settingIncrement);
+                    $lineNetBeforeBillCents = $this->toMinor($roundedNet);
+                } else {
+                    $lineNetBeforeBillCents = $rawNetCents;
+                }
             } else {
                 $lineGrossCents = $qty * $unitPriceCents;
                 $lineDiscountCents = $this->lineDiscountCents($discountType, $discountValue, $lineGrossCents);
-                $lineNetBeforeBillCents = max(0, $lineGrossCents - $lineDiscountCents);
+                $rawNetCents = max(0, $lineGrossCents - $lineDiscountCents);
+
+                // Round automatic row total when setting increment > 0
+                if ($settingIncrement > 0) {
+                    $rawNet = $this->fromMinor($rawNetCents);
+                    $roundedNet = \App\Support\RowTotalRoundingCalculator::round($rawNet, $settingIncrement);
+                    $lineNetBeforeBillCents = $this->toMinor($roundedNet);
+                } else {
+                    $lineNetBeforeBillCents = $rawNetCents;
+                }
             }
 
             return array_merge($line, [
@@ -123,6 +227,10 @@ class PosCartTotalsCalculator
                 'line_subtotal' => $this->fromMinor($lineSubtotalCents),
                 'line_tax_total' => $this->fromMinor($lineTaxCents),
                 'line_total' => $this->fromMinor($lineTotalCents),
+                // The row's authoritative pre-bill-discount net in minor units.
+                // Persisted with the draft so a later reload consumes it rather
+                // than recalculating under a since-changed rounding increment.
+                'line_authoritative_net_minor' => $lineNetBeforeBillCents,
             ]);
         }
 

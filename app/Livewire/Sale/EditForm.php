@@ -182,6 +182,9 @@ class EditForm extends Component
                 'quantity_non_tax'       => $stockData->quantity_non_tax ?? 0,
                 'quantity_tax'           => $stockData->quantity_tax ?? 0,
                 'pricing_source'         => $pricingSource,
+                // Loading is not a pricing event. The stored total stays
+                // authoritative until an eligible cart interaction sets this true.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
                 // bundles below
             ];
 

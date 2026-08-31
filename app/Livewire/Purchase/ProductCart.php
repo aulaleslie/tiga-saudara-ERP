@@ -357,6 +357,7 @@ class ProductCart extends Component
                     'sub_total' => $calculated['sub_total'],
                     'sub_total_before_tax' => $calculated['sub_total_before_tax'],
                     'product_tax_amount' => $calculated['product_tax_amount'],
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
                 ]),
             ]);
         }
@@ -396,6 +397,7 @@ class ProductCart extends Component
                     'sub_total' => $subTotal,
                     'sub_total_before_tax' => $subTotalBeforeTax,
                     'product_tax_amount' => 0,
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
                 ]),
             ]);
 
@@ -589,6 +591,9 @@ class ProductCart extends Component
                 'average_purchase_price'  => $calc['average_purchase_price'],
                 'product_tax'             => $defaultTaxId, // default per-product tax if any
                 'unit_price'              => $calc['unit_price'],
+                'pricing_source'          => 'automatic',
+                // Newly added automatic row: the backend must price it.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
             ],
         ]);
 
@@ -652,12 +657,14 @@ class ProductCart extends Component
             }
         }
 
+        $pricingSource = $cart_item->options->pricing_source ?? 'manual';
         // Use calculateSubtotalAndTax function to calculate
         $calculated = $this->calculateSubtotalAndTax(
             $this->unit_price[$product_id] ?? $cart_item->price,
             $this->quantity[$product_id],
             $cart_item->options->product_discount ?? 0,
-            $this->syncProductTaxState($cart_item)
+            $this->syncProductTaxState($cart_item),
+            $pricingSource
         );
 
         $this->quantityBreakdowns[$product_id] = $this->calculateConversionBreakdown(
@@ -672,6 +679,7 @@ class ProductCart extends Component
                 'sub_total' => $calculated['sub_total'],
                 'sub_total_before_tax' => $calculated['sub_total_before_tax'],
                 'product_tax_amount' => $calculated['product_tax_amount'],
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
             ]),
         ]);
 
@@ -688,14 +696,14 @@ class ProductCart extends Component
      * @param int|null $tax_id Tax ID
      * @return array
      */
-    private function calculateSubtotalAndTax($price, $qty, $discount = 0, $tax_id = null)
+    private function calculateSubtotalAndTax($price, $qty, $discount = 0, $tax_id = null, string $pricingSource = 'automatic')
     {
         // Validate inputs
-        $price = max(0, (float) $price); // Ensure price is non-negative
+        $price = max(0, (float) $price);
         $qty = max(1, (int) $qty);
         $discount = max(0.0, (float) $discount);
+        $tax_id = ($this->cart_instance === 'purchase' && ! $this->isPkp) ? null : $tax_id;
 
-        // Option A: Discount is off the tax-inclusive price (or base price if tax excluded)
         $effective_price = max(0.0, $price - $discount);
 
         // Initialize variables
@@ -734,11 +742,36 @@ class ProductCart extends Component
             }
         }
 
+        $raw_subtotal = round($subtotal_before_tax + $tax_amount, 2);
+
+        $isManuallyPriced = in_array($pricingSource, ['manual_unit_price', 'manual_line_total', 'manual']);
+        $settingIncrement = (float) (Setting::query()->whereKey((int) ($this->setting_id ?: session('setting_id')))->value('row_total_rounding_increment') ?? 100.00);
+
+        if (!$isManuallyPriced && $settingIncrement > 0) {
+            $rounded_subtotal = \App\Support\RowTotalRoundingCalculator::round($raw_subtotal, $settingIncrement);
+        } else {
+            $rounded_subtotal = $raw_subtotal;
+        }
+
+        if ($rounded_subtotal !== $raw_subtotal && $this->is_tax_included && $tax_id && isset($tax)) {
+            $price_ex_tax = $rounded_subtotal / (1 + $tax->value / 100);
+            $subtotal_before_tax = round($price_ex_tax, 2);
+            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
+        } elseif ($rounded_subtotal !== $raw_subtotal && !$this->is_tax_included && $tax_id && isset($tax)) {
+            $subtotal_before_tax = round($rounded_subtotal / (1 + $tax->value / 100), 2);
+            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
+        } elseif ($rounded_subtotal !== $raw_subtotal) {
+            $subtotal_before_tax = $rounded_subtotal;
+            $tax_amount = 0.0;
+        }
+
         // Return recalculated values
         return [
-            'sub_total' => $subtotal_before_tax + $tax_amount, // Total with tax
+            'sub_total' => $rounded_subtotal, // Total with tax
+            'tax_amount' => $tax_amount,
             'product_tax_amount' => $tax_amount,                      // Tax amount
             'sub_total_before_tax' => $subtotal_before_tax,    // Total without tax
+            'subtotal_before_tax' => $subtotal_before_tax,
         ];
     }
 
@@ -834,11 +867,13 @@ class ProductCart extends Component
         }
 
         $adjusted_price = $unit_price;
+        $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
         $updated_cart_data = $this->calculateSubtotalAndTax(
             $adjusted_price,
             $quantity,
             $discount_amount,
-            $this->syncProductTaxState($cart_item)
+            $this->syncProductTaxState($cart_item),
+            $pricingSource
         );
 
         Cart::instance($this->cart_instance)->update($row_id, [
@@ -850,6 +885,7 @@ class ProductCart extends Component
                 'product_discount' => $discount_amount,
                 'product_discount_input' => $this->item_discount[$product_id],
                 'product_discount_type' => $this->discount_type[$product_id],
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
             ]),
         ]);
 
@@ -877,12 +913,16 @@ class ProductCart extends Component
             $discount_amount = $new_price * ($sanitized_discount_input / 100);
         }
 
+        // Manual price update sets pricing_source to manual_unit_price
+        $pricingSource = 'manual_unit_price';
+
         // Use calculateSubtotalAndTax function to calculate
         $calculated = $this->calculateSubtotalAndTax(
             $new_price,
             $cart_item->qty,
             $discount_amount ?? 0,
-            $this->syncProductTaxState($cart_item)
+            $this->syncProductTaxState($cart_item),
+            $pricingSource
         );
 
         // Update cart item
@@ -895,6 +935,10 @@ class ProductCart extends Component
                 'product_tax_amount' => $calculated['product_tax_amount'],
                 'product_discount' => $discount_amount,
                 'product_discount_input' => $sanitized_discount_input,
+                'pricing_source' => $pricingSource,
+                // A manual price is authoritative and bypasses rounding; if the
+                // row stayed automatic this is still a genuine recalculation.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => $pricingSource === 'automatic',
             ]),
         ]);
 
@@ -981,6 +1025,9 @@ class ProductCart extends Component
                 'product_discount' => $discount_amount,
                 'product_discount_input' => $discount_input,
                 'product_discount_type' => $discount_type,
+                'pricing_source' => 'manual_line_total',
+                // The committed manual total is authoritative: never reconstructed.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
             ]),
         ]);
 
@@ -1071,6 +1118,7 @@ class ProductCart extends Component
 
         // Initialize tax amount and validate the tax ID
         $tax_amount = 0;
+        $pricingSource = $cart_item->options->pricing_source ?? 'manual';
         if ($tax_id) {
             $tax = Tax::find($tax_id);
             if ($tax) {
@@ -1080,7 +1128,8 @@ class ProductCart extends Component
                     $cart_item->price,
                     $cart_item->qty,
                     $cart_item->options->product_discount ?? 0,
-                    $tax_id
+                    $tax_id,
+                    $pricingSource
                 );
 
                 // Update the cart row
@@ -1090,6 +1139,7 @@ class ProductCart extends Component
                         'sub_total' => $updated_cart_data['sub_total'],
                         'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
                         'product_tax_amount' => $updated_cart_data['product_tax_amount'],
+                        \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
                     ]),
                 ]);
 
@@ -1105,7 +1155,8 @@ class ProductCart extends Component
                 $cart_item->price,
                 $cart_item->qty,
                 $cart_item->options->product_discount ?? 0,
-                $tax_id
+                $tax_id,
+                $pricingSource
             );
 
             Cart::instance($this->cart_instance)->update($row_id, [
@@ -1114,6 +1165,7 @@ class ProductCart extends Component
                     'sub_total' => $updated_cart_data['sub_total'],
                     'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
                     'product_tax_amount' => $updated_cart_data['product_tax_amount'],
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
                 ]),
             ]);
 
@@ -1137,9 +1189,10 @@ class ProductCart extends Component
             $quantity = $cart_item->qty;
             $discount = $cart_item->options->product_discount ?? 0;
             $tax_id = $this->syncProductTaxState($cart_item);
+            $pricingSource = $cart_item->options->pricing_source ?? 'manual';
 
             // Calculate subtotal and tax using the helper function
-            $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id);
+            $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id, $pricingSource);
 
             // Update the cart item with the calculated values
             Cart::instance($this->cart_instance)->update($row_id, [
@@ -1148,6 +1201,7 @@ class ProductCart extends Component
                     'sub_total' => $calculated['sub_total'],
                     'sub_total_before_tax' => $calculated['sub_total_before_tax'],
                     'product_tax_amount' => $calculated['product_tax_amount'],
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
                 ]),
             ]);
 

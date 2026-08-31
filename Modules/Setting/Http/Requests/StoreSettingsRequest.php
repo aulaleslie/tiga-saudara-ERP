@@ -34,6 +34,7 @@ class StoreSettingsRequest extends FormRequest
                 'integer',
                 Rule::exists('customers', 'id'),
             ],
+            'row_total_rounding_increment' => 'required|numeric|min:0|max:100000',
             'footer_text' => 'nullable|string|max:255',
         ];
     }

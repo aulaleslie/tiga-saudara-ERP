@@ -146,6 +146,16 @@
                                         </small>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="row_total_rounding_increment">Kelipatan Pembulatan Total Baris (Rp) <span class="text-danger">*</span></label>
+                                        <input type="number" step="0.01" min="0" class="form-control" name="row_total_rounding_increment"
+                                               value="{{ old('row_total_rounding_increment', sprintf('%.2f', $settings->row_total_rounding_increment ?? 100.00)) }}" required>
+                                        <small class="form-text text-muted">
+                                            Isi 0 untuk menonaktifkan pembulatan otomatis total baris komersial. Default: 100.00
+                                        </small>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

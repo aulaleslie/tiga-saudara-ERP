@@ -23,12 +23,24 @@ class PurchaseDetail extends BaseModel
         'product_code',
         'price',
         'product_tax_amount',
+        'pricing_source',
     ];
 
     protected $casts = [
         // Quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
         'quantity' => 'decimal:3',
+        'pricing_source' => 'string',
     ];
+
+    /**
+     * BaseModel uppercases every string attribute on write. pricing_source is a
+     * lowercase sentinel compared case-sensitively by the pricing/rounding code,
+     * so it must be stored verbatim.
+     */
+    public function setPricingSourceAttribute($value): void
+    {
+        $this->attributes['pricing_source'] = $value !== null ? strtolower((string) $value) : null;
+    }
 
     protected $with = ['product', 'tax'];
 

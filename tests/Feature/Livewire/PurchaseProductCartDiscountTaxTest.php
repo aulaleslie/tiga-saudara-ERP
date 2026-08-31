@@ -47,6 +47,7 @@ class PurchaseProductCartDiscountTaxTest extends TestCase
             'footer_text' => 'Footer',
             'company_address' => 'Address',
             'is_pkp' => true,
+            'row_total_rounding_increment' => 0.00,
         ]);
 
         session(['setting_id' => $setting->id]);

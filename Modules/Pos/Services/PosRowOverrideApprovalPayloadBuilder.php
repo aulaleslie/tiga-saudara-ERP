@@ -133,7 +133,8 @@ class PosRowOverrideApprovalPayloadBuilder
                 'type' => $cart['bill_discount_type'] ?? 'fixed',
                 'value' => $cart['bill_discount_value'] ?? 0,
             ],
-            ! empty($context['is_pkp'])
+            ! empty($context['is_pkp']),
+            $settingId
         );
 
         foreach ($calculated['lines'] as $calculatedLine) {

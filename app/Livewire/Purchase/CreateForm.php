@@ -928,7 +928,7 @@ class CreateForm extends Component
                     'setting_id' => $setting_id,
                     'is_tax_included' => $resolvedTaxIncluded,
                     'tax_ref_no' => $resolvedTaxRefNo,
-                ], $cartItems, $this->isPkp);
+                ], $cartItems, $this->isPkp, (int) $setting_id);
 
                 $failureStage = 'purchase_create';
                 $createdPurchase = DocumentReferenceService::createPurchaseWithReference([
@@ -989,6 +989,7 @@ class CreateForm extends Component
                         'sub_total' => $item['sub_total'],
                         'product_tax_amount' => $item['product_tax_amount'],
                         'tax_id' => $item['tax_id'],
+                        'pricing_source' => $item['pricing_source'] ?? 'manual',
                     ]);
 
                     $detailCount++;

@@ -14,12 +14,23 @@ class SaleNormalizer
      *     computed_discount_amount: float
      * }
      */
-    public function normalize(array $header, iterable $detailInputs, bool $isPkp): array
+    /** @var array<int, float> Tax rate percentages by id, memoized per normalize() call. */
+    private array $taxRateCache = [];
+
+    public function normalize(array $header, iterable $detailInputs, bool $isPkp, ?int $settingId = null): array
     {
         $details = [];
 
+        // Resolved once per call rather than once per row, so a many-line document
+        // does not issue one Setting query per detail.
+        $settingIncrement = $settingId !== null
+            ? (float) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('row_total_rounding_increment') ?? 100.00)
+            : 100.00;
+
+        $this->taxRateCache = [];
+
         foreach ($detailInputs as $detailInput) {
-            $details[] = $this->normalizeDetail($detailInput, $isPkp);
+            $details[] = $this->normalizeDetail($detailInput, $isPkp, $settingId, $settingIncrement);
         }
 
         $totalSubTotal = array_sum(array_map(
@@ -180,13 +191,32 @@ class SaleNormalizer
     /**
      * @return array<string, mixed>
      */
-    private function normalizeDetail(mixed $detailInput, bool $isPkp): array
+    /**
+     * Tax rate percentage by id, memoized for the current normalize() call.
+     */
+    private function resolveTaxRateValue(int $taxId): float
     {
+        if (! array_key_exists($taxId, $this->taxRateCache)) {
+            $this->taxRateCache[$taxId] = (float) (
+                \Modules\Setting\Entities\Tax::query()->whereKey($taxId)->value('value') ?? 0
+            );
+        }
+
+        return $this->taxRateCache[$taxId];
+    }
+
+    private function normalizeDetail(
+        mixed $detailInput,
+        bool $isPkp,
+        ?int $settingId = null,
+        float $settingIncrement = 100.00
+    ): array {
         $options = $this->extractOptions($detailInput);
         $quantity = $this->normalizeQuantity($detailInput, $options);
         $unitPrice = $this->toFloat($options['unit_price'] ?? data_get($detailInput, 'unit_price') ?? data_get($detailInput, 'price'));
         $price = $this->toFloat(data_get($detailInput, 'price', $unitPrice));
         $discountAmount = $this->toFloat($options['product_discount'] ?? data_get($detailInput, 'discount') ?? data_get($detailInput, 'product_discount_amount'));
+        $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'automatic');
 
         $incomingSubTotal = $this->resolveIncomingSubTotal($detailInput, $options, $price, $quantity, $discountAmount);
         $incomingTaxAmount = $this->resolveIncomingTaxAmount($detailInput, $options, $incomingSubTotal);
@@ -203,10 +233,36 @@ class SaleNormalizer
         $normalizedTaxId = $isPkp
             ? $this->normalizeNullableInt($options['product_tax'] ?? $options['tax_id'] ?? data_get($detailInput, 'tax_id'))
             : null;
-        $normalizedTaxAmount = $isPkp ? $this->roundMoney($incomingTaxAmount) : 0.0;
-        $normalizedSubTotal = $isPkp
-            ? $this->roundMoney($incomingSubTotal)
-            : $this->roundMoney($subTotalBeforeTax);
+
+        $rawSubTotal = $isPkp ? $incomingSubTotal : $subTotalBeforeTax;
+
+        $hasSuppliedSubTotal = array_key_exists('sub_total', $options)
+            || data_get($detailInput, 'sub_total') !== null;
+
+        // Only the server-side cart sets this, and only for a row it just
+        // recalculated. Absent/false with a supplied total means a stored value
+        // being carried through a load/save, which must be preserved verbatim.
+        $recalcRequired = (bool) ($options[\App\Support\RowTotalRoundingCalculator::RECALC_FLAG] ?? false);
+
+        if ($pricingSource === 'automatic' && $settingId && ($recalcRequired || ! $hasSuppliedSubTotal)) {
+            $normalizedSubTotal = \App\Support\RowTotalRoundingCalculator::round($rawSubTotal, $settingIncrement);
+        } else {
+            $normalizedSubTotal = $this->roundMoney($rawSubTotal);
+        }
+
+        if ($isPkp && $normalizedTaxId) {
+            $taxRate = $this->resolveTaxRateValue($normalizedTaxId);
+            if ($taxRate > 0) {
+                $subTotalBeforeTax = round($normalizedSubTotal / (1 + ($taxRate / 100)), 2);
+                $normalizedTaxAmount = round($normalizedSubTotal - $subTotalBeforeTax, 2);
+            } else {
+                $subTotalBeforeTax = $normalizedSubTotal;
+                $normalizedTaxAmount = 0.0;
+            }
+        } else {
+            $subTotalBeforeTax = $normalizedSubTotal;
+            $normalizedTaxAmount = 0.0;
+        }
 
         return [
             'product_id' => (int) ($options['product_id'] ?? data_get($detailInput, 'product_id') ?? data_get($detailInput, 'id') ?? 0),
@@ -225,7 +281,7 @@ class SaleNormalizer
                 $options['bundle_items'] ?? data_get($detailInput, 'bundle_items', []),
                 $this->normalizeNullableInt($options['bundle_id'] ?? data_get($detailInput, 'bundle_id'))
             ),
-            'pricing_source' => (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'automatic'),
+            'pricing_source' => $pricingSource,
         ];
     }
 

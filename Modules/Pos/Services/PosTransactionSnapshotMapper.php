@@ -79,12 +79,43 @@ class PosTransactionSnapshotMapper
                     // line_total is already Rupiah; keep it, and extract minor units from breakdown
                     $lineMeta['line_total'] = $line['line_total'] ?? null;
                     if (isset($line['breakdown']['line_total_minor'])) {
-                        $lineMeta['line_total_minor'] = $line['breakdown']['line_total_minor'];
+                        // The RAW packed result, kept for packing reconstruction.
+                        // This is pre-rounding and must never be mistaken for the
+                        // authoritative charged total.
+                        $lineMeta['packed_raw_total_minor'] = (int) $line['breakdown']['line_total_minor'];
+                        $lineMeta['line_total_minor'] = (int) $line['breakdown']['line_total_minor'];
                     }
                 } else {
                     // Base pricing stores line_total in Rupiah
                     $lineMeta['line_total'] = $line['line_total'] ?? null;
                 }
+
+                // Persist the row's authoritative rounded net so reloading this
+                // draft reproduces the amount as committed, even if the business
+                // rounding increment changes in the meantime.
+                //
+                // This ALWAYS wins over a raw per-source figure: a packed row's
+                // breakdown total is pre-rounding, so leaving it in place would
+                // reload the row at its unrounded amount.
+                if (isset($line['line_authoritative_net_minor'])) {
+                    $lineMeta['line_total_minor'] = (int) $line['line_authoritative_net_minor'];
+
+                    // The gross and discount behind that net. Rounding is not
+                    // reversible, so reconstructing them from the net alone would
+                    // drift the row's discount presentation and posting values.
+                    if (isset($line['line_gross'])) {
+                        $lineMeta['line_gross_minor'] = (int) round(((float) $line['line_gross']) * 100);
+                    }
+                    if (isset($line['line_discount_amount'])) {
+                        $lineMeta['line_discount_minor'] = (int) round(((float) $line['line_discount_amount']) * 100);
+                    }
+                }
+
+                // Fingerprint the pricing inputs behind that total. On reload it
+                // is re-derived and compared, so a row whose inputs changed
+                // without being dirtied recalculates instead of going stale.
+                $lineMeta[\Modules\Pos\Services\PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT] =
+                    \Modules\Pos\Services\PosCartTotalsCalculator::pricingFingerprint($line);
 
                 $dbLine = PosTransactionLine::create([
                     'pos_transaction_id' => $transaction->id,
@@ -209,6 +240,12 @@ class PosTransactionSnapshotMapper
                 $lineTotal = $lineMeta['line_total'] ?? null;
             }
 
+            // The authoritative rounded net, restored for every row so a clean
+            // reload consumes it instead of recalculating.
+            $authoritativeNetMinor = isset($lineMeta['line_total_minor'])
+                ? (int) $lineMeta['line_total_minor']
+                : null;
+
             $lines[$nextLineId] = [
                 'line_id' => $nextLineId,
                 'product_id' => $dbLine->product_id,
@@ -240,7 +277,19 @@ class PosTransactionSnapshotMapper
                 'breakdown' => $lineMeta['breakdown'] ?? null,
                 'pricing_basis' => $lineMeta['pricing_basis'] ?? null,
                 'line_total' => $lineTotal,
+                // Loading is not a pricing event: the stored total stays
+                // authoritative until an eligible interaction clears this.
+                \Modules\Pos\Services\PosCartTotalsCalculator::LINE_CLEAN_FLAG => $authoritativeNetMinor !== null,
             ];
+
+            if (isset($lineMeta[\Modules\Pos\Services\PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT])) {
+                $lines[$nextLineId][\Modules\Pos\Services\PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT] =
+                    (string) $lineMeta[\Modules\Pos\Services\PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT];
+            }
+
+            if ($authoritativeNetMinor !== null) {
+                $lines[$nextLineId]['line_total_minor'] = $authoritativeNetMinor;
+            }
 
             // Restore canonical override metadata so a reloaded draft reports
             // the amounts as originally charged rather than recomputing them.

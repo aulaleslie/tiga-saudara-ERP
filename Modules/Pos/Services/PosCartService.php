@@ -254,6 +254,10 @@ class PosCartService
                 $updatedLine['breakdown'] = $priceResult['breakdown'];
             }
 
+            // Quantity increased on an existing row: an eligible pricing
+            // interaction, so the row recalculates under the current increment.
+            $updatedLine = $this->markPricingDirty($updatedLine);
+
             $cart['lines'][$existingLineId] = $updatedLine;
         } else {
             // No matching line - create new line with next_line_id
@@ -307,6 +311,9 @@ class PosCartService
                 $lineData['breakdown'] = $breakdown;
                 $lineData['pricing_basis'] = $pricingBasis;
             }
+
+            // Newly added automatic row: priced by the backend now.
+            $lineData = $this->markPricingDirty($lineData);
 
             $cart['lines'][$newLineId] = $lineData;
         }
@@ -404,6 +411,11 @@ class PosCartService
             'line_discount_type' => $this->normalizeDiscountType((string) $discountType),
             'line_discount_value' => round(max(0.0, $discountValue), 2),
         ]);
+
+        // Quantity, discount, or tax changed: this is an eligible pricing
+        // interaction, so the row must be recalculated under the business's
+        // current rounding increment rather than reusing its stored total.
+        $updatedLine = $this->markPricingDirty($updatedLine);
 
         if ($priceSource !== 'PACKED') {
             // Drop every canonical field, not just line_total: the calculator
@@ -601,6 +613,10 @@ class PosCartService
                 );
             }
 
+            // Customer/tier selection changed, which reprices automatic rows:
+            // an eligible pricing interaction, so the row recalculates.
+            $line = $this->markPricingDirty($line);
+
             $repricedLines[$lineId] = $line;
         }
 
@@ -627,6 +643,8 @@ class PosCartService
                 // target carried, which was computed for its pre-merge qty.
                 $targetLine = $this->clearCanonicalOverrideMetadata($targetLine);
                 $targetLine = $this->refreshOrInvalidateRowOverride($settingId, $targetLine, $cart);
+                // The merged quantity is itself a pricing input.
+                $targetLine = $this->markPricingDirty($targetLine);
 
                 $mergedLines[$targetLineId] = $targetLine;
             } else {
@@ -1140,7 +1158,8 @@ class PosCartService
                 'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
                 'value' => (float) ($cart['bill_discount_value'] ?? 0),
             ],
-            isPkp: $isPkp
+            isPkp: $isPkp,
+            settingId: $settingId
         );
 
         // Enrich lines with current parent operational classifications while retaining captured flags
@@ -1353,6 +1372,25 @@ class PosCartService
      * @param  array<string, mixed>  $line
      * @return array<string, mixed>
      */
+    /**
+     * Mark a row's cached pricing as stale.
+     *
+     * Every mutation of a pricing input — quantity, discount, tax, bundle,
+     * packing, customer tier, automatic price — routes through here, so the row
+     * is recalculated under the business's current rounding increment instead
+     * of reusing the total stored with the draft.
+     *
+     * @param  array<string, mixed>  $line
+     * @return array<string, mixed>
+     */
+    private function markPricingDirty(array $line): array
+    {
+        $line[PosCartTotalsCalculator::LINE_CLEAN_FLAG] = false;
+        unset($line[PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT]);
+
+        return $line;
+    }
+
     private function clearCanonicalOverrideMetadata(array $line): array
     {
         foreach (self::CANONICAL_OVERRIDE_FIELDS as $field) {
@@ -2249,6 +2287,9 @@ class PosCartService
                 $cart['lines'][$lineId],
                 $cart
             );
+
+            // Appending a serial raised the quantity, which is a pricing input.
+            $cart['lines'][$lineId] = $this->markPricingDirty($cart['lines'][$lineId]);
         }
 
         // Append the serial

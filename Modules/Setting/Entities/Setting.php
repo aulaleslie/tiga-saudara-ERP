@@ -73,6 +73,7 @@ class Setting extends BaseModel
         'pos_enabled' => 'boolean',
         'pos_transactions_enabled' => 'boolean',
         'pos_walk_in_customer_id' => 'integer',
+        'row_total_rounding_increment' => 'float',
     ];
 
     protected $with = ['currency'];

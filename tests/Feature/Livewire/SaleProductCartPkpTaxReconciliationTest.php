@@ -46,6 +46,9 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
             'footer_text' => 'Footer',
             'company_address' => 'Address',
             'is_pkp' => true,
+            // This suite asserts exact tax reconciliation figures, so row-total
+            // rounding is disabled here to keep those assertions about tax alone.
+            'row_total_rounding_increment' => 0,
         ]);
 
         session(['setting_id' => $setting->id]);

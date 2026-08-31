@@ -21,6 +21,7 @@ class SettingFactory extends Factory
             'notification_email' => $this->faker->email,
             'footer_text' => $this->faker->sentence,
             'company_address' => $this->faker->address,
+            'row_total_rounding_increment' => 100.00,
         ];
     }
 }

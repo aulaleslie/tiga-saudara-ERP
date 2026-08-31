@@ -287,9 +287,9 @@ class EditForm extends Component
         return $trimmed !== '' && ! preg_match('/^\d+$/', $trimmed);
     }
 
-    private function ensureCartTaxesForPkp($cartItems): void
+    private function ensureCartTaxesForPkp($cartItems, bool $isPkp): void
     {
-        if (! $this->isPkpEnabled()) {
+        if (! $isPkp) {
             return;
         }
 
@@ -490,37 +490,38 @@ class EditForm extends Component
                 $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
             }
 
+            $cartOptions = [
+                // Stable identity of the persisted row. Product ID cannot serve
+                // this purpose: a document may hold several lines per product.
+                PurchaseMonetaryEditService::DETAIL_ID_OPTION => $detail->id,
+                'product_id' => $detail->product_id,
+                'product_discount' => $detail->product_discount_amount,
+                'product_discount_input' => round($discountInput, 2),
+                'product_discount_type' => $detail->product_discount_type,
+                'code' => $detail->product_code,
+                'stock' => $detail->product->product_quantity ?? 0,
+                'product_tax' => $productTax,
+                'unit_price' => $detail->unit_price,
+                'sub_total_before_tax' => $storedDpp,
+                'product_tax_amount' => $storedTax,
+                'pricing_source' => $detail->pricing_source ?? 'manual',
+                'sub_total' => $storedTotal,
+                // Loading is not a pricing event. The stored total stays
+                // authoritative until an eligible cart interaction sets this true.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
+            ];
+
+            $cartItemPrice = ($detail->pricing_source ?? 'manual') === 'automatic'
+                ? $detail->unit_price
+                : $detail->price;
+
             $cartItem = $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
                 'qty' => $detail->quantity,
-                'price' => $detail->price,
+                'price' => $cartItemPrice,
                 'weight' => 1,
-                'options' => [
-                    // Stable identity of the persisted row. Product ID cannot serve
-                    // this purpose: a document may hold several lines per product.
-                    PurchaseMonetaryEditService::DETAIL_ID_OPTION => $detail->id,
-                    'product_id' => $detail->product_id,
-                    'product_discount' => $detail->product_discount_amount,
-                    'product_discount_input' => round($discountInput, 2),
-                    'product_discount_type' => $detail->product_discount_type,
-                    'sub_total' => $storedTotal,
-                    'code' => $detail->product_code,
-                    'stock' => $detail->product->product_quantity ?? 0,
-                    'product_tax' => $productTax,
-                    'unit_price' => $detail->unit_price,
-                    'sub_total_before_tax' => $storedDpp,
-                    'product_tax_amount' => $storedTax,
-                ]
-            ]);
-
-            // Cart::add() may derive its own row total; restore the authoritative trio.
-            $cart->update($cartItem->rowId, [
-                'options' => array_merge($cartItem->options->toArray(), [
-                    'sub_total' => $storedTotal,
-                    'sub_total_before_tax' => $storedDpp,
-                    'product_tax_amount' => $storedTax,
-                ]),
+                'options' => $cartOptions,
             ]);
         }
     }
@@ -692,7 +693,10 @@ class EditForm extends Component
 
             $failureStage = 'ensure_cart_taxes_for_pkp';
             $cartItems = $cart->content();
-            $this->ensureCartTaxesForPkp($cartItems);
+            // PKP status and tax-inclusive pricing are independent: the former decides
+            // whether rows carry tax at all, the latter only how a price is expressed.
+            $resolvedIsPkp = (bool) $resolvedBusiness['is_pkp'];
+            $this->ensureCartTaxesForPkp($cartItems, $resolvedIsPkp);
 
             $failureStage = 'db_transaction';
             $sequenceAllocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
@@ -727,7 +731,8 @@ class EditForm extends Component
                 'paid_amount' => $purchase->paid_amount,
                 'tax_id' => $purchase->tax_id,
                 'tax_percentage' => $purchase->tax_percentage,
-            ], $cartItems, $this->isPkpEnabled());
+                'is_tax_included' => $resolvedTaxIncluded,
+            ], $cartItems, (bool) $resolvedBusiness['is_pkp'], (int) $resolvedBusiness['setting_id']);
             $header = $normalizedPurchase['header'];
 
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
@@ -810,6 +815,7 @@ class EditForm extends Component
                     'sub_total' => $item['sub_total'],
                     'product_tax_amount' => $item['product_tax_amount'],
                     'tax_id' => $item['tax_id'],
+                    'pricing_source' => $item['pricing_source'] ?? 'manual',
                 ]);
 
                 $detailCount++;
