@@ -295,4 +295,151 @@ class ProductSearchDropdownTest extends TestCase
         // Verify stable ordering (no duplicates)
         $this->assertCount(15, array_unique($expandedResults));
     }
+
+    /**
+     * 13. Renders hidden input containing selected product ID when name property is provided.
+     */
+    public function test_renders_hidden_input_when_name_property_provided(): void
+    {
+        $product = $this->createProduct(['product_name' => 'Target Form Product']);
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'name' => 'product_id',
+            'selected' => $product->id,
+        ])
+        ->assertSeeHtml('<input type="hidden" name="product_id" value="' . $product->id . '">');
+    }
+
+    /**
+     * 14. Conversion mode excludes inactive, unmanaged, serialized, and zero-stock products.
+     */
+    public function test_conversion_mode_filters_out_invalid_candidates(): void
+    {
+        $loc = \Modules\Setting\Entities\Location::create([
+            'name' => 'Main Loc',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // Eligible candidate
+        $eligible = $this->createProduct([
+            'product_name' => 'Eligible Gadget',
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $eligible->id,
+            'location_id' => $loc->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        // Inactive
+        $inactive = $this->createProduct([
+            'product_name' => 'Inactive Gadget',
+            'is_active' => false,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $inactive->id,
+            'location_id' => $loc->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        // Not stock managed
+        $unmanaged = $this->createProduct([
+            'product_name' => 'Unmanaged Service',
+            'stock_managed' => false,
+        ]);
+
+        // Already serialized
+        $serialized = $this->createProduct([
+            'product_name' => 'Serialized iPhone',
+            'serial_number_required' => true,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $serialized->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        // Zero stock
+        $zeroStock = $this->createProduct([
+            'product_name' => 'Zero Stock Product',
+            'stock_managed' => true,
+            'serial_number_required' => false,
+        ]);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $zeroStock->id,
+            'location_id' => $loc->id,
+            'quantity' => 0,
+            'quantity_non_tax' => 0,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'conversionCandidatesOnly' => true,
+        ])
+        ->set('open', true)
+        ->set('search', 'Gadget')
+        ->assertCount('search_results', 1)
+        ->assertSee('Eligible Gadget')
+        ->assertDontSee('Inactive Gadget');
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'conversionCandidatesOnly' => true,
+        ])
+        ->set('open', true)
+        ->set('search', 'Service')
+        ->assertCount('search_results', 0);
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'conversionCandidatesOnly' => true,
+        ])
+        ->set('open', true)
+        ->set('search', 'iPhone')
+        ->assertCount('search_results', 0);
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'conversionCandidatesOnly' => true,
+        ])
+        ->set('open', true)
+        ->set('search', 'Zero Stock')
+        ->assertCount('search_results', 0);
+    }
+
+    /**
+     * 15. Existing dropdown consumers retain default search behavior when conversionCandidatesOnly is false.
+     */
+    public function test_existing_consumers_retain_default_search_behavior(): void
+    {
+        $serialized = $this->createProduct([
+            'product_name' => 'Standard Search Product',
+            'serial_number_required' => true,
+        ]);
+
+        Livewire::test(ProductSearchDropdown::class, [
+            'conversionCandidatesOnly' => false,
+        ])
+        ->set('open', true)
+        ->set('search', 'Standard Search')
+        ->assertCount('search_results', 1)
+        ->assertSee('Standard Search Product');
+    }
 }

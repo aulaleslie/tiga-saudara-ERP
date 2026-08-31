@@ -45,7 +45,30 @@ class UpdateProductRequest extends FormRequest
                     }
                 }
             ],
-            'serial_number_required' => ['nullable', 'boolean'],
+            'serial_number_required' => [
+                'nullable',
+                'boolean',
+                function ($attribute, $value, $fail) use ($productId) {
+                    $product = $this->route('product');
+                    if ($this->boolean('serial_number_required') && $product && ! $product->serial_number_required) {
+                        $hasStock = \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+                            ->where(function ($q) {
+                                $q->where('quantity', '>', 0)
+                                    ->orWhere('quantity_non_tax', '>', 0)
+                                    ->orWhere('quantity_tax', '>', 0)
+                                    ->orWhere('broken_quantity', '>', 0)
+                                    ->orWhere('broken_quantity_non_tax', '>', 0)
+                                    ->orWhere('broken_quantity_tax', '>', 0);
+                            })
+                            ->exists();
+                        $hasSerials = \Modules\Product\Entities\ProductSerialNumber::where('product_id', $productId)->exists();
+
+                        if ($hasStock || $hasSerials) {
+                            $fail('Pengaktifan pelacakan nomor seri untuk produk yang memiliki stok harus dilakukan melalui menu konversi stok.');
+                        }
+                    }
+                },
+            ],
             'product_stock_alert'    => ['nullable', 'integer', 'min:0'],
 
             // === Buying (same as create) ===

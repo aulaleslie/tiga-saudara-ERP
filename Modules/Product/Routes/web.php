@@ -35,6 +35,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::put('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'update'])->name('products.cross-business-prices.update');
     });
 
+    Route::group(['middleware' => ['can:products.convert_existing_stock_to_serialized']], function () {
+        Route::get('/products/convert-to-serialized/{product?}', [\Modules\Product\Http\Controllers\SerialConversionController::class, 'show'])->name('products.convert-to-serialized.show');
+        Route::post('/products/convert-to-serialized/validate-scan', [\Modules\Product\Http\Controllers\SerialConversionController::class, 'validateScan'])->name('products.convert-to-serialized.validate-scan');
+        Route::post('/products/{product}/convert-to-serialized', [\Modules\Product\Http\Controllers\SerialConversionController::class, 'convert'])->name('products.convert-to-serialized.convert');
+    });
+
     Route::get('/products/upload',  [ProductUploadController::class, 'uploadPage'])->name('products.upload.page');
     Route::post('/products/upload', [ProductUploadController::class, 'upload'])->name('products.upload');
 

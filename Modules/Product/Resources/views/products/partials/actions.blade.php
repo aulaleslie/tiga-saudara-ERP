@@ -8,6 +8,13 @@
     <i class="bi bi-tags"></i>
 </a>
 @endcan
+@can('products.convert_existing_stock_to_serialized')
+@if($data->stock_managed && !$data->serial_number_required && $data->product_quantity > 0)
+<a href="{{ route('products.convert-to-serialized.show', $data->id) }}" class="btn btn-dark btn-sm" title="Konversi Stok ke Serial Number">
+    <i class="bi bi-upc-scan"></i>
+</a>
+@endif
+@endcan
 @can('products.show')
 <a href="{{ route('products.show', $data->id) }}" class="btn btn-primary btn-sm">
     <i class="bi bi-eye"></i>

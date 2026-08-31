@@ -18,13 +18,17 @@ class ProductSearchDropdown extends Component
     public $search_results = [];
     public ?string $selectedLabel = null;
     public $excludeProductId = null;
+    public ?string $name = null;
+    public bool $conversionCandidatesOnly = false;
 
-    public function mount($index = null, $selected = null, $placeholder = 'Pilih produk...', $excludeProductId = null)
+    public function mount($index = null, $selected = null, $placeholder = 'Pilih produk...', $excludeProductId = null, ?string $name = null, bool $conversionCandidatesOnly = false)
     {
         $this->index = $index;
         $this->selected = $selected;
         $this->placeholder = $placeholder;
         $this->excludeProductId = $excludeProductId;
+        $this->name = $name;
+        $this->conversionCandidatesOnly = $conversionCandidatesOnly;
 
         if ($this->selected) {
             $this->selectedLabel = $this->resolveLabel($this->selected);
@@ -76,6 +80,16 @@ class ProductSearchDropdown extends Component
             $query->where('id', '!=', $this->excludeProductId);
         }
 
+        if ($this->conversionCandidatesOnly) {
+            $query->active()
+                ->where('stock_managed', true)
+                ->where('serial_number_required', false)
+                ->whereDoesntHave('serialNumbers')
+                ->whereHas('productStocks', function ($q) {
+                    $q->where('quantity', '>', 0);
+                });
+        }
+
         $this->query_count = (clone $query)->count();
         $this->search_results = $query
             ->orderBy('product_name')
@@ -90,6 +104,15 @@ class ProductSearchDropdown extends Component
 
         if ($this->excludeProductId) {
             $query->where('id', '!=', $this->excludeProductId);
+        }
+
+        if ($this->conversionCandidatesOnly) {
+            $query->where('stock_managed', true)
+                ->where('serial_number_required', false)
+                ->whereDoesntHave('serialNumbers')
+                ->whereHas('productStocks', function ($q) {
+                    $q->where('quantity', '>', 0);
+                });
         }
 
         $product = $query->first();

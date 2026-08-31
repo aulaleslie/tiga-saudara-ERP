@@ -153,6 +153,7 @@ return [
         'products.show' => 'Tampilkan',
         'products.view_prices' => 'Lihat Harga',
         'products.manage_cross_business_prices' => 'Kelola Harga Lintas Bisnis',
+        'products.convert_existing_stock_to_serialized' => 'Konversi Stok ke Serial Number',
         'products.barcodes.manage' => 'Kelola Barcode',
         'products.bundle.access' => 'Hak Akses Bundle',
         'products.bundle.create' => 'Buat Bundle',
