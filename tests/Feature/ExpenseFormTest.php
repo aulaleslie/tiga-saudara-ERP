@@ -311,4 +311,338 @@ class ExpenseFormTest extends TestCase
             ->call('save')
             ->assertDispatched('expenseCategoryCreated');
     }
+
+    public function test_expense_create_renders_without_exception_and_excludes_inactive_unselected_taxes(): void
+    {
+        $activeTax = Tax::create([
+            'name' => 'Active Tax 10%',
+            'value' => 10,
+            'is_active' => true,
+        ]);
+
+        $inactiveTax = Tax::create([
+            'name' => 'Legacy Tax 5%',
+            'value' => 5,
+            'is_active' => false,
+        ]);
+
+        $component = Livewire::test(ExpenseForm::class)
+            ->assertOk();
+
+        /** @var \Illuminate\Database\Eloquent\Collection $taxes */
+        $taxes = $component->viewData('taxes');
+        $taxIds = $taxes->pluck('id')->all();
+
+        $this->assertContains($activeTax->id, $taxIds);
+        $this->assertNotContains($inactiveTax->id, $taxIds);
+    }
+
+    public function test_expense_edit_retains_selected_inactive_tax_and_excludes_other_inactive_taxes(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Test Company',
+            'company_email' => 'test@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'test@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create([
+            'category_name' => 'Utilities',
+        ]);
+
+        $activeTax = Tax::create([
+            'name' => 'Active Tax 11%',
+            'value' => 11,
+            'is_active' => true,
+        ]);
+
+        $selectedInactiveTax = Tax::create([
+            'name' => 'Selected Inactive Tax 5%',
+            'value' => 5,
+            'is_active' => false,
+        ]);
+
+        $unselectedInactiveTax = Tax::create([
+            'name' => 'Unselected Inactive Tax 7%',
+            'value' => 7,
+            'is_active' => false,
+        ]);
+
+        $expense = Expense::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'date' => now()->format('Y-m-d'),
+            'amount' => 50000,
+        ]);
+
+        $expense->detailRows()->create([
+            'name' => 'Internet Service',
+            'tax_id' => $selectedInactiveTax->id,
+            'amount' => 50000,
+        ]);
+
+        $expenseForComponent = $expense->fresh();
+        $expenseForComponent->setRelation('detailRows', $expenseForComponent->detailRows()->get());
+        $expenseForComponent->setRelation('media', $expenseForComponent->media()->get());
+
+        $component = Livewire::test(ExpenseForm::class, ['expense' => $expenseForComponent])
+            ->assertOk()
+            ->assertSet('details.0.tax_id', $selectedInactiveTax->id)
+            ->assertSeeHtml('<option value="' . $selectedInactiveTax->id . '">' . $selectedInactiveTax->name . '</option>')
+            ->assertSeeHtml('<option value="' . $activeTax->id . '">' . $activeTax->name . '</option>')
+            ->assertDontSeeHtml('<option value="' . $unselectedInactiveTax->id . '">' . $unselectedInactiveTax->name . '</option>');
+
+        /** @var \Illuminate\Database\Eloquent\Collection $taxes */
+        $taxes = $component->viewData('taxes');
+        $taxIds = $taxes->pluck('id')->all();
+
+        $this->assertContains($activeTax->id, $taxIds);
+        $this->assertContains($selectedInactiveTax->id, $taxIds);
+        $this->assertNotContains($unselectedInactiveTax->id, $taxIds);
+    }
+
+    public function test_new_expense_rejects_crafted_inactive_tax_id(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'PKP Company',
+            'company_email' => 'pkp@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'pkp@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create(['category_name' => 'Office Supplies']);
+
+        $inactiveTax = Tax::create([
+            'name' => 'Inactive Tax 5%',
+            'value' => 5,
+            'is_active' => false,
+        ]);
+
+        Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('category_id', $category->id)
+            ->set('details', [
+                [
+                    'name' => 'Printer Ink',
+                    'tax_id' => $inactiveTax->id,
+                    'amount' => '100000',
+                ],
+            ])
+            ->call('saveDraft')
+            ->assertHasErrors(['details.0.tax_id']);
+
+        $this->assertDatabaseCount('expenses', 0);
+    }
+
+    public function test_edit_expense_rejects_assigning_unrelated_inactive_tax(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'PKP Company',
+            'company_email' => 'pkp@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'pkp@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create(['category_name' => 'Office Supplies']);
+
+        $inactiveTax = Tax::create([
+            'name' => 'Unrelated Inactive Tax 5%',
+            'value' => 5,
+            'is_active' => false,
+        ]);
+
+        $expense = Expense::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'date' => now()->format('Y-m-d'),
+            'amount' => 50000,
+        ]);
+
+        $detailRow = $expense->detailRows()->create([
+            'name' => 'Paper',
+            'tax_id' => null,
+            'amount' => 50000,
+        ]);
+
+        $expenseForComponent = $expense->fresh();
+        $expenseForComponent->setRelation('detailRows', $expenseForComponent->detailRows()->get());
+        $expenseForComponent->setRelation('media', $expenseForComponent->media()->get());
+
+        Livewire::test(ExpenseForm::class, ['expense' => $expenseForComponent])
+            ->set('details', [
+                [
+                    'id' => $detailRow->id,
+                    'name' => 'Paper',
+                    'tax_id' => $inactiveTax->id,
+                    'amount' => '50000',
+                ],
+            ])
+            ->call('saveDraft')
+            ->assertHasErrors(['details.0.tax_id']);
+    }
+
+    public function test_edit_expense_permits_unchanged_persisted_inactive_tax(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'PKP Company',
+            'company_email' => 'pkp@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'pkp@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create(['category_name' => 'Office Supplies']);
+
+        $inactiveTax = Tax::create([
+            'name' => 'Historical Inactive Tax 5%',
+            'value' => 5,
+            'is_active' => false,
+        ]);
+
+        $expense = Expense::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'date' => now()->format('Y-m-d'),
+            'amount' => 52500,
+        ]);
+
+        $detailRow = $expense->detailRows()->create([
+            'name' => 'Historical Ink',
+            'tax_id' => $inactiveTax->id,
+            'amount' => 50000,
+        ]);
+
+        $expenseForComponent = $expense->fresh();
+        $expenseForComponent->setRelation('detailRows', $expenseForComponent->detailRows()->get());
+        $expenseForComponent->setRelation('media', $expenseForComponent->media()->get());
+
+        Livewire::test(ExpenseForm::class, ['expense' => $expenseForComponent])
+            ->set('details', [
+                [
+                    'id' => $detailRow->id,
+                    'name' => 'Historical Ink Refill',
+                    'tax_id' => $inactiveTax->id,
+                    'amount' => '50000',
+                ],
+            ])
+            ->call('saveDraft')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('expenses.index'));
+
+        $this->assertDatabaseHas('expense_details', [
+            'id' => $detailRow->id,
+            'tax_id' => $inactiveTax->id,
+        ]);
+    }
+
+    public function test_tax_deactivated_before_submission_is_rejected(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'PKP Company',
+            'company_email' => 'pkp@test.com',
+            'company_phone' => '1234',
+            'company_address' => 'Test',
+            'notification_email' => 'pkp@test.com',
+            'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+
+        $category = ExpenseCategory::create(['category_name' => 'Office Supplies']);
+
+        $tax = Tax::create([
+            'name' => 'Temporary Active Tax 10%',
+            'value' => 10,
+            'is_active' => true,
+        ]);
+
+        $testComponent = Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('category_id', $category->id)
+            ->set('details', [
+                [
+                    'name' => 'New Paper',
+                    'tax_id' => $tax->id,
+                    'amount' => '50000',
+                ],
+            ]);
+
+        // Tax is deactivated right before submission
+        $tax->update(['is_active' => false]);
+
+        $testComponent->call('saveDraft')
+            ->assertHasErrors(['details.0.tax_id']);
+
+        $this->assertDatabaseCount('expenses', 0);
+    }
 }

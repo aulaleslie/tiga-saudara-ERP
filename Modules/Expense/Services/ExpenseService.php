@@ -80,37 +80,6 @@ class ExpenseService
             throw ValidationException::withMessages(['details' => 'Detail pengeluaran tidak boleh kosong.']);
         }
 
-        $taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
-        $isTaxIncluded = $isPkp ? (bool) ($data['is_tax_included'] ?? false) : false;
-
-        foreach ($details as $index => $row) {
-            $amount = floatval($row['amount']);
-            if ($amount <= 0) {
-                throw ValidationException::withMessages(["details.{$index}.amount" => 'Nominal harus lebih besar dari nol.']);
-            }
-
-            $taxId = $isPkp ? ($row['tax_id'] ?? null) : null;
-            $taxId = empty($taxId) ? null : (int) $taxId;
-
-            $normalizedDetails[] = [
-                'id' => $row['id'] ?? null,
-                'name' => $row['name'],
-                'amount' => $amount,
-                'tax_id' => $taxId,
-            ];
-
-            // Add base amount
-            $totalAmount += $amount;
-
-            // Add tax if not included
-            if (!$isTaxIncluded && $taxId && isset($taxRates[$taxId])) {
-                $taxRate = $taxRates[$taxId];
-                if ($taxRate > 0) {
-                    $totalAmount += ($amount * $taxRate) / 100;
-                }
-            }
-        }
-
         $status = $data['status'] ?? Expense::STATUS_DRAFT;
 
         if (in_array($status, [Expense::STATUS_APPROVED, Expense::STATUS_REJECTED]) && \Illuminate\Support\Facades\Gate::denies('expenses.approval')) {
@@ -122,10 +91,7 @@ class ExpenseService
             $status = Expense::STATUS_DRAFT;
         }
 
-        // Generate details summary for legacy column
-        $detailsSummary = collect($normalizedDetails)->pluck('name')->implode(', ');
-
-        $result = DB::transaction(function () use ($data, $expense, $settingId, $normalizedDetails, $totalAmount, $status, $detailsSummary, $isTaxIncluded, $supplierId, $tagIds) {
+        $result = DB::transaction(function () use ($data, $expense, $settingId, $details, $isPkp, $status, $supplierId, $tagIds) {
             if ($expense) {
                 $this->verifySettingOwnership($expense);
 
@@ -133,7 +99,80 @@ class ExpenseService
                 if (in_array($expense->status, [Expense::STATUS_SUBMITTED, Expense::STATUS_APPROVED])) {
                     abort(403, 'Pengeluaran yang sudah diajukan atau disetujui tidak dapat diubah.');
                 }
+            }
 
+            // Lock referenced tax rows for update
+            $referencedTaxIds = array_values(array_unique(array_filter(
+                array_map(fn ($r) => $isPkp ? (empty($r['tax_id'] ?? null) ? null : (int) $r['tax_id']) : null, $details),
+                fn ($id) => !is_null($id)
+            )));
+
+            $taxRates = [];
+            $activeTaxIds = [];
+            if (!empty($referencedTaxIds)) {
+                $taxModels = Tax::whereIn('id', $referencedTaxIds)->lockForUpdate()->get();
+                foreach ($taxModels as $taxModel) {
+                    $taxRates[$taxModel->id] = (float) $taxModel->value;
+                    if ($taxModel->is_active) {
+                        $activeTaxIds[] = $taxModel->id;
+                    }
+                }
+            }
+
+            // Lock existing detail rows for update if editing
+            $persistedRowTaxes = [];
+            if ($expense && $expense->exists) {
+                $persistedRowTaxes = $expense->detailRows()
+                    ->lockForUpdate()
+                    ->whereNotNull('tax_id')
+                    ->pluck('tax_id', 'id')
+                    ->all();
+            }
+
+            // Validate details and compute totals inside transaction
+            $isTaxIncluded = $isPkp ? (bool) ($data['is_tax_included'] ?? false) : false;
+            $normalizedDetails = [];
+            $totalAmount = 0;
+
+            foreach ($details as $index => $row) {
+                $amount = floatval($row['amount']);
+                if ($amount <= 0) {
+                    throw ValidationException::withMessages(["details.{$index}.amount" => 'Nominal harus lebih besar dari nol.']);
+                }
+
+                $taxId = $isPkp ? ($row['tax_id'] ?? null) : null;
+                $taxId = empty($taxId) ? null : (int) $taxId;
+
+                if ($taxId) {
+                    $rowId = !empty($row['id']) ? (int) $row['id'] : null;
+                    $isPersistedSameTax = $rowId && isset($persistedRowTaxes[$rowId]) && ((int) $persistedRowTaxes[$rowId] === $taxId);
+                    $isActiveTax = in_array($taxId, $activeTaxIds, true);
+
+                    if (!$isActiveTax && !$isPersistedSameTax) {
+                        throw ValidationException::withMessages(["details.{$index}.tax_id" => 'Pajak yang dipilih tidak aktif atau tidak valid.']);
+                    }
+                }
+
+                $normalizedDetails[] = [
+                    'id' => $row['id'] ?? null,
+                    'name' => $row['name'],
+                    'amount' => $amount,
+                    'tax_id' => $taxId,
+                ];
+
+                $totalAmount += $amount;
+
+                if (!$isTaxIncluded && $taxId && isset($taxRates[$taxId])) {
+                    $taxRate = $taxRates[$taxId];
+                    if ($taxRate > 0) {
+                        $totalAmount += ($amount * $taxRate) / 100;
+                    }
+                }
+            }
+
+            $detailsSummary = collect($normalizedDetails)->pluck('name')->implode(', ');
+
+            if ($expense) {
                 $expense->update([
                     'date' => $data['date'],
                     'category_id' => $data['category_id'],

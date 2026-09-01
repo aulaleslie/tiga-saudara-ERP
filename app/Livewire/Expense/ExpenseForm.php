@@ -51,7 +51,8 @@ class ExpenseForm extends Component
         $this->is_pkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
         if ($this->is_pkp) {
-            $this->default_tax_id = Tax::where('is_default', true)->value('id') ?? Tax::first()?->id;
+            $this->default_tax_id = Tax::where('is_active', true)->where('is_default', true)->value('id')
+                ?? Tax::where('is_active', true)->first()?->id;
         }
 
         if ($expense && $expense->exists) {
@@ -291,10 +292,26 @@ class ExpenseForm extends Component
 
     public function render()
     {
+        $retainedTaxIds = [];
+        if ($this->expenseId) {
+            $retainedTaxIds = \Modules\Expense\Entities\ExpenseDetail::query()
+                ->where('expense_id', $this->expenseId)
+                ->whereNotNull('tax_id')
+                ->pluck('tax_id')
+                ->unique()
+                ->all();
+        }
+
         return view('livewire.expense.expense-form', [
             'categories' => ExpenseCategory::all(),
-            'taxes' => Tax::where('is_active', true)
-                ->when($this->tax_id, fn($q) => $q->orWhere('id', $this->tax_id))
+            'taxes' => Tax::query()
+                ->where(function ($query) use ($retainedTaxIds) {
+                    $query->where('is_active', true);
+
+                    if (!empty($retainedTaxIds)) {
+                        $query->orWhereIn('id', $retainedTaxIds);
+                    }
+                })
                 ->get(),
         ]);
     }
