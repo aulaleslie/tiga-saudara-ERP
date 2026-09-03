@@ -80,7 +80,9 @@
                                     <thead class="thead-dark">
                                     <tr>
                                         <th>Produk</th>
+                                        <th>Dipesan / Sisa</th>
                                         <th>Jumlah Diterima</th>
+                                        <th>Satuan</th>
                                         <th>Serial Number</th>
                                         <th>Catatan</th>
                                     </tr>
@@ -93,15 +95,68 @@
                                                 <br>
                                                 <span class="badge badge-success">{{ $detail->product_code }}</span>
                                             </td>
+                                            @php
+                                                $factor = (float) ($detail->conversion_factor_value ?? 1);
+                                                $orderedUnit = $detail->effective_unit_name;
+                                                $baseUnit = $detail->effective_base_unit_name;
+                                                $hasConversion = $factor > 1.0;
+                                                // Remaining is canonical; show it in the ordered unit too when they differ.
+                                                $remainingBase = (float) ($detail->quantity_remaining ?? 0);
+                                                $remainingOrdered = $factor > 0 ? $remainingBase / $factor : $remainingBase;
+                                            @endphp
+                                            <td>
+                                                <div>
+                                                    Dipesan:
+                                                    <strong>{{ rtrim(rtrim(number_format((float) $detail->effective_entered_quantity, 3, '.', ''), '0'), '.') }}</strong>
+                                                    {{ $orderedUnit }}
+                                                    @if ($hasConversion)
+                                                        <br><small class="text-muted">
+                                                            = {{ rtrim(rtrim(number_format((float) $detail->quantity, 3, '.', ''), '0'), '.') }} {{ $baseUnit }}
+                                                        </small>
+                                                    @endif
+                                                </div>
+                                                <div class="mt-1">
+                                                    Sisa:
+                                                    <span class="badge badge-warning">
+                                                        {{ rtrim(rtrim(number_format($remainingBase, 3, '.', ''), '0'), '.') }} {{ $baseUnit }}
+                                                    </span>
+                                                    @if ($hasConversion)
+                                                        <br><small class="text-muted">
+                                                            ≈ {{ rtrim(rtrim(number_format($remainingOrdered, 3, '.', ''), '0'), '.') }} {{ $orderedUnit }}
+                                                        </small>
+                                                    @endif
+                                                </div>
+                                            </td>
                                             <td>
                                                 <input type="number" name="received[{{ $detail->id }}]"
                                                        class="form-control"
                                                        min="0"
+                                                       step="0.001"
                                                        value="{{ old("received.$detail->id", 0) }}"
                                                        data-require-serial="{{ $detail->product->serial_number_required ? 'true' : 'false' }}"
                                                        data-detail-id="{{ $detail->id }}"
+                                                       data-conversion-factor="{{ $factor }}"
+                                                       data-remaining-base="{{ $remainingBase }}"
                                                        id="received-{{ $detail->id }}"
                                                        {{ $detail->product->serial_number_required ? 'readonly' : '' }}>
+                                            </td>
+                                            <td>
+                                                {{-- Only the ordered unit and the base unit may be received in. --}}
+                                                @if ($hasConversion)
+                                                    <select name="received_unit[{{ $detail->id }}]"
+                                                            class="form-control received-unit-select"
+                                                            data-detail-id="{{ $detail->id }}">
+                                                        <option value="ordered" {{ old("received_unit.$detail->id", 'ordered') === 'ordered' ? 'selected' : '' }}>
+                                                            {{ $orderedUnit }}
+                                                        </option>
+                                                        <option value="base" {{ old("received_unit.$detail->id") === 'base' ? 'selected' : '' }}>
+                                                            {{ $baseUnit }}
+                                                        </option>
+                                                    </select>
+                                                @else
+                                                    <input type="hidden" name="received_unit[{{ $detail->id }}]" value="base">
+                                                    <span class="text-muted">{{ $baseUnit }}</span>
+                                                @endif
                                             </td>
                                             <td>
                                                 @if ($detail->product->serial_number_required)
@@ -189,9 +244,11 @@
         });
 
         function validateForm(btn) {
+            // parseFloat, not parseInt: a fractional receipt such as 0.5 would
+            // otherwise truncate to 0 and be reported as an empty submission.
             let totalReceived = 0;
             document.querySelectorAll('input[name^="received["]').forEach(input => {
-                totalReceived += parseInt(input.value) || 0;
+                totalReceived += parseFloat(input.value) || 0;
             });
 
             if (totalReceived <= 0) {
@@ -357,6 +414,25 @@
             const qtyInput = document.getElementById(`received-${detailId}`);
             if (qtyInput) {
                 qtyInput.value = count;
+                // A serial count is a count of base units, so this row must be
+                // submitted in the base unit; otherwise the server would scale it
+                // by the conversion factor and receive far too much.
+                const unitSelect = document.querySelector(`select[name="received_unit[${detailId}]"]`);
+                if (unitSelect) {
+                    unitSelect.value = 'base';
+                    unitSelect.disabled = true;
+                    // A disabled select submits nothing; mirror the value so the
+                    // server still receives an explicit base-unit choice.
+                    let mirror = document.getElementById(`received-unit-mirror-${detailId}`);
+                    if (!mirror) {
+                        mirror = document.createElement('input');
+                        mirror.type = 'hidden';
+                        mirror.id = `received-unit-mirror-${detailId}`;
+                        mirror.name = `received_unit[${detailId}]`;
+                        unitSelect.parentNode.appendChild(mirror);
+                    }
+                    mirror.value = 'base';
+                }
                 // Dispatch input event in case other listeners are watching it
                 qtyInput.dispatchEvent(new Event('input', { bubbles: true }));
             }

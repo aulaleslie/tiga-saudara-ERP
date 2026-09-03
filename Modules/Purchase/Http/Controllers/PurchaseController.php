@@ -36,6 +36,7 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Purchase\Exceptions\ReceivingApprovalConflict;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 use Modules\Purchase\Services\PurchaseNormalizer;
@@ -164,7 +165,7 @@ class PurchaseController extends Controller
                 //  - the row is forced to recalculate server-side.
                 //
                 // Manual pricing is not offered here, so a client cannot claim
-                // manual authority to bypass rounding either.
+                // manual authority to bypass server-side recalculation either.
                 unset(
                     $cartItem[$flag],
                     $cartItem['sub_total'],
@@ -319,6 +320,9 @@ class PurchaseController extends Controller
             'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
             'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
+            'purchaseDetails.purchaseUnit',
+            'purchaseDetails.product.baseUnit',
+            'purchaseDetails.product.unit',
         ]);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
@@ -729,10 +733,16 @@ class PurchaseController extends Controller
         $currentSettingId = session('setting_id');
 
 
-        // Calculate quantity_received for each purchase detail
+        // Received-to-date and remaining, both canonical. Only APPROVED notes count:
+        // summing every note regardless of status would let a pending or rejected
+        // receipt overstate progress and hide genuinely outstanding quantity.
+        $purchase->loadMissing('purchaseDetails.product');
+        $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+
         foreach ($purchase->purchaseDetails as $detail) {
-            $detail->quantity_received = ReceivedNoteDetail::where('po_detail_id', $detail->id)
-                ->sum('quantity_received');
+            $detail->quantity_received = $quantityService->approvedReceivedCanonical($detail)->toFloat();
+            $detail->quantity_remaining = $quantityService->remainingCanonical($detail)->toFloat();
+            $detail->conversion_factor_value = $quantityService->factorFor($detail)->toFloat();
         }
 
         return view('purchase::receive', compact('purchase'));
@@ -745,17 +755,42 @@ class PurchaseController extends Controller
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         PurchaseSourceGuard::assertReceivingAllowed($purchase);
 
+        // The set of detail ids that legitimately belong to this Purchase. Every
+        // submitted key is checked against it: a quantity keyed to another
+        // Purchase's detail must not satisfy the "at least one item" rule and then
+        // silently produce an empty receipt.
+        $ownDetailIds = $purchase->purchaseDetails()->pluck('id')->map(fn ($id) => (string) $id)->all();
+
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'received' => [
+                // Required: an omitted array would otherwise skip the closure below
+                // entirely and create a receipt with no lines.
+                'required',
                 'array',
-                function ($attribute, $value, $fail) {
-                    $total = collect($value)->sum();
+                function ($attribute, $value, $fail) use ($ownDetailIds) {
+                    $unknown = array_diff(array_map('strval', array_keys($value)), $ownDetailIds);
+                    if (!empty($unknown)) {
+                        $fail('Terdapat baris penerimaan yang tidak termasuk dalam pembelian ini.');
+                        return;
+                    }
+
+                    // Count only quantities on this Purchase's own lines.
+                    $total = collect($value)
+                        ->filter(fn ($qty, $detailId) => in_array((string) $detailId, $ownDetailIds, true))
+                        ->sum();
+
                     if ($total <= 0) {
                         $fail('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
                     }
                 }
             ],
-            'received.*' => 'nullable|integer|min:0',
+            // Decimal quantities: a conversion-unit receipt is not necessarily a
+            // whole number of base units, so integer validation would reject valid
+            // input. Precision and canonical representability are enforced below.
+            'received.*' => 'nullable|numeric|min:0',
+            // Which unit each row's quantity is expressed in. Only the ordered unit
+            // and the base unit are offered; anything else is rejected.
+            'received_unit.*' => 'nullable|in:ordered,base',
             'notes.*' => 'nullable|string|max:255',
             'serial_numbers.*.*' => ['nullable', 'string', 'max:255'],
             'external_delivery_number' => [
@@ -802,8 +837,13 @@ class PurchaseController extends Controller
         $checkedSerials = []; // To track duplicates within the request itself
 
         // Get relevant purchase details to map detail_id -> product_id
+        // Scoped to this Purchase: a serial keyed to another Purchase's detail must
+        // not be validated (or later persisted) as though it belonged here.
         $inputtedDetailIds = array_keys($data['serial_numbers'] ?? []);
-        $details = PurchaseDetail::whereIn('id', $inputtedDetailIds)->get()->keyBy('id');
+        $details = PurchaseDetail::whereIn('id', $inputtedDetailIds)
+            ->where('purchase_id', $purchase->id)
+            ->get()
+            ->keyBy('id');
 
         foreach ($data['serial_numbers'] ?? [] as $detailId => $serials) {
             $detail = $details->get($detailId);
@@ -860,29 +900,75 @@ class PurchaseController extends Controller
                     ->notifyApprovalNeeded($receivedNote, 'Penerimaan ' . $purchase->reference, $purchase->setting_id, $data['location_id']);
 
                 // Get purchase details for validation
-                $purchaseDetails = $purchase->purchaseDetails()->get();
+                $purchaseDetails = $purchase->purchaseDetails()->with('product')->get();
+
+                $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+                $createdLineCount = 0;
 
                 foreach ($purchaseDetails as $detail) {
-                    $receivedQuantity = $data['received'][$detail->id] ?? 0;
+                    $enteredQuantity = $data['received'][$detail->id] ?? 0;
 
-                    if ($receivedQuantity > 0) {
-                        // Collect pending serial numbers for this detail
-                        $pendingSerials = null;
-                        if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
-                            $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id]));
-                        }
-
-                        // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
-                        ReceivedNoteDetail::create([
-                            'received_note_id' => $receivedNote->id,
-                            'quantity_received' => $receivedQuantity,
-                            'po_detail_id' => $detail->id,
-                            'pending_serial_numbers' => $pendingSerials,
-                            'note' => $data['notes'][$detail->id] ?? null,
-                        ]);
-
-                        // Serial numbers will be committed to product_serial_numbers table on approval
+                    if ((float) $enteredQuantity <= 0) {
+                        continue;
                     }
+
+                    // Normalize to base units against the line's own snapshot factor.
+                    // Only the canonical quantity is persisted; the entered unit is a
+                    // presentation choice and never reaches storage.
+                    $unitMode = $data['received_unit'][$detail->id] ?? 'ordered';
+                    $canonicalBd = $quantityService->toCanonical($detail, $enteredQuantity, $unitMode);
+
+                    // A serialized product must resolve to whole base units, each of
+                    // which carries exactly one serial.
+                    $quantityService->assertWholeCanonicalForSerialized($detail, $canonicalBd);
+
+                    // Over-receiving is rejected at submission as well as approval.
+                    // The purchase row is already locked above, so the remaining
+                    // quantity read here cannot be raced by a concurrent approval.
+                    if ($quantityService->wouldOverReceive($detail, $canonicalBd)) {
+                        $remaining = $quantityService->remainingCanonical($detail)->toFloat();
+                        throw new \Exception(
+                            "Jumlah penerimaan untuk {$detail->product_name} melebihi sisa pesanan ({$remaining} {$detail->effective_base_unit_name})."
+                        );
+                    }
+
+                    // Collect pending serial numbers for this detail
+                    $pendingSerials = null;
+                    if ($detail->product->serial_number_required) {
+                        $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id] ?? []));
+
+                        // Exactly one unique serial per received base unit.
+                        $expected = (int) $canonicalBd->toFloat();
+                        if (count($pendingSerials) !== $expected) {
+                            throw new \Exception(
+                                "Produk {$detail->product_name} memerlukan tepat {$expected} serial number, diterima " . count($pendingSerials) . '.'
+                            );
+                        }
+                        if (count(array_unique($pendingSerials)) !== count($pendingSerials)) {
+                            throw new \Exception("Serial number untuk {$detail->product_name} tidak boleh digandakan.");
+                        }
+                    }
+
+                    // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
+                    ReceivedNoteDetail::create([
+                        'received_note_id' => $receivedNote->id,
+                        'quantity_received' => $canonicalBd->toFloat(),
+                        'po_detail_id' => $detail->id,
+                        'pending_serial_numbers' => $pendingSerials,
+                        'note' => $data['notes'][$detail->id] ?? null,
+                    ]);
+
+                    $createdLineCount++;
+
+                    // Serial numbers will be committed to product_serial_numbers table on approval
+                }
+
+                // Defence in depth behind the request validation: never commit a
+                // ReceivedNote with no lines. Reaching this point means every
+                // submitted quantity resolved to zero or to a line outside this
+                // Purchase, so the whole submission is rolled back.
+                if ($createdLineCount === 0) {
+                    throw new \Exception('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
                 }
 
                 // Stock increment and purchase status update are now done on approval
@@ -1000,68 +1086,94 @@ class PurchaseController extends Controller
                     return redirect()->back();
                 }
 
-                // Validate for over-receiving before approval
-                $receivedNote->load('receivedNoteDetails.purchaseDetail');
-                
-                // Get already approved quantities for this purchase
-                $approvedQuantities = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
-                    $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
-                })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
-                  ->groupBy('po_detail_id')
-                  ->pluck('total_received', 'po_detail_id');
-
-                $overReceivingErrors = [];
-                
-                foreach ($receivedNote->receivedNoteDetails as $detail) {
-                    $purchaseDetail = $detail->purchaseDetail;
-                    if (!$purchaseDetail) {
-                        continue;
-                    }
-                    
-                    $orderedQuantity = $purchaseDetail->quantity;
-                    $alreadyReceived = $approvedQuantities[$purchaseDetail->id] ?? 0;
-                    $pendingQuantity = $detail->quantity_received;
-                    $totalAfterApproval = $alreadyReceived + $pendingQuantity;
-                    
-                    if ($totalAfterApproval > $orderedQuantity) {
-                        $overReceivingErrors[] = [
-                            'product_name' => $purchaseDetail->product_name,
-                            'product_code' => $purchaseDetail->product_code,
-                            'ordered_quantity' => $orderedQuantity,
-                            'already_received' => $alreadyReceived,
-                            'pending_quantity' => $pendingQuantity,
-                            'excess' => $totalAfterApproval - $orderedQuantity,
-                        ];
-                    }
-                }
-                
-                if (!empty($overReceivingErrors)) {
-                    if (request()->ajax() || request()->wantsJson()) {
-                        return response()->json([
-                            'success' => false,
-                            'error' => 'over_receiving',
-                            'message' => 'Jumlah penerimaan melebihi jumlah pesanan',
-                            'details' => $overReceivingErrors,
-                            'received_note_id' => $receivedNote->id,
-                        ], 422);
-                    }
-                    // Fallback for non-AJAX requests
-                    toast('Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.', 'error');
-                    return redirect()->back();
-                }
-
+                try {
                 DB::transaction(function () use ($receivedNote) {
-                    $receivedNote->lockForUpdate();
-                    $purchase = $receivedNote->purchase;
+                    // Take the row lock with an executed query. `$model->lockForUpdate()`
+                    // only returns a builder, so the previous call locked nothing.
+                    $receivedNote = ReceivedNote::query()
+                        ->where('id', $receivedNote->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    // Re-check pending status under the row lock: a concurrent approval
+                    // may have committed between the pre-flight check and this point.
+                    if (!$receivedNote->isPending()) {
+                        throw new ReceivingApprovalConflict('already_processed', 'Penerimaan ini sudah diproses sebelumnya.');
+                    }
 
                     // Revalidate purchase status under lock
                     $purchase = Purchase::query()
-                        ->where('id', $purchase->id)
+                        ->where('id', $receivedNote->po_id)
                         ->lockForUpdate()
                         ->firstOrFail();
 
                     if ($purchase->status === Purchase::STATUS_RECEIVED) {
                         throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
+                    }
+
+                    // Over-receipt is decided HERE, inside the transaction and after the
+                    // row locks, so the approved totals it reads cannot change before the
+                    // stock posting below commits. The cache lock outside is only an
+                    // optimization: its lease can expire mid-approval, so it cannot be
+                    // relied on for this invariant.
+                    //
+                    // Quantities are decimal and can come from conversion factors, so
+                    // every comparison runs through BigDecimal: float arithmetic would
+                    // let 0.001 + 0.063 leave 0.93599999999999994 and wrongly reject a
+                    // legitimate final receipt of 0.936.
+                    $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
+
+                    // Lock the Purchase detail rows this note touches, so a concurrent
+                    // approval against the same lines serializes behind us.
+                    $lockedDetailIds = $receivedNote->receivedNoteDetails
+                        ->pluck('po_detail_id')
+                        ->filter()
+                        ->unique()
+                        ->values();
+                    if ($lockedDetailIds->isNotEmpty()) {
+                        PurchaseDetail::query()
+                            ->whereIn('id', $lockedDetailIds)
+                            ->lockForUpdate()
+                            ->get();
+                    }
+
+                    $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+                    $overReceivingErrors = [];
+
+                    foreach ($receivedNote->receivedNoteDetails as $detail) {
+                        $purchaseDetail = $detail->purchaseDetail;
+                        if (!$purchaseDetail) {
+                            continue;
+                        }
+
+                        // This note is still PENDING, so it is not part of the approved
+                        // total; excluding it by id keeps the check correct even if the
+                        // status changed underneath us.
+                        $alreadyReceivedBd = $quantityService->approvedReceivedCanonical($purchaseDetail, $receivedNote->id);
+                        $orderedBd = $quantityService->orderedCanonical($purchaseDetail);
+                        $pendingBd = \Brick\Math\BigDecimal::of((string) $detail->quantity_received);
+                        $totalAfterApprovalBd = $alreadyReceivedBd->plus($pendingBd);
+
+                        if ($totalAfterApprovalBd->compareTo($orderedBd) > 0) {
+                            $overReceivingErrors[] = [
+                                'product_name' => $purchaseDetail->product_name,
+                                'product_code' => $purchaseDetail->product_code,
+                                'ordered_quantity' => $orderedBd->toFloat(),
+                                'already_received' => $alreadyReceivedBd->toFloat(),
+                                'pending_quantity' => $pendingBd->toFloat(),
+                                'excess' => $totalAfterApprovalBd->minus($orderedBd)->toFloat(),
+                            ];
+                        }
+                    }
+
+                    if (!empty($overReceivingErrors)) {
+                        // Abort the transaction so nothing is posted, carrying the
+                        // detail out to the caller for rendering.
+                        throw new ReceivingApprovalConflict(
+                            'over_receiving',
+                            'Jumlah penerimaan melebihi jumlah pesanan',
+                            $overReceivingErrors
+                        );
                     }
 
                     $receivingLocation = Location::query()->find($receivedNote->location_id);
@@ -1266,18 +1378,18 @@ class PurchaseController extends Controller
                     app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
                     app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($receivedNote);
 
-                    // Calculate and update purchase status based on all APPROVED receivings
-                    $purchaseDetails = $purchase->purchaseDetails;
-                    $approvedReceiveds = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
-                        $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
-                    })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
-                      ->groupBy('po_detail_id')
-                      ->pluck('total_received', 'po_detail_id');
-
+                    // Calculate and update purchase status based on all APPROVED
+                    // receivings. The comparison runs through BigDecimal for the same
+                    // reason as the over-receipt check above: a PHP `<` would coerce
+                    // the decimal operands to float, so a line received in parts
+                    // (0.001 + 0.063 + 0.936 = exactly 1.000) could compare as short
+                    // of its ordered 1.000 and leave the Purchase stuck PARTIALLY.
                     $allFullyReceived = true;
-                    foreach ($purchaseDetails as $detail) {
-                        $totalReceived = $approvedReceiveds[$detail->id] ?? 0;
-                        if ($totalReceived < $detail->quantity) {
+                    foreach ($purchase->purchaseDetails()->get() as $detail) {
+                        $receivedBd = $quantityService->approvedReceivedCanonical($detail);
+                        $orderedBd = $quantityService->orderedCanonical($detail);
+
+                        if ($receivedBd->compareTo($orderedBd) < 0) {
                             $allFullyReceived = false;
                             break;
                         }
@@ -1286,6 +1398,30 @@ class PurchaseController extends Controller
                     $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
                     $purchase->update(['status' => $status]);
                 });
+                } catch (ReceivingApprovalConflict $conflict) {
+                    // The transaction has already rolled back; nothing was posted.
+                    if (request()->ajax() || request()->wantsJson()) {
+                        $payload = [
+                            'success' => false,
+                            'error' => $conflict->errorCode,
+                            'message' => $conflict->getMessage(),
+                        ];
+                        if ($conflict->errorCode === 'over_receiving') {
+                            $payload['details'] = $conflict->details;
+                            $payload['received_note_id'] = $receivedNote->id;
+                        }
+
+                        return response()->json($payload, 422);
+                    }
+
+                    toast(
+                        $conflict->errorCode === 'over_receiving'
+                            ? 'Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.'
+                            : $conflict->getMessage(),
+                        'error'
+                    );
+                    return redirect()->back();
+                }
 
                 if (request()->ajax() || request()->wantsJson()) {
                     return response()->json([

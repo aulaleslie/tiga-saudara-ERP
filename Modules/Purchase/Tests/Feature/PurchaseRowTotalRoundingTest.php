@@ -90,7 +90,7 @@ class PurchaseRowTotalRoundingTest extends TestCase
         ]);
     }
 
-    public function test_automatic_purchase_row_total_rounds_78999_96_to_79000(): void
+    public function test_automatic_purchase_row_total_is_exact_and_not_rounded_to_an_increment(): void
     {
         Cart::instance('purchase')->destroy();
 
@@ -106,13 +106,117 @@ class PurchaseRowTotalRoundingTest extends TestCase
                 'unit_price' => 71171.135,
             ]);
 
+        // The cart rounds DPP to the cent (71,171.14) and taxes that, giving
+        // 78,999.97. The configured increment of 100 would previously have pushed
+        // this to 79,000.00; the Purchase total is now kept exactly as computed.
         $cartItem = Cart::instance('purchase')->content()->first();
-        $this->assertEquals(79000.00, $cartItem->options->sub_total);
-        $this->assertEquals(71171.17, $cartItem->options->sub_total_before_tax);
-        $this->assertEquals(7828.83, $cartItem->options->product_tax_amount);
+        $this->assertEquals(78999.97, round($cartItem->options->sub_total, 2));
+        $this->assertEquals(71171.14, round($cartItem->options->sub_total_before_tax, 2));
+        $this->assertEquals(7828.83, round($cartItem->options->product_tax_amount, 2));
+        $this->assertEqualsWithDelta(
+            $cartItem->options->sub_total,
+            $cartItem->options->sub_total_before_tax + $cartItem->options->product_tax_amount,
+            0.01
+        );
     }
 
-    public function test_manual_unit_price_in_purchase_bypasses_rounding(): void
+    /**
+     * Neither an automatic nor a manually priced row applies increment rounding:
+     * the increment previously lifted the automatic row to 79,000 while the manual
+     * row bypassed it, a gap of ~Rp40. Both are now kept exact, and the only
+     * remaining difference is the one-cent DPP tax-order artifact.
+     */
+    public function test_neither_automatic_nor_manual_row_applies_increment_rounding(): void
+    {
+        Cart::instance('purchase')->destroy();
+
+        $comp = Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase'])
+            ->set('is_tax_included', false)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => 50,
+                'product_unit' => 'Pcs',
+                'price' => 71171.135,
+                'unit_price' => 71171.135,
+            ]);
+
+        $automaticTotal = round(Cart::instance('purchase')->content()->first()->options->sub_total, 2);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $comp->set('unit_price.' . $cartItem->rowId, 71171.135)
+            ->call('updatePrice', $cartItem->rowId, $this->product->id);
+
+        $manualTotal = round(Cart::instance('purchase')->content()->first()->options->sub_total, 2);
+
+        // The automatic row taxes a cent-rounded DPP (71,171.14 -> 78,999.97) while
+        // the manual row prices the submitted 71,171.135 directly (78,999.96). Both
+        // are exact -- neither is lifted to 79,000 by an increment -- and they differ
+        // only by that pre-existing one-cent DPP rounding order.
+        $this->assertEquals(78999.97, $automaticTotal);
+        $this->assertEquals(78999.96, $manualTotal);
+        $this->assertEqualsWithDelta($automaticTotal, $manualTotal, 0.01);
+    }
+
+    /**
+     * A Purchase orders new inventory, so its quantity must not be capped by stock
+     * on hand. The stock ceiling belongs to outbound carts (sale, purchase_return)
+     * only; applying it here would make a zero-stock product impossible to buy.
+     */
+    public function test_purchase_quantity_may_exceed_current_stock(): void
+    {
+        Cart::instance('purchase')->destroy();
+
+        $comp = Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase'])
+            ->set('is_tax_included', false)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                // Only 5 on hand, but 20 are being ordered.
+                'product_quantity' => 5,
+                'product_unit' => 'Pcs',
+                'price' => 71171.135,
+                'unit_price' => 71171.135,
+            ]);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+        $comp->call('updateQuantityDirect', $rowId, $this->product->id, 20);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $this->assertEquals(20.0, (float) $cartItem->qty, 'Purchase quantity must not be capped by stock on hand.');
+    }
+
+    /**
+     * The stock ceiling must remain in force for outbound carts.
+     */
+    public function test_purchase_return_quantity_is_still_capped_by_stock(): void
+    {
+        Cart::instance('purchase_return')->destroy();
+
+        $comp = Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase_return'])
+            ->set('is_tax_included', false)
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => 5,
+                'product_unit' => 'Pcs',
+                'price' => 71171.135,
+                'unit_price' => 71171.135,
+            ]);
+
+        $rowId = Cart::instance('purchase_return')->content()->first()->rowId;
+        $comp->call('updateQuantityDirect', $rowId, $this->product->id, 20);
+
+        $cartItem = Cart::instance('purchase_return')->content()->first();
+        $this->assertEquals(5.0, (float) $cartItem->qty, 'Outbound carts must stay capped at available stock.');
+
+        Cart::instance('purchase_return')->destroy();
+    }
+
+    public function test_manual_unit_price_in_purchase_keeps_its_exact_total(): void
     {
         Cart::instance('purchase')->destroy();
 
@@ -130,15 +234,16 @@ class PurchaseRowTotalRoundingTest extends TestCase
 
         $cartItem = Cart::instance('purchase')->content()->first();
 
-        $comp->set('unit_price.' . $this->product->id, 71171.135)
+        $comp->set('unit_price.' . $cartItem->rowId, 71171.135)
             ->call('updatePrice', $cartItem->rowId, $this->product->id);
 
         $cartItemUpdated = Cart::instance('purchase')->content()->first();
         $this->assertEquals('manual_unit_price', $cartItemUpdated->options->pricing_source);
+        // 71,171.135 * 1.11 = 78,999.96, kept exactly rather than lifted to 79,000.
         $this->assertEquals(78999.96, round($cartItemUpdated->options->sub_total, 2));
     }
 
-    public function test_purchase_edit_business_change_uses_target_business_rounding_increment(): void
+    public function test_purchase_edit_business_change_reprices_the_row_exactly(): void
     {
         $tax = Tax::first();
         $targetSetting = Setting::factory()->create([
@@ -183,9 +288,10 @@ class PurchaseRowTotalRoundingTest extends TestCase
             'last_purchase_price' => 71126.13,
         ]);
 
-        // Unit price ex-tax 71126.13 * 1.11 = 78,949.9943 raw subtotal
-        // Source setting (100 increment) rounds 78949.9943 -> 78900.00
-        // Target setting (50 increment) rounds 78949.9943 -> 78950.00
+        // Unit price ex-tax 71126.13 * 1.11 = 78,949.9943 raw subtotal. The row was
+        // stored as 78,900.00 under the old increment behavior; moving business
+        // reprices it, and Purchase now keeps the exact cent value rather than
+        // applying either business's configured increment.
         \Modules\Purchase\Entities\PurchaseDetail::create([
             'purchase_id' => $purchase->id,
             'product_id' => $this->product->id,
@@ -336,7 +442,7 @@ class PurchaseRowTotalRoundingTest extends TestCase
         $this->assertEquals(78900.00, $updatedPurchase->purchaseDetails->first()->sub_total);
     }
 
-    public function test_saving_an_untouched_draft_after_the_increment_changes_is_stable(): void
+    public function test_saving_an_untouched_draft_after_the_increment_setting_changes_is_stable(): void
     {
         $tax = Tax::first();
         $this->setting->update(['row_total_rounding_increment' => 50]);
@@ -503,13 +609,13 @@ class PurchaseRowTotalRoundingTest extends TestCase
         $this->assertEquals(78950.00, $normalized['sub_total']);
     }
 
-    public function test_normalizer_reconstructs_and_rounds_when_flag_is_true(): void
+    public function test_normalizer_reconstructs_exactly_when_flag_is_true(): void
     {
-        // Same supplied total, flag true: the backend reprices from unit price
-        // under the effective increment of 100, so 78999.96 -> 79000.
+        // Same supplied total, flag true: the backend reprices from the unit
+        // price and keeps the exact result rather than lifting it to 79,000.
         $normalized = $this->normalizeSingleRow(78950.00, true);
 
-        $this->assertEquals(79000.00, $normalized['sub_total']);
+        $this->assertEquals(78999.96, round((float) $normalized['sub_total'], 2));
     }
 
     /**
@@ -615,18 +721,18 @@ class PurchaseRowTotalRoundingTest extends TestCase
 
     public function test_request_cart_ignores_a_forged_total_when_the_flag_is_absent(): void
     {
-        // 71171.135 x 1.11 = 78999.96 -> rounds to 79000 under increment 100.
-        $this->assertEquals(79000.00, $this->storeWithForgedCart(null, 'PR-FORGE-A'));
+        // 71171.135 x 1.11 = 78999.96, persisted exactly; the forged total is discarded.
+        $this->assertEquals(78999.96, round($this->storeWithForgedCart(null, 'PR-FORGE-A'), 2));
     }
 
     public function test_request_cart_ignores_a_forged_total_when_the_flag_is_false(): void
     {
-        $this->assertEquals(79000.00, $this->storeWithForgedCart(false, 'PR-FORGE-B'));
+        $this->assertEquals(78999.96, round($this->storeWithForgedCart(false, 'PR-FORGE-B'), 2));
     }
 
     public function test_request_cart_ignores_a_forged_total_when_the_flag_is_true(): void
     {
-        $this->assertEquals(79000.00, $this->storeWithForgedCart(true, 'PR-FORGE-C'));
+        $this->assertEquals(78999.96, round($this->storeWithForgedCart(true, 'PR-FORGE-C'), 2));
     }
 
     public function test_tax_included_automatic_row_is_not_taxed_twice_on_persistence(): void
@@ -662,8 +768,8 @@ class PurchaseRowTotalRoundingTest extends TestCase
 
         $detail = $normalized['details'][0];
 
-        $this->assertEquals(79000.00, $detail['sub_total']);
-        $this->assertEquals($detail['sub_total'], round($detail['sub_total_before_tax'] + $detail['product_tax_amount'], 2));
+        $this->assertEquals(78999.96, round((float) $detail['sub_total'], 2));
+        $this->assertEqualsWithDelta($detail['sub_total'], $detail['sub_total_before_tax'] + $detail['product_tax_amount'], 0.01);
     }
 
     /**
@@ -691,27 +797,48 @@ class PurchaseRowTotalRoundingTest extends TestCase
         return Cart::instance('purchase')->content()->first();
     }
 
-    public function test_purchase_row_rounds_up_at_and_above_midpoint(): void
+    /**
+     * These two amounts previously straddled the increment midpoint and were
+     * pulled to 79,000.00 and 78,900.00. Purchase now keeps them exactly, and the
+     * configured increment is irrelevant regardless of its value.
+     *
+     * @dataProvider formerMidpointAmountProvider
+     */
+    public function test_purchase_row_keeps_exact_total_across_former_midpoints(float $amount): void
     {
         // Tax-included input: raw row total is the unit price itself (qty 1).
-        $this->assertEquals(79000.00, $this->addAutomaticRow(78950.00, true)->options->sub_total);
+        $this->assertEquals($amount, round((float) $this->addAutomaticRow($amount, true)->options->sub_total, 2));
     }
 
-    public function test_purchase_row_rounds_down_just_below_midpoint(): void
+    public static function formerMidpointAmountProvider(): array
     {
-        $this->assertEquals(78900.00, $this->addAutomaticRow(78949.99, true)->options->sub_total);
+        return [
+            'at midpoint' => [78950.00],
+            'just below midpoint' => [78949.99],
+        ];
     }
 
-    public function test_zero_increment_disables_purchase_rounding(): void
+    /**
+     * The increment setting still exists for Sales and POS. Purchase must ignore
+     * it whatever it is set to, so the total is identical across values.
+     */
+    public function test_purchase_row_total_is_independent_of_the_configured_increment(): void
     {
-        $this->setting->update(['row_total_rounding_increment' => 0]);
+        foreach ([0, 50, 100, 1000] as $increment) {
+            $this->setting->update(['row_total_rounding_increment' => $increment]);
+            Cart::instance('purchase')->destroy();
 
-        $cartItem = $this->addAutomaticRow(78950.00, true);
+            $cartItem = $this->addAutomaticRow(78950.00, true);
 
-        $this->assertEquals(78950.00, round((float) $cartItem->options->sub_total, 2));
+            $this->assertEquals(
+                78950.00,
+                round((float) $cartItem->options->sub_total, 2),
+                "Purchase total must ignore increment {$increment}."
+            );
+        }
     }
 
-    public function test_rounded_purchase_row_reconciles_dpp_plus_tax_tax_excluded(): void
+    public function test_exact_purchase_row_reconciles_dpp_plus_tax_tax_excluded(): void
     {
         $cartItem = $this->addAutomaticRow(71171.135, false);
 
@@ -719,11 +846,12 @@ class PurchaseRowTotalRoundingTest extends TestCase
         $dpp = (float) $cartItem->options->sub_total_before_tax;
         $tax = (float) $cartItem->options->product_tax_amount;
 
-        $this->assertEquals(79000.00, $total);
-        $this->assertEquals($total, round($dpp + $tax, 2));
+        // Kept exactly as computed rather than lifted to 79,000 by the increment.
+        $this->assertEquals(78999.97, round($total, 2));
+        $this->assertEqualsWithDelta($total, $dpp + $tax, 0.01);
     }
 
-    public function test_rounded_purchase_row_reconciles_dpp_plus_tax_tax_included(): void
+    public function test_exact_purchase_row_reconciles_dpp_plus_tax_tax_included(): void
     {
         $cartItem = $this->addAutomaticRow(78999.96, true);
 
@@ -731,8 +859,8 @@ class PurchaseRowTotalRoundingTest extends TestCase
         $dpp = (float) $cartItem->options->sub_total_before_tax;
         $tax = (float) $cartItem->options->product_tax_amount;
 
-        $this->assertEquals(79000.00, $total);
-        $this->assertEquals($total, round($dpp + $tax, 2));
+        $this->assertEquals(78999.96, round($total, 2));
+        $this->assertEqualsWithDelta($total, $dpp + $tax, 0.01);
     }
 
     public function test_pricing_source_persists_lowercase_and_survives_reload(): void

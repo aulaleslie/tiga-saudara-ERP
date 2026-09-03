@@ -33,24 +33,24 @@
 
 ## 5. Exact Purchase Totals Without Increment Rounding
 
-- [ ] 5.1 Remove Purchase cart reads and applications of `row_total_rounding_increment` while retaining ordinary currency precision and existing pricing-source behavior.
-- [ ] 5.2 Remove configured increment rounding from `PurchaseNormalizer` and client-built cart handling without altering tax, discount, shipping, manual price, or manual line-total semantics.
-- [ ] 5.3 Preserve persisted existing Purchase totals on load and ensure subsequent price-affecting interactions recalculate through existing authority rules without increment rounding.
-- [ ] 5.4 Replace Purchase increment-rounding expectations with focused exact-total tests for automatic base/conversion rows, taxes, discounts, quantity changes, manual unit price, manual line total, edit hydration, and business switching.
-- [ ] 5.5 Run focused existing Sales and POS row-rounding tests to prove their configured-increment behavior remains unchanged.
+- [x] 5.1 Remove Purchase cart reads and applications of `row_total_rounding_increment` while retaining ordinary currency precision and existing pricing-source behavior.
+- [x] 5.2 Remove configured increment rounding from `PurchaseNormalizer` and client-built cart handling without altering tax, discount, shipping, manual price, or manual line-total semantics.
+- [x] 5.3 Preserve persisted existing Purchase totals on load and ensure subsequent price-affecting interactions recalculate through existing authority rules without increment rounding.
+- [x] 5.4 Replace Purchase increment-rounding expectations with focused exact-total tests for automatic base/conversion rows, taxes, discounts, quantity changes, manual unit price, manual line total, edit hydration, and business switching.
+- [x] 5.5 Run focused existing Sales and POS row-rounding tests to prove their configured-increment behavior remains unchanged.
 
 ## 6. Conversion-Aware Receiving and Serials
 
-- [ ] 6.1 Update receiving presentation to default to the ordered unit, allow only the ordered or base unit, and show canonical equivalent and remaining canonical quantity.
-- [ ] 6.2 Normalize receiving submissions to base-unit decimals using Purchase snapshots, remove integer-only request/browser handling, and persist only canonical quantity on receiving details.
-- [ ] 6.3 Rework minimum, remaining, completion, and over-receiving checks to use decimal-safe canonical comparisons, including the existing locked approval recheck.
-- [ ] 6.4 Require whole canonical received quantities and exactly one unique valid serial per received base unit for serialized products.
-- [ ] 6.5 Verify approved receipt stock, tax/non-tax buckets, transaction history, rejection, reversal, and partial completion use the exact canonical quantity.
-- [ ] 6.6 Add focused receiving tests for ordered-unit and base-unit partial receipts, decimals, over-receiving and concurrency guards, rejection, completion, stock posting, and serialized conversion counts.
+- [x] 6.1 Update receiving presentation to default to the ordered unit, allow only the ordered or base unit, and show canonical equivalent and remaining canonical quantity.
+- [x] 6.2 Normalize receiving submissions to base-unit decimals using Purchase snapshots, remove integer-only request/browser handling, and persist only canonical quantity on receiving details.
+- [x] 6.3 Rework minimum, remaining, completion, and over-receiving checks to use decimal-safe canonical comparisons, including the existing locked approval recheck.
+- [x] 6.4 Require whole canonical received quantities and exactly one unique valid serial per received base unit for serialized products.
+- [x] 6.5 Verify approved receipt stock, tax/non-tax buckets, transaction history, rejection, reversal, and partial completion use the exact canonical quantity.
+- [x] 6.6 Add focused receiving tests for ordered-unit and base-unit partial receipts, decimals, over-receiving and concurrency guards, rejection, completion, stock posting, and serialized conversion counts.
 
 ## 7. Downstream Display and Compatibility
 
-- [ ] 7.1 Update Purchase show/print/export supplier-facing quantities to prefer entered snapshots and show canonical equivalents where operationally useful, with legacy fallback.
+- [x] 7.1 Update Purchase show/print/export supplier-facing quantities to prefer entered snapshots and show canonical equivalents where operationally useful, with legacy fallback.
 - [ ] 7.2 Audit Purchase return selection, eligibility, and valuation paths so quantities remain canonical while user-facing unit context is retained where applicable.
 - [ ] 7.3 Audit directly affected purchase costing, normalization/replay, inventory transaction, and Purchase report queries for base-quantity assumptions and prevent double conversion.
 - [ ] 7.4 Ensure Purchase duplication and import paths either carry validated unit intent or retain their existing base-unit fallback without trusting external conversion factors.

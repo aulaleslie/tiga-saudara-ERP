@@ -187,10 +187,22 @@
                                             @endif
                                         </td>
 
-                                        <td class="align-middle">{{ formatRupiah($item->price) }}</td>
+                                        <td class="align-middle">
+                                            {{ formatRupiah($item->effective_entered_unit_price) }}
+                                            @if(bccomp((string) $item->effective_conversion_factor, '1', 3) !== 0)
+                                                <div class="text-muted small mt-1">
+                                                    ({{ formatRupiah($item->price) }} / {{ $item->effective_base_unit_name }})
+                                                </div>
+                                            @endif
+                                        </td>
 
                                         <td class="align-middle">
-                                            {{ $item->quantity }}
+                                            {{ rtrim(rtrim(number_format($item->effective_entered_quantity, 3, '.', ''), '0'), '.') }} {{ $item->effective_unit_name }}
+                                            @if(bccomp((string) $item->effective_conversion_factor, '1', 3) !== 0)
+                                                <div class="text-muted small mt-1">
+                                                    = {{ $item->quantity }} {{ $item->effective_base_unit_name }}
+                                                </div>
+                                            @endif
                                             @php
                                                 $breakdown = calculateQuantityBreakdown($item->product_id, $item->quantity);
                                             @endphp
@@ -213,7 +225,12 @@
                                         </td>
 
                                         <td class="align-middle">
-                                            {{ formatRupiah($item->product_discount_amount) }}
+                                            {{ formatRupiah($item->effective_entered_product_discount_amount) }}
+                                            @if(bccomp((string) $item->effective_conversion_factor, '1', 3) !== 0)
+                                                <div class="text-muted small mt-1">
+                                                    ({{ formatRupiah($item->product_discount_amount) }} / {{ $item->effective_base_unit_name }})
+                                                </div>
+                                            @endif
                                         </td>
 
                                         @if($purchase->purchaseDetails->sum('product_tax_amount') > 0)

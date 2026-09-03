@@ -97,17 +97,17 @@
                     <br><span class="small">{{ $detail->product_code }}</span>
                 @endif
             </td>
-            <td class="text-center">{{ $detail->quantity }}</td>
+            <td class="text-center">{{ rtrim(rtrim(number_format($detail->effective_entered_quantity, 3, '.', ''), '0'), '.') }}</td>
             <td class="text-center">
-                {{ $detail->product->baseUnit->name ?? '-' }}
+                {{ $detail->effective_unit_name }}
             </td>
-            <td class="text-right">{{ number_format($detail->unit_price, 0, ',', '.') }}</td>
+            <td class="text-right">{{ number_format($detail->effective_entered_unit_price, 0, ',', '.') }}</td>
             <td class="text-right">
-                {{ $detail->unit_price > 0
-                    ? number_format(($detail->product_discount_amount / $detail->unit_price) * 100, 1)
+                {{ $detail->effective_entered_unit_price > 0
+                    ? number_format(($detail->effective_entered_product_discount_amount / $detail->effective_entered_unit_price) * 100, 1)
                     : '0.0' }}%
             </td>
-            <td class="text-right">{{ number_format($detail->product_discount_amount, 0, ',', '.') }}</td>
+            <td class="text-right">{{ number_format($detail->effective_entered_product_discount_amount, 0, ',', '.') }}</td>
             <td class="text-right">{{ number_format($detail->sub_total, 0, ',', '.') }}</td>
         </tr>
     @endforeach

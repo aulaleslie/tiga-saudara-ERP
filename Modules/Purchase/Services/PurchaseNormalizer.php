@@ -50,12 +50,6 @@ class PurchaseNormalizer
             }
         }
 
-        // Resolved once per call rather than once per row: a large document would
-        // otherwise issue one Setting query per detail line.
-        $settingIncrement = $settingId !== null
-            ? (float) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('row_total_rounding_increment') ?? 100.00)
-            : 100.00;
-
         // Whether the submitted prices already contain tax. Without this the
         // automatic branch would re-apply the tax rate to a tax-inclusive price.
         $isTaxIncluded = (bool) ($header['is_tax_included'] ?? false);
@@ -68,7 +62,6 @@ class PurchaseNormalizer
                 $detailInput,
                 $isPkp,
                 $settingId,
-                $settingIncrement,
                 $isTaxIncluded,
                 $trustedDetailsMap
             );
@@ -120,7 +113,6 @@ class PurchaseNormalizer
         mixed $detailInput,
         bool $isPkp,
         ?int $settingId = null,
-        float $settingIncrement = 100.00,
         bool $isTaxIncluded = false,
         array $trustedDetailsMap = []
     ): array {
@@ -289,7 +281,10 @@ class PurchaseNormalizer
                 $rawSubTotal = $isTaxIncluded
                     ? $rawNetUnitPrice * $quantity
                     : $rawNetUnitPrice * $quantity * (1 + $taxRate);
-                $roundedSubTotal = \App\Support\RowTotalRoundingCalculator::round($rawSubTotal, $settingIncrement);
+                // Purchase totals are exact: no configured rounding increment is
+                // applied, only ordinary two-decimal currency precision. Sales and
+                // POS keep their own increment behavior.
+                $roundedSubTotal = $this->roundMoney($rawSubTotal);
             }
 
             if ($taxRate > 0 && $roundedSubTotal > 0) {

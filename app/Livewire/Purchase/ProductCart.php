@@ -784,12 +784,16 @@ class ProductCart extends Component
 
         $qty = (float) ($this->quantity[$row_id] ?? $cart_item->qty);
 
-        // Max quantity check
-        $checkQty = $this->check_quantity[$row_id] ?? null;
-        if ($checkQty !== null && $qty > $checkQty) {
-            $this->quantity[$row_id] = $checkQty;
-            $qty = $checkQty;
-            session()->flash('message', 'Jumlah kuantitas tidak boleh melebihi stok yang tersedia!');
+        // Max quantity check. Only outbound carts are limited by stock on hand: a
+        // Purchase orders new inventory, so it must be able to exceed current stock
+        // (a zero-stock product could otherwise never be purchased at all).
+        if (in_array($this->cart_instance, ['sale', 'purchase_return'], true)) {
+            $checkQty = $this->check_quantity[$row_id] ?? null;
+            if ($checkQty !== null && $qty > $checkQty) {
+                $this->quantity[$row_id] = $checkQty;
+                $qty = $checkQty;
+                session()->flash('message', 'Jumlah kuantitas tidak boleh melebihi stok yang tersedia!');
+            }
         }
 
         $exactUnitPrice = $this->resolveExactUnitPrice($cart_item);
@@ -893,26 +897,12 @@ class ProductCart extends Component
 
         $raw_subtotal = round($subtotal_before_tax + $tax_amount, 2);
 
-        $isManuallyPriced = in_array($pricingSource, ['manual_unit_price', 'manual_line_total', 'manual']);
-        $settingIncrement = (float) (Setting::query()->whereKey((int) ($this->setting_id ?: session('setting_id')))->value('row_total_rounding_increment') ?? 100.00);
-
-        if (!$isManuallyPriced && $settingIncrement > 0) {
-            $rounded_subtotal = \App\Support\RowTotalRoundingCalculator::round($raw_subtotal, $settingIncrement);
-        } else {
-            $rounded_subtotal = $raw_subtotal;
-        }
-
-        if ($rounded_subtotal !== $raw_subtotal && $this->is_tax_included && $tax_id && isset($tax)) {
-            $price_ex_tax = $rounded_subtotal / (1 + $tax->value / 100);
-            $subtotal_before_tax = round($price_ex_tax, 2);
-            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
-        } elseif ($rounded_subtotal !== $raw_subtotal && !$this->is_tax_included && $tax_id && isset($tax)) {
-            $subtotal_before_tax = round($rounded_subtotal / (1 + $tax->value / 100), 2);
-            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
-        } elseif ($rounded_subtotal !== $raw_subtotal) {
-            $subtotal_before_tax = $rounded_subtotal;
-            $tax_amount = 0.0;
-        }
+        // Purchase row totals are exact: unlike Sales and POS, no configured
+        // `row_total_rounding_increment` is applied here. Ordinary two-decimal
+        // currency precision still applies, and the tax back-solving that
+        // previously reconciled an increment-adjusted total is unnecessary
+        // because the total is no longer moved off its computed value.
+        $rounded_subtotal = $raw_subtotal;
 
         // Return recalculated values
         $roundedSubtotalBeforeTax = round($subtotal_before_tax, 2);
