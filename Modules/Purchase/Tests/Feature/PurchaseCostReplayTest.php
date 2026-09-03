@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseCorrection;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -17,6 +18,7 @@ use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Purchase\Services\PurchaseCostRecalculationService;
 use Modules\Purchase\Services\PurchaseCostReplayEngine;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -813,6 +815,122 @@ class PurchaseCostReplayTest extends TestCase
         // The two fractional receipts sum to exactly the full ordered quantity, so
         // the fully-received line's average cost must land on the line's own unit
         // price (Rp1,000), not a value skewed by float-drift proration.
+        $this->assertEquals(1000.00, (float) $productPrice->average_purchase_price);
+    }
+
+    public function test_cost_replay_uses_canonical_quantity_for_conversion_and_base_lines_without_double_conversion(): void
+    {
+        $pcsUnit = Unit::create(['name' => 'PCS', 'short_name' => 'pcs', 'operator' => '*', 'operation_value' => 1]);
+        $boxUnit = Unit::create(['name' => 'BOX', 'short_name' => 'box', 'operator' => '*', 'operation_value' => 1]);
+
+        $this->product->update(['unit_id' => $pcsUnit->id, 'base_unit_id' => $pcsUnit->id]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 12,
+        ]);
+
+        $purchase = Purchase::create([
+            'date' => Carbon::now()->subDay(),
+            'due_date' => Carbon::now()->addDays(30),
+            'reference' => 'PO-MIXED-UNIT-001',
+            'supplier_id' => $this->supplier->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 34000,
+            'paid_amount' => 34000,
+            'due_amount' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        // Line 1: entered as 2 BOX @ Rp12,000/BOX (factor 12) -> canonical 24 PCS
+        // @ Rp1,000/PCS = Rp24,000. If cost replay mistakenly re-applied the
+        // conversion factor to the already-canonical quantity/price, this
+        // line alone would corrupt the resulting average cost.
+        $conversionLine = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 24,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 24000,
+            'product_tax_amount' => 0,
+            'purchase_unit_id' => $boxUnit->id,
+            'product_unit_conversion_id' => $conversion->id,
+            'entered_quantity' => 2,
+            'entered_unit_price' => 12000,
+            'entered_product_discount_amount' => 0,
+            'conversion_factor' => 12,
+            'unit_name' => 'BOX',
+            'base_unit_name' => 'PCS',
+        ]);
+
+        // Line 2: entered directly as 10 base-unit PCS @ Rp1,000/PCS = Rp10,000,
+        // for the same product, in the same document.
+        $baseLine = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 10000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => Carbon::now()->subDay(),
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'approved_at' => Carbon::now()->subDay(),
+            'setting_id' => $this->setting->id,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $conversionLine->id,
+            'quantity_received' => 24,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $baseLine->id,
+            'quantity_received' => 10,
+        ]);
+
+        PurchaseCorrection::create([
+            'setting_id' => $this->setting->id,
+            'purchase_id' => $purchase->id,
+            'actor_user_id' => $this->financeUser->id,
+            'reason' => 'Mixed conversion/base line replay',
+            'field_corrections' => [],
+        ]);
+
+        $recalcService = app(PurchaseCostRecalculationService::class);
+        $result = $recalcService->executeRecalculation($purchase, $this->financeUser, false);
+
+        $this->assertTrue($result['success']);
+
+        $productPrice = ProductPrice::where('product_id', $this->product->id)
+            ->where('setting_id', $this->setting->id)
+            ->first();
+
+        // Both lines share the same canonical unit price (Rp1,000/PCS), so the
+        // weighted average must land exactly on Rp1,000 regardless of the
+        // conversion-line's entered unit -- (24000 + 10000) / (24 + 10) = 1000.
         $this->assertEquals(1000.00, (float) $productPrice->average_purchase_price);
     }
 }

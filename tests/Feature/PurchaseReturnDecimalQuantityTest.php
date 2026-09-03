@@ -687,6 +687,124 @@ class PurchaseReturnDecimalQuantityTest extends TestCase
         $this->assertEquals(12000, (float) $purchaseDetail->sub_total);
     }
 
+    public function test_over_return_beyond_received_quantity_is_rejected_for_conversion_unit_source_line(): void
+    {
+        [$pcsUnit, $boxUnit] = $this->makeConversionUnits();
+        $this->product->update(['unit_id' => $pcsUnit->id, 'base_unit_id' => $pcsUnit->id]);
+
+        $conversion = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 12,
+        ]);
+
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-CONV-OVER-' . uniqid(),
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            0, 24000, 24000,
+            'Received', 'Unpaid',
+            1,
+            now(), now()
+        ]);
+        $purchaseId = DB::getPdo()->lastInsertId();
+        $purchase = Purchase::find($purchaseId);
+
+        // Ordered 2 BOX = 24 canonical PCS, but only 1 BOX (12 PCS) has
+        // actually been received. The eligibility check must compare against
+        // the received canonical quantity, not the ordered/entered BOX count.
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 24,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 24000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'purchase_unit_id' => $boxUnit->id,
+            'product_unit_conversion_id' => $conversion->id,
+            'entered_quantity' => 2,
+            'entered_unit_price' => 12000,
+            'entered_product_discount_amount' => 0,
+            'conversion_factor' => 12,
+            'unit_name' => 'BOX',
+            'base_unit_name' => 'PCS',
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'date' => now(),
+            'external_delivery_number' => 'GRN-CONV-OVER-' . uniqid(),
+            'po_id' => $purchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 12,
+        ]);
+
+        $return = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-CONV-OVER-' . uniqid(),
+            'setting_id' => 1,
+            'location_id' => $this->location->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'total_amount' => 13000,
+            'due_amount' => 13000,
+            'status' => 'Pending',
+            'approval_status' => 'Approved',
+            'return_dispatched_at' => now(),
+            'payment_status' => 'Unpaid',
+        ]);
+
+        // Return 13 PCS: within the ordered 24 canonical, but exceeds the 12
+        // actually received.
+        $returnDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $return->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 13,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 13000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $settlementItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $return->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 13000,
+            'target_purchase_id' => $purchase->id,
+            'status' => 'SUBMITTED',
+        ]);
+
+        $this->actingAs(User::factory()->create());
+        $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString('melebihi kuantitas diterima', session('error'));
+
+        // Nothing was mutated: the conversion-sourced line's canonical
+        // quantity and entered-unit snapshot are untouched.
+        $purchaseDetail->refresh();
+        $this->assertSame('24.000', (string) $purchaseDetail->quantity);
+        $this->assertSame('2.000', (string) $purchaseDetail->entered_quantity);
+        $this->assertSame('SUBMITTED', $settlementItem->fresh()->status);
+    }
+
     public function test_partial_return_invalidates_entered_unit_snapshot_when_not_evenly_divisible(): void
     {
         [$pcsUnit, $boxUnit] = $this->makeConversionUnits();

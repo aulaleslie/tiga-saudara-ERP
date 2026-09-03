@@ -291,6 +291,58 @@ class PurchaseByProductReportTest extends TestCase
     }
 
     /** @test */
+    public function it_reports_canonical_base_unit_quantity_for_a_conversion_unit_purchase_line()
+    {
+        $supplier = $this->makeSupplier();
+        $product = $this->makeProduct($this->makeCategory());
+
+        $pcsUnit = \Modules\Setting\Entities\Unit::create(['name' => 'PCS', 'short_name' => 'pcs', 'operator' => '*', 'operation_value' => 1]);
+        $boxUnit = \Modules\Setting\Entities\Unit::create(['name' => 'BOX', 'short_name' => 'box', 'operator' => '*', 'operation_value' => 1]);
+        $product->update(['unit_id' => $pcsUnit->id, 'base_unit_id' => $pcsUnit->id]);
+
+        $conversion = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 12,
+        ]);
+
+        $purchase = $this->makePurchase($supplier);
+        // Entered as 2 BOX @ factor 12 -> canonical 24 PCS stored on `quantity`.
+        // The report must aggregate the stored canonical quantity as-is: it
+        // must read 24, not the entered 2, and must not re-apply the factor
+        // (e.g. 24 * 12 = 288).
+        $this->makePurchaseDetail($purchase, [
+            'product_id' => $product->id,
+            'quantity' => 24,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 24000,
+            'purchase_unit_id' => $boxUnit->id,
+            'product_unit_conversion_id' => $conversion->id,
+            'entered_quantity' => 2,
+            'entered_unit_price' => 12000,
+            'entered_product_discount_amount' => 0,
+            'conversion_factor' => 12,
+            'unit_name' => 'BOX',
+            'base_unit_name' => 'PCS',
+        ]);
+
+        $filter = new \App\Services\Reports\PurchaseByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new \App\Services\Reports\PurchaseByProductReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        $this->assertCount(1, $results);
+        $this->assertEquals(24, $results[0]->purchase_quantity);
+        $this->assertEquals(24000, $results[0]->purchase_value);
+    }
+
+    /** @test */
     public function it_calculates_tax_exclusive_value_and_average_price()
     {
         $supplier = $this->makeSupplier();
