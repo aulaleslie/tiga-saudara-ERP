@@ -168,7 +168,6 @@ class SerialConversionEligibilityService
         // - Active Purchase Returns
         if (class_exists(PurchaseReturn::class)) {
             $activeReturnStatuses = [
-                PurchaseReturn::STATUS_DRAFT,
                 PurchaseReturn::STATUS_PENDING_APPROVAL,
                 PurchaseReturn::STATUS_AWAITING_DISPATCH,
                 PurchaseReturn::STATUS_DISPATCH_PENDING_APPROVAL,
@@ -203,7 +202,6 @@ class SerialConversionEligibilityService
         // - Active Transfers
         if (class_exists(\Modules\Adjustment\Entities\Transfer::class)) {
             $activeTransferStatuses = [
-                \Modules\Adjustment\Entities\Transfer::STATUS_DRAFT,
                 \Modules\Adjustment\Entities\Transfer::STATUS_PENDING,
                 \Modules\Adjustment\Entities\Transfer::STATUS_APPROVED,
                 \Modules\Adjustment\Entities\Transfer::STATUS_DISPATCHED,
@@ -261,7 +259,6 @@ class SerialConversionEligibilityService
         if (class_exists(\Modules\Sale\Entities\Sale::class)) {
             $activeSales = \Modules\Sale\Entities\Sale::select(['id', 'reference', 'status'])
                 ->whereIn('status', [
-                    \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
                     \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
                     \Modules\Sale\Entities\Sale::STATUS_APPROVED,
                     \Modules\Sale\Entities\Sale::STATUS_DISPATCHED_PARTIALLY,
@@ -288,7 +285,7 @@ class SerialConversionEligibilityService
         // - Active Adjustments
         if (class_exists(\Modules\Adjustment\Entities\Adjustment::class)) {
             $activeAdjustments = \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status'])
-                ->whereIn('status', ['pending', 'PENDING', 'draft', 'DRAFT'])
+                ->whereIn('status', ['pending', 'PENDING'])
                 ->whereHas('adjustedProducts', function ($q) use ($product) {
                     $q->where('product_id', $product->id);
                 })->get();
@@ -313,7 +310,7 @@ class SerialConversionEligibilityService
         if (class_exists(\Modules\SalesReturn\Entities\SaleReturn::class)) {
             $activeSaleReturns = \Modules\SalesReturn\Entities\SaleReturn::select(['id', 'reference', 'status'])
                 ->where(function ($q) {
-                    $q->whereIn('status', ['Pending', 'PENDING', 'Awaiting Settlement', 'AWAITING_SETTLEMENT', 'Draft', 'DRAFT'])
+                    $q->whereIn('status', ['Pending', 'PENDING', 'Awaiting Settlement', 'AWAITING_SETTLEMENT'])
                         ->orWhereIn('approval_status', ['Pending', 'PENDING'])
                         ->orWhereHas('settlementItems', function ($sq) {
                             $sq->whereIn('status', [

@@ -145,7 +145,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         ]);
     }
 
-    public function test_eligibility_blocks_conversion_when_active_transfer_exists()
+    public function test_eligibility_allows_conversion_when_only_draft_transfer_exists()
     {
         $user = User::factory()->create();
         $user->givePermissionTo('products.convert_existing_stock_to_serialized');
@@ -202,11 +202,72 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
         $result = $service->checkEligibility($product);
 
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_active_non_draft_transfer_exists()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('products.convert_existing_stock_to_serialized');
+
+        $setting = Setting::create([
+            'company_name' => 'Transfer Setting',
+            'company_email' => 'transfer@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'transfer@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Transfer',
+            'company_address' => 'Transfer Address',
+        ]);
+        $loc1 = Location::create(['name' => 'Gudang A', 'setting_id' => $setting->id]);
+        $loc2 = Location::create(['name' => 'Gudang B', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Transfer',
+            'product_code' => 'PIT-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc1->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $transfer = \Modules\Adjustment\Entities\Transfer::create([
+            'origin_location_id' => $loc1->id,
+            'destination_location_id' => $loc2->id,
+            'created_by' => $user->id,
+            'status' => \Modules\Adjustment\Entities\Transfer::STATUS_PENDING,
+        ]);
+
+        \Modules\Adjustment\Entities\TransferProduct::create([
+            'transfer_id' => $transfer->id,
+            'product_id' => $product->id,
+            'quantity' => 2,
+            'unit_id' => 1,
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
         $this->assertFalse($result->isEligible);
         $this->assertContains('Terdapat dokumen Transfer Stok yang sedang aktif/berjalan untuk produk ini.', $result->blockingReasons);
     }
 
-    public function test_eligibility_blocks_conversion_when_active_purchase_return_exists()
+    public function test_eligibility_allows_conversion_when_only_draft_purchase_return_exists()
     {
         $user = User::factory()->create();
 
@@ -289,11 +350,156 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
         $result = $service->checkEligibility($product);
 
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_active_non_draft_purchase_return_exists()
+    {
+        $user = User::factory()->create();
+
+        $setting = Setting::create([
+            'company_name' => 'PR Setting',
+            'company_email' => 'pr@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'pr@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'PR',
+            'company_address' => 'PR Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang PR', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In PR',
+            'product_code' => 'PIPR-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $setting->id,
+            'supplier_name' => 'PR Supplier',
+            'supplier_email' => 'pr_supplier@example.com',
+            'supplier_phone' => '08123456789',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+        ]);
+
+        $purchaseReturn = \Modules\PurchasesReturn\Entities\PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PRTN-001',
+            'supplier_id' => $supplier->id,
+            'supplier_name' => $supplier->supplier_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+        ]);
+
+        \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
         $this->assertFalse($result->isEligible);
         $this->assertContains('Terdapat dokumen Retur Pembelian yang belum selesai untuk produk ini.', $result->blockingReasons);
     }
 
-    public function test_eligibility_blocks_conversion_when_active_adjustment_exists()
+    public function test_eligibility_allows_conversion_when_only_draft_adjustment_exists()
+    {
+        $user = User::factory()->create();
+
+        $setting = Setting::create([
+            'company_name' => 'Adj Setting',
+            'company_email' => 'adj@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'adj@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Adj',
+            'company_address' => 'Adj Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang Adj', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Adj',
+            'product_code' => 'PIA-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $adj = \Modules\Adjustment\Entities\Adjustment::create([
+            'location_id' => $loc->id,
+            'status' => 'draft',
+            'date' => now(),
+        ]);
+
+        \Modules\Adjustment\Entities\AdjustedProduct::create([
+            'adjustment_id' => $adj->id,
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'type' => 'add',
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_active_non_draft_adjustment_exists()
     {
         $user = User::factory()->create();
 
@@ -351,7 +557,90 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $this->assertContains('Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/DRAFT untuk produk ini.', $result->blockingReasons);
     }
 
-    public function test_eligibility_blocks_conversion_when_active_sales_return_exists()
+    public function test_eligibility_allows_conversion_when_only_draft_sales_return_exists()
+    {
+        $user = User::factory()->create();
+
+        $setting = Setting::create([
+            'company_name' => 'SR Setting',
+            'company_email' => 'sr@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'sr@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'SR',
+            'company_address' => 'SR Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang SR', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Sales Return',
+            'product_code' => 'PISR-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::create([
+            'customer_name' => 'Pelanggan Test',
+            'customer_email' => 'customer@example.com',
+            'customer_phone' => '08123456789',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+        ]);
+
+        $saleReturn = \Modules\SalesReturn\Entities\SaleReturn::create([
+            'date' => now(),
+            'reference' => 'SLR-001',
+            'setting_id' => $setting->id,
+            'location_id' => $loc->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'status' => 'Draft',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+
+        \Modules\SalesReturn\Entities\SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'price' => 1000,
+            'quantity' => 1,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_active_non_draft_sales_return_exists()
     {
         $user = User::factory()->create();
 
@@ -432,6 +721,96 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'sale_return_detail_id' => 1,
             'nominal' => 1000,
             'status' => \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED,
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
+        $this->assertFalse($result->isEligible);
+        $this->assertContains('Terdapat dokumen Retur Penjualan yang belum selesai untuk produk ini.', $result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_sale_return_has_draft_settlement_items()
+    {
+        $user = User::factory()->create();
+
+        $setting = Setting::create([
+            'company_name' => 'SR Draft Settlement Setting',
+            'company_email' => 'srs@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'srs@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'SR Settlement',
+            'company_address' => 'SR Settlement Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang SR Settlement', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In SR Draft Settlement',
+            'product_code' => 'PISRS-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::create([
+            'customer_name' => 'Pelanggan SR Draft Settlement',
+            'customer_email' => 'srs@example.com',
+            'customer_phone' => '08123456789',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+        ]);
+
+        $saleReturn = \Modules\SalesReturn\Entities\SaleReturn::create([
+            'date' => now(),
+            'reference' => 'SLR-DRAFT-SETTLEMENT-001',
+            'setting_id' => $setting->id,
+            'location_id' => $loc->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'status' => 'Pending',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+        ]);
+
+        \Modules\SalesReturn\Entities\SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'price' => 1000,
+            'quantity' => 1,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        \Modules\SalesReturn\Entities\SaleReturnItemSettlement::create([
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => 1,
+            'nominal' => 1000,
+            'status' => \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_DRAFT,
         ]);
 
         $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
@@ -735,7 +1114,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $this->assertContains('Terdapat dokumen Penerimaan Konsinyasi berstatus PENDING untuk produk ini.', $result->blockingReasons);
     }
 
-    public function test_eligibility_blocks_conversion_when_draft_sale_exists()
+    public function test_eligibility_allows_conversion_when_only_draft_sale_exists()
     {
         $user = User::factory()->create();
 
@@ -797,6 +1176,93 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'paid_amount' => 0,
             'due_amount' => 1000,
             'status' => \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+        ]);
+
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    public function test_eligibility_blocks_conversion_when_active_non_draft_sale_exists()
+    {
+        $user = User::factory()->create();
+
+        $setting = Setting::create([
+            'company_name' => 'Draft Sale Setting',
+            'company_email' => 'ds@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'ds@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Draft Sale',
+            'company_address' => 'Draft Sale Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang DS', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product Draft Sale',
+            'product_code' => 'PDS-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $customer = \Modules\People\Entities\Customer::create([
+            'customer_name' => 'Pelanggan DS',
+            'customer_email' => 'ds@example.com',
+            'customer_phone' => '08123456789',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+        ]);
+
+        $sale = \Modules\Sale\Entities\Sale::create([
+            'date' => now(),
+            'reference' => 'SL-DRAFT-001',
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
         ]);
@@ -888,7 +1354,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
         ]);
@@ -948,7 +1414,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $this->assertNotNull($blocker1);
         $this->assertEquals('sale', $blocker1['type']);
         $this->assertEquals((int) $sale1->id, (int) $blocker1['document_id']);
-        $this->assertEquals('DRAFTED', $blocker1['status']);
+        $this->assertEquals('WAITING_APPROVAL', $blocker1['status']);
         $this->assertEquals('Dokumen penjualan masih aktif dan dapat mengubah stok produk.', $blocker1['reason']);
         $this->assertEquals(route('sales.show', $sale1->id), $blocker1['url']);
         $this->assertTrue($blocker1['can_view']);
@@ -1043,7 +1509,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
         ]);
@@ -1134,7 +1600,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'address' => 'Address',
         ]);
 
-        // Create 2 active sales for this product
+        // Create 2 active sales for this product (both non-draft)
         $sale1 = \Modules\Sale\Entities\Sale::create([
             'date' => now(),
             'reference' => 'SL-COMB-001',
@@ -1149,7 +1615,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => \Modules\Sale\Entities\Sale::STATUS_DRAFTED,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_WAITING_APPROVAL,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
         ]);
@@ -1181,7 +1647,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
             'total_amount' => 2000,
             'paid_amount' => 0,
             'due_amount' => 2000,
-            'status' => \Modules\Sale\Entities\Sale::STATUS_APPROVED,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_DISPATCHED_PARTIALLY,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
         ]);
