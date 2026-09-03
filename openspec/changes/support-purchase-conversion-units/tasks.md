@@ -58,7 +58,7 @@
 
 ## 8. Focused Verification and Documentation
 
-- [ ] 8.1 Run the new and modified Product/Purchase unit, persistence, receiving, serial, downstream, and Purchase exact-total test files with focused `php artisan test --filter` or file paths.
-- [ ] 8.2 Run only existing tests covering plausibly regressed Purchase tax/discount/manual override, receiving/serial, return/costing/report, cross-business, and Sales/POS rounding behavior; do not require the full test suite.
-- [ ] 8.3 Run relevant static analysis, formatting, and JavaScript unit tests for touched PHP, Blade/Livewire, and Purchase calculator code.
-- [ ] 8.4 Document the base-unit invariant, conversion entry/receiving behavior, legacy fallback, and Purchase-only rounding exclusion in affected operator/developer documentation.
+- [x] 8.1 Run the new and modified Product/Purchase unit, persistence, receiving, serial, downstream, and Purchase exact-total test files with focused `php artisan test --filter` or file paths.
+- [x] 8.2 Run only existing tests covering plausibly regressed Purchase tax/discount/manual override, receiving/serial, return/costing/report, cross-business, and Sales/POS rounding behavior; do not require the full test suite.
+- [x] 8.3 Run relevant static analysis, formatting, and JavaScript unit tests for touched PHP, Blade/Livewire, and Purchase calculator code.
+- [x] 8.4 Document the base-unit invariant, conversion entry/receiving behavior, legacy fallback, and Purchase-only rounding exclusion in affected operator/developer documentation.
