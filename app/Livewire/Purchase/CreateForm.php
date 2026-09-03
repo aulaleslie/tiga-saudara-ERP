@@ -631,7 +631,13 @@ class CreateForm extends Component
             'current_setting_id' => session('setting_id'),
         ]);
 
-        $purchase = Purchase::with(['purchaseDetails.product', 'tags'])->withArchived()->find($purchaseId);
+        $purchase = Purchase::with([
+            'purchaseDetails.product.baseUnit',
+            'purchaseDetails.product.unit',
+            'purchaseDetails.product.conversions.unit',
+            'purchaseDetails.product.conversions.baseUnit',
+            'tags',
+        ])->withArchived()->find($purchaseId);
         if (! $purchase) {
             $this->purchaseSubmitWarning('purchase.duplicate.prefill.skipped', [
                 'requested_duplicate_purchase_id' => $purchaseId,
@@ -738,14 +744,36 @@ class CreateForm extends Component
             $normalizedTaxAmount = $this->isPkp ? (float) $detail->product_tax_amount : 0.0;
             $normalizedSubTotal = $this->isPkp ? (float) $detail->sub_total : (float) $subTotalBeforeTax;
 
+            // A duplicated line is a brand-new cart row, never a historical edit of
+            // the persisted detail: there is no DETAIL_ID_OPTION, so submit() never
+            // treats it as "unchanged historical" and always fully re-validates any
+            // carried-over unit/conversion against the product's current eligible
+            // conversions. Resolve that eligibility here too, so an unavailable
+            // conversion never even reaches the cart (and so never leaks into
+            // available_units for this row).
+            $unitIntent = $this->resolveDuplicateUnitIntent($detail, $product);
+
+            // The 'product_discount' cart option is a codebase-wide convention
+            // holding a per-entered-unit *currency* amount (see ProductCart's
+            // pricing recalculation, which reads it as such regardless of
+            // discount type). 'product_discount_input' carries the raw
+            // percentage for percentage-type rows (also a ProductCart
+            // convention; see PurchaseNormalizer's discount resolution).
+            // Populate both so neither consumer misreads the other's basis.
+            $discountType = strtolower((string) $detail->product_discount_type);
+            $entered_product_discount_currency = $discountType === 'percentage'
+                ? round($unitIntent['entered_unit_price'] * (min(100, max(0, $unitIntent['entered_product_discount_amount'])) / 100), 2)
+                : $unitIntent['entered_product_discount_amount'];
+
             $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
-                'qty' => $detail->quantity,
-                'price' => $detail->price,
+                'qty' => $unitIntent['entered_quantity'],
+                'price' => $unitIntent['entered_unit_price'],
                 'weight' => 1,
                 'options' => [
-                    'product_discount' => $detail->product_discount_amount,
+                    'product_discount' => $entered_product_discount_currency,
+                    'product_discount_input' => $unitIntent['entered_product_discount_amount'],
                     'product_discount_type' => $detail->product_discount_type,
                     'sub_total' => $normalizedSubTotal,
                     'sub_total_before_tax' => $subTotalBeforeTax,
@@ -754,9 +782,17 @@ class CreateForm extends Component
                     'stock' => $product?->product_quantity ?? 0,
                     'unit' => $product?->product_unit ?? '',
                     'product_tax' => $productTax,
-                    'unit_price' => $detail->unit_price,
+                    'unit_price' => $unitIntent['entered_unit_price'],
                     'last_purchase_price' => $product?->last_purchase_price ?? null,
                     'average_purchase_price' => $product?->average_purchase_price ?? null,
+                    'purchase_unit_id' => $unitIntent['purchase_unit_id'],
+                    'product_unit_conversion_id' => $unitIntent['product_unit_conversion_id'],
+                    'entered_quantity' => $unitIntent['entered_quantity'],
+                    'entered_unit_price' => $unitIntent['entered_unit_price'],
+                    'entered_product_discount_amount' => $unitIntent['entered_product_discount_amount'],
+                    'conversion_factor' => $unitIntent['conversion_factor'],
+                    'unit_name' => $unitIntent['unit_name'],
+                    'base_unit_name' => $unitIntent['base_unit_name'],
                 ],
             ]);
         }
@@ -767,6 +803,85 @@ class CreateForm extends Component
             'seeded_cart_count' => (int) $cart->count(),
             'seeded_cart_total_sub_total' => (float) $cart->content()->sum(fn ($item) => (float) ($item->options['sub_total'] ?? 0)),
         ]);
+    }
+
+    /**
+     * Resolve the unit/conversion intent for one duplicated line.
+     *
+     * A duplicate is a new cart row, not a historical edit of the source
+     * PurchaseDetail. The source line's selected conversion is preserved only
+     * when it is *currently* eligible for new Purchase activity and its unit
+     * and base-unit identity still match the product's live configuration --
+     * mirroring the server-authoritative checks PurchaseUomConversionService
+     * applies at submit. Otherwise the row is seeded as a clean base-unit
+     * line from canonical values, with conversion identity cleared and the
+     * factor reset to one, so an unavailable conversion can never be
+     * selected (or displayed as selectable) merely by duplicating an old
+     * document.
+     *
+     * @return array{purchase_unit_id: int|null, product_unit_conversion_id: int|null, entered_quantity: float, entered_unit_price: float, entered_product_discount_amount: float, conversion_factor: float, unit_name: string, base_unit_name: string}
+     */
+    private function resolveDuplicateUnitIntent(PurchaseDetail $detail, $product): array
+    {
+        $baseUnitName = $product?->baseUnit?->name ?? $product?->unit?->name ?? 'UNIT';
+
+        $cleanBaseUnitRow = [
+            'purchase_unit_id' => null,
+            'product_unit_conversion_id' => null,
+            'entered_quantity' => (float) $detail->quantity,
+            'entered_unit_price' => (float) $detail->unit_price,
+            'entered_product_discount_amount' => (float) $detail->product_discount_amount,
+            'conversion_factor' => 1.0,
+            'unit_name' => $baseUnitName,
+            'base_unit_name' => $baseUnitName,
+        ];
+
+        $conversionId = $detail->product_unit_conversion_id;
+        if (!$conversionId || !$product) {
+            return $cleanBaseUnitRow;
+        }
+
+        $product->loadMissing(['conversions.unit', 'conversions.baseUnit']);
+        $conversion = $product->conversions->firstWhere('id', (int) $conversionId);
+
+        if (!$conversion) {
+            return $cleanBaseUnitRow;
+        }
+
+        $eligible = $product->eligiblePurchaseConversions()->firstWhere('id', (int) $conversionId);
+        if (!$eligible) {
+            return $cleanBaseUnitRow;
+        }
+
+        $baseUnitId = (int) ($product->base_unit_id ?? $product->unit_id);
+        $convBaseUnitId = (int) ($conversion->base_unit_id ?? $baseUnitId);
+        $storedUnitId = $detail->purchase_unit_id ? (int) $detail->purchase_unit_id : null;
+
+        if ($convBaseUnitId !== $baseUnitId || ($storedUnitId !== null && $storedUnitId !== (int) $conversion->unit_id)) {
+            return $cleanBaseUnitRow;
+        }
+
+        // A conversion row can be edited in place: same id, same unit, but a
+        // different factor. That reinterprets the source document's quantity
+        // math (e.g. 2 BOX meant 24 PCS under factor 12, but would silently
+        // become 20 PCS under a changed factor 10), so it must not be treated
+        // as eligible reuse -- fall back to canonical base-unit values instead.
+        $liveFactor = \Brick\Math\BigDecimal::of((string) $conversion->conversion_factor);
+        $storedFactor = \Brick\Math\BigDecimal::of((string) $detail->effective_conversion_factor);
+        if ($liveFactor->compareTo($storedFactor) !== 0) {
+            return $cleanBaseUnitRow;
+        }
+
+        return [
+            'purchase_unit_id' => (int) $conversion->unit_id,
+            'product_unit_conversion_id' => (int) $conversion->id,
+            'entered_quantity' => (float) $detail->effective_entered_quantity,
+            'entered_unit_price' => (float) $detail->effective_entered_unit_price,
+            'entered_product_discount_amount' => (float) $detail->effective_entered_product_discount_amount,
+            'conversion_factor' => (float) $conversion->conversion_factor,
+            'unit_name' => $conversion->unit?->name ?? $detail->effective_unit_name ?? 'UNIT',
+            'base_unit_name' => $baseUnitName,
+        ];
     }
 
     /**

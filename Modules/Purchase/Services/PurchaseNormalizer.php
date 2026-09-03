@@ -212,8 +212,15 @@ class PurchaseNormalizer
                 $uomSnapshot['unit_price'] = number_format($unitPrice, 6, '.', '');
 
                 $discountType = strtolower((string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'));
+                // 'product_discount' is a currency amount (see ProductCart's
+                // pricing recalculation); for a percentage row the entered
+                // percentage itself lives in 'product_discount_input' or the
+                // (non-cart-item) top-level 'entered_product_discount_amount'.
+                // Prefer those for percentage rows so a currency amount is
+                // never misread as a percentage.
                 $rawDiscountInput = $this->toFloat(
                     data_get($detailInput, 'entered_product_discount_amount')
+                    ?? ($discountType === 'percentage' ? ($options['product_discount_input'] ?? null) : null)
                     ?? $options['product_discount']
                     ?? data_get($detailInput, 'discount')
                     ?? data_get($detailInput, 'product_discount_amount')
