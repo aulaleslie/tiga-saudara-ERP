@@ -116,7 +116,7 @@
                                 </div>
                                 @if((float) ($cart_item->options->conversion_factor ?? 1) > 1)
                                     <div class="text-muted small mt-1">
-                                        = {{ number_format((float) $cart_item->qty * (float) $cart_item->options->conversion_factor, 3) }} {{ $cart_item->options->base_unit_name ?? 'PCS' }}
+                                        = {{ \App\Support\QuantityFormatter::formatCanonicalQuantity((float) $cart_item->qty * (float) $cart_item->options->conversion_factor) }} {{ $cart_item->options->base_unit_name ?? 'PCS' }}
                                     </div>
                                 @elseif(!empty($quantityBreakdowns[$cart_item->rowId]))
                                     <div class="text-muted small mt-1">

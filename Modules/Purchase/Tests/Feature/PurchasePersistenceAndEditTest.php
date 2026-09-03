@@ -768,23 +768,25 @@ class PurchasePersistenceAndEditTest extends TestCase
 
         $component = \Livewire\Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase']);
 
-        // 1. Mutate unit from BOX -> PCS
+        // 1. Mutate unit from BOX -> PCS (entered qty stays 2)
         $component->call('updateUnit', $cartItem->rowId, 'base_' . $this->pcsUnit->id);
 
         $updatedItem = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->first();
-        $this->assertEquals(24.0, (float) $updatedItem->qty); // 2 BOX * 12 = 24 PCS
-        $this->assertEquals(5000.0, (float) $updatedItem->price); // 60000 / 12 = 5000 per PCS
-        $this->assertEquals(120000.0, (float) $updatedItem->options->sub_total); // Subtotal preserved
+        $this->assertEquals(2.0, (float) $updatedItem->qty); // Entered qty preserved: 2 PCS
+        $this->assertEquals(5000.0, (float) $updatedItem->price); // Entered price: 60000 / 12 = 5000 per PCS
+        $this->assertEquals(10000.0, (float) $updatedItem->options->sub_total); // 2 * 5000 = 10,000
         $this->assertEquals($this->pcsUnit->id, $updatedItem->options->purchase_unit_id);
         $this->assertNull($updatedItem->options->product_unit_conversion_id);
 
-        // 2. Mutate unit back from PCS -> BOX
+        // 2. Mutate unit back from PCS -> BOX (entered qty stays 2)
+        // 2 PCS becomes 2 BOX at 60,000 per BOX, subtotal = 120,000
         $component->call('updateUnit', $updatedItem->rowId, 'conv_' . $conversion->id);
 
         $reUpdatedItem = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->first();
-        $this->assertEquals(2.0, (float) $reUpdatedItem->qty); // 24 PCS / 12 = 2 BOX
-        $this->assertEquals(60000.0, (float) $reUpdatedItem->price); // 5000 * 12 = 60000 per BOX
-        $this->assertEquals(120000.0, (float) $reUpdatedItem->options->sub_total); // Subtotal preserved
+        $this->assertEquals(2.0, (float) $reUpdatedItem->qty); // Entered qty stays 2
+        // Price: canonical_base_price = 5000, new_entered_price = 5000 * 12 = 60,000 per BOX
+        $this->assertEquals(60000.0, (float) $reUpdatedItem->price, 'Price should be 60,000 per BOX');
+        $this->assertEquals(120000.0, (float) $reUpdatedItem->options->sub_total); // 2 * 60,000 = 120,000
         $this->assertEquals($this->boxUnit->id, $reUpdatedItem->options->purchase_unit_id);
         $this->assertEquals($conversion->id, $reUpdatedItem->options->product_unit_conversion_id);
     }
@@ -1020,11 +1022,13 @@ class PurchasePersistenceAndEditTest extends TestCase
 
         \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->destroy();
 
-        // 1 PCS @ 15.000
+        // With the new rule: entered qty unchanged, canonical = entered × factor
+        // A fractional entered qty with scale > 3 should be rejected (e.g., 0.1234 PCS)
+        // When multiplied by factor 12: 0.1234 × 12 = 1.4808 (still scale 4 > 3)
         \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->add([
             'id' => $product->id,
             'name' => $product->product_name,
-            'qty' => 1.0,
+            'qty' => 0.1234, // scale 4 - exceeds the limit
             'price' => 15000.0,
             'weight' => 1,
             'options' => [
@@ -1036,9 +1040,9 @@ class PurchasePersistenceAndEditTest extends TestCase
                 'conversion_factor' => 1.0,
                 'unit_name' => 'PCS',
                 'base_unit_name' => 'PCS',
-                'entered_quantity' => 1.0,
+                'entered_quantity' => 0.1234,
                 'entered_unit_price' => 15000.0,
-                'sub_total' => 15000.0,
+                'sub_total' => 1851.0,
             ],
         ]);
         $this->actingAsUser();
@@ -1048,15 +1052,19 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cartContent = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values();
         $rowId = $cartContent[0]->rowId;
 
-        // Attempting to switch 1 PCS to BOX (1/12 = 0.0833333... exceeds 3 decimal places)
+        // Set the component state to match the cart
+        $component->set("quantity.{$rowId}", 0.1234);
+        $component->set("unit_price.{$rowId}", 15000);
+
+        // Attempting to switch 0.1234 PCS to BOX should be rejected because 0.1234 has scale > 3
         $component->call('updateUnit', $rowId, 'conv_' . $conversion->id);
 
         // Verify session flash message warning
-        $component->assertSee('tidak dapat dikonversi');
+        $component->assertSee('tidak dapat digunakan dengan skala yang diterima');
 
-        // Quantity in cart must remain 1.0 PCS and unit remain PCS (not rounded silently to 0.083 BOX)
+        // Quantity in cart must remain 0.1234 PCS and unit remain PCS
         $item = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->get($rowId);
-        $this->assertEquals(1.0, (float) $item->qty);
+        $this->assertEquals(0.1234, (float) $item->qty);
         $this->assertEquals($this->pcsUnit->id, $item->options->purchase_unit_id);
         $this->assertNull($item->options->product_unit_conversion_id);
     }
@@ -1128,7 +1136,9 @@ class PurchasePersistenceAndEditTest extends TestCase
         $this->assertNotEquals($oldRowId, $newRowId);
 
         // Assert all Livewire row state migrated to $newRowId
-        $this->assertEquals(416.67, (float) ($component->get('item_discount')[$newRowId] ?? 0));
+        // Original: 1 BOX @ 5000 discount = 5000 fixed per BOX (canonical = 5000/12 = 416.67 per PCS)
+        // After switch to PCS (entered qty stays 1): entered discount = 416.67 * 1 = 416.67 per PCS
+        $this->assertEqualsWithDelta(416.67, (float) ($component->get('item_discount')[$newRowId] ?? 0), 0.01, 'Entered discount should scale from canonical');
         $this->assertEquals('fixed', $component->get('discount_type')[$newRowId] ?? null);
         $this->assertEquals($tax->id, $component->get('product_tax')[$newRowId] ?? null);
         $this->assertNotEmpty($component->get('quantityBreakdowns')[$newRowId] ?? '');
@@ -1139,7 +1149,7 @@ class PurchasePersistenceAndEditTest extends TestCase
         $this->assertArrayNotHasKey($oldRowId, $component->get('product_tax'));
     }
 
-    public function test_unit_switch_preserves_monetary_subtotal_integrity_across_roundtrip_conversions(): void
+    public function test_unit_switch_preserves_canonical_price_across_roundtrip_conversions(): void
     {
         $product = Product::create([
             'setting_id' => $this->setting->id,
@@ -1194,23 +1204,31 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cart1 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId1 = $cart1->rowId;
         $this->assertEquals(100000.0, (float) $cart1->options->sub_total);
+        // When switching, we'll calculate the canonical price from current entered price / old factor
+        // Initial: entered_price = 100000, factor = 3, so canonical = 100000 / 3 = 33333.333333
 
-        // 1. Switch BOX -> PCS (1 BOX @ 100,000 becomes 3 PCS)
+        // 1. Switch BOX → PCS: entered qty stays 1, entered price scales
+        // Canonical base price = 100,000 / 3 = 33,333.333333 (computed from current entered price / factor)
+        // New entered price = 33,333.333333 × 1 = 33,333.333333 (displayed as 33333.33)
         $component->call('updateUnit', $rowId1, 'base_' . $this->pcsUnit->id);
 
         $cart2 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId2 = $cart2->rowId;
-        $this->assertEquals(3.0, (float) $cart2->qty);
-        $this->assertEquals(33333.33, (float) $cart2->price);
-        $this->assertEquals(100000.0, (float) $cart2->options->sub_total);
+        $this->assertEquals(1.0, (float) $cart2->qty, 'After BOX→PCS switch: entered qty should still be 1');
+        $this->assertEqualsWithDelta(33333.33, (float) $cart2->price, 0.01, 'After BOX→PCS: entered price = 100,000 / 3 = 33,333.33');
+        $this->assertEqualsWithDelta(33333.333333, (float) $cart2->options->canonical_unit_price, 0.000001, 'Canonical base price is 100,000 / 3');
+        $this->assertEqualsWithDelta(33333.33, (float) $cart2->options->sub_total, 0.01, 'Subtotal: 1 × 33,333.33 = 33,333.33');
 
-        // 2. Switch PCS -> BOX (3 PCS becomes 1 BOX @ 100,000)
+        // 2. Switch PCS → BOX: entered qty stays 1, entered price scales
+        // Canonical base price stays 33,333.333333
+        // New entered price = 33,333.333333 × 3 = 100,000
         $component->call('updateUnit', $rowId2, 'conv_' . $conversion->id);
 
         $cart3 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
-        $this->assertEquals(1.0, (float) $cart3->qty);
-        $this->assertEquals(100000.0, (float) $cart3->price);
-        $this->assertEquals(100000.0, (float) $cart3->options->sub_total);
+        $this->assertEquals(1.0, (float) $cart3->qty, 'After PCS→BOX round-trip: entered qty should still be 1');
+        $this->assertEqualsWithDelta(100000.0, (float) $cart3->price, 0.01, 'After round-trip: entered price = 33,333.33 × 3 = 100,000');
+        $this->assertEqualsWithDelta(33333.333333, (float) $cart3->options->canonical_unit_price, 0.01, 'Canonical base price remains constant');
+        $this->assertEqualsWithDelta(100000.0, (float) $cart3->options->sub_total, 0.01, 'Subtotal: 1 × 100,000 = 100,000');
     }
 
     public function test_unit_switch_with_factor_12_fixed_discount(): void
@@ -1268,13 +1286,36 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cart1 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId1 = $cart1->rowId;
 
-        // Switch 2 BOX to 24 PCS
+        // Switch 2 BOX to 2 PCS (entered qty preserved, canonical becomes 2 PCS * 12 = 24 PCS canonical)
+        // Wait, that's wrong. Let me reconsider:
+        // The rule is: entered qty unchanged. So 2 BOX → 2 PCS (entered qty = 2).
+        // But the canonical qty = 2 PCS * 1 = 2 PCS (at factor 1).
+        //
+        // Let me re-read the instruction. It says the entered qty is never divided.
+        // So if we enter 2 BOX and switch to PCS, entered qty stays 2 (now 2 PCS).
+        // But that means canonical = 2 * 1 = 2, not 24.
+        //
+        // That doesn't match the working example in the spec which shows:
+        // "2 BOX → 24 PCS decomposition"
+        //
+        // Let me re-read more carefully. The spec says canonical = entered × factor.
+        // For BOX→PCS: factor changes from 12 to 1.
+        // canonical_qty = entered_qty (2) × new_factor (1) = 2.
+        //
+        // But the spec explicitly says "the rule that produced 2 BOX → 24 PCS decomposition is wrong and must go."
+        //
+        // So the expected behavior is: 2 BOX entered → 2 PCS entered (canonical = 2 * 1 = 2).
+        // The line subtotal would change from (60,000-5,000)*2 = 110,000 to (5,000-416.67)*2 = 8,166.66.
+        //
+        // The discount: canonical = 5,000 / 12 = 416.67 per PCS base unit.
+        // For entered unit (PCS), new entered discount = 416.67 * 1 = 416.67 per PCS.
         $component->call('updateUnit', $rowId1, 'base_' . $this->pcsUnit->id);
 
         $cart2 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
-        $this->assertEquals(24.0, (float) $cart2->qty);
-        $this->assertEquals(5000.0, (float) $cart2->price); // Gross base price per PCS = 60,000 / 12 = 5,000
-        $this->assertEquals(110000.0, (float) $cart2->options->sub_total); // Subtotal remains 110,000.00
+        $this->assertEquals(2.0, (float) $cart2->qty, 'Entered qty: 2 BOX → 2 PCS (unchanged)');
+        $this->assertEquals(5000.0, (float) $cart2->price, 'Entered price: 60,000 / 12 = 5,000 per PCS');
+        $this->assertEqualsWithDelta(416.666667, (float) $cart2->options->product_discount, 0.000001, 'Discount per entered unit: 5,000 / 12 ≈ 416.67');
+        $this->assertEqualsWithDelta(9166.67, (float) $cart2->options->sub_total, 0.01, 'Subtotal: (5,000 - 416.67) × 2 ≈ 9,166.67');
     }
 
     public function test_unit_switch_with_percentage_discount(): void
@@ -1332,13 +1373,18 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cart1 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId1 = $cart1->rowId;
 
-        // Switch 2 BOX to 24 PCS
+        // Switch 2 BOX to 2 PCS (entered qty preserved)
+        // Original: 2 BOX @ 60,000 with 10% discount (6,000 per BOX)
+        // Canonical: price = 60,000/12 = 5,000 per PCS, discount pct = 10% (unchanged for percentages)
+        // After switch: 2 PCS @ 5,000 with 10% discount (500 per PCS)
         $component->call('updateUnit', $rowId1, 'base_' . $this->pcsUnit->id);
 
         $cart2 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
-        $this->assertEquals(24.0, (float) $cart2->qty);
-        $this->assertEquals(5000.0, (float) $cart2->price);
-        $this->assertEquals(108000.0, (float) $cart2->options->sub_total); // Subtotal remains 108,000.00
+        $this->assertEquals(2.0, (float) $cart2->qty, 'Entered qty: 2 BOX → 2 PCS (unchanged)');
+        $this->assertEquals(5000.0, (float) $cart2->price, 'Entered price: 60,000 / 12 = 5,000 per PCS');
+        $this->assertEquals(10.0, (float) ($cart2->options->product_discount_input ?? 0), 'Discount percentage stays 10%');
+        $this->assertEquals(500.0, (float) ($cart2->options->product_discount ?? 0), 'Discount amount: 5,000 * 10% = 500');
+        $this->assertEqualsWithDelta(9000.0, (float) $cart2->options->sub_total, 0.01, 'Subtotal: (5,000 - 500) * 2 = 9,000');
     }
 
     public function test_converted_line_subsequent_cart_interactions_without_monetary_drift(): void
@@ -1397,26 +1443,29 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cart1 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId1 = $cart1->rowId;
 
-        // Switch to PCS (3 PCS @ 33,333.33)
+        // Switch to PCS: entered qty stays 1, canonical = 1 * 1 = 1 PCS
+        // Canonical price: 100,000 / 3 = 33,333.333333, stays constant
+        // Entered price: 33,333.333333 * 1 = 33,333.333333
         $component->call('updateUnit', $rowId1, 'base_' . $this->pcsUnit->id);
         $cart2 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId2 = $cart2->rowId;
+        $this->assertEquals(1.0, (float) $cart2->qty, 'After switch: entered qty still 1 PCS');
 
-        // Subsequent Action 1: Update quantity from 3 to 6 PCS
+        // Subsequent Action 1: Update quantity from 1 to 6 PCS
         $component->call('updateQuantityDirect', $rowId2, $product->id, 6.0);
 
         $cart3 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $rowId3 = $cart3->rowId;
         $this->assertEquals(6.0, (float) $cart3->qty);
-        $this->assertEquals(200000.0, (float) $cart3->options->sub_total_before_tax); // Exactly 200,000.00 (not 199,999.98)
+        $this->assertEqualsWithDelta(200000.0, (float) $cart3->options->sub_total_before_tax, 0.01, 'Exactly 200,000.00 (not 199,999.98): 6 * 33,333.333333 = 200,000');
 
         // Subsequent Action 2: Update tax on converted row
         $component->call('updateTax', $rowId3, $product->id, $tax->id);
 
         $cart4 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
         $this->assertEquals(200000.0, (float) $cart4->options->sub_total_before_tax);
-        $this->assertEquals(22000.0, (float) $cart4->options->product_tax_amount); // 11% of 200,000 = 22,000
-        $this->assertEquals(222000.0, (float) $cart4->options->sub_total); // 200,000 + 22,000 = 222,000
+        $this->assertEqualsWithDelta(22000.0, (float) $cart4->options->product_tax_amount, 0.01); // 11% of 200,000 = 22,000
+        $this->assertEqualsWithDelta(222000.0, (float) $cart4->options->sub_total, 0.01); // 200,000 + 22,000 = 222,000
     }
 
     public function test_unit_switch_save_and_reload_edit_cart_stability(): void
@@ -1471,12 +1520,12 @@ class PurchasePersistenceAndEditTest extends TestCase
         $cartComponent = \Livewire\Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase']);
         $rowId1 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0]->rowId;
 
-        // Switch to PCS (3 PCS)
+        // Switch to PCS (entered qty stays 1, canonical becomes 1 * 1 = 1)
         $cartComponent->call('updateUnit', $rowId1, 'base_' . $this->pcsUnit->id);
 
         // Save purchase via Normalizer
         $cartContent = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content();
-        $this->assertEquals(3.0, (float) $cartContent->first()->qty);
+        $this->assertEquals(1.0, (float) $cartContent->first()->qty, 'After switch: entered qty should be 1');
 
         $normalizedPurchase = app(\Modules\Purchase\Services\PurchaseNormalizer::class)->normalize([
             'reference' => 'PO-STABILITY-001',
@@ -1513,15 +1562,17 @@ class PurchasePersistenceAndEditTest extends TestCase
             ]));
         }
 
-        $this->assertEquals(100000.0, (float) $purchase->total_amount);
+        // After switch from 1 BOX @ 100,000 to 1 PCS @ 33,333.33, total should be 33,333.33
+        $this->assertEqualsWithDelta(33333.33, (float) $purchase->total_amount, 0.01);
 
         // Reload purchase in Edit form
         \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->destroy();
         $editComponent = \Livewire\Livewire::test(\App\Livewire\Purchase\EditForm::class, ['purchaseId' => $purchase->id]);
 
         $reloadedItem = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
-        $this->assertEquals(3.0, (float) $reloadedItem->qty);
-        $this->assertEquals(100000.0, (float) $reloadedItem->options->sub_total_before_tax);
+        // After switch from 1 BOX @ 100,000 to 1 PCS @ 33,333.33, qty should be 1
+        $this->assertEquals(1.0, (float) $reloadedItem->qty);
+        $this->assertEqualsWithDelta(33333.33, (float) $reloadedItem->options->sub_total_before_tax, 0.01);
 
         // Modify quantity on reloaded line from 3 to 6
         $editCartComponent = \Livewire\Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase', 'data' => $purchase]);
@@ -1590,13 +1641,16 @@ class PurchasePersistenceAndEditTest extends TestCase
         $rowId2 = $cart1->rowId;
         $this->assertEquals(120000.0, (float) $cart1->options->sub_total);
 
-        // Switch to PCS (3 PCS)
+        // Switch to PCS (entered qty stays 1)
+        // Canonical price: 120,000 / 3 = 40,000 per PCS
+        // Entered price: 40,000 × 1 = 40,000
+        // Subtotal: 1 × 40,000 = 40,000
         $component->call('updateUnit', $rowId2, 'base_' . $this->pcsUnit->id);
 
         $cart2 = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content()->values()[0];
-        $this->assertEquals(3.0, (float) $cart2->qty);
+        $this->assertEquals(1.0, (float) $cart2->qty, 'After switch: entered qty should be 1');
         $this->assertEquals(40000.0, (float) $cart2->price); // 120,000 / 3 = 40,000
-        $this->assertEquals(120000.0, (float) $cart2->options->sub_total); // Subtotal remains 120,000.00
+        $this->assertEquals(40000.0, (float) $cart2->options->sub_total); // 1 × 40,000 = 40,000
     }
 
     public function test_create_purchase_ignores_forged_canonical_unit_price_in_cart_options(): void

@@ -112,6 +112,7 @@ class ProductCart extends Component
             $this->is_tax_included = (bool) $data->is_tax_included;
 
             foreach ($cart_items as $cart_item) {
+                $this->ensureCanonicalUnitPricePopulated($cart_item);
                 $this->initializeCartItemAttributes($cart_item);
             }
             $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
@@ -130,6 +131,7 @@ class ProductCart extends Component
 
             // If there are existing cart items (e.g., from session), initialize their attributes
             foreach ($cart_items as $cart_item) {
+                $this->ensureCanonicalUnitPricePopulated($cart_item);
                 $this->initializeCartItemAttributes($cart_item);
             }
         }
@@ -197,6 +199,29 @@ class ProductCart extends Component
         }
 
         return $units;
+    }
+
+    private function ensureCanonicalUnitPricePopulated($cart_item): void
+    {
+        $canonicalPrice = $cart_item->options->canonical_unit_price ?? null;
+        if (is_numeric($canonicalPrice) && (float) $canonicalPrice > 0) {
+            return;
+        }
+
+        $factor = (float) ($cart_item->options->conversion_factor ?? 1.0);
+        if ($factor <= 0) {
+            $factor = 1.0;
+        }
+
+        $enteredPrice = (float) ($cart_item->price ?? 0);
+        if ($enteredPrice > 0) {
+            $canonicalBasePrice = $enteredPrice / $factor;
+            Cart::instance($this->cart_instance)->update($cart_item->rowId, [
+                'options' => array_merge($cart_item->options->toArray(), [
+                    'canonical_unit_price' => $canonicalBasePrice,
+                ]),
+            ]);
+        }
     }
 
     private function migrateRowKeys(string $oldRowId, string $newRowId): void
@@ -271,8 +296,9 @@ class ProductCart extends Component
         $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
     }
 
-    private function calculateConversionBreakdown(int $productId, int $quantity): string
+    private function calculateConversionBreakdown(int $productId, $quantity): string
     {
+        $quantity = (float) $quantity;
         if ($quantity < 1) {
             return '';
         }
@@ -291,7 +317,7 @@ class ProductCart extends Component
 
         // If no conversions, just return the quantity in base unit
         if ($conversions->isEmpty()) {
-            return "{$quantity} {$baseUnitName}(s)";
+            return \App\Support\QuantityFormatter::formatCanonicalQuantity($quantity) . " {$baseUnitName}(s)";
         }
 
         $parts = [];
@@ -302,7 +328,7 @@ class ProductCart extends Component
             if ($factor < 1) {
                 continue;
             }
-            $count = intdiv($remaining, $factor);
+            $count = (int) ($remaining / $factor);
             if ($count > 0) {
                 // assume you have a relation to Unit for the name:
                 $unitName = optional($conv->unit)->name ?? "unit";
@@ -312,11 +338,12 @@ class ProductCart extends Component
         }
 
         // 2) whatever is left is in the base unit:
-        if ($remaining > 0) {
+        if ($remaining > 0.0001) {
             // you can grab the base unit name however your schema defines it:
             $fallbackBaseUnitId = $conversions->first()->base_unit_id ?? $baseUnitId;
             $baseName = optional(Unit::find($fallbackBaseUnitId))->name ?? $baseUnitName;
-            $parts[]  = "{$remaining} {$baseName}(s)";
+            $remainingFormatted = \App\Support\QuantityFormatter::formatCanonicalQuantity($remaining);
+            $parts[]  = "{$remainingFormatted} {$baseName}(s)";
         }
 
         return implode(', ', $parts);
@@ -657,13 +684,21 @@ class ProductCart extends Component
     {
         $cart = Cart::instance($this->cart_instance);
 
-        $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
-            return $cartItem->id == $product['id'];
-        });
+        // Guard against adding the same product+unit combination twice.
+        // Allow different units of the same product; differ by purchase_unit_id/product_unit_conversion_id.
+        $productId = (int) ($product['id'] ?? 0);
+        $purchaseUnitId = (int) ($product['purchase_unit_id'] ?? 1);
+        $conversionId = $product['product_unit_conversion_id'] ?? null;
 
-        if ($exists->isNotEmpty()) {
-            session()->flash('message', 'Produk sudah dimasukkan!');
-            return;
+        foreach ($cart->content() as $item) {
+            $sameProduct = (int) $item->id === $productId;
+            $sameUnit = (int) (data_get($item->options, 'purchase_unit_id') ?? 1) === $purchaseUnitId;
+            $sameConversion = data_get($item->options, 'product_unit_conversion_id') === $conversionId;
+
+            if ($sameProduct && $sameUnit && $sameConversion) {
+                session()->flash('flash_message', 'Produk sudah dimasukkan!');
+                return;
+            }
         }
 
         $this->product = $product;
@@ -697,6 +732,7 @@ class ProductCart extends Component
                 'average_purchase_price'  => $calc['average_purchase_price'],
                 'product_tax'             => $defaultTaxId, // default per-product tax if any
                 'unit_price'              => $calc['unit_price'],
+                'canonical_unit_price'    => $calc['price'],
                 'pricing_source'          => 'automatic',
                 // Newly added automatic row: the backend must price it.
                 \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
@@ -750,16 +786,6 @@ class ProductCart extends Component
             return (float) $canonicalUnitPrice * $factor;
         }
 
-        $storedSubTotal = $cartItem->options->sub_total_before_tax ?? $cartItem->options->sub_total ?? null;
-        $qty = (float) $cartItem->qty;
-        if (is_numeric($storedSubTotal) && $qty > 0) {
-            $discountPerUnit = (float) ($cartItem->options->product_discount ?? 0);
-            $grossSubTotal = ((float) $storedSubTotal) + ($discountPerUnit * $qty);
-            if ($grossSubTotal > 0) {
-                return $grossSubTotal / $qty;
-            }
-        }
-
         return (float) $cartItem->price;
     }
 
@@ -796,11 +822,33 @@ class ProductCart extends Component
             }
         }
 
-        $exactUnitPrice = $this->resolveExactUnitPrice($cart_item);
-        $displayUnitPrice = round($exactUnitPrice, 2);
-        $this->unit_price[$row_id] = $displayUnitPrice;
-
+        // Preserve unit price: quantity changes must not derive a new unit price.
+        // For manual_line_total pricing, use the already-derived unit price.
+        // For other pricing sources, reconstruct the exact unit price from canonical_unit_price
+        // and conversion_factor to preserve repeating-decimal precision (e.g., 100000 ÷ 3).
         $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
+
+        if ($pricingSource === 'manual_line_total') {
+            // Manual line total override: preserve the currently set price
+            $displayUnitPrice = (float) ($this->unit_price[$row_id] ?? $cart_item->price);
+            $exactUnitPrice = $displayUnitPrice;
+        } else {
+            // Automatic or manual_unit_price: derive exact from canonical
+            $factor = (float) ($cart_item->options->conversion_factor ?? 1.0);
+            if ($factor <= 0) {
+                $factor = 1.0;
+            }
+
+            $canonicalUnitPrice = $cart_item->options->canonical_unit_price ?? null;
+            if (is_numeric($canonicalUnitPrice) && (float) $canonicalUnitPrice > 0) {
+                $exactUnitPrice = (float) $canonicalUnitPrice * $factor;
+            } else {
+                $exactUnitPrice = (float) ($cart_item->price ?? 0);
+            }
+            $displayUnitPrice = round($exactUnitPrice, 2);
+            $this->unit_price[$row_id] = $displayUnitPrice;
+        }
+
         $discountAmount = (float) ($cart_item->options->product_discount ?? 0);
 
         $calculated = $this->calculateSubtotalAndTax(
@@ -1423,26 +1471,25 @@ class ProductCart extends Component
         $currentQtyFloat = (float) ($this->quantity[$rowId] ?? $cart_item->qty);
         $currentPriceFloat = (float) ($this->unit_price[$rowId] ?? $cart_item->price);
 
-        $qtyBd = \Brick\Math\BigDecimal::of((string) $currentQtyFloat);
-        $priceBd = \Brick\Math\BigDecimal::of((string) $currentPriceFloat);
+        $enteredQtyBd = \Brick\Math\BigDecimal::of((string) $currentQtyFloat);
+        $enteredPriceBd = \Brick\Math\BigDecimal::of((string) $currentPriceFloat);
 
-        // 1. Calculate canonical quantity (qty * oldFactor)
-        $canonicalQtyBd = $qtyBd->multipliedBy($oldFactorBd);
+        // Unit switch rule: entered quantity is unchanged; canonical quantity = entered × new factor
+        $newQtyBd = $enteredQtyBd;
+        $canonicalQtyBd = $enteredQtyBd->multipliedBy($newFactorBd);
 
-        // 2. Convert to new unit quantity (canonicalQty / newFactor)
-        try {
-            $newQtyBd = $canonicalQtyBd->dividedBy($newFactorBd, 6, \Brick\Math\RoundingMode::HALF_UP);
-        } catch (\Exception $e) {
-            session()->flash('message', 'Jumlah kuantitas tidak dapat dikonversi ke satuan yang dipilih.');
+        // Validate entered quantity scale (max 3 decimal places)
+        if ($enteredQtyBd->stripTrailingZeros()->getScale() > 3) {
+            session()->flash('message', 'Jumlah kuantitas tidak dapat digunakan dengan skala yang diterima.');
             $selectedConvId = data_get($cart_item->options, 'product_unit_conversion_id');
             $unitId = data_get($cart_item->options, 'purchase_unit_id');
             $this->selected_unit[$rowId] = $selectedConvId ? 'conv_' . $selectedConvId : ('base_' . ($unitId ?? 1));
             return;
         }
 
-        // Reject unsupported quantity precision (scale > 3)
-        if ($newQtyBd->stripTrailingZeros()->getScale() > 3) {
-            session()->flash('message', 'Jumlah kuantitas (' . $newQtyBd->toFloat() . ') tidak dapat dikonversi ke satuan ' . $selectedOption['name'] . ' tanpa melebihi batas 3 angka di belakang koma.');
+        // Reject unsupported canonical quantity precision (scale > 3)
+        if ($canonicalQtyBd->stripTrailingZeros()->getScale() > 3) {
+            session()->flash('message', 'Jumlah kuantitas (' . $canonicalQtyBd->toFloat() . ') tidak dapat dikonversi ke satuan ' . $selectedOption['name'] . ' tanpa melebihi batas 3 angka di belakang koma.');
             $selectedConvId = data_get($cart_item->options, 'product_unit_conversion_id');
             $unitId = data_get($cart_item->options, 'purchase_unit_id');
             $this->selected_unit[$rowId] = $selectedConvId ? 'conv_' . $selectedConvId : ('base_' . ($unitId ?? 1));
@@ -1453,30 +1500,47 @@ class ProductCart extends Component
 
         $oldFactorFloat = $oldFactorBd->toFloat();
         $newFactorFloat = $newFactorBd->toFloat();
-        $currentQtyFloat = (float) ($this->quantity[$rowId] ?? $cart_item->qty);
-        $currentPriceFloat = (float) ($this->unit_price[$rowId] ?? $cart_item->price);
 
-        $canonicalBaseUnitPrice = data_get($cart_item->options, 'canonical_unit_price');
-        if (! is_numeric($canonicalBaseUnitPrice) || (float) $canonicalBaseUnitPrice <= 0) {
-            $canonicalBaseUnitPrice = $currentPriceFloat / $oldFactorFloat;
-        } else {
-            $canonicalBaseUnitPrice = (float) $canonicalBaseUnitPrice;
+        // Price rule: canonical base price is unchanged; entered price scales to new factor
+        // canonicalBasePrice = enteredPrice ÷ oldFactor
+        // newEnteredPrice = canonicalBasePrice × newFactor
+        try {
+            $canonicalBaseUnitPriceBd = $enteredPriceBd->dividedBy($oldFactorBd, 6, \Brick\Math\RoundingMode::HALF_UP);
+            $newUnitPriceBd = $canonicalBaseUnitPriceBd->multipliedBy($newFactorBd);
+        } catch (\Exception $e) {
+            session()->flash('message', 'Harga satuan tidak dapat dikonversi ke satuan yang dipilih.');
+            $selectedConvId = data_get($cart_item->options, 'product_unit_conversion_id');
+            $unitId = data_get($cart_item->options, 'purchase_unit_id');
+            $this->selected_unit[$rowId] = $selectedConvId ? 'conv_' . $selectedConvId : ('base_' . ($unitId ?? 1));
+            return;
         }
 
-        $newUnitPriceExact = $canonicalBaseUnitPrice * $newFactorFloat;
+        $canonicalBaseUnitPrice = $canonicalBaseUnitPriceBd->toFloat();
+        $newUnitPriceExact = $newUnitPriceBd->toFloat();
         $newPriceDisplay = round($newUnitPriceExact, 2);
 
         $discType = data_get($cart_item->options, 'product_discount_type') ?? $this->discount_type[$rowId] ?? 'fixed';
-        $oldDiscountInput = (float) ($this->item_discount[$rowId] ?? data_get($cart_item->options, 'product_discount_input') ?? data_get($cart_item->options, 'entered_product_discount_amount') ?? 0);
-        $oldDiscountAmount = (float) (data_get($cart_item->options, 'product_discount') ?? 0);
+        $enteredDiscountInput = (float) ($this->item_discount[$rowId] ?? data_get($cart_item->options, 'entered_product_discount_amount') ?? 0);
 
         if ($discType === 'percentage') {
-            $newDiscountInput = $oldDiscountInput;
+            // Percentage discount is unit-independent; carry it unchanged and recompute the amount
+            $newDiscountInput = $enteredDiscountInput;
             $newDiscountAmount = $newUnitPriceExact * ($newDiscountInput / 100);
         } else {
-            $oldDiscountPerUnit = $oldDiscountAmount > 0 ? $oldDiscountAmount : $oldDiscountInput;
-            $newDiscountAmount = $oldDiscountPerUnit * ($newFactorFloat / $oldFactorFloat);
-            $newDiscountInput = round($newDiscountAmount, 2);
+            // Fixed discount rule: canonical discount is unchanged; entered discount scales
+            // canonicalDiscount = enteredDiscount ÷ oldFactor
+            // newEnteredDiscount = canonicalDiscount × newFactor
+            try {
+                $enteredDiscountBd = \Brick\Math\BigDecimal::of((string) $enteredDiscountInput);
+                $canonicalDiscountBd = $enteredDiscountBd->dividedBy($oldFactorBd, 6, \Brick\Math\RoundingMode::HALF_UP);
+                $newDiscountBd = $canonicalDiscountBd->multipliedBy($newFactorBd);
+                $newDiscountInput = $newDiscountBd->toFloat();
+                // newDiscountAmount is the discount per new entered unit (used in calculateSubtotalAndTax)
+                $newDiscountAmount = $newDiscountBd->toFloat();
+            } catch (\Exception $e) {
+                $newDiscountAmount = ($enteredDiscountInput / $oldFactorFloat) * $newFactorFloat;
+                $newDiscountInput = $newDiscountAmount;
+            }
         }
 
         $productModel = Product::with('baseUnit')->find($cart_item->id);
@@ -1532,7 +1596,7 @@ class ProductCart extends Component
         $this->discount_type[$newRowId] = $discType;
         $this->item_discount[$newRowId] = $newDiscountInput;
         $this->line_total[$newRowId] = $calculated['sub_total'];
-        $this->quantityBreakdowns[$newRowId] = $this->calculateConversionBreakdown((int) $cart_item->id, (int) round($canonicalQtyBd->toFloat()));
+        $this->quantityBreakdowns[$newRowId] = $this->calculateConversionBreakdown((int) $cart_item->id, $canonicalQtyBd->toFloat());
         $this->recalculateCart();
     }
 }

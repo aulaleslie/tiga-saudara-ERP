@@ -406,6 +406,23 @@ class PurchaseLazyLoadingPreventionTest extends TestCase
     }
 
     /**
+     * Test 5b: Receivings list route with normalization lines (lazy loading disabled).
+     * This exercises the receiving list template's own code path, not the partial in isolation.
+     */
+    public function test_receivings_list_route_with_normalization_lines_does_not_lazy_load(): void
+    {
+        [$purchase] = $this->createPurchaseWithExecutedNormalization(asLegacy: false);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('receivings.list'));
+
+        $response->assertStatus(200);
+        $response->assertViewIs('purchase::receiving.list');
+        $response->assertSee('Base UOM corrected from');
+    }
+
+    /**
      * Test 6: Global purchase-payment show with consignment billing purchase (lazy loading disabled).
      */
     public function test_global_purchase_payment_show_with_consignment_billing_purchase_does_not_lazy_load(): void

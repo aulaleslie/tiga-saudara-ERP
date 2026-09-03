@@ -8,7 +8,7 @@ Define the uniform storage convention for all monetary values in the application
 
 ### R1: Decimal Rupiah Storage Outside POS
 
-All monetary values outside the POS module are stored as `decimal(15,2)` columns representing rupiah directly — no unit conversion or scaling applied. This includes:
+All monetary values outside the POS module are stored as `decimal(15,2)` columns representing rupiah directly — no unit conversion or scaling applied — except as explicitly modified for canonical Purchase unit prices below. This includes:
 
 - `sales` (total_amount, tax_amount, discount_amount, shipping_amount)
 - `sale_details` (price, unit_price, sub_total, product_discount_amount, product_tax_amount)
@@ -16,7 +16,7 @@ All monetary values outside the POS module are stored as `decimal(15,2)` columns
 - `sale_returns` (total_amount, paid_amount)
 - `sale_return_payments` (amount)
 - `purchases` (total_amount, tax_amount, discount_amount, shipping_amount, paid_amount, due_amount)
-- `purchase_details` (price, unit_price, sub_total, product_discount_amount, product_tax_amount)
+- `purchase_details` (sub_total, product_discount_amount, product_tax_amount)
 - `purchase_payments` (amount)
 - `purchase_returns` (total_amount, paid_amount)
 - `purchase_return_payments` (amount)
@@ -24,6 +24,9 @@ All monetary values outside the POS module are stored as `decimal(15,2)` columns
 - `products` (product_cost, product_price)
 - `quotations` (total_amount, tax_amount, discount_amount, shipping_amount)
 - `quotation_details` (price, unit_price, sub_total, product_discount_amount, product_tax_amount)
+
+As an explicit capability modification for Purchase UOM conversions:
+- `purchase_details.price` and `purchase_details.unit_price` are stored as `decimal(15,6)` columns to preserve high-precision canonical base-unit prices (such as `100000.00 / 3 = 33333.333333`) without costing drift in production databases. Purchase totals and other monetary columns remain stored as standard two-decimal rupiah values (`decimal(15,2)`).
 
 ### R2: No Model Mutators for Monetary Columns
 

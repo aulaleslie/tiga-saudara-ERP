@@ -80,7 +80,26 @@ class PurchaseController extends Controller
     {
         abort_unless(Gate::any(['purchases.receive.access', 'purchases.receive']), 403);
 
-        return view('purchase::receiving.list');
+        $receivings = ReceivedNote::with([
+            'purchase',
+            'location',
+            'receivedNoteDetails.purchaseDetail',
+            'receivedNoteDetails.productSerialNumbers',
+            'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+            'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+            'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
+        ])
+            ->whereHas('purchase', function($q) {
+                $settingId = session('setting_id');
+                if ($settingId) {
+                    $q->where('setting_id', $settingId);
+                }
+            })
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        return view('purchase::receiving.list', compact('receivings'));
     }
 
 
