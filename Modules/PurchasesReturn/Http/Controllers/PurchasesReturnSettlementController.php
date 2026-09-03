@@ -16,6 +16,8 @@ use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
 use App\Services\SerialNumberHistoryService;
 use Modules\Product\Entities\SerialNumberHistory;
+use Brick\Math\BigDecimal;
+use Modules\PurchasesReturn\Services\PurchaseReturnQuantityService;
 
 class PurchasesReturnSettlementController extends Controller
 {
@@ -294,14 +296,24 @@ class PurchasesReturnSettlementController extends Controller
             $rules['replacement_serial_number'] = 'required|string|max:255';
         }
 
+        $quantityService = app(PurchaseReturnQuantityService::class);
+
         if ($method === 'BROKEN_STOCK') {
-            $expectedQty = $isSerial ? 1 : ($itemSettlement->detail?->quantity ?? 1);
-            $rules['received_quantity'] = "required|integer|in:{$expectedQty}";
+            $expectedQty = $isSerial ? '1' : (string) $quantityService->toBigDecimal($itemSettlement->detail?->quantity ?? 1);
+            $rules['received_quantity'] = ['required', 'numeric', 'gt:0', 'regex:/^\d+(\.\d{1,3})?$/'];
         } else {
-            $rules['received_quantity'] = 'required|integer|min:1';
+            $rules['received_quantity'] = ['required', 'numeric', 'gt:0', 'regex:/^\d+(\.\d{1,3})?$/'];
         }
 
         $request->validate($rules);
+
+        if ($method === 'BROKEN_STOCK'
+            && $quantityService->toBigDecimal($request->received_quantity)->compareTo($quantityService->toBigDecimal($expectedQty)) !== 0
+        ) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'received_quantity' => "Jumlah diterima harus tepat {$expectedQty}.",
+            ]);
+        }
 
         try {
             \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement, $method, $isSerial) {
@@ -638,10 +650,11 @@ class PurchasesReturnSettlementController extends Controller
             throw new \Exception("Stok tidak ditemukan di lokasi asal.");
         }
 
-        $remaining = $qty;
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $remaining = $quantityService->toBigDecimal($qty);
         $deductedByBucket = [
-            'non_tax' => 0,
-            'tax' => 0,
+            'non_tax' => $quantityService->toBigDecimal(0),
+            'tax' => $quantityService->toBigDecimal(0),
         ];
 
         // Priority logic for moving Good or Broken stock
@@ -650,26 +663,26 @@ class PurchasesReturnSettlementController extends Controller
         $sourceBucketMain = $isBroken ? 'broken_quantity' : 'quantity';
 
         // 1. Non-tax
-        $take = min($remaining, (int) ($sourceStock->$sourceBucketNonTax ?? 0));
-        if ($take > 0) {
-            $sourceStock->decrement($sourceBucketNonTax, $take);
-            $sourceStock->decrement($sourceBucketMain, $take);
+        $take = $quantityService->min($remaining, $sourceStock->$sourceBucketNonTax ?? 0);
+        if ($take->isPositive()) {
+            $sourceStock->decrement($sourceBucketNonTax, $take->toFloat());
+            $sourceStock->decrement($sourceBucketMain, $take->toFloat());
             $deductedByBucket['non_tax'] = $take;
-            $remaining -= $take;
+            $remaining = $remaining->minus($take);
         }
 
         // 2. Tax
-        if ($remaining > 0) {
-            $take = min($remaining, (int) ($sourceStock->$sourceBucketTax ?? 0));
-            if ($take > 0) {
-                $sourceStock->decrement($sourceBucketTax, $take);
-                $sourceStock->decrement($sourceBucketMain, $take);
+        if ($remaining->isPositive()) {
+            $take = $quantityService->min($remaining, $sourceStock->$sourceBucketTax ?? 0);
+            if ($take->isPositive()) {
+                $sourceStock->decrement($sourceBucketTax, $take->toFloat());
+                $sourceStock->decrement($sourceBucketMain, $take->toFloat());
                 $deductedByBucket['tax'] = $take;
-                $remaining -= $take;
+                $remaining = $remaining->minus($take);
             }
         }
 
-        if ($remaining > 0) {
+        if ($remaining->isPositive()) {
              throw new \Exception("Stok tidak mencukupi di lokasi asal.");
         }
 
@@ -680,24 +693,26 @@ class PurchasesReturnSettlementController extends Controller
             ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
         );
 
-        $prevTargetQty = (int) $targetStock->$sourceBucketMain;
-        
+        $prevTargetQty = (float) $targetStock->$sourceBucketMain;
+
         // Apply to target
-        if ($deductedByBucket['non_tax'] > 0) {
-            $targetStock->increment($sourceBucketNonTax, $deductedByBucket['non_tax']);
-            $targetStock->increment($sourceBucketMain, $deductedByBucket['non_tax']);
+        if ($deductedByBucket['non_tax']->isPositive()) {
+            $targetStock->increment($sourceBucketNonTax, $deductedByBucket['non_tax']->toFloat());
+            $targetStock->increment($sourceBucketMain, $deductedByBucket['non_tax']->toFloat());
         }
-        if ($deductedByBucket['tax'] > 0) {
-            $targetStock->increment($sourceBucketTax, $deductedByBucket['tax']);
-            $targetStock->increment($sourceBucketMain, $deductedByBucket['tax']);
+        if ($deductedByBucket['tax']->isPositive()) {
+            $targetStock->increment($sourceBucketTax, $deductedByBucket['tax']->toFloat());
+            $targetStock->increment($sourceBucketMain, $deductedByBucket['tax']->toFloat());
         }
         $targetStock->save();
 
         // Create granular transactions
         $product = Product::find($productId);
-        
-        foreach ($deductedByBucket as $bucket => $bucketQty) {
-            if ($bucketQty <= 0) continue;
+
+        foreach ($deductedByBucket as $bucket => $bucketQtyBd) {
+            if (! $bucketQtyBd->isPositive()) continue;
+
+            $bucketQty = $bucketQtyBd->toFloat();
 
             $granularType = $type;
             if ($type === 'RETURN_REPAIR') {
@@ -716,8 +731,8 @@ class PurchasesReturnSettlementController extends Controller
                 'reason' => $reason,
                 'previous_quantity' => $product?->product_quantity ?? 0, // Simplified
                 'after_quantity' => $product?->product_quantity ?? 0,
-                'previous_quantity_at_location' => (int) $sourceStock->$sourceBucketMain + $bucketQty,
-                'after_quantity_at_location' => (int) $sourceStock->$sourceBucketMain,
+                'previous_quantity_at_location' => (float) $sourceStock->$sourceBucketMain + $bucketQty,
+                'after_quantity_at_location' => (float) $sourceStock->$sourceBucketMain,
                 'quantity_tax' => (!$isBroken && $bucket === 'tax') ? -$bucketQty : 0,
                 'quantity_non_tax' => (!$isBroken && $bucket === 'non_tax') ? -$bucketQty : 0,
                 'broken_quantity_tax' => ($isBroken && $bucket === 'tax') ? -$bucketQty : 0,
@@ -738,7 +753,7 @@ class PurchasesReturnSettlementController extends Controller
                 'previous_quantity' => $product?->product_quantity ?? 0,
                 'after_quantity' => $product?->product_quantity ?? 0,
                 'previous_quantity_at_location' => $prevTargetQty,
-                'after_quantity_at_location' => (int) $targetStock->$sourceBucketMain,
+                'after_quantity_at_location' => (float) $targetStock->$sourceBucketMain,
                 'quantity_tax' => (!$isBroken && $bucket === 'tax') ? $bucketQty : 0,
                 'quantity_non_tax' => (!$isBroken && $bucket === 'non_tax') ? $bucketQty : 0,
                 'broken_quantity_tax' => ($isBroken && $bucket === 'tax') ? $bucketQty : 0,
@@ -803,10 +818,12 @@ class PurchasesReturnSettlementController extends Controller
     {
         $settingId = $settingId ?? session('setting_id');
         $product = Product::find($productId);
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $qtyBd = $quantityService->toBigDecimal($qty);
 
         $deductedBreakdown = [
-            'non_tax' => 0,
-            'tax' => 0,
+            'non_tax' => $quantityService->toBigDecimal(0),
+            'tax' => $quantityService->toBigDecimal(0),
         ];
 
         if (!$isDispatched) {
@@ -822,73 +839,75 @@ class PurchasesReturnSettlementController extends Controller
             $prevSourceQty = $sourceStock?->quantity ?? 0;
             $prevSourceBrokenQty = $sourceStock?->broken_quantity ?? 0;
 
-            $remaining = $qty;
+            $remaining = $qtyBd;
             $deductedByBucket = [
-                'broken_non_tax' => 0,
-                'broken_tax' => 0,
-                'good_non_tax' => 0,
-                'good_tax' => 0,
+                'broken_non_tax' => $quantityService->toBigDecimal(0),
+                'broken_tax' => $quantityService->toBigDecimal(0),
+                'good_non_tax' => $quantityService->toBigDecimal(0),
+                'good_tax' => $quantityService->toBigDecimal(0),
             ];
 
             // Priority 1: broken_quantity_non_tax
-            $take = min($remaining, (int) ($sourceStock->broken_quantity_non_tax ?? 0));
-            if ($take > 0) {
-                $sourceStock->decrement('broken_quantity_non_tax', $take);
-                $sourceStock->decrement('broken_quantity', $take);
+            $take = $quantityService->min($remaining, $sourceStock->broken_quantity_non_tax ?? 0);
+            if ($take->isPositive()) {
+                $sourceStock->decrement('broken_quantity_non_tax', $take->toFloat());
+                $sourceStock->decrement('broken_quantity', $take->toFloat());
                 $deductedByBucket['broken_non_tax'] = $take;
-                $deductedBreakdown['non_tax'] += $take;
-                $remaining -= $take;
-                if ($product) $product->decrement('broken_quantity', $take);
+                $deductedBreakdown['non_tax'] = $deductedBreakdown['non_tax']->plus($take);
+                $remaining = $remaining->minus($take);
+                if ($product) $product->decrement('broken_quantity', $take->toFloat());
             }
 
             // Priority 2: broken_quantity_tax
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($sourceStock->broken_quantity_tax ?? 0));
-                if ($take > 0) {
-                    $sourceStock->decrement('broken_quantity_tax', $take);
-                    $sourceStock->decrement('broken_quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $sourceStock->broken_quantity_tax ?? 0);
+                if ($take->isPositive()) {
+                    $sourceStock->decrement('broken_quantity_tax', $take->toFloat());
+                    $sourceStock->decrement('broken_quantity', $take->toFloat());
                     $deductedByBucket['broken_tax'] = $take;
-                    $deductedBreakdown['tax'] += $take;
-                    $remaining -= $take;
-                    if ($product) $product->decrement('broken_quantity', $take);
+                    $deductedBreakdown['tax'] = $deductedBreakdown['tax']->plus($take);
+                    $remaining = $remaining->minus($take);
+                    if ($product) $product->decrement('broken_quantity', $take->toFloat());
                 }
             }
 
             // Priority 3: quantity_non_tax (Good stock)
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($sourceStock->quantity_non_tax ?? 0));
-                if ($take > 0) {
-                    $sourceStock->decrement('quantity_non_tax', $take);
-                    $sourceStock->decrement('quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $sourceStock->quantity_non_tax ?? 0);
+                if ($take->isPositive()) {
+                    $sourceStock->decrement('quantity_non_tax', $take->toFloat());
+                    $sourceStock->decrement('quantity', $take->toFloat());
                     $deductedByBucket['good_non_tax'] = $take;
-                    $deductedBreakdown['non_tax'] += $take;
-                    $remaining -= $take;
-                    if ($product) $product->decrement('product_quantity', $take);
+                    $deductedBreakdown['non_tax'] = $deductedBreakdown['non_tax']->plus($take);
+                    $remaining = $remaining->minus($take);
+                    if ($product) $product->decrement('product_quantity', $take->toFloat());
                 }
             }
 
             // Priority 4: quantity_tax (Good stock)
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($sourceStock->quantity_tax ?? 0));
-                if ($take > 0) {
-                    $sourceStock->decrement('quantity_tax', $take);
-                    $sourceStock->decrement('quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $sourceStock->quantity_tax ?? 0);
+                if ($take->isPositive()) {
+                    $sourceStock->decrement('quantity_tax', $take->toFloat());
+                    $sourceStock->decrement('quantity', $take->toFloat());
                     $deductedByBucket['good_tax'] = $take;
-                    $deductedBreakdown['tax'] += $take;
-                    $remaining -= $take;
-                    if ($product) $product->decrement('product_quantity', $take);
+                    $deductedBreakdown['tax'] = $deductedBreakdown['tax']->plus($take);
+                    $remaining = $remaining->minus($take);
+                    if ($product) $product->decrement('product_quantity', $take->toFloat());
                 }
             }
 
-            if ($remaining > 0) {
+            if ($remaining->isPositive()) {
                 throw new \Exception("Stok tidak mencukupi di lokasi asal (Kurang {$remaining}).");
             }
-            
+
             if ($sourceStock) $sourceStock->save();
 
             // Record granular transactions for deduction
-            foreach ($deductedByBucket as $source => $bucketQty) {
-                if ($bucketQty <= 0) continue;
+            foreach ($deductedByBucket as $source => $bucketQtyBd) {
+                if (! $bucketQtyBd->isPositive()) continue;
+
+                $bucketQty = $bucketQtyBd->toFloat();
 
                 $type = match($source) {
                     'broken_non_tax' => 'PURCHASE_RETURN_BROKEN_NON_TAX',
@@ -901,7 +920,7 @@ class PurchasesReturnSettlementController extends Controller
                     'product_id' => $productId,
                     'setting_id' => $settingId,
                     'type' => $type,
-                    'quantity' => -$bucketQty, 
+                    'quantity' => -$bucketQty,
                     'current_quantity' => $product?->product_quantity ?? 0,
                     'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
                     'previous_quantity' => $product?->product_quantity + $bucketQty, // Approximation
@@ -920,7 +939,7 @@ class PurchasesReturnSettlementController extends Controller
         } else {
             // Already dispatched. If we don't know the breakdown, we assume non-tax for simplicity OR attempt to resolve.
             // But usually we should have tracked it. For now, prioritize non-tax.
-            $deductedBreakdown['non_tax'] = $qty; 
+            $deductedBreakdown['non_tax'] = $qtyBd;
         }
 
         // Add to target Broken
@@ -930,27 +949,27 @@ class PurchasesReturnSettlementController extends Controller
         );
 
         $prevTargetBrokenQty = $targetStock->broken_quantity;
-        
+
         // Preserve tax status from deducted breakdown
-        if ($deductedBreakdown['non_tax'] > 0) {
-            $targetStock->increment('broken_quantity', $deductedBreakdown['non_tax']);
-            $targetStock->increment('broken_quantity_non_tax', $deductedBreakdown['non_tax']);
+        if ($deductedBreakdown['non_tax']->isPositive()) {
+            $targetStock->increment('broken_quantity', $deductedBreakdown['non_tax']->toFloat());
+            $targetStock->increment('broken_quantity_non_tax', $deductedBreakdown['non_tax']->toFloat());
         }
-        if ($deductedBreakdown['tax'] > 0) {
-            $targetStock->increment('broken_quantity', $deductedBreakdown['tax']);
-            $targetStock->increment('broken_quantity_tax', $deductedBreakdown['tax']);
+        if ($deductedBreakdown['tax']->isPositive()) {
+            $targetStock->increment('broken_quantity', $deductedBreakdown['tax']->toFloat());
+            $targetStock->increment('broken_quantity_tax', $deductedBreakdown['tax']->toFloat());
         }
         $targetStock->save();
 
         if ($product) {
-            $product->increment('broken_quantity', $qty);
+            $product->increment('broken_quantity', $qtyBd->toFloat());
         }
 
         Transaction::create([
             'product_id' => $productId,
             'setting_id' => $settingId,
             'type' => 'RETURN_BROKEN',
-            'quantity' => $qty, 
+            'quantity' => $qtyBd->toFloat(),
             'current_quantity' => $targetStock->quantity,
             'broken_quantity' => $targetStock->broken_quantity,
             'previous_quantity' => $product?->product_quantity ?? 0,
@@ -996,7 +1015,7 @@ class PurchasesReturnSettlementController extends Controller
                 $purchaseTotalMode = $this->resolvePurchaseTotalMode($purchase);
 
                 $returnQty = $this->resolveReturnQuantity($item, $detail);
-                if ($returnQty <= 0) {
+                if (! $returnQty->isPositive()) {
                     break;
                 }
 
@@ -1031,7 +1050,7 @@ class PurchasesReturnSettlementController extends Controller
                     $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
                     $this->reduceReceivedNoteDetailQuantity($matchedRnd, $returnQty);
                 } else {
-                    $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                    $purchaseDetails = $this->orderedPurchaseDetailsForProduct($purchase, $detail->product_id);
                     if ($purchaseDetails->isEmpty()) {
                         throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
                     }
@@ -1052,7 +1071,10 @@ class PurchasesReturnSettlementController extends Controller
                 }
 
                 // Archival logic: if all items are returned (total qty == 0), archive
-                if ((int) $purchase->purchaseDetails()->sum('quantity') === 0) {
+                $remainingPurchaseQty = app(PurchaseReturnQuantityService::class)->sum(
+                    $purchase->purchaseDetails()->pluck('quantity')
+                );
+                if (! $remainingPurchaseQty->isPositive()) {
                     $purchase->update([
                         'archived_at' => now(),
                         'archived_by' => auth()->id(),
@@ -1301,7 +1323,7 @@ class PurchasesReturnSettlementController extends Controller
                     }
 
                     $returnQty = $this->resolveReturnQuantity($item, $detail);
-                    if ($returnQty > 0) {
+                    if ($returnQty->isPositive()) {
                         $previousTotal = (float) $purchase->total_amount;
 
                         $serial = null;
@@ -1324,7 +1346,7 @@ class PurchasesReturnSettlementController extends Controller
                             $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
                             $this->reduceReceivedNoteDetailQuantity($matchedRnd, $returnQty);
                         } else {
-                            $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                            $purchaseDetails = $this->orderedPurchaseDetailsForProduct($purchase, $detail->product_id);
                             if ($purchaseDetails->isEmpty()) {
                                 throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
                             }
@@ -1398,117 +1420,223 @@ class PurchasesReturnSettlementController extends Controller
         return;
     }
 
-    protected function resolveReturnQuantity(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail): int
+    /**
+     * The deterministic allocation order used both to reduce a purchase's matching
+     * detail rows on approval and to price a settlement's nominal in the Livewire
+     * form (PurchaseReturnSettlementForm::resolveSettlementNominal). A purchase can
+     * carry more than one detail row for the same product at different prices (e.g.
+     * re-added at a corrected price); without a fixed, shared order the
+     * displayed/approved nominal and the amount actually removed from the purchase
+     * can diverge. Ordering by id gives both sides the same, stable row sequence.
+     */
+    protected function orderedPurchaseDetailsForProduct(\Modules\Purchase\Entities\Purchase $purchase, $productId): \Illuminate\Support\Collection
     {
-        if ($item->product_serial_number_id) {
-            return 1;
-        }
-
-        return max(0, (int) ($detail->quantity ?? 0));
+        return app(PurchaseReturnQuantityService::class)->orderedPurchaseDetailsForProduct($purchase, $productId);
     }
 
-    protected function ensurePurchaseDetailHasQuantity(PurchaseDetail $detail, int $returnQty): void
+    protected function resolveReturnQuantity(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail): BigDecimal
     {
-        $available = max(0, (int) $detail->quantity);
-        if ($returnQty > $available) {
+        $quantityService = app(PurchaseReturnQuantityService::class);
+
+        if ($item->product_serial_number_id) {
+            return $quantityService->toBigDecimal(1);
+        }
+
+        $available = $quantityService->toBigDecimal($detail->quantity ?? 0);
+
+        return $available->isPositive() ? $available : $quantityService->toBigDecimal(0);
+    }
+
+    protected function ensurePurchaseDetailHasQuantity(PurchaseDetail $detail, BigDecimal $returnQty): void
+    {
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $available = $quantityService->toBigDecimal($detail->quantity);
+        if ($quantityService->greaterThan($returnQty, $available)) {
             throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
         }
 
-        $receivedQty = (int) ReceivedNoteDetail::where('po_detail_id', $detail->id)
-            ->whereHas('receivedNote', function ($query) {
-                $query->where('status', ReceivedNote::STATUS_APPROVED);
-            })
-            ->sum('quantity_received');
+        $receivedQty = $quantityService->sum(
+            ReceivedNoteDetail::where('po_detail_id', $detail->id)
+                ->whereHas('receivedNote', function ($query) {
+                    $query->where('status', ReceivedNote::STATUS_APPROVED);
+                })
+                ->pluck('quantity_received')
+        );
 
-        if ($returnQty > $receivedQty) {
+        if ($quantityService->greaterThan($returnQty, $receivedQty)) {
             throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
         }
     }
 
-    protected function ensurePurchaseDetailsHaveQuantity($details, int $returnQty): void
+    protected function ensurePurchaseDetailsHaveQuantity($details, BigDecimal $returnQty): void
     {
-        $totalOrdered = (int) $details->sum('quantity');
-        if ($returnQty > $totalOrdered) {
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $totalOrdered = $quantityService->sum($details->pluck('quantity'));
+        if ($quantityService->greaterThan($returnQty, $totalOrdered)) {
             throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
         }
 
         $detailIds = $details->pluck('id')->values()->all();
-        $receivedQty = (int) ReceivedNoteDetail::whereIn('po_detail_id', $detailIds)
-            ->whereHas('receivedNote', function ($query) {
-                $query->where('status', ReceivedNote::STATUS_APPROVED);
-            })
-            ->sum('quantity_received');
+        $receivedQty = $quantityService->sum(
+            ReceivedNoteDetail::whereIn('po_detail_id', $detailIds)
+                ->whereHas('receivedNote', function ($query) {
+                    $query->where('status', ReceivedNote::STATUS_APPROVED);
+                })
+                ->pluck('quantity_received')
+        );
 
-        if ($returnQty > $receivedQty) {
+        if ($quantityService->greaterThan($returnQty, $receivedQty)) {
             throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
         }
     }
 
-    protected function reducePurchaseDetailAmounts(PurchaseDetail $detail, int $returnQty): void
+    protected function reducePurchaseDetailAmounts(PurchaseDetail $detail, BigDecimal $returnQty): void
     {
-        $currentQty = (int) $detail->quantity;
-        if ($returnQty <= 0 || $currentQty <= 0) {
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $currentQty = $quantityService->toBigDecimal($detail->quantity);
+        if (! $returnQty->isPositive() || ! $currentQty->isPositive()) {
             return;
         }
 
-        $newQty = max(0, $currentQty - $returnQty);
-        $perUnitSubTotal = $currentQty > 0 ? ((float) $detail->sub_total / $currentQty) : 0;
-        $perUnitDiscount = $currentQty > 0 ? ((float) $detail->product_discount_amount / $currentQty) : 0;
-        $perUnitTax = $currentQty > 0 ? ((float) $detail->product_tax_amount / $currentQty) : 0;
+        $newQty = $currentQty->minus($returnQty);
+        if (! $newQty->isPositive()) {
+            $newQty = BigDecimal::zero()->toScale(PurchaseReturnQuantityService::QUANTITY_SCALE);
+        }
 
-        $detail->update([
-            'quantity' => $newQty,
-            'sub_total' => round($perUnitSubTotal * $newQty, 2),
-            'product_discount_amount' => round($perUnitDiscount * $newQty, 2),
-            'product_tax_amount' => round($perUnitTax * $newQty, 2),
-        ]);
+        $scale = 10; // extra precision for the per-unit rate before multiplying back out
+        $perUnitSubTotal = BigDecimal::of((string) $detail->sub_total)->dividedBy($currentQty, $scale, \Brick\Math\RoundingMode::HALF_UP);
+        $perUnitDiscount = BigDecimal::of((string) $detail->product_discount_amount)->dividedBy($currentQty, $scale, \Brick\Math\RoundingMode::HALF_UP);
+        $perUnitTax = BigDecimal::of((string) $detail->product_tax_amount)->dividedBy($currentQty, $scale, \Brick\Math\RoundingMode::HALF_UP);
+
+        $update = [
+            'quantity' => (string) $newQty,
+            'sub_total' => $perUnitSubTotal->multipliedBy($newQty)->toScale(2, \Brick\Math\RoundingMode::HALF_UP),
+            'product_discount_amount' => $perUnitDiscount->multipliedBy($newQty)->toScale(2, \Brick\Math\RoundingMode::HALF_UP),
+            'product_tax_amount' => $perUnitTax->multipliedBy($newQty)->toScale(2, \Brick\Math\RoundingMode::HALF_UP),
+        ];
+
+        $update += $this->rebaseEnteredUnitSnapshot($detail, $newQty);
+
+        $detail->update($update);
     }
 
-    protected function reduceReceivedNoteDetailQuantity(ReceivedNoteDetail $detail, int $returnQty): void
+    /**
+     * A partial return changes the canonical quantity but the line's entered-unit
+     * snapshot (e.g. "2 BOX") is display-only metadata derived from it. Leaving it
+     * untouched would show a stale entered quantity against a reduced canonical
+     * quantity and subtotal. The entered quantity is rebased proportionally through
+     * the line's own conversion factor so it keeps meaning "quantity, in the entered
+     * unit, that this canonical amount represents" rather than the original order.
+     *
+     * When the new canonical quantity cannot be expressed in the entered unit within
+     * the supported 3-decimal precision (or the line carries no conversion snapshot
+     * at all), the snapshot is invalidated instead of showing a number that silently
+     * lost precision: the line falls back to base-unit-only rendering through the
+     * existing `effective_*` accessors, which is honest about the return having
+     * broken the original entered-unit framing.
+     *
+     * @return array<string, mixed>
+     */
+    private function rebaseEnteredUnitSnapshot(PurchaseDetail $detail, BigDecimal $newQty): array
     {
-        $currentQty = (int) $detail->quantity_received;
-        if ($returnQty <= 0 || $currentQty <= 0) {
+        if ($detail->entered_quantity === null || $detail->conversion_factor === null) {
+            return [];
+        }
+
+        $factor = BigDecimal::of((string) $detail->conversion_factor);
+        if (! $factor->isPositive()) {
+            return [];
+        }
+
+        if (! $newQty->isPositive()) {
+            return $this->invalidatedEnteredUnitSnapshot();
+        }
+
+        $rebasedEntered = $newQty->dividedBy($factor, 10, \Brick\Math\RoundingMode::HALF_UP);
+
+        if ($rebasedEntered->stripTrailingZeros()->getScale() > \Modules\Purchase\Services\PurchaseReceivingQuantityService::QUANTITY_SCALE) {
+            // Cannot represent the reduced canonical quantity as a clean entered-unit
+            // count (e.g. 12.5 PCS / 12 does not land on a supported 3-decimal BOX
+            // count). Invalidate the entered-unit snapshot rather than round it.
+            return $this->invalidatedEnteredUnitSnapshot();
+        }
+
+        return [
+            'entered_quantity' => (string) $rebasedEntered->toScale(
+                \Modules\Purchase\Services\PurchaseReceivingQuantityService::QUANTITY_SCALE,
+                \Brick\Math\RoundingMode::UNNECESSARY
+            ),
+        ];
+    }
+
+    /**
+     * Nulls the entire entered-unit snapshot, including the per-entered-unit price
+     * and discount rate: once the entered quantity/unit is gone, a leftover per-BOX
+     * rate would otherwise be paired against a canonical (PCS) quantity in display.
+     *
+     * @return array<string, mixed>
+     */
+    private function invalidatedEnteredUnitSnapshot(): array
+    {
+        return [
+            'entered_quantity' => null,
+            'entered_unit_price' => null,
+            'entered_product_discount_amount' => null,
+            'purchase_unit_id' => null,
+            'product_unit_conversion_id' => null,
+            'unit_name' => null,
+            'conversion_factor' => null,
+        ];
+    }
+
+    protected function reduceReceivedNoteDetailQuantity(ReceivedNoteDetail $detail, BigDecimal $returnQty): void
+    {
+        $quantityService = app(PurchaseReturnQuantityService::class);
+        $currentQty = $quantityService->toBigDecimal($detail->quantity_received);
+        if (! $returnQty->isPositive() || ! $currentQty->isPositive()) {
             return;
         }
 
-        if ($returnQty > $currentQty) {
+        if ($quantityService->greaterThan($returnQty, $currentQty)) {
             throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
         }
 
         $detail->update([
-            'quantity_received' => $currentQty - $returnQty,
+            'quantity_received' => (string) $currentQty->minus($returnQty),
         ]);
     }
 
-    protected function reducePurchaseDetailCollection($details, int $returnQty): void
+    protected function reducePurchaseDetailCollection($details, BigDecimal $returnQty): void
     {
+        $quantityService = app(PurchaseReturnQuantityService::class);
         $remaining = $returnQty;
 
         foreach ($details as $detail) {
-            if ($remaining <= 0) {
+            if (! $remaining->isPositive()) {
                 break;
             }
 
-            $available = (int) $detail->quantity;
-            if ($available <= 0) {
+            $available = $quantityService->toBigDecimal($detail->quantity);
+            if (! $available->isPositive()) {
                 continue;
             }
 
-            $deduct = min($remaining, $available);
+            $deduct = $quantityService->min($remaining, $available);
             $this->reducePurchaseDetailAmounts($detail, $deduct);
             $this->reduceReceivedQuantitiesForDetail($detail, $deduct);
-            $remaining -= $deduct;
+            $remaining = $remaining->minus($deduct);
         }
 
-        if ($remaining > 0) {
+        if ($remaining->isPositive()) {
             throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
         }
     }
 
-    protected function reduceReceivedQuantitiesForDetail(PurchaseDetail $detail, int $returnQty): void
+    protected function reduceReceivedQuantitiesForDetail(PurchaseDetail $detail, BigDecimal $returnQty): void
     {
+        $quantityService = app(PurchaseReturnQuantityService::class);
         $remaining = $returnQty;
-        if ($remaining <= 0) {
+        if (! $remaining->isPositive()) {
             return;
         }
 
@@ -1521,23 +1649,23 @@ class PurchasesReturnSettlementController extends Controller
             ->get();
 
         foreach ($receivedDetails as $receivedDetail) {
-            if ($remaining <= 0) {
+            if (! $remaining->isPositive()) {
                 break;
             }
 
-            $available = (int) $receivedDetail->quantity_received;
-            if ($available <= 0) {
+            $available = $quantityService->toBigDecimal($receivedDetail->quantity_received);
+            if (! $available->isPositive()) {
                 continue;
             }
 
-            $deduct = min($remaining, $available);
+            $deduct = $quantityService->min($remaining, $available);
             $receivedDetail->update([
-                'quantity_received' => $available - $deduct,
+                'quantity_received' => (string) $available->minus($deduct),
             ]);
-            $remaining -= $deduct;
+            $remaining = $remaining->minus($deduct);
         }
 
-        if ($remaining > 0) {
+        if ($remaining->isPositive()) {
             throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
         }
     }

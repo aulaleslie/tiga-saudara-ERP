@@ -320,6 +320,16 @@ class PurchaseReturnSettlementForm extends Component
         });
     }
 
+    /**
+     * The settlement nominal for a MODIFY_PURCHASE line must equal exactly what
+     * approval will remove from the target purchase. A purchase can carry more than
+     * one detail row for the same product at different prices, so this cannot be a
+     * flat average price times quantity: it walks the same deterministic,
+     * id-ordered row allocation that
+     * PurchasesReturnSettlementController::reducePurchaseDetailCollection() consumes
+     * on approval (see PurchaseReturnQuantityService::allocatedSubTotal()), so the
+     * value shown/validated here and the amount actually removed can never disagree.
+     */
     protected function resolveSettlementNominal(array $line): ?float
     {
         $method = strtoupper($line['method'] ?? '');
@@ -335,15 +345,24 @@ class PurchaseReturnSettlementForm extends Component
 
         $purchaseList = $this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [];
         $selectedPurchase = collect($purchaseList)->firstWhere('id', $targetPurchaseId);
-
-        if (!$selectedPurchase || !isset($selectedPurchase['product_unit_price'])) {
+        if (!$selectedPurchase) {
             return null;
         }
 
-        $unitPrice = (float) $selectedPurchase['product_unit_price'];
-        $quantity = (float) ($line['quantity'] ?? 1);
+        $purchase = Purchase::with('purchaseDetails')->find($targetPurchaseId);
+        if (!$purchase) {
+            return null;
+        }
 
-        return $unitPrice * $quantity;
+        $quantityService = app(\Modules\PurchasesReturn\Services\PurchaseReturnQuantityService::class);
+        $orderedDetails = $quantityService->orderedPurchaseDetailsForProduct($purchase, $productId);
+        if ($orderedDetails->isEmpty()) {
+            return null;
+        }
+
+        $returnQty = $line['quantity'] ?? 1;
+
+        return $quantityService->allocatedSubTotal($orderedDetails, $returnQty)->toFloat();
     }
 
     protected function isLineEligibleForRecomputation(array $line): bool

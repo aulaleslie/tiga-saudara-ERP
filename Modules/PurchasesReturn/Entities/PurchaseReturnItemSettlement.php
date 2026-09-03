@@ -28,6 +28,7 @@ class PurchaseReturnItemSettlement extends BaseModel
 
     protected $casts = [
         'nominal' => 'decimal:2',
+        'received_quantity' => 'decimal:3',
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',

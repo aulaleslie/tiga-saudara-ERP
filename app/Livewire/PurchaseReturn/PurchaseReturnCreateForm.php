@@ -130,7 +130,7 @@ class PurchaseReturnCreateForm extends Component
                         'product_id' => $row['product_id'],
                         'product_name' => $row['product_name'],
                         'product_code' => $row['product_code'] ?? '',
-                        'quantity' => (int) $row['quantity'],
+                        'quantity' => (float) $row['quantity'],
                         'location_id' => $row['location_id'],
                         'unit_price' => (float) ($row['purchase_price'] ?? 0),
                         'price' => (float) ($row['purchase_price'] ?? 0),

@@ -11,6 +11,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Services\PurchaseReturnQuantityService;
 
 class PurchaseReturnApprovalController extends Controller
 {
@@ -91,6 +92,7 @@ class PurchaseReturnApprovalController extends Controller
     {
         $errors = [];
         $purchase_return->loadMissing('purchaseReturnDetails.product');
+        $quantityService = app(PurchaseReturnQuantityService::class);
 
         foreach ($purchase_return->purchaseReturnDetails as $detail) {
             $product = $detail->product;
@@ -106,7 +108,7 @@ class PurchaseReturnApprovalController extends Controller
                 ->where('location_id', $locationId)
                 ->first();
 
-            if (! $stock || $stock->quantity < $quantity) {
+            if (! $stock || $quantityService->lessThan($stock->quantity, $quantity)) {
                 $currentQty = $stock ? $stock->quantity : 0;
                 $errors[] = "Stok tidak mencukupi untuk '{$product->product_name}' di lokasi yang dipilih. (Diminta: {$quantity}, Tersedia: {$currentQty})";
             }

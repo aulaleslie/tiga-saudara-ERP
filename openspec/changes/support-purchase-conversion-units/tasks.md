@@ -51,7 +51,7 @@
 ## 7. Downstream Display and Compatibility
 
 - [x] 7.1 Update Purchase show/print/export supplier-facing quantities to prefer entered snapshots and show canonical equivalents where operationally useful, with legacy fallback.
-- [ ] 7.2 Audit Purchase return selection, eligibility, and valuation paths so quantities remain canonical while user-facing unit context is retained where applicable.
+- [x] 7.2 Audit Purchase return selection, eligibility, and valuation paths so quantities remain canonical while user-facing unit context is retained where applicable.
 - [ ] 7.3 Audit directly affected purchase costing, normalization/replay, inventory transaction, and Purchase report queries for base-quantity assumptions and prevent double conversion.
 - [ ] 7.4 Ensure Purchase duplication and import paths either carry validated unit intent or retain their existing base-unit fallback without trusting external conversion factors.
 - [ ] 7.5 Add focused regression tests for Purchase return eligibility/valuation, costing, supplier-facing render/export, affected reports, duplication/import fallback, and legacy rows.

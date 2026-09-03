@@ -85,7 +85,7 @@ class PurchaseReturnTable extends Component
         }
 
         $price = (float) ($row['purchase_price'] ?? 0);
-        $qty = (int) ($row['quantity'] ?? 0);
+        $qty = (float) ($row['quantity'] ?? 0);
         $row['total'] = round($price * $qty, 2);
     }
 

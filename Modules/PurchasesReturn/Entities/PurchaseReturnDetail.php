@@ -12,6 +12,7 @@ class PurchaseReturnDetail extends BaseModel
     protected $guarded = [];
 
     protected $casts = [
+        'quantity'                => 'decimal:3',
         'price'                   => 'decimal:2',
         'unit_price'              => 'decimal:2',
         'sub_total'               => 'decimal:2',

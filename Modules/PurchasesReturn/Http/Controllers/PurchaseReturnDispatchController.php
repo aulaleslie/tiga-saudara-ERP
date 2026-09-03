@@ -15,6 +15,7 @@ use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Services\PurchaseReturnQuantityService;
 
 class PurchaseReturnDispatchController extends Controller
 {
@@ -227,10 +228,11 @@ class PurchaseReturnDispatchController extends Controller
     {
         $purchase_return->loadMissing('purchaseReturnDetails');
         $dispatchHistoryRecordedSerialIds = [];
+        $quantityService = app(PurchaseReturnQuantityService::class);
 
         foreach ($purchase_return->purchaseReturnDetails as $detail) {
-            $quantity = (int) $detail->quantity;
-            if ($quantity <= 0) {
+            $quantity = $quantityService->toBigDecimal($detail->quantity);
+            if (! $quantity->isPositive()) {
                 continue;
             }
 
@@ -248,76 +250,76 @@ class PurchaseReturnDispatchController extends Controller
                 continue;
             }
 
-            $prevProductQty = (int) $product->product_quantity;
-            $prevStockQty = (int) $stock->quantity;
-            $prevBrokenQty = (int) $stock->broken_quantity;
+            $prevProductQty = (float) $product->product_quantity;
+            $prevStockQty = (float) $stock->quantity;
+            $prevBrokenQty = (float) $stock->broken_quantity;
 
             $remaining = $quantity;
             $deducted = [
-                'broken_non_tax' => 0,
-                'broken_tax' => 0,
-                'good_non_tax' => 0,
-                'good_tax' => 0,
+                'broken_non_tax' => $quantityService->toBigDecimal(0),
+                'broken_tax' => $quantityService->toBigDecimal(0),
+                'good_non_tax' => $quantityService->toBigDecimal(0),
+                'good_tax' => $quantityService->toBigDecimal(0),
             ];
 
             // Priority 1: broken_quantity_non_tax
-            $take = min($remaining, (int) ($stock->broken_quantity_non_tax ?? 0));
-            if ($take > 0) {
-                $stock->decrement('broken_quantity_non_tax', $take);
-                $stock->decrement('broken_quantity', $take);
+            $take = $quantityService->min($remaining, $stock->broken_quantity_non_tax ?? 0);
+            if ($take->isPositive()) {
+                $stock->decrement('broken_quantity_non_tax', $take->toFloat());
+                $stock->decrement('broken_quantity', $take->toFloat());
                 $deducted['broken_non_tax'] = $take;
-                $remaining -= $take;
+                $remaining = $remaining->minus($take);
             }
 
             // Priority 2: broken_quantity_tax
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($stock->broken_quantity_tax ?? 0));
-                if ($take > 0) {
-                    $stock->decrement('broken_quantity_tax', $take);
-                    $stock->decrement('broken_quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $stock->broken_quantity_tax ?? 0);
+                if ($take->isPositive()) {
+                    $stock->decrement('broken_quantity_tax', $take->toFloat());
+                    $stock->decrement('broken_quantity', $take->toFloat());
                     $deducted['broken_tax'] = $take;
-                    $remaining -= $take;
+                    $remaining = $remaining->minus($take);
                 }
             }
 
             // Priority 3: quantity_non_tax (Good stock)
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($stock->quantity_non_tax ?? 0));
-                if ($take > 0) {
-                    $stock->decrement('quantity_non_tax', $take);
-                    $stock->decrement('quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $stock->quantity_non_tax ?? 0);
+                if ($take->isPositive()) {
+                    $stock->decrement('quantity_non_tax', $take->toFloat());
+                    $stock->decrement('quantity', $take->toFloat());
                     $deducted['good_non_tax'] = $take;
-                    $remaining -= $take;
+                    $remaining = $remaining->minus($take);
                 }
             }
 
             // Priority 4: quantity_tax (Good stock)
-            if ($remaining > 0) {
-                $take = min($remaining, (int) ($stock->quantity_tax ?? 0));
-                if ($take > 0) {
-                    $stock->decrement('quantity_tax', $take);
-                    $stock->decrement('quantity', $take);
+            if ($remaining->isPositive()) {
+                $take = $quantityService->min($remaining, $stock->quantity_tax ?? 0);
+                if ($take->isPositive()) {
+                    $stock->decrement('quantity_tax', $take->toFloat());
+                    $stock->decrement('quantity', $take->toFloat());
                     $deducted['good_tax'] = $take;
-                    $remaining -= $take;
+                    $remaining = $remaining->minus($take);
                 }
             }
 
-            if ($remaining > 0) {
+            if ($remaining->isPositive()) {
                 // Should we throw exception or just deduct whatever left from good?
                 // For safety, we already checked, but if somehow stock is insufficient:
                 // throw new \Exception("Stok tidak mencukupi untuk dispatch {$product->product_name}");
             }
 
             // Update Product global quantity (only for Good stock deducted)
-            $totalGoodDeducted = $deducted['good_non_tax'] + $deducted['good_tax'];
-            if ($totalGoodDeducted > 0) {
-                $product->decrement('product_quantity', $totalGoodDeducted);
+            $totalGoodDeducted = $deducted['good_non_tax']->plus($deducted['good_tax']);
+            if ($totalGoodDeducted->isPositive()) {
+                $product->decrement('product_quantity', $totalGoodDeducted->toFloat());
             }
-            
+
             // Only for broken stock deducted
-            $totalBrokenDeducted = $deducted['broken_non_tax'] + $deducted['broken_tax'];
-            if ($totalBrokenDeducted > 0) {
-               $product->decrement('broken_quantity', $totalBrokenDeducted);
+            $totalBrokenDeducted = $deducted['broken_non_tax']->plus($deducted['broken_tax']);
+            if ($totalBrokenDeducted->isPositive()) {
+               $product->decrement('broken_quantity', $totalBrokenDeducted->toFloat());
             }
 
             if (! empty($detail->serial_number_ids)) {
@@ -369,8 +371,10 @@ class PurchaseReturnDispatchController extends Controller
             $stock->refresh();
             $product->refresh();
 
-            foreach ($deducted as $source => $qty) {
-                if ($qty <= 0) continue;
+            foreach ($deducted as $source => $qtyBd) {
+                if (! $qtyBd->isPositive()) continue;
+
+                $qty = $qtyBd->toFloat();
 
                 $type = match($source) {
                     'broken_non_tax' => 'PURCHASE_RETURN_BROKEN_NON_TAX',
