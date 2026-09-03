@@ -100,6 +100,40 @@ class Product extends BaseModel implements HasMedia
     }
 
     /**
+     * Eligible conversions available for new Purchase line selection.
+     * Excludes inactive units, base unit mismatches, factors <= 1, and non-integer factors for serial products.
+     */
+    public function eligiblePurchaseConversions(): \Illuminate\Support\Collection
+    {
+        $this->loadMissing(['conversions.unit', 'conversions.baseUnit']);
+
+        $baseUnitId = (int) ($this->base_unit_id ?? $this->unit_id);
+        $isSerialized = (bool) ($this->serial_number_required ?? false);
+
+        return $this->conversions->filter(function (ProductUnitConversion $conv) use ($baseUnitId, $isSerialized) {
+            if ($conv->unit && !$conv->unit->is_active) {
+                return false;
+            }
+
+            $convBaseId = (int) ($conv->base_unit_id ?? $baseUnitId);
+            if ($convBaseId !== $baseUnitId) {
+                return false;
+            }
+
+            $factor = (float) $conv->conversion_factor;
+            if ($factor <= 1.0) {
+                return false;
+            }
+
+            if ($isSerialized && abs($factor - round($factor)) > 1e-6) {
+                return false;
+            }
+
+            return true;
+        })->values();
+    }
+
+    /**
      * Relationship with the Setting model.
      */
     public function setting(): BelongsTo

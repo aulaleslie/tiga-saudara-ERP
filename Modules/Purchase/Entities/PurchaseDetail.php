@@ -13,9 +13,17 @@ class PurchaseDetail extends BaseModel
     protected $fillable = [
         'purchase_id',
         'product_id',
+        'purchase_unit_id',
+        'product_unit_conversion_id',
         'quantity',
+        'entered_quantity',
         'tax_id',
         'unit_price',
+        'entered_unit_price',
+        'entered_product_discount_amount',
+        'conversion_factor',
+        'unit_name',
+        'base_unit_name',
         'product_discount_type',
         'sub_total',
         'product_discount_amount',
@@ -29,6 +37,12 @@ class PurchaseDetail extends BaseModel
     protected $casts = [
         // Quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
         'quantity' => 'decimal:3',
+        'entered_quantity' => 'decimal:3',
+        'unit_price' => 'decimal:6',
+        'price' => 'decimal:6',
+        'entered_unit_price' => 'decimal:2',
+        'entered_product_discount_amount' => 'decimal:2',
+        'conversion_factor' => 'decimal:6',
         'pricing_source' => 'string',
     ];
 
@@ -135,6 +149,84 @@ class PurchaseDetail extends BaseModel
     public function uomNormalizationLines(): HasMany
     {
         return $this->hasMany(UomNormalizationLine::class, 'purchase_detail_id');
+    }
+
+    public function purchaseUnit(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Unit::class, 'purchase_unit_id');
+    }
+
+    public function productUnitConversion(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Product\Entities\ProductUnitConversion::class, 'product_unit_conversion_id');
+    }
+
+    public function getEffectiveEnteredQuantityAttribute(): string|float
+    {
+        return $this->entered_quantity !== null ? $this->entered_quantity : $this->quantity;
+    }
+
+    public function getEffectiveEnteredUnitPriceAttribute(): string|float
+    {
+        return $this->entered_unit_price !== null ? $this->entered_unit_price : $this->unit_price;
+    }
+
+    public function getEffectiveEnteredProductDiscountAmountAttribute(): string|float
+    {
+        return $this->entered_product_discount_amount !== null ? $this->entered_product_discount_amount : $this->product_discount_amount;
+    }
+
+    public function getEffectiveConversionFactorAttribute(): string|float
+    {
+        return $this->conversion_factor !== null ? $this->conversion_factor : '1.000000';
+    }
+
+    public function getEffectiveUnitNameAttribute(): string
+    {
+        if ($this->unit_name) {
+            return $this->unit_name;
+        }
+
+        if ($this->purchase_unit_id) {
+            $unit = $this->relationLoaded('purchaseUnit')
+                ? $this->purchaseUnit
+                : \Modules\Setting\Entities\Unit::find($this->purchase_unit_id);
+            if ($unit) {
+                return $unit->name;
+            }
+        }
+
+        return $this->effective_base_unit_name;
+    }
+
+    public function getEffectiveBaseUnitNameAttribute(): string
+    {
+        if ($this->base_unit_name) {
+            return $this->base_unit_name;
+        }
+
+        if ($this->product) {
+            if ($this->product->relationLoaded('baseUnit') && $this->product->baseUnit) {
+                return $this->product->baseUnit->name;
+            }
+            if ($this->product->relationLoaded('unit') && $this->product->unit) {
+                return $this->product->unit->name;
+            }
+            if ($this->product->base_unit_id) {
+                $unit = \Modules\Setting\Entities\Unit::find($this->product->base_unit_id);
+                if ($unit) {
+                    return $unit->name;
+                }
+            }
+            if ($this->product->unit_id) {
+                $unit = \Modules\Setting\Entities\Unit::find($this->product->unit_id);
+                if ($unit) {
+                    return $unit->name;
+                }
+            }
+        }
+
+        return 'UNIT';
     }
 
     public function consignmentLineages(): HasMany

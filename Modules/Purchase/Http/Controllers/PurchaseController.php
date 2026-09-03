@@ -228,6 +228,7 @@ class PurchaseController extends Controller
 
             // Create the purchase record
             $purchase = Purchase::create([
+                'reference' => $request->reference,
                 'date' => $request->date,
                 'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
@@ -266,6 +267,14 @@ class PurchaseController extends Controller
                     'product_tax_amount' => $detail['product_tax_amount'],
                     'tax_id' => $detail['tax_id'],
                     'pricing_source' => $detail['pricing_source'] ?? 'manual',
+                    'purchase_unit_id' => $detail['purchase_unit_id'] ?? null,
+                    'product_unit_conversion_id' => $detail['product_unit_conversion_id'] ?? null,
+                    'entered_quantity' => $detail['entered_quantity'] ?? null,
+                    'entered_unit_price' => $detail['entered_unit_price'] ?? null,
+                    'entered_product_discount_amount' => $detail['entered_product_discount_amount'] ?? null,
+                    'conversion_factor' => $detail['conversion_factor'] ?? null,
+                    'unit_name' => $detail['unit_name'] ?? null,
+                    'base_unit_name' => $detail['base_unit_name'] ?? null,
                 ]);
             }
 

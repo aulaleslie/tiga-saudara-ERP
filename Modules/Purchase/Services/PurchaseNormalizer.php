@@ -104,6 +104,60 @@ class PurchaseNormalizer
         $discountAmount = $this->toFloat($options['product_discount'] ?? data_get($detailInput, 'discount') ?? data_get($detailInput, 'product_discount_amount'));
         $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
 
+        $productId = (int) (data_get($detailInput, 'id') ?? data_get($detailInput, 'product_id') ?? 0);
+        $convId = data_get($detailInput, 'product_unit_conversion_id') ?? data_get($detailInput, 'options.product_unit_conversion_id');
+        $unitId = data_get($detailInput, 'purchase_unit_id') ?? data_get($detailInput, 'options.purchase_unit_id');
+
+        $uomSnapshot = [];
+        if ($productId > 0) {
+            $product = \Modules\Product\Entities\Product::find($productId);
+            if ($product) {
+                $rawQty = data_get($detailInput, 'entered_quantity')
+                    ?? data_get($detailInput, 'qty')
+                    ?? data_get($detailInput, 'quantity')
+                    ?? $quantity;
+
+                $rawPrice = data_get($detailInput, 'entered_unit_price')
+                    ?? (array_key_exists('unit_price', $options)
+                        ? $options['unit_price']
+                        : data_get($detailInput, 'unit_price', data_get($detailInput, 'price')));
+
+                $conversionService = app(\Modules\Purchase\Services\PurchaseUomConversionService::class);
+                $convResult = $conversionService->convert(
+                    $product,
+                    $rawQty,
+                    $rawPrice !== null ? (float) $rawPrice : null,
+                    $convId ? (int) $convId : null,
+                    $unitId ? (int) $unitId : null
+                );
+
+                $quantity = $convResult->canonicalQuantity;
+                if ($convResult->normalizedUnitPrice !== null) {
+                    $unitPrice = $convResult->normalizedUnitPrice;
+                    $price = $convResult->normalizedUnitPrice;
+                }
+                $uomSnapshot = $convResult->toArray();
+
+                $discountType = strtolower((string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'));
+                $rawDiscountInput = $this->toFloat(
+                    data_get($detailInput, 'entered_product_discount_amount')
+                    ?? $options['product_discount']
+                    ?? data_get($detailInput, 'discount')
+                    ?? data_get($detailInput, 'product_discount_amount')
+                );
+
+                if ($discountType === 'percentage') {
+                    $discountAmount = $unitPrice * ($rawDiscountInput / 100);
+                } elseif ($discountType === 'fixed' && $convResult->conversionFactor > 1.0) {
+                    $discountAmount = $rawDiscountInput / $convResult->conversionFactor;
+                } else {
+                    $discountAmount = $rawDiscountInput;
+                }
+
+                $uomSnapshot['entered_product_discount_amount'] = number_format($rawDiscountInput, 2, '.', '');
+            }
+        }
+
         if ($settingId && $pricingSource === 'automatic') {
             $rawTaxOption = $options['product_tax'] ?? data_get($detailInput, 'options.product_tax') ?? data_get($detailInput, 'tax_id') ?? data_get($detailInput, 'product_tax');
             $normalizedTaxIdTemp = $isPkp
@@ -160,7 +214,7 @@ class PurchaseNormalizer
             ? $this->roundMoney($incomingSubTotal)
             : $this->roundMoney($subTotalBeforeTax);
 
-        return [
+        return array_merge([
             'product_id' => (int) (data_get($detailInput, 'id') ?? data_get($detailInput, 'product_id') ?? 0),
             'product_name' => (string) (data_get($detailInput, 'name') ?? data_get($detailInput, 'product_name') ?? ''),
             'product_code' => (string) ($options['code'] ?? data_get($detailInput, 'product_code') ?? ''),
@@ -174,7 +228,7 @@ class PurchaseNormalizer
             'tax_id' => $normalizedTaxId,
             'sub_total_before_tax' => $this->roundMoney($subTotalBeforeTax),
             'pricing_source' => $pricingSource,
-        ];
+        ], $uomSnapshot);
     }
 
     /**
@@ -222,7 +276,7 @@ class PurchaseNormalizer
         return is_array($options) ? $options : [];
     }
 
-    private function normalizeQuantity(mixed $detailInput, array $options): int
+    private function normalizeQuantity(mixed $detailInput, array $options): float
     {
         $quantity = data_get($detailInput, 'qty');
 
@@ -230,10 +284,10 @@ class PurchaseNormalizer
             $quantity = data_get($detailInput, 'quantity', $options['quantity'] ?? 0);
         }
 
-        return max(0, (int) $quantity);
+        return max(0.0, round((float) $quantity, 3));
     }
 
-    private function resolveIncomingSubTotal(mixed $detailInput, array $options, float $price, int $quantity, float $discountAmount): float
+    private function resolveIncomingSubTotal(mixed $detailInput, array $options, float $price, float $quantity, float $discountAmount): float
     {
         $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
 
@@ -274,7 +328,7 @@ class PurchaseNormalizer
         float $incomingSubTotal,
         float $incomingTaxAmount,
         float $price,
-        int $quantity,
+        float $quantity,
         float $discountAmount
     ): float {
         $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');

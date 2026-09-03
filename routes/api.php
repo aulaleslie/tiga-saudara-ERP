@@ -62,6 +62,7 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
     }
 
     $productQuery = \Modules\Product\Entities\Product::query()
+        ->with(['baseUnit:id,name', 'unit:id,name', 'conversions.unit', 'conversions.baseUnit'])
         ->where('products.is_sold', true)
         ->globalSearch($search);
 
@@ -90,6 +91,9 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
             'products.id',
             'products.product_name',
             'products.product_code',
+            'products.unit_id',
+            'products.base_unit_id',
+            'products.serial_number_required',
             DB::raw('COALESCE((
                 SELECT SUM(ps.quantity)
                 FROM product_stocks ps
@@ -100,38 +104,38 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
             'products.product_unit',
         ], $priceSelect));
 
-    $productIds = $products->pluck('id')->all();
-    $conversions = \Modules\Product\Entities\ProductUnitConversion::with(['unit:id,name', 'baseUnit:id,name'])
-        ->whereIn('product_id', $productIds)
-        ->orderByDesc('conversion_factor')
-        ->get()
-        ->groupBy('product_id');
+    $formattedProducts = $products->map(function ($product) {
+        $baseUnitId = $product->base_unit_id ?? $product->unit_id;
+        $baseUnitName = $product->baseUnit?->name ?? $product->unit?->name ?? 'UNIT';
+        $isSerialized = (bool) ($product->serial_number_required ?? false);
 
-    $formattedProducts = $products->map(function ($product) use ($conversions) {
-        $productConversions = $conversions[$product->id] ?? collect();
-        $conversionPayload = $productConversions->map(function ($conv) {
+        $eligibleConversions = $product->eligiblePurchaseConversions();
+
+        $conversionPayload = $eligibleConversions->map(function ($conv) use ($baseUnitName) {
             return [
+                'id' => $conv->id,
+                'unit_id' => $conv->unit_id,
                 'factor' => (float) $conv->conversion_factor,
-                'unit_name' => optional($conv->unit)->name,
-                'base_unit_name' => optional($conv->baseUnit)->name,
+                'unit_name' => optional($conv->unit)->name ?? 'UNIT',
+                'base_unit_name' => optional($conv->baseUnit)->name ?? $baseUnitName,
                 'base_unit_id' => $conv->base_unit_id,
             ];
         })->values();
-
-        $baseUnitName = $conversionPayload->first()['base_unit_name'] ?? null;
 
         return [
             'id' => $product->id,
             'product_name' => $product->product_name,
             'product_code' => $product->product_code,
-            'product_quantity' => $product->product_quantity ?? 0,
+            'product_quantity' => (float) ($product->product_quantity ?? 0),
             'product_unit' => $product->product_unit ?? 'pc',
+            'base_unit_id' => $baseUnitId,
+            'base_unit_name' => $baseUnitName,
+            'is_serialized' => $isSerialized,
             'display_name' => $product->product_name . ' | ' . $product->product_code,
             'last_purchase_price' => (float) ($product->last_purchase_price ?? 0),
             'average_purchase_price' => (float) ($product->average_purchase_price ?? 0),
             'purchase_tax_id' => $product->purchase_tax_id,
             'conversions' => $conversionPayload,
-            'base_unit_name' => $baseUnitName,
         ];
     });
 

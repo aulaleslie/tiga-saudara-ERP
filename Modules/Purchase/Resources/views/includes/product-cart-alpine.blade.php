@@ -66,18 +66,32 @@
                     </td>
 
                     <td class="align-middle text-right">
-                        <span class="badge badge-info" x-text="item.stock + ' ' + item.unit"></span>
+                        <span class="badge badge-info" x-text="item.stock + ' ' + item.base_unit_name"></span>
                     </td>
 
                     <td class="align-middle text-right">
-                        <input
-                            type="number"
-                            class="form-control text-right"
-                            x-model="item.quantity"
-                            @input="updateItem(index)"
-                            min="1"
-                        >
-                        <div class="text-muted small mt-1" x-text="formatQuantityBreakdown(item)"></div>
+                        <div class="input-group input-group-sm">
+                            <input
+                                type="number"
+                                step="0.001"
+                                min="0.001"
+                                class="form-control text-right"
+                                x-model="item.quantity"
+                                @input="updateItem(index)"
+                            >
+                            <select
+                                class="form-control form-control-sm ml-1"
+                                style="max-width: 100px;"
+                                x-model="item.selected_unit_key"
+                                @change="changeItemUnit(index, $event.target.value)"
+                            >
+                                <option value="base" x-text="item.base_unit_name"></option>
+                                <template x-for="conv in (item.conversions || [])" :key="conv.id">
+                                    <option :value="conv.id" x-text="conv.unit_name"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div class="text-muted small mt-1 text-right" x-text="formatQuantityBreakdown(item)"></div>
                     </td>
 
                     <td class="align-middle text-center position-relative">
@@ -289,10 +303,14 @@ function productCart() {
         },
 
         addProduct(product) {
-            // Check if product already exists
-            const existingIndex = this.cart.findIndex(item => item.id === product.id);
+            const baseUnitName = product.base_unit_name || product.product_unit || 'pc';
+            const defaultUnitKey = 'base';
+            const rowId = product.id + '_' + defaultUnitKey;
+
+            // Check if product with base unit already exists
+            const existingIndex = this.cart.findIndex(item => item.id === rowId);
             if (existingIndex >= 0) {
-                // Keep default quantity at 1; just refresh calculations/formatting
+                this.cart[existingIndex].quantity = (parseFloat(this.cart[existingIndex].quantity) || 0) + 1;
                 this.updateItem(existingIndex, true);
                 return;
             }
@@ -301,17 +319,23 @@ function productCart() {
             const purchaseTaxId = this.getProductPurchaseTaxId(product);
             const defaultTaxId = purchaseTaxId || null;
 
-            // Add new product
+            // Add new product with stable row identity
             const newItem = {
-                id: product.id,
+                id: rowId,
                 product_id: product.id,
                 product_name: product.product_name,
                 product_code: product.product_code,
+                purchase_unit_id: product.base_unit_id || null,
+                product_unit_conversion_id: null,
+                selected_unit_key: defaultUnitKey,
+                unit_name: baseUnitName,
+                base_unit_name: baseUnitName,
+                conversion_factor: 1.0,
+                is_serialized: !!(product.is_serialized || product.serial_number_required),
                 unit_price: purchasePrice,
                 unit_price_display: this.formatRupiah(purchasePrice),
                 stock: product.product_quantity || 0,
-                unit: product.product_unit || 'pc',
-                base_unit_name: product.base_unit_name || product.product_unit || 'pc',
+                unit: baseUnitName,
                 conversions: product.conversions || [],
                 quantity: 1,
                 discount_type: 'fixed',
@@ -327,6 +351,54 @@ function productCart() {
             this.cart.push(newItem);
             this.updateItem(this.cart.length - 1, true);
             this.emitCart();
+        },
+
+        changeItemUnit(index, selectedKey) {
+            const item = this.cart[index];
+            let newUnitId = item.base_unit_id;
+            let newConvId = null;
+            let newUnitName = item.base_unit_name;
+            let newFactor = 1.0;
+
+            if (selectedKey !== 'base') {
+                const conv = (item.conversions || []).find(c => c.id == selectedKey);
+                if (conv) {
+                    newUnitId = conv.unit_id;
+                    newConvId = conv.id;
+                    newUnitName = conv.unit_name;
+                    newFactor = parseFloat(conv.factor) || 1.0;
+                }
+            }
+
+            const newRowId = item.product_id + '_' + (newConvId || 'base');
+            const existingIndex = this.cart.findIndex((other, idx) => idx !== index && other.id === newRowId);
+
+            if (existingIndex >= 0) {
+                this.cart[existingIndex].quantity = (parseFloat(this.cart[existingIndex].quantity) || 0) + (parseFloat(item.quantity) || 0);
+                this.cart.splice(index, 1);
+                this.updateItem(existingIndex);
+                return;
+            }
+
+            item.id = newRowId;
+            item.purchase_unit_id = newUnitId;
+            item.product_unit_conversion_id = newConvId;
+            item.unit_name = newUnitName;
+            item.conversion_factor = newFactor;
+            item.selected_unit_key = selectedKey;
+
+            this.updateItem(index);
+        },
+
+        formatQuantityBreakdown(item) {
+            const qty = parseFloat(item.quantity) || 0;
+            const factor = parseFloat(item.conversion_factor) || 1;
+            const canonical = qty * factor;
+
+            if (factor > 1) {
+                return `= ${canonical.toLocaleString('id-ID', {maximumFractionDigits: 3})} ${item.base_unit_name}`;
+            }
+            return `${qty.toLocaleString('id-ID', {maximumFractionDigits: 3})} ${item.base_unit_name}`;
         },
 
         updateItem(index, formatDisplay = false) {
@@ -349,6 +421,21 @@ function productCart() {
                 item.unit_price_display = this.formatRupiah(item.unit_price);
             }
             item.total_display = this.formatRupiah(item.total);
+
+            // Validation rules
+            const qtyFloat = parseFloat(item.quantity) || 0;
+            const factor = parseFloat(item.conversion_factor) || 1;
+            const canonicalQty = qtyFloat * factor;
+
+            if (item.is_serialized && Math.abs(canonicalQty - Math.round(canonicalQty)) > 1e-6) {
+                item.validationError = 'Produk serial memerlukan jumlah unit dasar bulat.';
+            } else if (Math.abs(qtyFloat - Math.round(qtyFloat * 1000) / 1000) > 1e-6) {
+                item.validationError = 'Jumlah tidak boleh melebihi 3 digit desimal.';
+            } else if (Math.abs(canonicalQty - Math.round(canonicalQty * 1000) / 1000) > 1e-6) {
+                item.validationError = 'Hasil unit dasar melebihi presisi desimal terdukung.';
+            } else {
+                item.validationError = null;
+            }
 
             this.updateTotals();
             this.emitCart();
@@ -491,43 +578,6 @@ function productCart() {
 
         getProductPurchaseTaxId(product) {
             return product.purchase_tax_id ?? null;
-        },
-
-        formatQuantityBreakdown(item) {
-            const qty = Math.max(0, Math.floor(this.toNumber(item.quantity)));
-            if (!qty) return '';
-
-            const conversions = item.conversions || [];
-            const parts = [];
-            let remaining = qty;
-
-            if (conversions.length) {
-                // Ensure sorted by factor desc
-                const sorted = [...conversions].sort((a, b) => (b.factor || 0) - (a.factor || 0));
-                sorted.forEach(conv => {
-                    const factor = Math.floor(conv.factor || 0);
-                    if (factor < 1) return;
-                    const count = Math.floor(remaining / factor);
-                    if (count > 0) {
-                        const unitName = conv.unit_name || 'unit';
-                        parts.push(`${count} ${unitName}`);
-                        remaining -= count * factor;
-                    }
-                });
-            }
-
-            const baseName = item.base_unit_name || item.unit || 'pc';
-            if (remaining > 0) {
-                parts.push(`${remaining} ${baseName}`);
-            } else if (parts.length === 0) {
-                parts.push(`${qty} ${baseName}`);
-            }
-
-            if (item.quantity_breakdown) {
-                return item.quantity_breakdown;
-            }
-
-            return parts.join(', ');
         },
 
         handleShippingInput(rawValue) {

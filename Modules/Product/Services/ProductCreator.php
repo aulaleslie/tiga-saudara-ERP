@@ -155,12 +155,20 @@ class ProductCreator
                         continue;
                     }
 
+                    $factor = (float) ($conversion['conversion_factor'] ?? 0);
+                    if ($factor <= 1.0) {
+                        throw new \InvalidArgumentException('Faktor konversi harus lebih besar dari 1 karena unit dasar adalah satuan terkecil.');
+                    }
+                    if ($product->serial_number_required && abs($factor - round($factor)) > 1e-6) {
+                        throw new \InvalidArgumentException('Faktor konversi untuk produk serial harus berupa bilangan bulat (contoh: 12, bukan 12.5).');
+                    }
+
                     $price = (float) ($conversion['price'] ?? 0);
 
                     $createdConversion = $product->conversions()->create([
                         'unit_id'           => $conversion['unit_id'] ?? null,
                         'base_unit_id'      => $validatedData['base_unit_id'],
-                        'conversion_factor' => $conversion['conversion_factor'] ?? 0,
+                        'conversion_factor' => $factor,
                         'barcode'           => $conversion['barcode'] ?? null,
                     ]);
 

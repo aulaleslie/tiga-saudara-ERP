@@ -22,6 +22,7 @@ class ReceivedNoteDetail extends BaseModel
     ];
 
     protected $casts = [
+        'quantity_received' => 'decimal:3',
         'pending_serial_numbers' => 'array',
     ];
 

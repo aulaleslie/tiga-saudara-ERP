@@ -386,6 +386,12 @@ function purchaseForm() {
                 return;
             }
 
+            const invalidItem = this.cart.find(item => item.validationError);
+            if (invalidItem) {
+                alert('Terdapat kesalahan validasi pada daftar produk: ' + invalidItem.validationError);
+                return;
+            }
+
             this.submitting = true;
 
             try {
@@ -398,8 +404,13 @@ function purchaseForm() {
                 // Add cart items
                 this.cart.forEach((item, index) => {
                     formData.append(`cart[${index}][product_id]`, item.product_id);
+                    formData.append(`cart[${index}][purchase_unit_id]`, item.purchase_unit_id || '');
+                    formData.append(`cart[${index}][product_unit_conversion_id]`, item.product_unit_conversion_id || '');
                     formData.append(`cart[${index}][quantity]`, item.quantity);
                     formData.append(`cart[${index}][unit_price]`, item.unit_price);
+                    formData.append(`cart[${index}][conversion_factor]`, item.conversion_factor || 1);
+                    formData.append(`cart[${index}][unit_name]`, item.unit_name || '');
+                    formData.append(`cart[${index}][base_unit_name]`, item.base_unit_name || '');
                     formData.append(`cart[${index}][discount_type]`, item.discount_type);
                     formData.append(`cart[${index}][discount]`, item.discount);
                     formData.append(`cart[${index}][tax_id]`, item.tax_id || '');

@@ -78,7 +78,19 @@ class ProductCreateValidation
                     }
                 },
             ],
-            'conversions.*.conversion_factor'     => ['required_if:stock_managed,1,true,on', 'numeric', 'min:0.0001'],
+            'conversions.*.conversion_factor'     => [
+                'required_if:stock_managed,1,true,on',
+                'numeric',
+                'gt:1',
+                function ($attribute, $value, $fail) use ($input) {
+                    $isSerialized = self::toBoolean($input['serial_number_required'] ?? false);
+                    if ($isSerialized && $value !== null && is_numeric($value)) {
+                        if (abs((float) $value - round((float) $value)) > 1e-6) {
+                            $fail('Faktor konversi untuk produk serial harus berupa bilangan bulat (contoh: 12, bukan 12.5).');
+                        }
+                    }
+                },
+            ],
             'conversions.*.barcode'               => [
                 'nullable',
                 'string',
@@ -139,8 +151,8 @@ class ProductCreateValidation
             'base_unit_id.required_if'                     => 'Unit dasar diperlukan ketika manajemen stok diaktifkan.',
             'conversions.*.unit_id.required_if'           => 'Konversi ke unit wajib diisi ketika manajemen stok diaktifkan.',
             'conversions.*.unit_id.not_in'                => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
-            'conversions.*.conversion_factor.required_if' => 'Faktor konversi wajib diisi jika unit tersedia.',
-            'conversions.*.conversion_factor.min'         => 'Faktor konversi harus lebih dari 0.',
+            'conversions.*.conversion_factor.required_if'    => 'Faktor konversi wajib diisi jika unit tersedia.',
+            'conversions.*.conversion_factor.gt'             => 'Faktor konversi harus lebih besar dari 1 karena unit dasar adalah satuan terkecil.',
             'conversions.*.barcode.max'                   => 'Barcode konversi tidak boleh lebih dari 255 karakter.',
             'conversions.*.price.required_with'           => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
             'conversions.*.price.numeric'                 => 'Harga konversi harus berupa angka.',
