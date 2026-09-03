@@ -25,11 +25,11 @@
 
 ## 4. Purchase Persistence and Editing
 
-- [ ] 4.1 Extend Purchase normalization output to carry canonical quantity/base price and validated supplier-facing snapshots without trusting client-derived factor or canonical values.
-- [ ] 4.2 Persist conversion snapshots on Purchase create and mutable edit while preserving existing manual unit-price and manual line-total fields and flags.
-- [ ] 4.3 Rehydrate edit carts from stored snapshots, fall back legacy details to factor-one base-unit values, and preserve stored totals when no price-affecting interaction occurs.
-- [ ] 4.4 Ensure existing received-document and monetary-only edit restrictions cannot change unit, quantity, conversion identity, or factor snapshots.
-- [ ] 4.5 Add focused controller/Livewire integration tests for create, edit, reload stability, legacy fallback, changed/deactivated/deleted conversion configuration, tampered payloads, and post-receipt edit guards.
+- [x] 4.1 Extend Purchase normalization output to carry canonical quantity/base price and validated supplier-facing snapshots without trusting client-derived factor or canonical values.
+- [x] 4.2 Persist conversion snapshots on Purchase create and mutable edit while preserving existing manual unit-price and manual line-total fields and flags.
+- [x] 4.3 Rehydrate edit carts from stored snapshots, fall back legacy details to factor-one base-unit values, and preserve stored totals when no price-affecting interaction occurs.
+- [x] 4.4 Ensure existing received-document and monetary-only edit restrictions cannot change unit, quantity, conversion identity, or factor snapshots.
+- [x] 4.5 Add focused controller/Livewire integration tests for create, edit, reload stability, legacy fallback, changed/deactivated/deleted conversion configuration, tampered payloads, and post-receipt edit guards.
 
 ## 5. Exact Purchase Totals Without Increment Rounding
 

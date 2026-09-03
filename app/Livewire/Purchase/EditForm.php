@@ -501,24 +501,31 @@ class EditForm extends Component
                 'code' => $detail->product_code,
                 'stock' => $detail->product->product_quantity ?? 0,
                 'product_tax' => $productTax,
-                'unit_price' => $detail->unit_price,
+                'unit_price' => $detail->effective_entered_unit_price,
+                'canonical_unit_price' => $detail->unit_price,
                 'sub_total_before_tax' => $storedDpp,
                 'product_tax_amount' => $storedTax,
                 'pricing_source' => $detail->pricing_source ?? 'manual',
                 'sub_total' => $storedTotal,
+                'purchase_unit_id' => $detail->purchase_unit_id,
+                'product_unit_conversion_id' => $detail->product_unit_conversion_id,
+                'entered_quantity' => $detail->effective_entered_quantity,
+                'entered_unit_price' => $detail->effective_entered_unit_price,
+                'entered_product_discount_amount' => $detail->effective_entered_product_discount_amount,
+                'conversion_factor' => $detail->effective_conversion_factor,
+                'unit_name' => $detail->effective_unit_name,
+                'base_unit_name' => $detail->effective_base_unit_name,
                 // Loading is not a pricing event. The stored total stays
                 // authoritative until an eligible cart interaction sets this true.
                 \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
             ];
 
-            $cartItemPrice = ($detail->pricing_source ?? 'manual') === 'automatic'
-                ? $detail->unit_price
-                : $detail->price;
+            $cartItemPrice = $detail->effective_entered_unit_price;
 
             $cartItem = $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
-                'qty' => $detail->quantity,
+                'qty' => $detail->effective_entered_quantity,
                 'price' => $cartItemPrice,
                 'weight' => 1,
                 'options' => $cartOptions,
@@ -732,7 +739,7 @@ class EditForm extends Component
                 'tax_id' => $purchase->tax_id,
                 'tax_percentage' => $purchase->tax_percentage,
                 'is_tax_included' => $resolvedTaxIncluded,
-            ], $cartItems, (bool) $resolvedBusiness['is_pkp'], (int) $resolvedBusiness['setting_id']);
+            ], $cartItems, (bool) $resolvedBusiness['is_pkp'], (int) $resolvedBusiness['setting_id'], $this->purchase);
             $header = $normalizedPurchase['header'];
 
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
@@ -816,6 +823,14 @@ class EditForm extends Component
                     'product_tax_amount' => $item['product_tax_amount'],
                     'tax_id' => $item['tax_id'],
                     'pricing_source' => $item['pricing_source'] ?? 'manual',
+                    'purchase_unit_id' => $item['purchase_unit_id'] ?? null,
+                    'product_unit_conversion_id' => $item['product_unit_conversion_id'] ?? null,
+                    'entered_quantity' => $item['entered_quantity'] ?? null,
+                    'entered_unit_price' => $item['entered_unit_price'] ?? null,
+                    'entered_product_discount_amount' => $item['entered_product_discount_amount'] ?? null,
+                    'conversion_factor' => $item['conversion_factor'] ?? null,
+                    'unit_name' => $item['unit_name'] ?? null,
+                    'base_unit_name' => $item['base_unit_name'] ?? null,
                 ]);
 
                 $detailCount++;
@@ -905,7 +920,7 @@ class EditForm extends Component
         }
 
         $cartItems = $cart->content();
-        $this->ensureCartTaxesForPkp($cartItems);
+        $this->ensureCartTaxesForPkp($cartItems, $this->isPkpEnabled());
 
         try {
             // Only monetary header inputs are passed. PKP status and the

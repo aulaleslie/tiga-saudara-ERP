@@ -92,10 +92,60 @@ class PurchaseMonetaryEditService extends AbstractMonetaryEditService
             );
         }
 
-        if (round((float) $detail->quantity, 3) !== round((float) data_get($cartItem, 'qty'), 3)) {
+        $submittedUnitId = data_get($cartItem, 'options.purchase_unit_id') ?? data_get($cartItem, 'purchase_unit_id');
+        $submittedConvId = data_get($cartItem, 'options.product_unit_conversion_id') ?? data_get($cartItem, 'product_unit_conversion_id');
+        $submittedEnteredQty = data_get($cartItem, 'options.entered_quantity') ?? data_get($cartItem, 'entered_quantity');
+        $submittedFactor = data_get($cartItem, 'options.conversion_factor') ?? data_get($cartItem, 'conversion_factor');
+
+        // 1. Check unit ID identity
+        $normSubmittedUnitId = ($submittedUnitId !== null && $submittedUnitId !== '') ? (int) $submittedUnitId : null;
+        $normStoredUnitId = ($detail->purchase_unit_id !== null) ? (int) $detail->purchase_unit_id : null;
+        if ($normSubmittedUnitId !== $normStoredUnitId) {
+            throw new MonetaryEditException(
+                "Satuan pembelian pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        // 2. Check conversion ID identity
+        $normSubmittedConvId = ($submittedConvId !== null && $submittedConvId !== '') ? (int) $submittedConvId : null;
+        $normStoredConvId = ($detail->product_unit_conversion_id !== null) ? (int) $detail->product_unit_conversion_id : null;
+        if ($normSubmittedConvId !== $normStoredConvId) {
+            throw new MonetaryEditException(
+                "Konversi satuan pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        // 3. Check quantity: qty could be submitted as canonical quantity or entered quantity
+        $submittedQty = (float) data_get($cartItem, 'qty');
+        $storedCanonicalQty = (float) $detail->quantity;
+        $storedEnteredQty = (float) $detail->effective_entered_quantity;
+
+        $qtyMatchesCanonical = round($submittedQty, 3) === round($storedCanonicalQty, 3);
+        $qtyMatchesEntered = round($submittedQty, 3) === round($storedEnteredQty, 3);
+
+        if (! $qtyMatchesCanonical && ! $qtyMatchesEntered) {
             throw new MonetaryEditException(
                 "Kuantitas produk '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
             );
+        }
+
+        // 4. Check entered_quantity explicitly if provided
+        if ($submittedEnteredQty !== null && $submittedEnteredQty !== '') {
+            if (round((float) $submittedEnteredQty, 3) !== round($storedEnteredQty, 3)) {
+                throw new MonetaryEditException(
+                    "Kuantitas yang dimasukkan pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+                );
+            }
+        }
+
+        // 5. Check conversion_factor explicitly if provided
+        if ($submittedFactor !== null && $submittedFactor !== '') {
+            $storedFactor = (float) $detail->effective_conversion_factor;
+            if (round((float) $submittedFactor, 6) !== round($storedFactor, 6)) {
+                throw new MonetaryEditException(
+                    "Faktor konversi pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+                );
+            }
         }
     }
 
@@ -113,7 +163,7 @@ class PurchaseMonetaryEditService extends AbstractMonetaryEditService
             // Header tax identity is protected, so it is carried through unchanged.
             'tax_id' => $document->tax_id,
             'tax_percentage' => $document->tax_percentage,
-        ], collect($rows)->map(fn ($row) => $row->cartItem), $this->resolveIsPkp($document));
+        ], collect($rows)->map(fn ($row) => $row->cartItem), $this->resolveIsPkp($document), (int) $document->setting_id, $document);
     }
 
     protected function persistHeader(Model $document, array $header, array $input): void

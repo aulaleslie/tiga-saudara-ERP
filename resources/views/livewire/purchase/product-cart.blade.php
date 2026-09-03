@@ -71,7 +71,7 @@
                                 <!-- Editable input field -->
                                 <div x-show="open" @click.away="open = false">
                                     <input
-                                        wire:model.defer="unit_price.{{ $cart_item->id }}"
+                                        wire:model.defer="unit_price.{{ $cart_item->rowId }}"
                                         style="min-width: 40px; max-width: 90px;"
                                         type="text"
                                         class="form-control text-right"
@@ -88,16 +88,39 @@
                             </td>
 
                             <td class="align-middle text-right">
-                                @if($monetaryOnly)
-                                    <div class="input-group d-flex justify-content-center">
-                                        <input type="number" style="min-width: 40px; max-width: 90px;" class="form-control text-right" value="{{ $cart_item->qty }}" disabled>
-                                    </div>
-                                @else
-                                    @include('livewire.includes.product-cart-quantity')
-                                @endif
-                                @if(!empty($quantityBreakdowns[$cart_item->id]))
+                                <div class="d-flex align-items-center justify-content-end">
+                                    @if($monetaryOnly)
+                                        <div class="input-group d-flex justify-content-center">
+                                            <input type="number" style="min-width: 40px; max-width: 90px;" class="form-control text-right" value="{{ $cart_item->qty }}" disabled>
+                                        </div>
+                                        <span class="badge badge-secondary ml-1">
+                                            {{ $cart_item->options->unit_name ?? $cart_item->options->unit ?? 'PCS' }}
+                                        </span>
+                                    @else
+                                        @include('livewire.includes.product-cart-quantity')
+                                        @if(!empty($available_units[$cart_item->rowId]) && count($available_units[$cart_item->rowId]) > 1)
+                                            <select wire:model.defer="selected_unit.{{ $cart_item->rowId }}"
+                                                    wire:change="updateUnit('{{ $cart_item->rowId }}', $event.target.value)"
+                                                    class="form-control form-control-sm ml-1"
+                                                    style="max-width: 90px; font-weight: 600;">
+                                                @foreach($available_units[$cart_item->rowId] as $unitOpt)
+                                                    <option value="{{ $unitOpt['id'] }}">{{ $unitOpt['name'] }}</option>
+                                                @endforeach
+                                            </select>
+                                        @else
+                                            <span class="badge badge-secondary ml-1">
+                                                {{ $cart_item->options->unit_name ?? $cart_item->options->unit ?? 'PCS' }}
+                                            </span>
+                                        @endif
+                                    @endif
+                                </div>
+                                @if((float) ($cart_item->options->conversion_factor ?? 1) > 1)
                                     <div class="text-muted small mt-1">
-                                        {{ $quantityBreakdowns[$cart_item->id] }}
+                                        = {{ number_format((float) $cart_item->qty * (float) $cart_item->options->conversion_factor, 3) }} {{ $cart_item->options->base_unit_name ?? 'PCS' }}
+                                    </div>
+                                @elseif(!empty($quantityBreakdowns[$cart_item->rowId]))
+                                    <div class="text-muted small mt-1">
+                                        {{ $quantityBreakdowns[$cart_item->rowId] }}
                                     </div>
                                 @endif
                             </td>
@@ -108,7 +131,7 @@
                                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-2" type="button"
                                             data-toggle="dropdown" data-display="static" aria-expanded="false"
                                             style="font-size: 0.875rem; min-width: 35px;">
-                                        {{ $discount_type[$cart_item->id] == 'percentage' ? '%' : 'Rp' }}
+                                        {{ ($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage' ? '%' : 'Rp' }}
                                     </button>
 
                                     <!-- The dropdown menu is now positioned outside the table -->
@@ -130,19 +153,19 @@
 
                                     <!-- Discount Input -->
                                     <input type="number"
-                                           wire:model.defer="item_discount.{{ $cart_item->id }}"
+                                           wire:model.defer="item_discount.{{ $cart_item->rowId }}"
                                            wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                            class="form-control form-control-sm text-right"
                                            style="font-size: 0.875rem; min-width: 70px;"
                                            min="0"
-                                           @if($discount_type[$cart_item->id] == 'percentage') max="100" @endif
+                                           @if(($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage') max="100" @endif
                                            placeholder="0">
                                 </div>
 
                                 <!-- Display Calculated Discount if Percentage -->
-                                @if($discount_type[$cart_item->id] == 'percentage' && !empty($item_discount[$cart_item->id]))
+                                @if(($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage' && !empty($item_discount[$cart_item->rowId]))
                                     <div class="text-muted small mt-1">
-                                        = {{ format_currency($cart_item->price * ($item_discount[$cart_item->id] / 100) * $cart_item->qty) }}
+                                        = {{ format_currency($cart_item->price * ($item_discount[$cart_item->rowId] / 100) * $cart_item->qty) }}
                                     </div>
                                 @endif
                             </td>
@@ -151,7 +174,7 @@
                             <td class="align-middle text-center">
                                 <div class="input-group input-group-sm">
                                     <select
-                                        wire:model.defer="product_tax.{{ $cart_item->id }}"
+                                        wire:model.defer="product_tax.{{ $cart_item->rowId }}"
                                         class="form-control form-control-sm"
                                         wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', $event.target.value)"
                                     >
@@ -175,7 +198,7 @@
                                         tooltip="Tambah pajak baru"
                                     />
                                 </div>
-                                @error('product_tax.' . $cart_item->id)
+                                @error('product_tax.' . $cart_item->rowId)
                                 <span class="text-danger">{{ $message }}</span>
                                 @enderror
                             </td>
@@ -193,7 +216,7 @@
                                 <div x-show="open" @click.away="open = false">
                                     <input
                                         wire:key="purchase-line-total-input-{{ $cart_item->rowId }}"
-                                        wire:model.defer="line_total.{{ $cart_item->id }}"
+                                        wire:model.defer="line_total.{{ $cart_item->rowId }}"
                                         :value="open ? '{{ $cart_item->options->sub_total }}' : ''"
                                         style="min-width: 60px; max-width: 110px;"
                                         type="text"

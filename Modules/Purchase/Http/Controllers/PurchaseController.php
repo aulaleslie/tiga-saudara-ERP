@@ -486,6 +486,14 @@ class PurchaseController extends Controller
                     'sub_total_before_tax' => $subtotal_before_tax,
                     'product_tax_amount' => $normalizedTaxAmount,
                     'pricing_source' => $purchase_detail->pricing_source ?? 'manual',
+                    'purchase_unit_id' => $purchase_detail->purchase_unit_id,
+                    'product_unit_conversion_id' => $purchase_detail->product_unit_conversion_id,
+                    'entered_quantity' => $purchase_detail->effective_entered_quantity,
+                    'entered_unit_price' => $purchase_detail->effective_entered_unit_price,
+                    'entered_product_discount_amount' => $purchase_detail->effective_entered_product_discount_amount,
+                    'conversion_factor' => $purchase_detail->effective_conversion_factor,
+                    'unit_name' => $purchase_detail->effective_unit_name,
+                    'base_unit_name' => $purchase_detail->effective_base_unit_name,
                     // Hydration from stored details: not a pricing event.
                     \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
                 ]
@@ -515,14 +523,14 @@ class PurchaseController extends Controller
             abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
         }
 
-        Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
-        if (Cart::instance('purchase')->count() == 0) {
+        $cartItems = $request->has('cart') ? $request->cart : Cart::instance('purchase')->content();
+
+        if (empty($cartItems) || (is_array($cartItems) && count($cartItems) == 0) || (!is_array($cartItems) && $cartItems->count() == 0)) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }
 
-        DB::transaction(function () use ($request, $purchase) {
+        DB::transaction(function () use ($request, $purchase, $cartItems) {
             $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
-            $cartItems = Cart::instance('purchase')->content();
             $setting_id = $purchase->setting_id ?: session('setting_id');
             $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
                 'tax_id' => $request->tax_id ?? $purchase->tax_id,
@@ -532,7 +540,7 @@ class PurchaseController extends Controller
                 'shipping_amount' => $request->shipping_amount ?? $purchase->shipping_amount,
                 'paid_amount' => $request->paid_amount ?? $purchase->paid_amount,
                 'is_tax_included' => $request->is_tax_included ?? $purchase->is_tax_included,
-            ], $cartItems, $isPkp, (int) $setting_id);
+            ], $cartItems, $isPkp, (int) $setting_id, $purchase);
             $header = $normalizedPurchase['header'];
 
             // Fields to update, only if new values are passed in the request
@@ -593,6 +601,14 @@ class PurchaseController extends Controller
                     'product_tax_amount' => $detail['product_tax_amount'],
                     'tax_id' => $detail['tax_id'],
                     'pricing_source' => $detail['pricing_source'] ?? 'manual',
+                    'purchase_unit_id' => $detail['purchase_unit_id'] ?? null,
+                    'product_unit_conversion_id' => $detail['product_unit_conversion_id'] ?? null,
+                    'entered_quantity' => $detail['entered_quantity'] ?? null,
+                    'entered_unit_price' => $detail['entered_unit_price'] ?? null,
+                    'entered_product_discount_amount' => $detail['entered_product_discount_amount'] ?? null,
+                    'conversion_factor' => $detail['conversion_factor'] ?? null,
+                    'unit_name' => $detail['unit_name'] ?? null,
+                    'base_unit_name' => $detail['base_unit_name'] ?? null,
                 ]);
             }
 

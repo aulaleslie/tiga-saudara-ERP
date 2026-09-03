@@ -19,9 +19,36 @@ class PurchaseNormalizer
 
     private ?float $defaultTaxRate = null;
 
-    public function normalize(array $header, iterable $detailInputs, bool $isPkp, ?int $settingId = null): array
-    {
+    public function normalize(
+        array $header,
+        iterable $detailInputs,
+        bool $isPkp,
+        ?int $settingId = null,
+        mixed $existingPurchaseOrDetails = null
+    ): array {
         $details = [];
+
+        $trustedDetailsMap = [];
+        if ($existingPurchaseOrDetails instanceof \Modules\Purchase\Entities\Purchase) {
+            $existingPurchaseOrDetails->loadMissing('purchaseDetails');
+            foreach ($existingPurchaseOrDetails->purchaseDetails as $d) {
+                $trustedDetailsMap[(int) $d->id] = $d;
+            }
+        } elseif ($existingPurchaseOrDetails instanceof Collection) {
+            foreach ($existingPurchaseOrDetails as $d) {
+                $id = is_object($d) ? ($d->id ?? null) : ($d['id'] ?? null);
+                if ($id) {
+                    $trustedDetailsMap[(int) $id] = $d;
+                }
+            }
+        } elseif (is_array($existingPurchaseOrDetails)) {
+            foreach ($existingPurchaseOrDetails as $d) {
+                $id = is_object($d) ? ($d->id ?? null) : ($d['id'] ?? null);
+                if ($id) {
+                    $trustedDetailsMap[(int) $id] = $d;
+                }
+            }
+        }
 
         // Resolved once per call rather than once per row: a large document would
         // otherwise issue one Setting query per detail line.
@@ -42,7 +69,8 @@ class PurchaseNormalizer
                 $isPkp,
                 $settingId,
                 $settingIncrement,
-                $isTaxIncluded
+                $isTaxIncluded,
+                $trustedDetailsMap
             );
         }
 
@@ -93,7 +121,8 @@ class PurchaseNormalizer
         bool $isPkp,
         ?int $settingId = null,
         float $settingIncrement = 100.00,
-        bool $isTaxIncluded = false
+        bool $isTaxIncluded = false,
+        array $trustedDetailsMap = []
     ): array {
         $options = $this->extractOptions($detailInput);
         $quantity = $this->normalizeQuantity($detailInput, $options);
@@ -112,6 +141,43 @@ class PurchaseNormalizer
         if ($productId > 0) {
             $product = \Modules\Product\Entities\Product::find($productId);
             if ($product) {
+                $detailId = data_get($detailInput, 'options.purchase_detail_id')
+                    ?? data_get($detailInput, 'options.' . \Modules\Purchase\Services\PurchaseMonetaryEditService::DETAIL_ID_OPTION)
+                    ?? data_get($detailInput, 'purchase_detail_id');
+
+                $snapshotData = [];
+                if ($detailId && isset($trustedDetailsMap[(int) $detailId])) {
+                    $existingDetail = $trustedDetailsMap[(int) $detailId];
+                    $existingProductId = is_object($existingDetail) ? (int) $existingDetail->product_id : (int) ($existingDetail['product_id'] ?? 0);
+
+                    if ($existingProductId === $productId) {
+                        $storedConvId = is_object($existingDetail) ? $existingDetail->product_unit_conversion_id : ($existingDetail['product_unit_conversion_id'] ?? null);
+                        $storedUnitId = is_object($existingDetail) ? $existingDetail->purchase_unit_id : ($existingDetail['purchase_unit_id'] ?? null);
+
+                        $storedConvId = $storedConvId ? (int) $storedConvId : null;
+                        $storedUnitId = $storedUnitId ? (int) $storedUnitId : null;
+
+                        $parsedConvId = $convId ? (int) $convId : null;
+                        $parsedUnitId = $unitId ? (int) $unitId : null;
+
+                        $convUnchanged = ($parsedConvId === null || $parsedConvId === $storedConvId);
+                        $unitUnchanged = ($parsedUnitId === null || $parsedUnitId === $storedUnitId);
+
+                        if ($convUnchanged && $unitUnchanged) {
+                            $snapshotData = [
+                                'is_unchanged_historical' => true,
+                                'purchase_unit_id' => is_object($existingDetail) ? $existingDetail->purchase_unit_id : ($existingDetail['purchase_unit_id'] ?? null),
+                                'product_unit_conversion_id' => is_object($existingDetail) ? $existingDetail->product_unit_conversion_id : ($existingDetail['product_unit_conversion_id'] ?? null),
+                                'conversion_factor' => is_object($existingDetail) ? $existingDetail->effective_conversion_factor : ($existingDetail['conversion_factor'] ?? 1.0),
+                                'unit_name' => is_object($existingDetail) ? $existingDetail->effective_unit_name : ($existingDetail['unit_name'] ?? 'UNIT'),
+                                'base_unit_name' => is_object($existingDetail) ? $existingDetail->effective_base_unit_name : ($existingDetail['base_unit_name'] ?? 'UNIT'),
+                                'unit_price' => is_object($existingDetail) ? $existingDetail->unit_price : ($existingDetail['unit_price'] ?? null),
+                                'entered_unit_price' => is_object($existingDetail) ? $existingDetail->effective_entered_unit_price : ($existingDetail['entered_unit_price'] ?? null),
+                            ];
+                        }
+                    }
+                }
+
                 $rawQty = data_get($detailInput, 'entered_quantity')
                     ?? data_get($detailInput, 'qty')
                     ?? data_get($detailInput, 'quantity')
@@ -128,15 +194,30 @@ class PurchaseNormalizer
                     $rawQty,
                     $rawPrice !== null ? (float) $rawPrice : null,
                     $convId ? (int) $convId : null,
-                    $unitId ? (int) $unitId : null
+                    $unitId ? (int) $unitId : null,
+                    $snapshotData
                 );
 
                 $quantity = $convResult->canonicalQuantity;
+                // The canonical (base-unit) price is always server-derived: the entered
+                // price divided by the server-loaded, validated conversion factor. Cart
+                // options are request-controlled, so no client-supplied canonical price
+                // or row total is allowed to displace this value.
+                // Canonical (base-unit) cost is established solely from the entered price
+                // and the server-loaded, validated conversion factor -- or, for an
+                // unchanged existing line, from the stored PurchaseDetail via
+                // $snapshotData. Cart options are request-controlled, so no client-supplied
+                // canonical price or row total may steer six-decimal inventory cost: a
+                // near-equivalent hint that reconstructs the same displayed two-decimal
+                // entered price can still shift per-unit cost, which becomes material
+                // across a large canonical quantity.
                 if ($convResult->normalizedUnitPrice !== null) {
                     $unitPrice = $convResult->normalizedUnitPrice;
                     $price = $convResult->normalizedUnitPrice;
                 }
+
                 $uomSnapshot = $convResult->toArray();
+                $uomSnapshot['unit_price'] = number_format($unitPrice, 6, '.', '');
 
                 $discountType = strtolower((string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'));
                 $rawDiscountInput = $this->toFloat(
@@ -156,6 +237,27 @@ class PurchaseNormalizer
 
                 $uomSnapshot['entered_product_discount_amount'] = number_format($rawDiscountInput, 2, '.', '');
             }
+        }
+
+        if (empty($uomSnapshot)) {
+            $rawDiscountInput = $this->toFloat(
+                data_get($detailInput, 'entered_product_discount_amount')
+                ?? $options['product_discount']
+                ?? data_get($detailInput, 'discount')
+                ?? data_get($detailInput, 'product_discount_amount')
+            );
+            $uomSnapshot = [
+                'purchase_unit_id' => $unitId ? (int) $unitId : null,
+                'product_unit_conversion_id' => $convId ? (int) $convId : null,
+                'quantity' => number_format($quantity, 3, '.', ''),
+                'entered_quantity' => number_format($quantity, 3, '.', ''),
+                'unit_price' => number_format($unitPrice, 6, '.', ''),
+                'entered_unit_price' => number_format($unitPrice, 2, '.', ''),
+                'entered_product_discount_amount' => number_format($rawDiscountInput, 2, '.', ''),
+                'conversion_factor' => '1.000000',
+                'unit_name' => 'UNIT',
+                'base_unit_name' => 'UNIT',
+            ];
         }
 
         if ($settingId && $pricingSource === 'automatic') {
@@ -219,8 +321,11 @@ class PurchaseNormalizer
             'product_name' => (string) (data_get($detailInput, 'name') ?? data_get($detailInput, 'product_name') ?? ''),
             'product_code' => (string) ($options['code'] ?? data_get($detailInput, 'product_code') ?? ''),
             'quantity' => $quantity,
-            'unit_price' => $this->roundMoney($unitPrice),
-            'price' => $this->roundMoney($price),
+            // Both columns are decimal(15,6) and hold the same canonical base-unit
+            // price. Rounding to 2 here would leave `price` disagreeing with the
+            // 6-decimal `unit_price` the snapshot merges in below.
+            'unit_price' => $this->roundCanonicalPrice($unitPrice),
+            'price' => $this->roundCanonicalPrice($price),
             'product_discount_type' => (string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'),
             'product_discount_amount' => $this->roundMoney($discountAmount),
             'sub_total' => $normalizedSubTotal,
@@ -369,5 +474,15 @@ class PurchaseNormalizer
     private function roundMoney(float $value): float
     {
         return round($value, 2);
+    }
+
+    /**
+     * Canonical base-unit prices keep 6 decimals: dividing an entered price by a
+     * conversion factor frequently repeats (100,000 / 3), and truncating to 2 here
+     * would lose the precision the decimal(15,6) price columns exist to hold.
+     */
+    private function roundCanonicalPrice(float $value): float
+    {
+        return round($value, 6);
     }
 }

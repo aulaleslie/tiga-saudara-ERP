@@ -990,6 +990,14 @@ class CreateForm extends Component
                         'product_tax_amount' => $item['product_tax_amount'],
                         'tax_id' => $item['tax_id'],
                         'pricing_source' => $item['pricing_source'] ?? 'manual',
+                        'purchase_unit_id' => $item['purchase_unit_id'] ?? null,
+                        'product_unit_conversion_id' => $item['product_unit_conversion_id'] ?? null,
+                        'entered_quantity' => $item['entered_quantity'] ?? null,
+                        'entered_unit_price' => $item['entered_unit_price'] ?? null,
+                        'entered_product_discount_amount' => $item['entered_product_discount_amount'] ?? null,
+                        'conversion_factor' => $item['conversion_factor'] ?? null,
+                        'unit_name' => $item['unit_name'] ?? null,
+                        'base_unit_name' => $item['base_unit_name'] ?? null,
                     ]);
 
                     $detailCount++;
