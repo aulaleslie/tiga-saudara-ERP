@@ -731,4 +731,88 @@ class PurchaseCostReplayTest extends TestCase
         $this->assertEquals(4750, $saleDetail->cost_total_snapshot);
         $this->assertEquals('HPP_SNAPSHOT_IMPORT', $saleDetail->cost_snapshot_source);
     }
+
+    /**
+     * A canonical quantity can now be fractional (e.g. a converted BOX purchase
+     * received as 0.688 PCS). Cost replay must prorate that receipt through plain
+     * float arithmetic without truncating or misreading the 3-decimal canonical
+     * quantity. Ordered 1.000, received across two fractional receipts (0.312 +
+     * 0.688 = 1.000). This guards against integer truncation and gross proration
+     * errors on fractional quantities; it is not a float-precision-drift
+     * discriminator (assertEquals() tolerates float error, and this particular
+     * split is not guaranteed to expose binary rounding the way a targeted
+     * discriminating case would).
+     */
+    public function test_fractional_canonical_quantity_receipts_prorate_cost_correctly(): void
+    {
+        $purchase = Purchase::create([
+            'date' => Carbon::now()->subDay(),
+            'due_date' => Carbon::now()->addDays(30),
+            'reference' => 'PO-DECIMAL-001',
+            'supplier_id' => $this->supplier->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        // Ordered 1.000 canonical PCS at Rp1,000/PCS (e.g. a converted BOX line).
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST-001',
+            'quantity' => '1.000',
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 1000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => Carbon::now()->subDay(),
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'approved_at' => Carbon::now()->subDay(),
+            'setting_id' => $this->setting->id,
+        ]);
+
+        foreach (['0.312', '0.688'] as $chunk) {
+            ReceivedNoteDetail::create([
+                'received_note_id' => $receivedNote->id,
+                'po_detail_id' => $detail->id,
+                'quantity_received' => $chunk,
+            ]);
+        }
+
+        $correction = PurchaseCorrection::create([
+            'setting_id' => $this->setting->id,
+            'purchase_id' => $purchase->id,
+            'actor_user_id' => $this->financeUser->id,
+            'reason' => 'Fractional canonical quantity correction',
+            'field_corrections' => [],
+        ]);
+
+        $recalcService = app(PurchaseCostRecalculationService::class);
+        $result = $recalcService->executeRecalculation($purchase, $this->financeUser, false);
+
+        $this->assertTrue($result['success']);
+
+        $productPrice = ProductPrice::where('product_id', $this->product->id)
+            ->where('setting_id', $this->setting->id)
+            ->first();
+
+        // The two fractional receipts sum to exactly the full ordered quantity, so
+        // the fully-received line's average cost must land on the line's own unit
+        // price (Rp1,000), not a value skewed by float-drift proration.
+        $this->assertEquals(1000.00, (float) $productPrice->average_purchase_price);
+    }
 }
