@@ -7,13 +7,15 @@ use Illuminate\Support\Facades\DB;
 
 class UniqueCustomerField implements Rule
 {
+    protected string $table;
     protected string $column;
     protected string $value;
     protected ?int $excludeId;
     protected string $message = 'Nilai sudah digunakan.';
 
-    public function __construct(string $column, ?int $excludeId = null)
+    public function __construct(string $column, ?int $excludeId = null, ?string $table = null)
     {
+        $this->table = $table ?? 'customers';
         $this->column = $column;
         $this->excludeId = $excludeId;
     }
@@ -28,7 +30,7 @@ class UniqueCustomerField implements Rule
 
         $trimmedValue = strtolower(trim($value));
 
-        $query = DB::table('customers')
+        $query = DB::table($this->table)
             ->whereRaw("LOWER(TRIM(`{$this->column}`)) = ?", [$trimmedValue]);
 
         if ($this->excludeId !== null) {

@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\People\Rules\UniqueCustomerField;
 
 class SupplierQuickAddModal extends Component
 {
@@ -68,8 +69,18 @@ class SupplierQuickAddModal extends Component
     public function save()
     {
         $this->validate([
-            'supplier_name' => 'required|string|max:255',
-            'contact_name' => 'required|string|max:255',
+            'supplier_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('supplier_name', null, 'suppliers'))->setMessage('Nama pemasok sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name', null, 'suppliers'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'supplier_email' => 'nullable|email|max:255',
             'supplier_phone' => 'nullable|string|max:20',
             'identity' => 'nullable|string|max:50',
@@ -84,7 +95,6 @@ class SupplierQuickAddModal extends Component
             'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
         ], [
             'supplier_name.required' => 'Nama pemasok wajib diisi.',
-            'contact_name.required' => 'Nama kontak wajib diisi.',
             'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
             'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
             'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',

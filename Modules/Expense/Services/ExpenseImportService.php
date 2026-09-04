@@ -245,7 +245,7 @@ class ExpenseImportService
         return $category;
     }
 
-    protected function findOrCreateSupplier(string $name, int $settingId): Supplier
+    public function findOrCreateSupplier(string $name, int $settingId): Supplier
     {
         $normalizedName = strtolower(trim($name));
         $cacheKey = "{$settingId}_{$normalizedName}";
@@ -254,8 +254,7 @@ class ExpenseImportService
             return $this->suppliersCache[$cacheKey];
         }
 
-        $supplier = Supplier::where('setting_id', $settingId)
-            ->whereRaw('LOWER(supplier_name) = ?', [$normalizedName])
+        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [$normalizedName])
             ->first();
 
         if (!$supplier) {
@@ -263,7 +262,7 @@ class ExpenseImportService
                 'supplier_name' => trim($name),
                 'supplier_email' => 'imported@example.com',
                 'supplier_phone' => '000000000',
-                'contact_name' => 'Imported Supplier',
+                'contact_name' => null,
                 'address' => 'Imported Address',
                 'city' => 'Imported City',
                 'country' => 'Indonesia',

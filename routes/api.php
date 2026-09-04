@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Modules\People\Rules\UniqueCustomerField;
 
 /*
 |--------------------------------------------------------------------------
@@ -165,14 +166,28 @@ Route::middleware('web')->get('/taxes', function (Request $request) {
 
 // Create supplier API
 Route::middleware('web')->post('/suppliers', function (Request $request) {
-    $request->validate([
-        'supplier_name' => 'required|string|max:255',
-        'contact_name' => 'nullable|string|max:255',
-        'email' => 'nullable|email|max:255',
-        'phone' => 'nullable|string|max:20',
-        'address' => 'nullable|string',
-        'payment_term_id' => 'nullable|exists:payment_terms,id',
-    ]);
+    try {
+        $request->validate([
+            'supplier_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('supplier_name', null, 'suppliers'))->setMessage('Nama pemasok sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name', null, 'suppliers'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
+            'payment_term_id' => 'nullable|exists:payment_terms,id',
+        ]);
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json(['errors' => $e->errors()], 422);
+    }
 
     $setting_id = session('setting_id');
     if (!$setting_id) {
@@ -189,7 +204,7 @@ Route::middleware('web')->post('/suppliers', function (Request $request) {
         'contact_name' => $request->contact_name,
         'supplier_email' => $email,
         'supplier_phone' => $phone,
-        'address' => $request->address,
+        'address' => $request->address ?: '',
         'city' => '',
         'country' => '',
         'setting_id' => $setting_id,

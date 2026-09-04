@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\People\Rules\UniqueCustomerField;
 
 class SuppliersController extends Controller
 {
@@ -45,24 +46,18 @@ class SuppliersController extends Controller
         abort_if(Gate::denies('suppliers.create'), 403);
 
         // Validate the request data
-        $settingId = session('setting_id');
         $request->validate([
-            'contact_name' => 'required|string|max:255',
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name', null, 'suppliers'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'supplier_name' => [
                 'required',
                 'string',
                 'max:255',
-                function ($attribute, $value, $fail) use ($settingId) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_name', $value)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nama pemasok sudah digunakan.');
-                        }
-                    }
-                }
+                (new UniqueCustomerField('supplier_name', null, 'suppliers'))->setMessage('Nama pemasok sudah digunakan.'),
             ],
             'identity' => 'nullable|string|max:50',
             'identity_number' => [
@@ -70,19 +65,8 @@ class SuppliersController extends Controller
                 'required_if:identity,KTP,SIM,Passport',
                 'string',
                 'max:100',
-                function ($attribute, $value, $fail) use ($settingId) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('identity_number', $value)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nomor identitas sudah digunakan.');
-                        }
-                    }
-                }
             ],
-            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
+            'payment_term_id' => 'nullable|exists:payment_terms,id',
 
             // Bank fields validation, mandatory only if one is filled
             'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
@@ -90,41 +74,14 @@ class SuppliersController extends Controller
             'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
             'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
 
-            'supplier_phone' => [
-                'nullable',
-                'string',
-                'max:255',
-                function ($attribute, $value, $fail) use ($settingId) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_phone', $value)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nomor telepon sudah digunakan.');
-                        }
-                    }
-                }
-            ],
+            'supplier_phone' => 'nullable|string|max:255',
             'supplier_email' => [
                 'nullable',
                 'email',
                 'max:255',
-                function ($attribute, $value, $fail) use ($settingId) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_email', $value)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Email sudah digunakan.');
-                        }
-                    }
-                }
             ],
         ], [
-            'contact_name.required' => 'Nama kontak wajib diisi.',
-            'company_name.required' => 'Nama pemasok wajib diisi.',
+            'supplier_name.required' => 'Nama pemasok wajib diisi.',
 
             'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
             'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
@@ -134,10 +91,9 @@ class SuppliersController extends Controller
             'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
         ]);
 
-        $settingId = session('setting_id');
         // Create the supplier
         Supplier::create([
-            'setting_id' => $settingId,
+            'setting_id' => session('setting_id'),
             'payment_term_id' => $request->payment_term_id,
             'contact_name' => $request->contact_name,
             'supplier_name' => $request->supplier_name,
@@ -190,79 +146,32 @@ class SuppliersController extends Controller
         abort_if(Gate::denies('suppliers.edit'), 403);
 
         // Validate the request data
-        $settingId = session('setting_id');
         $request->validate([
-            'contact_name' => 'required|string|max:255',
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name', $supplier->id, 'suppliers'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'supplier_name' => [
                 'required',
                 'string',
                 'max:255',
-                function ($attribute, $value, $fail) use ($settingId, $supplier) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_name', $value)
-                            ->where('id', '!=', $supplier->id)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nama pemasok sudah digunakan.');
-                        }
-                    }
-                }
+                (new UniqueCustomerField('supplier_name', $supplier->id, 'suppliers'))->setMessage('Nama pemasok sudah digunakan.'),
             ],
-            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
-            'supplier_phone' => [
-                'nullable',
-                'string',
-                'max:255',
-                function ($attribute, $value, $fail) use ($settingId, $supplier) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_phone', $value)
-                            ->where('id', '!=', $supplier->id)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nomor telepon sudah digunakan.');
-                        }
-                    }
-                }
-            ],
+            'payment_term_id' => 'nullable|exists:payment_terms,id',
+            'supplier_phone' => 'nullable|string|max:255',
             'identity' => 'nullable|string|max:50',
             'identity_number' => [
                 'nullable',
                 'required_if:identity,KTP,SIM,Passport',
                 'string',
                 'max:100',
-                function ($attribute, $value, $fail) use ($settingId, $supplier) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('identity_number', $value)
-                            ->where('id', '!=', $supplier->id)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Nomor identitas sudah digunakan.');
-                        }
-                    }
-                }
             ],
             'supplier_email' => [
                 'nullable',
                 'email',
                 'max:255',
-                function ($attribute, $value, $fail) use ($settingId, $supplier) {
-                    if (!empty($value)) {
-                        $exists = DB::table('suppliers')
-                            ->where('setting_id', $settingId)
-                            ->where('supplier_email', $value)
-                            ->where('id', '!=', $supplier->id)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Email sudah digunakan.');
-                        }
-                    }
-                }
             ],
             'city' => 'nullable|string|max:255',
             'country' => 'nullable|string|max:255',
@@ -274,7 +183,6 @@ class SuppliersController extends Controller
             'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
             'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
         ], [
-            'contact_name.required' => 'Nama kontak wajib diisi.',
             'supplier_name.required' => 'Nama pemasok wajib diisi.',
 
             'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',

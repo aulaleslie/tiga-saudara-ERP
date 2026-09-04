@@ -323,8 +323,7 @@ class PurchaseImportService
             return $this->suppliersCache[$cacheKey];
         }
 
-        $supplier = Supplier::where('setting_id', $settingId)
-            ->whereRaw('LOWER(supplier_name) = ?', [$normalizedName])
+        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [$normalizedName])
             ->first();
 
         if (!$supplier) {
