@@ -3656,6 +3656,25 @@
                 pickupConfirmBtn.disabled = !selectedSupervisor || !hasOtp;
             }
 
+            function setupPickupAmountInputFormatter() {
+                if (!pickupAmountInput) return;
+
+                pickupAmountInput.addEventListener('input', function (e) {
+                    // Strip non-digits from input to get raw numeric value
+                    const rawValue = this.value.replace(/\D/g, '');
+
+                    // Store raw numeric value in dataset attribute for parsing
+                    this.dataset.rawValue = rawValue;
+
+                    // Display formatted value with thousand separators (Indonesian locale)
+                    if (rawValue) {
+                        this.value = new Intl.NumberFormat('id-ID').format(rawValue);
+                    } else {
+                        this.value = '';
+                    }
+                });
+            }
+
             async function searchSupervisors(query) {
                 if (!query || query.trim().length === 0) {
                     pickupSupervisorResults.innerHTML = '';
@@ -3732,9 +3751,11 @@
                 updateConfirmButtonState();
             }
 
+            setupPickupAmountInputFormatter();
+
             if (pickupAmountInput && pickupNextBtn) {
                 pickupAmountInput.addEventListener('input', function () {
-                    const amount = Number(pickupAmountInput.value || 0);
+                    const amount = Number(pickupAmountInput.dataset.rawValue || 0);
                     const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
 
                     pickupAmountError.classList.add('d-none');
@@ -3786,7 +3807,7 @@
 
             if (pickupNextBtn) {
                 pickupNextBtn.addEventListener('click', function () {
-                    const amount = Number(pickupAmountInput.value || 0);
+                    const amount = Number(pickupAmountInput.dataset.rawValue || 0);
                     const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
 
                     if (amount <= 0 || amount > expectedCash) {
@@ -3832,7 +3853,7 @@
                             throw new Error('Session ID tidak ditemukan.');
                         }
 
-                        const amount = Number(pickupAmountInput.value || 0);
+                        const amount = Number(pickupAmountInput.dataset.rawValue || 0);
                         const endpoint = `{{ url('/pos/sessions') }}/${sessionId}/pickup`;
 
                         const response = await jsonRequest(endpoint, 'POST', {
@@ -3879,6 +3900,7 @@
                         if (pickupCashierInfo) pickupCashierInfo.textContent = currentSessionData.cashier_name;
 
                         pickupAmountInput.value = '';
+                        pickupAmountInput.dataset.rawValue = '';
                         pickupAmountError.classList.add('d-none');
                         pickupNextBtn.disabled = true;
 
@@ -3908,6 +3930,7 @@
                 pickupModalElement.addEventListener('hidden.bs.modal', function () {
                     currentSessionData = null;
                     pickupAmountInput.value = '';
+                    pickupAmountInput.dataset.rawValue = '';
                     pickupStep2Error.classList.add('d-none');
                     pickupAmountError.classList.add('d-none');
                     resetSupervisorSelection();

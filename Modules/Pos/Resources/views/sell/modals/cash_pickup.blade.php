@@ -26,7 +26,7 @@
                         </div>
                         <div class="form-group mb-3">
                             <label for="pos-pickup-amount" class="form-label small font-weight-bold">Jumlah Pengambilan:</label>
-                            <input type="number" id="pos-pickup-amount" class="form-control" min="0" step="0.01" placeholder="0">
+                            <input type="text" id="pos-pickup-amount" class="form-control" inputmode="numeric" placeholder="0">
                             <small id="pos-pickup-amount-error" class="form-text text-danger d-none"></small>
                         </div>
                     </div>
