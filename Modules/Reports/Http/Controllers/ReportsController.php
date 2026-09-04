@@ -19,7 +19,8 @@ class ReportsController extends Controller
             'purchaseReports.global.access',
             'stockMutationReports.access',
             'stockMutationReports.global.access',
-            'inventoryValuationReports.access'
+            'inventoryValuationReports.access',
+            'inventory.view_remaining_stock',
         ];
 
         abort_unless(Gate::any($permissions), 403);
@@ -274,6 +275,13 @@ class ReportsController extends Controller
                         'description' => 'Menampilkan daftar produk dengan mutasi dan kuantitas akhirnya.',
                         'route' => 'reports.inventory-detail-report.index',
                         'permission' => 'stockMutationReports.access'
+                    ],
+                    [
+                        'label' => 'Stok Persediaan Lintas Bisnis',
+                        'icon' => 'bi bi-buildings',
+                        'description' => 'Menampilkan perbandingan sisa stok bagus dan rusak antar cabang/bisnis beserta rincian nomor serial.',
+                        'route' => 'reports.cross-business-stock-inventory.index',
+                        'permission' => 'inventory.view_remaining_stock'
                     ],
                     [
                         'label' => 'Pergerakan barang gudang',
