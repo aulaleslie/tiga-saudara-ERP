@@ -224,23 +224,25 @@
                                             @endif
                                         </div>
 
-                                        {{-- Stok --}}
-                                        <div class="mb-1 md:mb-0">
-                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Stok</div>
-                                            @if($isService)
-                                                <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
-                                                    -
-                                                </div>
-                                            @elseif($isOos)
-                                                <div class="text-[13.5px] md:text-[12.5px] font-bold text-red-600">
-                                                    {{ $product->formatted_available_qty ?? (float) ($product->available_qty ?? 0) }}
-                                                </div>
-                                            @else
-                                                <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
-                                                    {{ $product->formatted_available_qty ?? (float) ($product->available_qty ?? 0) }}
-                                                </div>
-                                            @endif
-                                        </div>
+                                        {{-- Stok (only if user has permission to view quantities) --}}
+                                        @if(isset($product->formatted_available_qty))
+                                            <div class="mb-1 md:mb-0">
+                                                <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Stok</div>
+                                                @if($isService)
+                                                    <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
+                                                        -
+                                                    </div>
+                                                @elseif($isOos)
+                                                    <div class="text-[13.5px] md:text-[12.5px] font-bold text-red-600">
+                                                        {{ $product->formatted_available_qty }}
+                                                    </div>
+                                                @else
+                                                    <div class="text-[13.5px] md:text-[12.5px] font-semibold text-slate-800">
+                                                        {{ $product->formatted_available_qty }}
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        @endif
 
                                         {{-- Codes (product code + barcode) --}}
                                         <div class="mb-1 md:mb-0 md:col-span-2">

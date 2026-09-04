@@ -32,6 +32,10 @@
  */
 
 return [
+    'Inventaris' => [
+        'inventory.view_remaining_stock' => 'Lihat Jumlah Stok Tersisa',
+    ],
+
     'Penyesuaian Stok' => [
         'adjustments.access' => 'Hak Akses',
         'adjustments.approval' => 'Persetujuan',

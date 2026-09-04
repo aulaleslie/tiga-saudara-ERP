@@ -107,7 +107,9 @@ class PosProductSearchService
         $productIds = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
         $bundlesByProduct = \App\Support\ProductBundleResolver::forProducts($productIds, $settingId);
 
-        $results = $rows->map(function ($row) use ($bundlesByProduct) {
+        $canViewRemainingStock = auth()->user() && auth()->user()->can('inventory.view_remaining_stock');
+
+        $results = $rows->map(function ($row) use ($bundlesByProduct, $canViewRemainingStock) {
             $matchedBy = 'name_partial';
 
             if ((int) $row->barcode_exact_match === 1) {
@@ -122,19 +124,35 @@ class PosProductSearchService
 
             $hasEligibleBundles = isset($bundlesByProduct[(int) $row->id]) && $bundlesByProduct[(int) $row->id]->isNotEmpty();
 
-            return [
+            $availableQty = (int) $row->available_qty;
+            $isStockManaged = (bool) $row->stock_managed;
+
+            $stockState = 'in_stock';
+            if (!$isStockManaged) {
+                $stockState = 'service';
+            } elseif ($availableQty <= 0) {
+                $stockState = 'out_of_stock';
+            }
+
+            $result = [
                 'id' => (int) $row->id,
                 'product_name' => (string) $row->product_name,
                 'product_code' => (string) ($row->product_code ?? ''),
                 'barcode' => $row->barcode !== null ? (string) $row->barcode : null,
-                'available_qty' => (int) $row->available_qty,
                 'sale_price' => (float) $row->sale_price,
                 'serial_number_required' => (bool) $row->serial_number_required,
-                'stock_managed' => (bool) $row->stock_managed,
+                'stock_managed' => $isStockManaged,
+                'stock_state' => $stockState,
                 'matched_by' => $matchedBy,
                 'is_bundle_parent' => $hasEligibleBundles,
                 'conversion' => null,
             ];
+
+            if ($canViewRemainingStock) {
+                $result['available_qty'] = $availableQty;
+            }
+
+            return $result;
         })->values();
 
         // Post-process: for barcode_exact matches, check if matched via conversion barcode
@@ -178,9 +196,9 @@ class PosProductSearchService
             return $result;
         })->values();
 
-        $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'barcode_exact' && ($r['available_qty'] > 0 || !$r['stock_managed']))->first();
+        $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'barcode_exact' && $r['stock_state'] !== 'out_of_stock')->first();
         if (!$autoSelectMatch) {
-            $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'conversion_barcode_exact' && ($r['available_qty'] > 0 || !$r['stock_managed']))->first();
+            $autoSelectMatch = $results->filter(fn ($r) => $r['matched_by'] === 'conversion_barcode_exact' && $r['stock_state'] !== 'out_of_stock')->first();
         }
         $autoSelectProductId = null;
 

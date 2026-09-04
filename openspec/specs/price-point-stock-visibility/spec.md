@@ -42,7 +42,7 @@ Each product card SHALL render one of three stock states, matching POS product s
 - **AND** the stock field SHALL display `-` instead of a quantity
 
 ### Requirement: Price Points browser SHALL express stock quantity in product units matching the product list's denomination format
-When a product has a base unit, the displayed stock quantity SHALL be denominated the same way the Product list page denominates stock quantities (`Modules\Product\DataTables\ProductDataTable::formatQuantityValue`): using the single largest available unit conversion plus a base-unit remainder, falling back to a bare base-unit quantity when no conversions exist.
+When a product has a base unit, the displayed stock quantity SHALL be denominated the same way the Product list page denominates stock quantities (`Modules\Product\DataTables\ProductDataTable::formatQuantityValue`): using the single largest available unit conversion plus a base-unit remainder, falling back to a bare base-unit quantity when no conversions exist. This denominated value SHALL only be computed into the data supplied to the view, and the "Stok" element SHALL only be rendered, when the acting user holds `inventory.view_remaining_stock`; for users without the permission, the field SHALL be omitted and no "Stok" element SHALL be rendered.
 
 #### Scenario: Product with unit conversions shows denominated quantity using the largest conversion
 - **WHEN** a product has a base unit "Pcs", conversions "Box" (factor 12) and "Karton" (factor 144), and `available_qty` of 150
@@ -67,6 +67,11 @@ When a product has a base unit, the displayed stock quantity SHALL be denominate
 #### Scenario: Non-stock-managed products are unaffected by denomination formatting
 - **WHEN** a product has `stock_managed = false`
 - **THEN** the stock field SHALL continue to display `-`, not a denominated quantity
+
+#### Scenario: Stok element and quantity data omitted for unpermitted user
+- **WHEN** a user lacking `inventory.view_remaining_stock` views the Price Points browser
+- **THEN** the product data supplied to the view SHALL NOT include `available_qty` or a formatted/denominated quantity string
+- **AND** the card SHALL NOT render a "Stok" label, value, or placeholder in that position, regardless of the product's stock-managed status
 
 ### Requirement: Stock computation and display SHALL NOT alter tier-price resolution or product search behavior
 Adding stock visibility to Price Points SHALL NOT change which products match a search term, how products are paginated, or how contextual tier pricing is resolved for a selected customer.

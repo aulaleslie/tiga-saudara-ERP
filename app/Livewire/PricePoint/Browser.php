@@ -256,7 +256,9 @@ class Browser extends Component
             );
 
         // Add contextual prices, stock state, and formatted available quantity to each product to avoid N+1 queries in the view
-        $products->transform(function ($product) {
+        $canViewRemainingStock = auth()->user() && auth()->user()->can('inventory.view_remaining_stock');
+
+        $products->transform(function ($product) use ($canViewRemainingStock) {
             $product->contextual_price = $this->resolveContextualPrice(
                 $product->display_sale_price,
                 $product->display_tier_1_price,
@@ -271,22 +273,26 @@ class Browser extends Component
                 $product->stock_state = 'in_stock';
             }
 
-            $qty = (int) ($product->available_qty ?? 0);
-            $baseUnit = $product->baseUnit;
-            $conversions = $product->conversions;
+            if ($canViewRemainingStock) {
+                $qty = (int) ($product->available_qty ?? 0);
+                $baseUnit = $product->baseUnit;
+                $conversions = $product->conversions;
 
-            if ($baseUnit && $conversions && $conversions->isNotEmpty()) {
-                $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
-                $conversionFactor = $biggestConversion->conversion_factor ?: 1;
-                $convertedQuantity = floor($qty / $conversionFactor);
-                $remainder = $qty % $conversionFactor;
-                $biggestUnitShortName = $biggestConversion->unit->short_name ?? $biggestConversion->unit->name ?? '';
+                if ($baseUnit && $conversions && $conversions->isNotEmpty()) {
+                    $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
+                    $conversionFactor = $biggestConversion->conversion_factor ?: 1;
+                    $convertedQuantity = floor($qty / $conversionFactor);
+                    $remainder = $qty % $conversionFactor;
+                    $biggestUnitShortName = $biggestConversion->unit->short_name ?? $biggestConversion->unit->name ?? '';
 
-                $product->formatted_available_qty = "{$convertedQuantity} {$biggestUnitShortName} {$remainder} {$baseUnit->short_name}";
-            } elseif ($baseUnit) {
-                $product->formatted_available_qty = "{$qty} {$baseUnit->short_name}";
+                    $product->formatted_available_qty = "{$convertedQuantity} {$biggestUnitShortName} {$remainder} {$baseUnit->short_name}";
+                } elseif ($baseUnit) {
+                    $product->formatted_available_qty = "{$qty} {$baseUnit->short_name}";
+                } else {
+                    $product->formatted_available_qty = (string) $qty;
+                }
             } else {
-                $product->formatted_available_qty = (string) $qty;
+                unset($product->available_qty);
             }
 
             return $product;
