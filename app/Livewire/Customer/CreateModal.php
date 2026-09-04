@@ -5,6 +5,7 @@ namespace App\Livewire\Customer;
 use App\Constants\CustomerTier;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
+use Modules\People\Rules\UniqueCustomerField;
 
 class CreateModal extends Component
 {
@@ -18,8 +19,18 @@ class CreateModal extends Component
     protected function rules()
     {
         return [
-            'customer_name' => 'required|string|max:255',
-            'contact_name' => 'nullable|string|max:255',
+            'customer_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('customer_name'))->setMessage('Nama pelanggan sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ];
     }

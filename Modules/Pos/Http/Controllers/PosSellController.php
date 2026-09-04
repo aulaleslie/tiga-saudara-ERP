@@ -27,6 +27,7 @@ use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosPaymentMethodSearchService;
 use Modules\Pos\Services\PosRolePolicyService;
 use Modules\People\Entities\Customer;
+use Modules\People\Rules\UniqueCustomerField;
 use Modules\Product\Entities\Product;
 use App\Support\ProductBundleResolver;
 
@@ -120,7 +121,12 @@ class PosSellController extends Controller
     public function customerStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('customer_name'))->setMessage('Nama pelanggan sudah digunakan.'),
+            ],
             'customer_phone' => ['nullable', 'string', 'max:20'],
             'tier' => ['nullable', 'in:WHOLESALER,RESELLER'],
         ]);

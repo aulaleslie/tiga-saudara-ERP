@@ -15,6 +15,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
+use Modules\People\Rules\UniqueCustomerField;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class CustomersController extends Controller
@@ -52,8 +53,18 @@ class CustomersController extends Controller
         // Validate the request data
         $settingId = session('setting_id');
         $request->validate([
-            'customer_name' => 'required|string|max:255',
-            'contact_name' => 'nullable|string|max:255',
+            'customer_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('customer_name'))->setMessage('Nama pelanggan sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'customer_phone' => [
                 'required',
                 'string',
@@ -238,8 +249,18 @@ class CustomersController extends Controller
 
         $settingId = session('setting_id');
         $request->validate([
-            'customer_name' => 'required|string|max:255',
-            'contact_name' => 'nullable|string|max:255',
+            'customer_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('customer_name', $customer->id))->setMessage('Nama pelanggan sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name', $customer->id))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'customer_phone' => [
                 'required',
                 'string',

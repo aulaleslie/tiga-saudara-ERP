@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
+use Modules\People\Rules\UniqueCustomerField;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class CustomerQuickAddModal extends Component
@@ -54,8 +55,18 @@ class CustomerQuickAddModal extends Component
         $this->contact_name = trim((string)$this->contact_name) ?: null;
 
         $this->validate([
-            'customer_name' => 'required|string|max:255',
-            'contact_name' => 'nullable|string|max:255',
+            'customer_name' => [
+                'required',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('customer_name'))->setMessage('Nama pelanggan sudah digunakan.'),
+            ],
+            'contact_name' => [
+                'nullable',
+                'string',
+                'max:255',
+                (new UniqueCustomerField('contact_name'))->setMessage('Nama kontak sudah digunakan.'),
+            ],
             'customer_email' => 'nullable|email|max:255',
             'customer_phone' => 'nullable|string|max:20',
             'address' => 'nullable|string',
