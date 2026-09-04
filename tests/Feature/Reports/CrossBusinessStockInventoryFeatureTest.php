@@ -544,25 +544,35 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             'is_active' => true,
         ]);
 
+        \Carbon\Carbon::setTestNow(now());
+
         Livewire::test(CrossBusinessStockInventory::class)
             ->call('exportExcel');
 
         Excel::assertDownloaded('stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx', function (CrossBusinessStockInventoryExport $export) {
+            \Carbon\Carbon::setTestNow();
             $array = $export->array();
-            $headerRow1 = $array[0];
-            $headerRow2 = $array[1];
+            $titleRow = $array[0];
+            $businessRow = $array[1];
+            $locationRow = $array[2];
+            $conditionRow = $array[3];
 
-            // Should have columns for Bisnis Alpha - Gudang Alpha 1 and Bisnis Alpha - Gudang Alpha 2
-            $header1String = implode(' ', $headerRow1);
-            $this->assertStringContainsString('BISNIS ALPHA PKP - GUDANG ALPHA 1', $header1String);
-            $this->assertStringContainsString('BISNIS ALPHA PKP - GUDANG ALPHA 2', $header1String);
+            // Title row
+            $this->assertEquals('Stok Persediaan Lintas Bisnis', $titleRow[0]);
 
-            // Must NOT contain Bisnis Beta (assigned user cannot see Beta)
-            $this->assertStringNotContainsString('BISNIS BETA NON-PKP', $header1String);
+            // Business header row
+            $businessString = implode(' ', $businessRow);
+            $this->assertStringContainsString('BISNIS ALPHA PKP', $businessString);
+            $this->assertStringNotContainsString('BISNIS BETA NON-PKP', $businessString);
+
+            // Location header row
+            $locationString = implode(' ', $locationRow);
+            $this->assertStringContainsString('GUDANG ALPHA 1', $locationString);
+            $this->assertStringContainsString('GUDANG ALPHA 2', $locationString);
 
             // Sub-headers must be Bagus and Rusak
-            $this->assertContains('Bagus', $headerRow2);
-            $this->assertContains('Rusak', $headerRow2);
+            $this->assertContains('Bagus', $conditionRow);
+            $this->assertContains('Rusak', $conditionRow);
 
             return true;
         });
@@ -641,6 +651,8 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         $this->assertArrayNotHasKey($inactiveLocation->id, $bData['locations']);
 
         // Livewire UI: expanded columns must not contain inactive location
+        \Carbon\Carbon::setTestNow(now());
+
         Livewire::test(CrossBusinessStockInventory::class)
             ->call('toggleBusinessExpand', $this->setting1->id)
             ->assertSee('GUDANG ALPHA 1')
@@ -648,9 +660,11 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             ->call('exportExcel');
 
         Excel::assertDownloaded('stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx', function (CrossBusinessStockInventoryExport $export) use ($inactiveLocation) {
+            \Carbon\Carbon::setTestNow();
             $array = $export->array();
-            $header1String = implode(' ', $array[0]);
-            $this->assertStringNotContainsString('GUDANG ALPHA NONAKTIF', $header1String);
+            // Inactive location must not appear in business row (1), location row (2), or anywhere in headers
+            $headersCombined = implode(' ', array_merge($array[0], $array[1], $array[2], $array[3]));
+            $this->assertStringNotContainsString('GUDANG ALPHA NONAKTIF', $headersCombined);
             return true;
         });
     }
