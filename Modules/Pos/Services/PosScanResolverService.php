@@ -73,8 +73,9 @@ class PosScanResolverService
         }
 
         // 3. Exact serial number match
+        $normalizedSerialQuery = ProductSerialNumber::normalize($query);
         $serialRecord = ProductSerialNumber::query()
-            ->where('serial_number', $query)
+            ->where('serial_number', $normalizedSerialQuery)
             ->where('status', 'ACTIVE')
             ->whereNull('dispatch_detail_id')
             ->whereIn('location_id', $allowedLocationIds)

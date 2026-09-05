@@ -467,12 +467,12 @@ class PosCheckoutSplitPlannerService
             ->where('product_id', $productId)
             ->whereIn('serial_number', $assignedSerials)
             ->get()
-            ->keyBy('serial_number');
+            ->keyBy(fn ($row) => ProductSerialNumber::normalize((string) $row->serial_number));
 
         $chunks = [];
 
         foreach ($assignedSerials as $serialNumber) {
-            $record = $serialRows->get($serialNumber);
+            $record = $serialRows->get(ProductSerialNumber::normalize((string) $serialNumber));
             if (! $record) {
                 throw new PosCheckoutValidationException(
                     'SERIAL_INVALID',
@@ -514,7 +514,7 @@ class PosCheckoutSplitPlannerService
             }
 
             $chunks[$splitKey]['allocated_qty']++;
-            $chunks[$splitKey]['serial_numbers'][] = $serialNumber;
+            $chunks[$splitKey]['serial_numbers'][] = (string) $record->serial_number;
         }
 
         return array_values($chunks);

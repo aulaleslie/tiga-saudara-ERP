@@ -143,13 +143,14 @@ trait ValidatesPurchaseReturnForm
                 $serialNumbers = collect($row['serial_numbers'])
                     ->map(fn ($item) => is_array($item) ? ($item['serial_number'] ?? null) : $item)
                     ->filter()
+                    ->map(fn ($sn) => ProductSerialNumber::normalize((string) $sn))
                     ->unique()
                     ->values()
                     ->all();
 
                 // Check for duplicate serials across all rows (case-insensitive)
                 foreach ($serialNumbers as $serial) {
-                    $normalized = strtolower(trim($serial));
+                    $normalized = ProductSerialNumber::normalize($serial);
                     if (isset($allSerials[$normalized])) {
                         $validator->errors()->add(
                             "rows.$index.serial_numbers",
@@ -208,6 +209,7 @@ trait ValidatesPurchaseReturnForm
                     ->whereIn('serial_number', $serialNumbers)
                     ->where('product_id', $productId)
                     ->pluck('serial_number')
+                    ->map(fn ($sn) => ProductSerialNumber::normalize((string) $sn))
                     ->unique()
                     ->values()
                     ->all();

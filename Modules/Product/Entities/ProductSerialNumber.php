@@ -38,6 +38,22 @@ class ProductSerialNumber extends BaseModel
     const STATUS_BROKEN = 'BROKEN';
 
     /**
+     * Normalize serial number to canonical UPPERCASE trimmed UTF-8.
+     */
+    public static function normalize(string $serialNumber): string
+    {
+        return mb_strtoupper(trim($serialNumber), 'UTF-8');
+    }
+
+    /**
+     * Mutator to ensure serial numbers are always normalized on write.
+     */
+    public function setSerialNumberAttribute($value): void
+    {
+        $this->attributes['serial_number'] = is_null($value) ? null : self::normalize((string) $value);
+    }
+
+    /**
      * Normalize status read to UPPERCASE.
      */
     public function getStatusAttribute($value)

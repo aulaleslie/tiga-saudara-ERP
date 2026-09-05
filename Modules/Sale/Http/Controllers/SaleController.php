@@ -722,7 +722,7 @@ class SaleController extends Controller
                                 }
 
                                 // Check for serials in PENDING dispatches
-                                if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+                                if (PendingDispatchSerialGuard::isReserved((string) $snRecord->serial_number)) {
                                     $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sedang dalam proses pengiriman.");
                                 }
 
@@ -1285,12 +1285,12 @@ class SaleController extends Controller
 
     private function normalizeSerialValueForLookup(string $serialNumber): string
     {
-        return mb_strtoupper(trim($serialNumber), 'UTF-8');
+        return ProductSerialNumber::normalize($serialNumber);
     }
 
     private function saleSerialLookupKey(int $productId, string $serialNumber): string
     {
-        return $productId.'|'.$this->normalizeSerialValueForLookup($serialNumber);
+        return $productId.'|'.ProductSerialNumber::normalize($serialNumber);
     }
 
     private function updateSaleStatus(Sale $sale)

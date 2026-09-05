@@ -221,7 +221,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memerlukan $qty seri, tetapi " . count($assignedSerials) . " yang diberikan.");
                 }
 
-                if (count($assignedSerials) !== count(array_unique($assignedSerials))) {
+                if (count($assignedSerials) !== count(array_unique(array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $assignedSerials)))) {
                     throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memiliki nomor seri duplikat dalam satu baris.");
                 }
 
@@ -231,14 +231,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get()
-                    ->keyBy('serial_number');
+                    ->keyBy(fn ($row) => ProductSerialNumber::normalize((string) $row->serial_number));
 
                 foreach ($assignedSerials as $sn) {
-                    if (! isset($serialRecords[$sn])) {
+                    $normalizedSn = ProductSerialNumber::normalize((string) $sn);
+                    if (! isset($serialRecords[$normalizedSn])) {
                         throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk produk $productId.");
                     }
-                    $this->assertSerialCurrentlyPostable($serialRecords[$sn], $settingId);
-                    $serialIds[] = (int) $serialRecords[$sn]->id;
+                    $this->assertSerialCurrentlyPostable($serialRecords[$normalizedSn], $settingId);
+                    $serialIds[] = (int) $serialRecords[$normalizedSn]->id;
                 }
             }
 
@@ -442,7 +443,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                         static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
                     ));
 
-                    if (count($rawCompAssignedSerials) !== count(array_unique($rawCompAssignedSerials))) {
+                    if (count($rawCompAssignedSerials) !== count(array_unique(array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $rawCompAssignedSerials)))) {
                         $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
                         throw new PosCheckoutValidationException('SERIAL_INVALID', "Komponen $childProductLabel memiliki nomor seri duplikat dalam satu baris.");
                     }
@@ -457,11 +458,14 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     $chunkSerials = [];
                     foreach ($childAllocations as $chunk) {
                         foreach ((array) ($chunk['serial_numbers'] ?? []) as $sn) {
-                            $chunkSerials[] = $sn;
+                            $chunkSerials[] = ProductSerialNumber::normalize((string) $sn);
                         }
                     }
                     if ($chunkSerials !== []) {
-                        $compAssignedSerials = array_values(array_intersect($compAssignedSerials, $chunkSerials));
+                        $compAssignedSerials = array_values(array_filter(
+                            $compAssignedSerials,
+                            fn ($sn) => in_array(ProductSerialNumber::normalize((string) $sn), $chunkSerials, true)
+                        ));
                     }
 
                     $childSerialRecords = [];
@@ -473,14 +477,15 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                             ->orderBy('id')
                             ->lockForUpdate()
                             ->get()
-                            ->keyBy('serial_number');
+                            ->keyBy(fn ($row) => ProductSerialNumber::normalize((string) $row->serial_number));
 
                         $childProductLabel = (string) (($item['product_name'] ?? null) ?: (($item['product_code'] ?? null) ?: "#$childProductId"));
                         foreach ($compAssignedSerials as $sn) {
-                            if (! isset($childSerialRecords[$sn])) {
+                            $normalizedSn = ProductSerialNumber::normalize((string) $sn);
+                            if (! isset($childSerialRecords[$normalizedSn])) {
                                 throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk komponen $childProductLabel.");
                             }
-                            $this->assertSerialCurrentlyPostable($childSerialRecords[$sn], $settingId);
+                            $this->assertSerialCurrentlyPostable($childSerialRecords[$normalizedSn], $settingId);
                         }
                     }
 
@@ -879,10 +884,11 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             if ($assignedSerialsForChunk) {
                 foreach ($assignedSerialsForChunk as $sn) {
-                    if (! isset($serialRecords[$sn])) {
+                    $normalizedSn = ProductSerialNumber::normalize((string) $sn);
+                    if (! isset($serialRecords[$normalizedSn])) {
                         continue;
                     }
-                    $snRecord = $serialRecords[$sn];
+                    $snRecord = $serialRecords[$normalizedSn];
                     $snRecord->update([
                         'status' => 'SOLD',
                         'dispatch_detail_id' => $dispatchDetail->id,

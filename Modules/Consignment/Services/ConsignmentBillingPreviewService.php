@@ -6,6 +6,7 @@ use Modules\Consignment\Entities\ConsignmentBillingConfirmation;
 use Modules\Consignment\Entities\ConsignmentReceiptAllocation;
 use Modules\Consignment\Entities\ConsignmentSerializedAllocation;
 use Modules\People\Entities\Supplier;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Setting;
 
 class ConsignmentBillingPreviewService
@@ -477,7 +478,8 @@ class ConsignmentBillingPreviewService
                         $isValidSerial = in_array((int) $serAlloc->product_serial_number_id, $soldSideSerialIds, true);
                     } elseif (!empty($soldSideSerialStrings)) {
                         $allocSnStr = $serAlloc->productSerialNumber?->serial_number;
-                        $isValidSerial = $allocSnStr !== null && in_array($allocSnStr, $soldSideSerialStrings, true);
+                        $normalizedSoldStrings = array_map(fn ($s) => ProductSerialNumber::normalize((string) $s), $soldSideSerialStrings);
+                        $isValidSerial = $allocSnStr !== null && in_array(ProductSerialNumber::normalize((string) $allocSnStr), $normalizedSoldStrings, true);
                     } else {
                         $isValidSerial = true;
                     }

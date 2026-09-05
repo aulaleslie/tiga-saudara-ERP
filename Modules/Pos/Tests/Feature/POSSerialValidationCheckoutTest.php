@@ -230,6 +230,110 @@ class POSSerialValidationCheckoutTest extends TestCase
         ]);
     }
 
+    public function test_case_insensitive_serial_checkout_with_lowercase_assignment_succeeds(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL CASE INSENSITIVE');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-CASE', 100000, true);
+        $sn = $this->createSerialNumber($product, $context['location'], 'SN-CASE-001');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign lowercase serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['sn-case-001'],
+            ])
+            ->assertOk();
+
+        // Finalize
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-CASE-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+
+        $saleId = $response->json('sale_id');
+        $dispatchId = $response->json('dispatch_ids')[0];
+
+        // Assert serial status is SOLD
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'SOLD',
+            'dispatch_detail_id' => DB::table('dispatch_details')->where('dispatch_id', $dispatchId)->value('id'),
+        ]);
+
+        // Assert canonical uppercase serial propagated to DispatchDetail
+        $dispatchDetailSerials = DB::table('dispatch_details')
+            ->where('dispatch_id', $dispatchId)
+            ->where('product_id', $product->id)
+            ->value('serial_numbers');
+        $this->assertNotNull($dispatchDetailSerials);
+        $this->assertSame(['SN-CASE-001'], json_decode((string) $dispatchDetailSerials, true));
+    }
+
+    public function test_case_insensitive_serial_checkout_with_lowercase_append_route_succeeds(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL CASE APPEND');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-CASE-APP', 100000, true);
+        $sn = $this->createSerialNumber($product, $context['location'], 'SN-CASE-APPEND-001');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Append lowercase serial via pos.sell.cart.lines.serials.append
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'sn-case-append-001',
+            ])
+            ->assertOk();
+
+        // Finalize checkout
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-CASE-APP-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+
+        $saleId = $response->json('sale_id');
+        $dispatchId = $response->json('dispatch_ids')[0];
+
+        // Assert serial status is SOLD
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'SOLD',
+            'dispatch_detail_id' => DB::table('dispatch_details')->where('dispatch_id', $dispatchId)->value('id'),
+        ]);
+
+        // Assert canonical uppercase serial propagated to DispatchDetail
+        $dispatchDetailSerials = DB::table('dispatch_details')
+            ->where('dispatch_id', $dispatchId)
+            ->where('product_id', $product->id)
+            ->value('serial_numbers');
+        $this->assertNotNull($dispatchDetailSerials);
+        $this->assertSame(['SN-CASE-APPEND-001'], json_decode((string) $dispatchDetailSerials, true));
+    }
+
     public function test_serial_search_endpoint_returns_available_serials(): void
     {
         $context = $this->createCheckoutContext('POS SERIAL SEARCH');

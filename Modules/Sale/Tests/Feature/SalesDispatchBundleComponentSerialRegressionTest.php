@@ -199,3 +199,4 @@ class SalesDispatchBundleComponentSerialRegressionTest extends TestCase
         ]);
     }
 }
+

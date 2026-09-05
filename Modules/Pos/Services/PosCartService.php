@@ -16,6 +16,7 @@ use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Sale\Support\PendingDispatchSerialGuard;
@@ -1684,6 +1685,11 @@ class PosCartService
                 throw new DomainException('Komponen ini tidak memerlukan nomor seri.');
             }
 
+            $serialNumbers = array_values(array_map(
+                fn ($sn) => ProductSerialNumber::normalize((string) $sn),
+                $serialNumbers
+            ));
+
             $parentQty = (int) ($line['qty'] ?? 0);
             $requiredComponentQty = $this->resolveRequiredComponentSerialQty($parentQty, $targetItem);
 
@@ -1714,7 +1720,9 @@ class PosCartService
                     throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
                 }
 
-                if (PendingDispatchSerialGuard::isReserved($sn)) {
+                $canonicalSerial = (string) $record->serial_number;
+
+                if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
                     throw new DomainException("Serial number $sn sedang dalam proses pengiriman.");
                 }
 
@@ -1741,6 +1749,11 @@ class PosCartService
         if (! $isSerialRequired) {
             throw new DomainException('Produk ini tidak memerlukan nomor seri.');
         }
+
+        $serialNumbers = array_values(array_map(
+            fn ($sn) => ProductSerialNumber::normalize((string) $sn),
+            $serialNumbers
+        ));
 
         $qty = (int) ($line['qty'] ?? 0);
         // Allow incremental serial assignment: count($serialNumbers) must be <= qty
@@ -1772,7 +1785,9 @@ class PosCartService
                 throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
             }
 
-            if (PendingDispatchSerialGuard::isReserved($sn)) {
+            $canonicalSerial = (string) $record->serial_number;
+
+            if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
                 throw new DomainException("Serial number $sn sedang dalam proses pengiriman.");
             }
 
@@ -1842,7 +1857,10 @@ class PosCartService
             }
         }
 
-        return $allAssignedSerials;
+        return array_values(array_map(
+            fn ($sn) => ProductSerialNumber::normalize((string) $sn),
+            $allAssignedSerials
+        ));
     }
 
     /**
@@ -2025,6 +2043,8 @@ class PosCartService
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $cart);
 
+        $serialNumber = ProductSerialNumber::normalize($serialNumber);
+
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
         // 1. Find the active serial record
@@ -2037,6 +2057,12 @@ class PosCartService
 
         if (! $serialRecord) {
             throw new DomainException("Serial number $serialNumber is not available or does not exist.");
+        }
+
+        $canonicalSerial = (string) $serialRecord->serial_number;
+
+        if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
+            throw new DomainException("Serial number $serialNumber sedang dalam proses pengiriman.");
         }
 
         $productId = (int) $serialRecord->product_id;
@@ -2057,6 +2083,7 @@ class PosCartService
                 $allAssignedSerials = array_merge($allAssignedSerials, (array) $serials);
             }
         }
+        $allAssignedSerials = array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $allAssignedSerials);
 
         if (in_array($serialNumber, $allAssignedSerials, true)) {
             throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
@@ -2144,6 +2171,8 @@ class PosCartService
         }
 
         if ($bundleItemId !== null) {
+            $serialNumber = ProductSerialNumber::normalize($serialNumber);
+
             $bundleItems = (array) ($line['bundle_items'] ?? []);
             $foundItemIndex = null;
             foreach ($bundleItems as $idx => $bItem) {
@@ -2181,7 +2210,9 @@ class PosCartService
                 throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
             }
 
-            if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+            $canonicalSerial = (string) $record->serial_number;
+
+            if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
                 throw new DomainException("Serial number $serialNumber sedang dalam proses pengiriman.");
             }
 
@@ -2190,6 +2221,7 @@ class PosCartService
             }
 
             $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
+            $normalizedAssignedSerials = array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $assignedSerials);
 
             // Check for duplicate across all cart lines and components (excluding this
             // line's own component's already-assigned set, which is checked separately
@@ -2197,7 +2229,7 @@ class PosCartService
             // a serial already present in this exact component's own set is still caught.
             $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, $bundleItemId);
 
-            if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $assignedSerials, true)) {
+            if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $normalizedAssignedSerials, true)) {
                 throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
             }
 
@@ -2219,6 +2251,8 @@ class PosCartService
 
             return $this->buildSnapshot($settingId, $sessionId, $cart);
         }
+
+        $serialNumber = ProductSerialNumber::normalize($serialNumber);
 
         $productId = (int) ($line['product_id'] ?? 0);
         $liveProduct = $productId > 0 ? \Modules\Product\Entities\Product::find($productId) : null;
@@ -2245,7 +2279,9 @@ class PosCartService
             throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
         }
 
-        if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+        $canonicalSerial = (string) $record->serial_number;
+
+        if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
             throw new DomainException("Serial number $serialNumber sedang dalam proses pengiriman.");
         }
 
@@ -2254,13 +2290,14 @@ class PosCartService
         }
 
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
+        $normalizedAssignedSerials = array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $assignedSerials);
 
         // Check for duplicate across all cart lines and components (excluding this
         // line's own already-assigned set, which is checked separately below) — a
         // serial already present in this exact parent line's own set is still caught.
         $allAssignedSerials = $this->collectCartWideAssignedSerials($cart, $lineId, null);
 
-        if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $assignedSerials, true)) {
+        if (in_array($serialNumber, $allAssignedSerials, true) || in_array($serialNumber, $normalizedAssignedSerials, true)) {
             throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
         }
 
@@ -2344,6 +2381,8 @@ class PosCartService
             throw new DomainException('Cart line was not found.');
         }
 
+        $normalizedTargetSerial = ProductSerialNumber::normalize($serialNumber);
+
         if ($bundleItemId !== null) {
             $bundleItems = (array) ($line['bundle_items'] ?? []);
             $foundItemIndex = null;
@@ -2360,7 +2399,8 @@ class PosCartService
 
             $targetItem = $bundleItems[$foundItemIndex];
             $assignedSerials = (array) ($line['bundle_item_serials'][$bundleItemId] ?? ($targetItem['assigned_serials'] ?? []));
-            $key = array_search($serialNumber, $assignedSerials, true);
+            $normalizedAssigned = array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $assignedSerials);
+            $key = array_search($normalizedTargetSerial, $normalizedAssigned, true);
 
             if ($key === false) {
                 return $this->buildSnapshot($settingId, $sessionId, $cart);
@@ -2377,7 +2417,8 @@ class PosCartService
         }
 
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
-        $key = array_search($serialNumber, $assignedSerials, true);
+        $normalizedAssigned = array_map(fn ($sn) => ProductSerialNumber::normalize((string) $sn), $assignedSerials);
+        $key = array_search($normalizedTargetSerial, $normalizedAssigned, true);
 
         if ($key === false) {
             return $this->buildSnapshot($settingId, $sessionId, $cart);

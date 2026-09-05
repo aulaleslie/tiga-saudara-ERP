@@ -198,11 +198,12 @@ class ResolvePosStockAllocationsService
             ->where('product_id', $productId)
             ->whereIn('serial_number', $assignedSerials)
             ->get()
-            ->keyBy('serial_number');
+            ->keyBy(fn ($row) => ProductSerialNumber::normalize((string) $row->serial_number));
 
         $grouped = [];
         foreach ($assignedSerials as $serialNumber) {
-            $record = $serialRows->get($serialNumber);
+            $normalizedLookup = ProductSerialNumber::normalize((string) $serialNumber);
+            $record = $serialRows->get($normalizedLookup);
             if (! $record) {
                 return [
                     'allocations' => [],
@@ -217,7 +218,9 @@ class ResolvePosStockAllocationsService
                 ];
             }
 
-            if (PendingDispatchSerialGuard::isReserved($serialNumber)) {
+            $canonicalSerial = (string) $record->serial_number;
+
+            if (PendingDispatchSerialGuard::isReserved($canonicalSerial)) {
                 return [
                     'allocations' => [],
                     'reason_code' => 'SERIAL_PENDING_DISPATCH',
@@ -281,7 +284,7 @@ class ResolvePosStockAllocationsService
             }
 
             $grouped[$groupKey]['allocated_qty']++;
-            $grouped[$groupKey]['serial_numbers'][] = $serialNumber;
+            $grouped[$groupKey]['serial_numbers'][] = $canonicalSerial;
         }
 
         $allocations = array_values($grouped);

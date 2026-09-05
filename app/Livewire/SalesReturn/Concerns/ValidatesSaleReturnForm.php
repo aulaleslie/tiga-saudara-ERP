@@ -121,14 +121,20 @@ trait ValidatesSaleReturnForm
 
                 if ($selectedIds->isEmpty()) {
                     // IDs missing, attempt to resolve by serial number text
+                    $normalizedRawSerials = $serialNumbers
+                        ->pluck('serial_number')
+                        ->filter()
+                        ->map(fn ($sn) => ProductSerialNumber::normalize((string) $sn))
+                        ->all();
+
                     $serials = ProductSerialNumber::query()
                         ->where('dispatch_detail_id', $dispatchDetailId)
-                        ->whereIn('serial_number', $serialNumbers->pluck('serial_number')->filter()->all())
+                        ->whereIn('serial_number', $normalizedRawSerials)
                         ->get()
-                        ->keyBy('serial_number');
+                        ->keyBy(fn ($row) => ProductSerialNumber::normalize((string) $row->serial_number));
 
                     $selectedIds = $serialNumbers
-                        ->map(fn ($serial) => optional($serials->get($serial['serial_number']))->id)
+                        ->map(fn ($serial) => optional($serials->get(ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''))))->id)
                         ->filter()
                         ->values();
                 }

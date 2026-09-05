@@ -461,7 +461,10 @@ class ConsignmentSoldSourceDiscoveryService
      */
     protected function resolveLockedSerialAuthority(DispatchDetail $detail, $lockedProduct, bool $lock = true): array
     {
-        $rawSerials = $this->parseSerials($detail->serial_numbers);
+        $rawSerials = array_values(array_map(
+            fn ($sn) => ProductSerialNumber::normalize((string) $sn),
+            $this->parseSerials($detail->serial_numbers)
+        ));
         sort($rawSerials);
 
         $result = [
@@ -502,7 +505,7 @@ class ConsignmentSoldSourceDiscoveryService
             ->orderBy('id');
         $locked = ($lock ? $query->lockForUpdate() : $query)->get();
 
-        $matched = $locked->keyBy(fn ($psn) => (string) $psn->serial_number);
+        $matched = $locked->keyBy(fn ($psn) => ProductSerialNumber::normalize((string) $psn->serial_number));
 
         // Two live rows sharing one serial for this product is ambiguous authority.
         if ($matched->count() !== $locked->count()) {

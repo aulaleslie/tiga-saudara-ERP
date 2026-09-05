@@ -282,7 +282,7 @@ class SaleSerialDisplayResolver
 
     protected function normalizeSerialValue(string $value): string
     {
-        return mb_strtoupper(trim($value), 'UTF-8');
+        return ProductSerialNumber::normalize($value);
     }
 
     protected function serialKey(int $productId, string $serialNumber): string
