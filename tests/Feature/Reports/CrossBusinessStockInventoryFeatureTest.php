@@ -531,7 +531,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
 
         $this->actingAs($this->assignedUser);
 
-        Product::create([
+        $product = Product::create([
             'setting_id' => $this->setting1->id,
             'category_id' => $this->category->id,
             'product_name' => 'Export Product',
@@ -542,6 +542,17 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             'product_cost' => 500,
             'stock_managed' => true,
             'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 5,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
         ]);
 
         \Carbon\Carbon::setTestNow(now());
@@ -556,11 +567,18 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             $businessRow = $array[1];
             $locationRow = $array[2];
             $conditionRow = $array[3];
+            $firstDataRow = $array[4];
 
             // Title row
             $this->assertEquals('Stok Persediaan Lintas Bisnis', $titleRow[0]);
 
             // Business header row
+            $this->assertEquals('Produk', $businessRow[0]);
+            $this->assertEquals('Kategori', $businessRow[1]);
+            $this->assertEquals('Merek', $businessRow[2]);
+            $this->assertEquals('Total Bagus', $businessRow[3]);
+            $this->assertEquals('Total Rusak', $businessRow[4]);
+
             $businessString = implode(' ', $businessRow);
             $this->assertStringContainsString('BISNIS ALPHA PKP', $businessString);
             $this->assertStringNotContainsString('BISNIS BETA NON-PKP', $businessString);
@@ -573,6 +591,11 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             // Sub-headers must be Bagus and Rusak
             $this->assertContains('Bagus', $conditionRow);
             $this->assertContains('Rusak', $conditionRow);
+
+            // Data row columns: Produk, Kategori, Merek, Total Bagus, Total Rusak
+            $this->assertStringContainsString('Export Product', $firstDataRow[0]);
+            $this->assertEquals(5.0, (float) $firstDataRow[3]); // Total Bagus
+            $this->assertEquals(0.0, (float) $firstDataRow[4]); // Total Rusak
 
             return true;
         });

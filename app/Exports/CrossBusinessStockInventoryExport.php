@@ -42,6 +42,8 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
             1 => 15, // Produk
             2 => 12, // Kategori
             3 => 10, // Merek
+            4 => 11, // Total Bagus
+            5 => 11, // Total Rusak
         ];
 
         // Header Row 1: Title
@@ -49,11 +51,11 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
         // Header Row 3: Location Names (merged across Good / Bad for each location)
         // Header Row 4: Good / Bad subheaders ('Bagus' / 'Rusak')
 
-        $headerRow2 = ['Produk', 'Kategori', 'Merek'];
-        $headerRow3 = ['', '', ''];
-        $headerRow4 = ['', '', ''];
+        $headerRow2 = ['Produk', 'Kategori', 'Merek', 'Total Bagus', 'Total Rusak'];
+        $headerRow3 = ['', '', '', '', ''];
+        $headerRow4 = ['', '', '', '', ''];
 
-        $colIdx = 4;
+        $colIdx = 6;
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));
@@ -99,7 +101,7 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
             }
         }
 
-        $totalColumns = max(3, $colIdx - 1);
+        $totalColumns = max(5, $colIdx - 1);
         $this->lastColumnLetter = $this->getColumnLetter($totalColumns);
 
         // Row 1: Title Row
@@ -115,18 +117,24 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
             $productStr = $product['product_name'] . ' (' . $product['product_code'] . ')';
             $catStr = (string) ($product['category_name'] ?? '');
             $brandStr = (string) ($product['brand_name'] ?? '');
+            $totalGood = $product['total_good'] ?? 0;
+            $totalBad = $product['total_bad'] ?? 0;
 
             $this->columnMaxWidths[1] = max($this->columnMaxWidths[1], mb_strlen($productStr));
             $this->columnMaxWidths[2] = max($this->columnMaxWidths[2], mb_strlen($catStr));
             $this->columnMaxWidths[3] = max($this->columnMaxWidths[3], mb_strlen($brandStr));
+            $this->columnMaxWidths[4] = max($this->columnMaxWidths[4], mb_strlen((string) $totalGood));
+            $this->columnMaxWidths[5] = max($this->columnMaxWidths[5], mb_strlen((string) $totalBad));
 
             $row = [
                 $productStr,
                 $catStr,
                 $brandStr,
+                $totalGood,
+                $totalBad,
             ];
 
-            $cIdx = 4;
+            $cIdx = 6;
             foreach ($this->businesses as $b) {
                 $bData = $product['businesses'][$b['setting_id']] ?? null;
                 $locs = $b['locations'];
@@ -170,9 +178,11 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
         $sheet->mergeCells('A2:A4');
         $sheet->mergeCells('B2:B4');
         $sheet->mergeCells('C2:C4');
+        $sheet->mergeCells('D2:D4');
+        $sheet->mergeCells('E2:E4');
 
         // 3. Merge Business headers (Row 2) and Location headers (Row 3)
-        $colIndex = 4;
+        $colIndex = 6;
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));

@@ -110,6 +110,8 @@
                             </th>
                             <th rowspan="2" class="align-middle text-center" style="min-width: 120px;">Kategori</th>
                             <th rowspan="2" class="align-middle text-center" style="min-width: 120px;">Merek</th>
+                            <th rowspan="2" class="align-middle text-center bg-light border-start" style="min-width: 95px;">Total Bagus</th>
+                            <th rowspan="2" class="align-middle text-center bg-light border-end" style="min-width: 95px;">Total Rusak</th>
 
                             @forelse($businesses as $b)
                                 @php
@@ -184,6 +186,18 @@
                                 </td>
                                 <td class="text-center text-muted">{{ $product['category_name'] }}</td>
                                 <td class="text-center text-muted">{{ $product['brand_name'] }}</td>
+
+                                {{-- Total Stock Across Selected Businesses --}}
+                                <td class="text-center border-start bg-light-subtle">
+                                    <span class="{{ ($product['total_good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
+                                        {{ (float) ($product['total_good'] ?? 0) }}
+                                    </span>
+                                </td>
+                                <td class="text-center border-end bg-light-subtle">
+                                    <span class="{{ ($product['total_bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
+                                        {{ (float) ($product['total_bad'] ?? 0) }}
+                                    </span>
+                                </td>
 
                                 {{-- Stock Columns --}}
                                 @foreach($businesses as $b)
@@ -302,7 +316,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ 3 + max(1, count($businesses) * 2) }}" class="text-center py-4 text-muted">
+                                <td colspan="{{ 5 + max(1, count($businesses) * 2) }}" class="text-center py-4 text-muted">
                                     <i class="bi bi-inbox fs-3 d-block mb-2"></i>
                                     Tidak ada produk yang cocok dengan kriteria pencarian dan filter.
                                 </td>
