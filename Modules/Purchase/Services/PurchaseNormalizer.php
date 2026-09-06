@@ -118,9 +118,11 @@ class PurchaseNormalizer
     ): array {
         $options = $this->extractOptions($detailInput);
         $quantity = $this->normalizeQuantity($detailInput, $options);
-        $unitPrice = array_key_exists('unit_price', $options)
-            ? $this->toFloat($options['unit_price'])
-            : $this->toFloat(data_get($detailInput, 'unit_price', data_get($detailInput, 'price')));
+        $unitPrice = data_get($detailInput, 'price') !== null || data_get($detailInput, 'unit_price') !== null
+            ? $this->toFloat(data_get($detailInput, 'unit_price', data_get($detailInput, 'price')))
+            : (array_key_exists('unit_price', $options)
+                ? $this->toFloat($options['unit_price'])
+                : 0.0);
         $price = $this->toFloat(data_get($detailInput, 'price', $unitPrice));
         $discountAmount = $this->toFloat($options['product_discount'] ?? data_get($detailInput, 'discount') ?? data_get($detailInput, 'product_discount_amount'));
         $pricingSource = (string) ($options['pricing_source'] ?? data_get($detailInput, 'pricing_source') ?? 'manual');
@@ -176,9 +178,12 @@ class PurchaseNormalizer
                     ?? $quantity;
 
                 $rawPrice = data_get($detailInput, 'entered_unit_price')
-                    ?? (array_key_exists('unit_price', $options)
-                        ? $options['unit_price']
-                        : data_get($detailInput, 'unit_price', data_get($detailInput, 'price')));
+                    ?? ($options['entered_unit_price'] ?? null)
+                    ?? (data_get($detailInput, 'price') !== null || data_get($detailInput, 'unit_price') !== null
+                        ? data_get($detailInput, 'unit_price', data_get($detailInput, 'price'))
+                        : (array_key_exists('unit_price', $options)
+                            ? $options['unit_price']
+                            : null));
 
                 $conversionService = app(\Modules\Purchase\Services\PurchaseUomConversionService::class);
                 $convResult = $conversionService->convert(
@@ -406,7 +411,9 @@ class PurchaseNormalizer
             return $this->toFloat(data_get($detailInput, 'sub_total'));
         }
 
-        $effectivePrice = array_key_exists('unit_price', $options) ? $this->toFloat($options['unit_price']) : $price;
+        $effectivePrice = data_get($detailInput, 'price') !== null || data_get($detailInput, 'unit_price') !== null
+            ? $price
+            : (array_key_exists('unit_price', $options) ? $this->toFloat($options['unit_price']) : $price);
         return $this->roundMoney(max($effectivePrice - $discountAmount, 0) * $quantity);
     }
 

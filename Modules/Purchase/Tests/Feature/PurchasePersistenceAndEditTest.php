@@ -1968,6 +1968,116 @@ class PurchasePersistenceAndEditTest extends TestCase
         ];
     }
 
+    public function test_manual_unit_price_edit_persists_synced_unit_price_and_price(): void
+    {
+        $supplier = Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Manual Price Edit Supplier',
+            'supplier_email' => 'manual-edit@example.com',
+            'supplier_phone' => '081234567890',
+            'address' => 'Jl. Manual No. 1',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+        ]);
+
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->pcsUnit->id,
+            'base_unit_id' => $this->pcsUnit->id,
+            'product_name' => 'Manual Price Edit Product',
+            'product_code' => 'MPE-001',
+            'product_quantity' => 50,
+            'product_price' => 290000,
+            'product_cost' => 290000,
+            'is_sold' => true,
+            'is_purchased' => true,
+            'purchase_price' => 290000,
+        ]);
+
+        $this->actingAsUser();
+
+        // 1. Add product to cart initially with base price 290,000
+        \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->destroy();
+        $cartComponent = \Livewire\Livewire::test(\App\Livewire\Purchase\ProductCart::class, ['cartInstance' => 'purchase']);
+        $cartComponent->call('productSelected', [
+            'id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'base_unit_name' => 'PCS',
+            'product_unit' => 'PCS',
+            'product_quantity' => 50,
+            'purchase_price' => 290000,
+            'last_purchase_price' => 290000,
+            'average_purchase_price' => 290000,
+        ]);
+
+        $cartContent = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content();
+        $rowId = $cartContent->first()->rowId;
+
+        // Verify initial state
+        $this->assertEquals(290000.0, (float) $cartContent->first()->price);
+        $this->assertEquals(290000.0, (float) $cartContent->first()->options->unit_price);
+
+        // 2. User edits unit price from 290,000 to 270,000
+        $cartComponent->set('unit_price.' . $rowId, 270000.0);
+        $cartComponent->call('updatePrice', $rowId, $product->id);
+
+        $updatedCartContent = \Gloudemans\Shoppingcart\Facades\Cart::instance('purchase')->content();
+        $updatedItem = $updatedCartContent->first();
+
+        // Check cart options and item price
+        $this->assertEquals(270000.0, (float) $updatedItem->price);
+        $this->assertEquals(270000.0, (float) $updatedItem->options->unit_price);
+        $this->assertEquals(270000.0, (float) $updatedItem->options->entered_unit_price);
+        $this->assertEquals(270000.0, (float) $updatedItem->options->sub_total);
+
+        // 3. Normalize and persist purchase
+        $normalizedPurchase = app(\Modules\Purchase\Services\PurchaseNormalizer::class)->normalize([
+            'reference' => 'PO-MANUAL-EDIT-001',
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(30)->format('Y-m-d'),
+            'supplier_id' => $supplier->id,
+            'status' => 'Pending',
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'total_amount' => 270000,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'shipping_amount' => 0,
+        ], $updatedCartContent, false, null);
+
+        $this->assertCount(1, $normalizedPurchase['details']);
+        $detailData = $normalizedPurchase['details'][0];
+
+        $this->assertEquals(270000.0, (float) $detailData['unit_price']);
+        $this->assertEquals(270000.0, (float) $detailData['price']);
+        $this->assertEquals(270000.0, (float) $detailData['sub_total']);
+
+        $purchase = Purchase::create(array_merge($normalizedPurchase['header'], [
+            'reference' => 'PO-MANUAL-EDIT-001',
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(30)->format('Y-m-d'),
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_DRAFTED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'payment_term_id' => \Modules\Purchase\Entities\PaymentTerm::defaultCodTermId(),
+            'paid_amount' => 0,
+        ]));
+
+        $purchaseDetail = PurchaseDetail::create(array_merge($detailData, [
+            'purchase_id' => $purchase->id,
+        ]));
+
+        // Refresh and verify stored record
+        $freshDetail = $purchaseDetail->fresh();
+        $this->assertEquals(270000.0, (float) $freshDetail->unit_price);
+        $this->assertEquals(270000.0, (float) $freshDetail->price);
+        $this->assertEquals(270000.0, (float) $freshDetail->sub_total);
+    }
+
     private function actingAsUser()
     {
         $user = \App\Models\User::factory()->create();

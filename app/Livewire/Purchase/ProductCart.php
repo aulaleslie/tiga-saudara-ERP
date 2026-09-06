@@ -1133,6 +1133,7 @@ class ProductCart extends Component
             'price' => $new_price,
             'unit_price' => $new_price,
             'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $canonicalUnitPrice,
                 'sub_total' => $calculated['sub_total'],
                 'sub_total_before_tax' => $calculated['sub_total_before_tax'],
                 'product_tax_amount' => $calculated['product_tax_amount'],

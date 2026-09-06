@@ -33,6 +33,7 @@ class PurchaseServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Modules\Purchase\Console\BackfillReceivingSerials::class,
+                \Modules\Purchase\Console\FixManualUnitPriceDesync::class,
             ]);
         }
     }

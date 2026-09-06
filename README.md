@@ -171,6 +171,16 @@ php artisan product:export-tiga-nusa-prices --path=/path/to/tiga-nusa-prices.xls
 # Import requires the CSV path. Run a dry-run before applying changes.
 php artisan product:import-barcodes storage/app/product_barcodes_export.csv --dry-run
 php artisan product:import-barcodes storage/app/product_barcodes_export.csv
+
+# One-off backfill: fix purchase_details rows where a manual unit price edit left
+# unit_price/price desynced from the already-correct sub_total. Run dry-run first,
+# review the table output, then run without --dry-run. Only unit_price, price, and
+# entered_unit_price are updated; sub_total, totals, payments, and stock are untouched.
+php artisan purchase:fix-manual-unit-price-desync --dry-run
+php artisan purchase:fix-manual-unit-price-desync
+
+# Optional: limit the run to specific purchase_details IDs.
+php artisan purchase:fix-manual-unit-price-desync --dry-run --detail-id=37661 --detail-id=37312
 ```
 
 ### Barcode Import and Export
