@@ -4,7 +4,7 @@
 TBD - created by archiving change support-purchase-conversion-units. Update Purpose after archive.
 ## Requirements
 ### Requirement: Purchase lines accept product base and conversion units
-The system SHALL let an authorized user create or edit a mutable Purchase line using the product's base unit or an active eligible conversion belonging to that product. The system SHALL treat the base unit as factor `1` and SHALL reject a submitted conversion that is unrelated, invalid, inactive for new activity, or incompatible with the product's current base unit.
+The system SHALL let an authorized user create or edit a mutable Purchase line using the product's base unit or an active eligible conversion belonging to that product and enabled for purchases in the acting business. The system SHALL treat the base unit as factor `1` and SHALL reject a submitted conversion that is unrelated, invalid, inactive for new activity, or incompatible with the product's current base unit.
 
 #### Scenario: User adds a conversion-unit line
 - **WHEN** a user selects a product conversion where one BOX equals twelve PCS and enters two BOX
@@ -25,6 +25,25 @@ The system SHALL let an authorized user create or edit a mutable Purchase line u
 - **WHEN** a Purchase contains the same product as two BOX and three PCS
 - **THEN** the cart SHALL retain separate BOX and PCS lines
 - **AND** adding the same product in the same selected unit SHALL increment only the matching line
+
+#### Scenario: Purchase-disabled conversion is hidden and rejected
+- **WHEN** a product has a purchase-disabled BOX conversion in the acting business
+- **THEN** selecting that product SHALL omit BOX from new unit options and retain the base unit
+- **AND** direct submission of BOX for a new or switched line SHALL be rejected by the server
+
+#### Scenario: Sales flag does not restrict purchase eligibility
+- **WHEN** BOX is sales-disabled but purchase-enabled and otherwise eligible
+- **THEN** BOX SHALL remain available for new Purchase selection
+
+#### Scenario: Duplicate excludes a now-disabled conversion
+- **WHEN** a Purchase is duplicated and its original BOX conversion is now purchase-disabled
+- **THEN** duplication SHALL use the existing canonical base-unit fallback and clear conversion intent
+- **AND** it SHALL NOT introduce BOX through historical option fallback
+
+#### Scenario: Persisted snapshots survive disablement
+- **WHEN** a saved Purchase line references BOX and BOX is subsequently purchase-disabled
+- **THEN** historical rendering, permitted unchanged-line edits, and receiving SHALL retain its original snapshots and existing restrictions
+- **AND** snapshot fallback SHALL NOT authorize BOX for a new or switched line
 
 ### Requirement: Purchase lines persist canonical values and historical entry snapshots
 The system SHALL store Purchase operational quantity in the product's base unit and SHALL retain the selected unit, entered quantity, entered-unit price, conversion identity, conversion-factor snapshot, and durable unit labels needed to interpret the line historically. The persisted factor snapshot SHALL remain authoritative if product conversion configuration later changes or becomes unavailable.
@@ -141,3 +160,4 @@ The system SHALL preserve existing Purchase tax, discount, manual pricing, line-
 #### Scenario: Received Purchase retains edit restrictions
 - **WHEN** a Purchase has receiving dependencies
 - **THEN** conversion support SHALL NOT bypass its existing commercial or monetary-only edit restrictions
+
