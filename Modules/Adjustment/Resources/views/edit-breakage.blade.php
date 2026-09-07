@@ -18,8 +18,8 @@
     <div class="container-fluid mb-4">
         <div class="row">
             <div class="col-12">
-                <!-- Pass the location_id to the SearchProduct Livewire component -->
-                <livewire:purchase.search-product :location-id="$adjustment->location_id" />
+                <!-- Pass the location_id and selection-target to the SearchProduct Livewire component -->
+                <livewire:purchase.search-product :location-id="$adjustment->location_id" :selection-target="\App\Livewire\Adjustment\BreakageProductTable::class" />
             </div>
         </div>
 

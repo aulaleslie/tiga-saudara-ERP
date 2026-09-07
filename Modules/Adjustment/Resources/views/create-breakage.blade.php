@@ -48,7 +48,7 @@
 
                             <div class="form-row">
                                 <div class="col-lg-12">
-                                    <livewire:purchase.search-product />
+                                    <livewire:purchase.search-product :selection-target="\App\Livewire\Adjustment\BreakageProductTable::class" />
                                 </div>
                             </div>
 

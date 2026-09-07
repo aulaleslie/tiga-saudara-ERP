@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
@@ -19,15 +20,19 @@ class SearchProduct extends Component
     public $supplier_id;
     public ?int $selectedSettingId = null;
 
+    #[Locked]
+    public string $selectionTarget = ProductCart::class;
+
     protected $listeners = [
         'productCreated' => 'handleProductCreated',
         'document-business-context-changed' => 'handleBusinessContextChanged',
     ];
 
-    public function mount(?int $selectedSettingId = null): void
+    public function mount(?int $selectedSettingId = null, ?string $selectionTarget = null): void
     {
         $this->search_results = Collection::empty();
         $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->selectionTarget = $selectionTarget ?? ProductCart::class;
     }
 
     public function render(): Factory|View|Application
@@ -106,7 +111,7 @@ class SearchProduct extends Component
         Log::info('product', [
             'product' => $product,
         ]);
-        // Target the purchase product cart directly so the item gets added
-        $this->dispatch('productSelected', $product)->to(ProductCart::class);
+        // Target the configured recipient directly (defaults to purchase product cart)
+        $this->dispatch('productSelected', $product)->to($this->selectionTarget);
     }
 }
