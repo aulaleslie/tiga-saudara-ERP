@@ -7,7 +7,7 @@
 
 - [x] 2.1 In `ProductCart::updatePrice()`, add `unit_price` (the canonical/base-unit price, consistent with `canonical_unit_price`) to the `options` merge array so it can never be read back stale.
 - [x] 2.2 Apply the same fix to every sibling mutator identified in 1.1/1.2 as sharing the defect.
-- [ ] 2.3 Manually exercise the create/edit purchase form in the browser: add a base-unit row, edit its unit price, confirm the displayed unit price and row total both update immediately and agree; repeat for a row with a unit conversion factor > 1.
+- [x] 2.3 Manually exercise the create/edit purchase form in the browser: add a base-unit row, edit its unit price, confirm the displayed unit price and row total both update immediately and agree; repeat for a row with a unit conversion factor > 1.
 
 ## 3. Fix the normalizer read path
 
