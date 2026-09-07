@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: POS SHALL require bundle selection for bundle-parent products before adding a bundled line
 When unit choice is required, the POS sell flow SHALL complete unit selection before showing bundle options. The POS sell flow SHALL detect when a selected product is a bundle parent and MUST present bundle options before creating a bundled cart line. The cashier MUST be able to select an available bundle or explicitly continue without a bundle.

@@ -1,7 +1,11 @@
-## ADDED Requirements
+## Purpose
+
+Bundle selection must be integrated with unit selection so that when a product with multiple sales units is chosen, the cashier first selects the unit quantity, then selects the bundle if applicable. The bundle selection modal must show the selected unit and its resulting bundle count with the authoritative per-bundle price.
+
+## Requirements
 
 ### Requirement: POS SHALL require bundle selection for bundle-parent products before adding a bundled line
-The POS sell flow SHALL detect when a selected product is a bundle parent and MUST present bundle options before creating a bundled cart line. The cashier MUST be able to select an available bundle or explicitly continue without a bundle.
+When unit choice is required, the POS sell flow SHALL complete unit selection before showing bundle options. The POS sell flow SHALL detect when a selected product is a bundle parent and MUST present bundle options before creating a bundled cart line. The cashier MUST be able to select an available bundle or explicitly continue without a bundle.
 
 #### Scenario: Cashier selects a bundle for a bundle-parent product
 - **WHEN** the cashier selects a product whose POS search result indicates it is a bundle parent
@@ -15,7 +19,7 @@ The POS sell flow SHALL detect when a selected product is a bundle parent and MU
 
 #### Scenario: Non-bundle product add remains unchanged
 - **WHEN** the cashier selects a product that is not a bundle parent
-- **THEN** the POS shell adds the product through the existing normal cart flow without showing bundle selection UI
+- **THEN** the POS shell completes any required unit choice and adds the product through the existing normal cart flow without showing bundle selection UI
 
 ### Requirement: POS cart snapshots SHALL preserve bundle-aware line metadata
 When a POS cart line is created with a selected bundle, the cart snapshot SHALL keep the parent line as a single visible line and MUST include normalized bundle metadata and bundled child item snapshots on that line. The selected bundled parent row unit price SHALL be the bundle's final sale price, while bundled child item prices remain internal non-billable allocation metadata.
