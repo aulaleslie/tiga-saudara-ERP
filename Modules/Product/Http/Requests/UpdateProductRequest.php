@@ -165,6 +165,8 @@ class UpdateProductRequest extends FormRequest
             ],
 
             'conversions.*.price'             => ['required_with:conversions.*.unit_id', 'numeric', 'gt:0'],
+            'conversions.*.sales_enabled'     => ['nullable', 'boolean'],
+            'conversions.*.purchase_enabled'  => ['nullable', 'boolean'],
 
             // === Files ===
             'document'   => ['nullable', 'array'],

@@ -24,10 +24,16 @@ class PurchaseUomConversionService
         float|string|null $enteredUnitPrice = null,
         ?int $conversionId = null,
         ?int $unitId = null,
-        array $snapshotData = []
+        array $snapshotData = [],
+        ?int $settingId = null
     ): PurchaseUomConversionResult {
+        $resolvedSettingId = $settingId ?? (int) (session('setting_id') ?? 0);
+        $relations = ['unit', 'baseUnit', 'conversions.unit', 'conversions.baseUnit'];
+        if ($resolvedSettingId > 0) {
+            $relations[] = 'conversions.prices';
+        }
         // Ensure conversions & units are accessible
-        $product->loadMissing(['unit', 'baseUnit', 'conversions.unit', 'conversions.baseUnit']);
+        $product->loadMissing($relations);
 
         $baseUnitId = (int) ($product->base_unit_id ?? $product->unit_id);
         $baseUnitName = $product->baseUnit?->name ?? $product->unit?->name ?? 'UNIT';
@@ -61,6 +67,11 @@ class PurchaseUomConversionService
 
                 if ($matchedConversion->unit && !$matchedConversion->unit->is_active && ! $isUnchangedHistorical) {
                     throw new InvalidArgumentException("Conversion unit #{$matchedConversion->unit_id} is inactive.");
+                }
+
+                if (!$isUnchangedHistorical && $resolvedSettingId > 0 && !$matchedConversion->isPurchaseEnabledForSetting($resolvedSettingId)) {
+                    $convName = $matchedConversion->unit?->name ?? 'Unit';
+                    throw new InvalidArgumentException("Conversion unit {$convName} is disabled for purchases in the current business.");
                 }
 
                 if ($isUnchangedHistorical && $hasValidSnapshotFactor) {
@@ -101,6 +112,11 @@ class PurchaseUomConversionService
 
                 if ($matchedConversion->unit && !$matchedConversion->unit->is_active && ! $isUnchangedHistorical) {
                     throw new InvalidArgumentException("Conversion unit #{$unitId} is inactive.");
+                }
+
+                if (!$isUnchangedHistorical && $resolvedSettingId > 0 && !$matchedConversion->isPurchaseEnabledForSetting($resolvedSettingId)) {
+                    $convName = $matchedConversion->unit?->name ?? 'Unit';
+                    throw new InvalidArgumentException("Conversion unit {$convName} is disabled for purchases in the current business.");
                 }
 
                 if ($isUnchangedHistorical && $hasValidSnapshotFactor) {

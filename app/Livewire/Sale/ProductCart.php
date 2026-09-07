@@ -614,6 +614,10 @@ class ProductCart extends Component
                 continue;
             }
 
+            if ($settingId && !$conv->isSalesEnabledForSetting($settingId)) {
+                continue;
+            }
+
             $unitCount = floor($remainingQty / $factor);
             if ($unitCount > 0) {
                 $totalCost += $unitCount * $price;

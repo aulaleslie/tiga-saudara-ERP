@@ -31,11 +31,11 @@ class PosProductSearchService
         $availableQtyExpression = $this->availableQtyExpression($allowedLocationIds);
 
         $productBarcodeExactExpr = 'LOWER(COALESCE(p.barcode, \'\')) = ?';
-        $conversionBarcodeExactExpr = 'EXISTS (SELECT 1 FROM product_unit_conversions puc WHERE puc.product_id = p.id AND LOWER(COALESCE(puc.barcode, \'\')) = ?)';
+        $conversionBarcodeExactExpr = 'EXISTS (SELECT 1 FROM product_unit_conversions puc LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = ' . (int) $settingId . ' WHERE puc.product_id = p.id AND LOWER(COALESCE(puc.barcode, \'\')) = ? AND COALESCE(pucp.sales_enabled, 1) = 1)';
         $barcodeExactExpr = '(' . $productBarcodeExactExpr . ' OR ' . $conversionBarcodeExactExpr . ')';
 
         $productBarcodePartialExpr = 'LOWER(COALESCE(p.barcode, \'\')) LIKE ?';
-        $conversionBarcodePartialExpr = 'EXISTS (SELECT 1 FROM product_unit_conversions puc WHERE puc.product_id = p.id AND LOWER(COALESCE(puc.barcode, \'\')) LIKE ?)';
+        $conversionBarcodePartialExpr = 'EXISTS (SELECT 1 FROM product_unit_conversions puc LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = ' . (int) $settingId . ' WHERE puc.product_id = p.id AND LOWER(COALESCE(puc.barcode, \'\')) LIKE ? AND COALESCE(pucp.sales_enabled, 1) = 1)';
         $barcodePartialExpr = '(' . $productBarcodePartialExpr . ' OR ' . $conversionBarcodePartialExpr . ')';
 
         $skuExactExpr = 'LOWER(COALESCE(p.product_code, \'\')) = ?';
@@ -176,11 +176,16 @@ class PosProductSearchService
 
             if ($conversion) {
                 // Look up the conversion price for this setting
-                $conversionPrice = DB::table('product_unit_conversion_prices')
+                $conversionPriceRow = DB::table('product_unit_conversion_prices')
                     ->where('product_unit_conversion_id', $conversion->id)
                     ->where('setting_id', $settingId)
-                    ->value('price');
+                    ->first();
 
+                if ($conversionPriceRow && isset($conversionPriceRow->sales_enabled) && !$conversionPriceRow->sales_enabled) {
+                    return $result;
+                }
+
+                $conversionPrice = $conversionPriceRow?->price;
                 $priceForResult = $conversionPrice !== null ? (float) $conversionPrice : $result['sale_price'];
 
                 $result['conversion'] = [

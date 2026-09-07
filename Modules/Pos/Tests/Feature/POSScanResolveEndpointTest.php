@@ -85,7 +85,7 @@ class POSScanResolveEndpointTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('type', 'product_exact')
             ->assertJsonPath('product.id', $product->id)
-            ->assertJsonPath('product.product_name', strtoupper('Produk Scan'));
+            ->assertJsonPath('product.product_name', 'Produk Scan');
     }
 
     public function test_exact_product_sku_returns_none(): void
@@ -163,7 +163,7 @@ class POSScanResolveEndpointTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('type', 'product_exact')
             ->assertJsonPath('product.id', $product->id)
-            ->assertJsonPath('product.product_name', strtoupper('Produk Konversi'))
+            ->assertJsonPath('product.product_name', 'Produk Konversi')
             ->assertJsonPath('product.resolved_via', 'conversion_barcode')
             ->assertJsonPath('product.conversion.conversion_factor', 12)
             ->assertJsonPath('product.conversion.unit_name', strtoupper('Pack'));
@@ -656,5 +656,48 @@ class POSScanResolveEndpointTest extends TestCase
             'tax_id' => null,
             'serial_numbers' => json_encode([$serialNumber]),
         ]);
+    }
+
+    public function test_conversion_barcode_scan_rejected_when_sales_disabled(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE DISABLED CONV');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE DISABLED CONV');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-SCAN-DIS', 'Produk Disabled Conv', 50000, $cashier->id);
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'Dus',
+            'short_name' => 'DS',
+        ]);
+
+        $conversionBarcode = 'CONV-DIS-' . uniqid();
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 24,
+            'barcode' => $conversionBarcode,
+        ]);
+
+        // Explicitly set sales_enabled = false for this setting
+        \Modules\Product\Entities\ProductUnitConversionPrice::updateOrCreate(
+            [
+                'product_unit_conversion_id' => $conversion->id,
+                'setting_id' => $setting->id,
+            ],
+            [
+                'price' => 1200000,
+                'sales_enabled' => false,
+                'purchase_enabled' => true,
+            ]
+        );
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $conversionBarcode]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'conversion_disabled')
+            ->assertJsonPath('unit_name', strtoupper('Dus'));
     }
 }

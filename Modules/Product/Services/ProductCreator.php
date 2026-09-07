@@ -185,6 +185,24 @@ class ProductCreator
                         $price,
                         $settingIds
                     );
+
+                    $explicitSales = array_key_exists('sales_enabled', $conversion) ? (bool) $conversion['sales_enabled'] : null;
+                    $explicitPurchase = array_key_exists('purchase_enabled', $conversion) ? (bool) $conversion['purchase_enabled'] : null;
+
+                    if ($explicitSales !== null || $explicitPurchase !== null) {
+                        $updatePayload = [
+                            'product_unit_conversion_id' => $createdConversion->id,
+                            'setting_id'                 => $settingId,
+                            'price'                      => $price,
+                        ];
+                        if ($explicitSales !== null) {
+                            $updatePayload['sales_enabled'] = $explicitSales;
+                        }
+                        if ($explicitPurchase !== null) {
+                            $updatePayload['purchase_enabled'] = $explicitPurchase;
+                        }
+                        ProductUnitConversionPrice::upsertFor($updatePayload);
+                    }
                 }
             }
 

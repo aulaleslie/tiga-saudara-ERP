@@ -351,6 +351,126 @@ class POSPhase2ConversionPricingTest extends TestCase
         $this->assertEquals(400000, $line['line_total']);
     }
 
+    /**
+     * Regression: buildPricingBasis() must skip a sales-disabled conversion
+     * and fall through to another sales-enabled conversion, instead of
+     * returning null just because the first conversion row it finds is
+     * sales-disabled.
+     */
+    public function test_pricing_basis_skips_disabled_conversion_and_uses_enabled_one(): void
+    {
+        $setting = $this->createSetting('PHASE2-SKIP-DISABLED');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-SKIP-DISABLED');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-SKIP-DISABLED-001', 'Produk Skip Disabled', 45000, $cashier->id);
+
+        $boxUnit = Unit::firstOrCreate(['name' => 'Box3', 'short_name' => 'BX3']);
+        $cartonUnit = Unit::firstOrCreate(['name' => 'Carton3', 'short_name' => 'CTN3']);
+
+        // BOX is created first (so it is the "first" conversion row) but is
+        // sales-disabled for this setting.
+        $boxConversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 5,
+            'barcode' => 'CONV-SKIP-BOX',
+        ]);
+
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $boxConversion->id,
+            'setting_id' => $setting->id,
+            'price' => 210000,
+            'sales_enabled' => false,
+        ]);
+
+        // CARTON is created second but is sales-enabled and should be
+        // selected as the packing pricing candidate instead.
+        $cartonConversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $cartonUnit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 10,
+            'barcode' => 'CONV-SKIP-CARTON',
+        ]);
+
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $cartonConversion->id,
+            'setting_id' => $setting->id,
+            'price' => 400000,
+            'sales_enabled' => true,
+        ]);
+
+        // Add the base product via search (no conversion_id) with a quantity
+        // that crosses one full carton group (10) plus a remainder (2).
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 12,
+            ]);
+
+        $response->assertOk();
+        $snapshot = $response->json('cart_snapshot');
+
+        $this->assertCount(1, $snapshot['lines']);
+        $line = reset($snapshot['lines']);
+
+        $this->assertEquals('PACKED', $line['price_source']);
+        // 1 carton group: min(400000, 10×45000=450000) = 400000
+        // remainder 2 × 45000 = 90000
+        $this->assertEquals(490000, $line['line_total']);
+    }
+
+    /**
+     * Regression: existing cached-cart pricing behavior is preserved when a
+     * cart is repriced (e.g. after a customer-selection change causes a
+     * reprice) and the previously-eligible conversion is disabled after the
+     * fact — the disabled conversion is never (re)selected, and any other
+     * sales-enabled conversion is still available as the candidate.
+     */
+    public function test_pricing_basis_returns_null_when_all_conversions_disabled(): void
+    {
+        $setting = $this->createSetting('PHASE2-ALL-DISABLED');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-ALL-DISABLED');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-ALL-DISABLED-001', 'Produk All Disabled', 30000, $cashier->id);
+
+        $unit = Unit::firstOrCreate(['name' => 'Box4', 'short_name' => 'BX4']);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 5,
+            'barcode' => 'CONV-ALL-DISABLED',
+        ]);
+
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 140000,
+            'sales_enabled' => false,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 6,
+            ]);
+
+        $response->assertOk();
+        $snapshot = $response->json('cart_snapshot');
+
+        $this->assertCount(1, $snapshot['lines']);
+        $line = reset($snapshot['lines']);
+
+        // No sales-enabled conversion exists, so this falls back to base pricing.
+        $this->assertEquals('BASE', $line['price_source']);
+        $this->assertEquals(30000, $line['unit_price']);
+    }
+
     // --- Helpers ---
 
     private function createSetting(string $name): Setting

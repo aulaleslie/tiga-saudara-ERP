@@ -101,6 +101,8 @@
                                     <th>Faktor Konversi</th>
                                     <th>Barcode</th>
                                     <th>Harga</th>
+                                    <th class="text-center" style="white-space: nowrap;">Bisa Jual</th>
+                                    <th class="text-center" style="white-space: nowrap;">Bisa Beli</th>
                                     <th class="text-end" style="white-space: nowrap;">Aksi</th>
                                 </tr>
                                 </thead>
@@ -161,8 +163,28 @@
                                                 </span>
                                             @endif
                                         </td>
+                                        <td class="text-center align-middle">
+                                            <input type="hidden" name="conversions[{{ $index }}][sales_enabled]" value="0">
+                                            <input type="checkbox"
+                                                   name="conversions[{{ $index }}][sales_enabled]"
+                                                   wire:model="conversions.{{ $index }}.sales_enabled"
+                                                   value="1"
+                                                   class="form-check-input"
+                                                   {{ !empty($conversion['sales_enabled']) ? 'checked' : '' }}
+                                            >
+                                        </td>
+                                        <td class="text-center align-middle">
+                                            <input type="hidden" name="conversions[{{ $index }}][purchase_enabled]" value="0">
+                                            <input type="checkbox"
+                                                   name="conversions[{{ $index }}][purchase_enabled]"
+                                                   wire:model="conversions.{{ $index }}.purchase_enabled"
+                                                   value="1"
+                                                   class="form-check-input"
+                                                   {{ !empty($conversion['purchase_enabled']) ? 'checked' : '' }}
+                                            >
+                                        </td>
 
-                                        <td class="text-end">
+                                        <td class="text-end align-middle">
                                             <button type="button"
                                                     class="btn btn-danger"
                                                     wire:click="removeConversionRow('{{ $rowKey }}')">
@@ -252,8 +274,35 @@
 
             let cleaned = textValue.replace(/^RP\s*/i, '').trim();
             cleaned = cleaned.replace(/\s+/g, '');
-            cleaned = cleaned.replace(/\./g, '');
-            cleaned = cleaned.replace(/,/g, '.');
+
+            // Check if formatted Indonesian currency or raw decimal
+            const lastComma = cleaned.lastIndexOf(',');
+            const lastDot = cleaned.lastIndexOf('.');
+
+            if (lastComma !== -1 && lastDot !== -1) {
+                // Both exist: e.g. 1.234,56 or 1,234.56
+                if (lastComma > lastDot) {
+                    // ID format: 1.234,56 -> 1234.56
+                    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                } else {
+                    // US format: 1,234.56 -> 1234.56
+                    cleaned = cleaned.replace(/,/g, '');
+                }
+            } else if (lastComma !== -1) {
+                // Comma only: e.g. 1234,56 -> 1234.56
+                cleaned = cleaned.replace(',', '.');
+            } else if (lastDot !== -1) {
+                // Dot only: while editing, '.' is always the decimal separator,
+                // never thousands grouping — regardless of fractional digit count
+                // (e.g. 1234.567 and 1.000 both keep '.' as the decimal point).
+                // More than one dot (e.g. "1.2.3", "1.000.000") is not a valid
+                // raw decimal or a recognized formatted value, so it is rejected
+                // rather than guessed at.
+                const dotCount = (cleaned.match(/\./g) || []).length;
+                if (dotCount > 1) {
+                    return '';
+                }
+            }
 
             const parsed = Number.parseFloat(cleaned);
 

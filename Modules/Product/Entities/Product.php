@@ -101,16 +101,22 @@ class Product extends BaseModel implements HasMedia
 
     /**
      * Eligible conversions available for new Purchase line selection.
-     * Excludes inactive units, base unit mismatches, factors <= 1, and non-integer factors for serial products.
+     * Excludes inactive units, base unit mismatches, factors <= 1, non-integer factors for serial products,
+     * and purchase-disabled conversions for the acting business.
      */
-    public function eligiblePurchaseConversions(): \Illuminate\Support\Collection
+    public function eligiblePurchaseConversions(?int $settingId = null): \Illuminate\Support\Collection
     {
-        $this->loadMissing(['conversions.unit', 'conversions.baseUnit']);
+        $resolvedSettingId = $settingId ?? (int) (session('setting_id') ?? 0);
+        $relations = ['conversions.unit', 'conversions.baseUnit'];
+        if ($resolvedSettingId > 0) {
+            $relations[] = 'conversions.prices';
+        }
+        $this->loadMissing($relations);
 
         $baseUnitId = (int) ($this->base_unit_id ?? $this->unit_id);
         $isSerialized = (bool) ($this->serial_number_required ?? false);
 
-        return $this->conversions->filter(function (ProductUnitConversion $conv) use ($baseUnitId, $isSerialized) {
+        return $this->conversions->filter(function (ProductUnitConversion $conv) use ($baseUnitId, $isSerialized, $resolvedSettingId) {
             if ($conv->unit && !$conv->unit->is_active) {
                 return false;
             }
@@ -126,6 +132,10 @@ class Product extends BaseModel implements HasMedia
             }
 
             if ($isSerialized && abs($factor - round($factor)) > 1e-6) {
+                return false;
+            }
+
+            if ($resolvedSettingId > 0 && !$conv->isPurchaseEnabledForSetting($resolvedSettingId)) {
                 return false;
             }
 

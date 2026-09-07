@@ -848,7 +848,8 @@ class CreateForm extends Component
             return $cleanBaseUnitRow;
         }
 
-        $eligible = $product->eligiblePurchaseConversions()->firstWhere('id', (int) $conversionId);
+        $settingId = (int) ($this->selectedSettingId ?: session('setting_id'));
+        $eligible = $product->eligiblePurchaseConversions($settingId)->firstWhere('id', (int) $conversionId);
         if (!$eligible) {
             return $cleanBaseUnitRow;
         }

@@ -69,6 +69,8 @@ class BackfillConversionPricesCommand extends Command
                         'product_unit_conversion_id' => $conversion->id,
                         'setting_id' => $settingId,
                         'price' => 0,
+                        'sales_enabled' => true,
+                        'purchase_enabled' => true,
                     ]);
 
                     $totalBackfilled++;

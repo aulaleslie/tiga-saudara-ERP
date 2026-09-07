@@ -1329,6 +1329,82 @@ class PurchaseCartUomConversionTest extends TestCase
         return $component;
     }
 
+    public function test_purchase_disabled_conversion_is_excluded_and_rejected_on_switch(): void
+    {
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Produk Tes Pembelian',
+            'product_code' => 'PTP-001',
+            'unit_id' => $this->pcsUnit->id,
+            'base_unit_id' => $this->pcsUnit->id,
+            'product_quantity' => 10,
+            'product_cost' => 1000,
+            'product_price' => 1500,
+            'is_sold' => true,
+        ]);
+
+        $conv = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $this->boxUnit->id,
+            'base_unit_id' => $this->pcsUnit->id,
+            'conversion_factor' => 10,
+            'barcode' => 'CONV-PURCHASE-DIS',
+        ]);
+
+        // Explicitly set purchase_enabled = false for this setting
+        \Modules\Product\Entities\ProductUnitConversionPrice::updateOrCreate(
+            [
+                'product_unit_conversion_id' => $conv->id,
+                'setting_id' => $this->setting->id,
+            ],
+            [
+                'price' => 15000,
+                'sales_enabled' => true,
+                'purchase_enabled' => false,
+            ]
+        );
+
+        // Verify eligiblePurchaseConversions excludes it for this setting
+        $eligible = $product->eligiblePurchaseConversions($this->setting->id);
+        $this->assertEmpty($eligible);
+
+        // Verify API excludes it
+        $response = $this->actingAsUser()
+            ->getJson('/api/products/search?query=Produk');
+        $response->assertStatus(200);
+        $data = $response->json();
+        $this->assertNotEmpty($data);
+        $found = collect($data)->firstWhere('id', $product->id);
+        $this->assertNotNull($found);
+        $this->assertEmpty($found['conversions']);
+
+        // Verify switching unit to disabled conversion dispatches notification and rejects
+        $component = $this->createLivewireComponent();
+        $rowId = 'test-row-purchase-dis';
+        Cart::instance('purchase')->add([
+            'id' => $product->id,
+            'name' => $product->product_name,
+            'qty' => 1,
+            'price' => 1000,
+            'weight' => 1,
+            'options' => [
+                'code' => $product->product_code,
+                'stock' => 10,
+                'unit' => $this->pcsUnit->name,
+                'product_id' => $product->id,
+                'unit_id' => $this->pcsUnit->id,
+                'unit_conversion_id' => null,
+            ],
+        ]);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $component->updateUnit($rowId, $this->boxUnit->id, $conv->id);
+
+        // Cart item option must still be base unit (not switched to disabled conv)
+        $item = Cart::instance('purchase')->get($rowId);
+        $this->assertNull($item->options->unit_conversion_id);
+    }
+
     private function actingAsUser()
     {
         $user = \App\Models\User::factory()->create();

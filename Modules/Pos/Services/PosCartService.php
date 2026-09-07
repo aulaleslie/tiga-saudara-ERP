@@ -114,11 +114,16 @@ class PosCartService
             $conversion = ProductUnitConversion::query()
                 ->where('id', $conversionId)
                 ->where('product_id', $productId)
-                ->with('unit')
+                ->with(['unit', 'prices'])
                 ->first();
 
             if (! $conversion) {
                 throw new DomainException('Unit konversi tidak ditemukan untuk produk ini.');
+            }
+
+            if (! $conversion->isSalesEnabledForSetting($settingId)) {
+                $convName = $conversion->unit?->name ?? 'Unit';
+                throw new DomainException("Konversi unit {$convName} dinonaktifkan untuk penjualan di bisnis ini.");
             }
         }
 
@@ -2527,21 +2532,38 @@ class PosCartService
             return null;
         }
 
-        $boxConversion = ProductUnitConversion::query()
+        $candidateConversions = ProductUnitConversion::query()
             ->where('product_id', $productId)
             ->with(['unit', 'baseUnit'])
-            ->first();
+            ->get();
 
-        if (!$boxConversion) {
+        if ($candidateConversions->isEmpty()) {
             return null;
         }
 
-        $conversionPrice = ProductUnitConversionPrice::query()
-            ->where('product_unit_conversion_id', $boxConversion->id)
-            ->where('setting_id', $settingId)
-            ->first();
+        $boxConversion = null;
+        $conversionPrice = null;
 
-        if (!$conversionPrice) {
+        foreach ($candidateConversions as $candidate) {
+            if (! $candidate->isSalesEnabledForSetting($settingId)) {
+                continue;
+            }
+
+            $candidatePrice = ProductUnitConversionPrice::query()
+                ->where('product_unit_conversion_id', $candidate->id)
+                ->where('setting_id', $settingId)
+                ->first();
+
+            if (! $candidatePrice) {
+                continue;
+            }
+
+            $boxConversion = $candidate;
+            $conversionPrice = $candidatePrice;
+            break;
+        }
+
+        if (!$boxConversion || !$conversionPrice) {
             return null;
         }
 

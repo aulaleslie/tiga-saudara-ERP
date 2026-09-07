@@ -116,6 +116,8 @@ class ProductCreateValidation
                 'numeric',
                 'gt:0',
             ],
+            'conversions.*.sales_enabled'         => ['nullable', 'boolean'],
+            'conversions.*.purchase_enabled'      => ['nullable', 'boolean'],
 
             'document'     => ['nullable', 'array'],
             'document.*'   => ['nullable', 'string'],

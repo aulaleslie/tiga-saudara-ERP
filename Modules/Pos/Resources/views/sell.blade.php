@@ -2534,6 +2534,15 @@
                             product: response.product,
                             response: response
                         };
+                    } else if (response.type === 'conversion_disabled') {
+                        const disabledMessage = response.message || 'Konversi unit dinonaktifkan untuk penjualan di bisnis ini.';
+                        setSearchStatus(disabledMessage, 'text-danger');
+                        return {
+                            ok: false,
+                            outcome: 'conversion_disabled',
+                            message: disabledMessage,
+                            response: response
+                        };
                     } else if (response.type === 'serial_exact') {
                         await handleSerialScanResult(response);
                         clearSearchInput({ keepFocus: false });

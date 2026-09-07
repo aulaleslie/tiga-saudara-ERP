@@ -105,12 +105,12 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
             'products.product_unit',
         ], $priceSelect));
 
-    $formattedProducts = $products->map(function ($product) {
+    $formattedProducts = $products->map(function ($product) use ($settingId) {
         $baseUnitId = $product->base_unit_id ?? $product->unit_id;
         $baseUnitName = $product->baseUnit?->name ?? $product->unit?->name ?? 'UNIT';
         $isSerialized = (bool) ($product->serial_number_required ?? false);
 
-        $eligibleConversions = $product->eligiblePurchaseConversions();
+        $eligibleConversions = $product->eligiblePurchaseConversions($settingId ? (int) $settingId : null);
 
         $conversionPayload = $eligibleConversions->map(function ($conv) use ($baseUnitName) {
             return [

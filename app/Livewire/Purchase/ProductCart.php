@@ -156,7 +156,8 @@ class ProductCart extends Component
             ];
 
             // Use centralized eligibility filter for new selections
-            $eligible = $productModel->eligiblePurchaseConversions();
+            $settingId = (int) ($this->selectedSettingId ?: session('setting_id'));
+            $eligible = $productModel->eligiblePurchaseConversions($settingId);
             foreach ($eligible as $conv) {
                 $uName = $conv->unit?->name ?? 'UNIT';
                 $units[] = [
@@ -1457,6 +1458,18 @@ class ProductCart extends Component
         $selectedOption = collect($units)->firstWhere('id', $unitKey);
         if (! $selectedOption) {
             return;
+        }
+
+        // If selecting a conversion, enforce that it is purchase-enabled in the acting business
+        if (!empty($selectedOption['product_unit_conversion_id'])) {
+            $settingId = (int) ($this->selectedSettingId ?: session('setting_id'));
+            if ($settingId > 0) {
+                $convModel = ProductUnitConversion::with('prices')->find($selectedOption['product_unit_conversion_id']);
+                if ($convModel && !$convModel->isPurchaseEnabledForSetting($settingId)) {
+                    session()->flash('message', 'Unit konversi dinonaktifkan untuk pembelian di bisnis ini.');
+                    return;
+                }
+            }
         }
 
         $oldFactorBd = \Brick\Math\BigDecimal::of((string) (data_get($cart_item->options, 'conversion_factor') ?? 1.0));

@@ -47,4 +47,24 @@ class ProductUnitConversion extends BaseModel
     {
         return (float) optional($this->priceForSetting($settingId))->price ?? 0.0;
     }
+
+    public function isSalesEnabledForSetting(int $settingId): bool
+    {
+        $price = $this->priceForSetting($settingId);
+        if (!$price) {
+            return true;
+        }
+
+        return (bool) ($price->sales_enabled ?? true);
+    }
+
+    public function isPurchaseEnabledForSetting(int $settingId): bool
+    {
+        $price = $this->priceForSetting($settingId);
+        if (!$price) {
+            return true;
+        }
+
+        return (bool) ($price->purchase_enabled ?? true);
+    }
 }

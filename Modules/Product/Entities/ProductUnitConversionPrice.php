@@ -20,10 +20,14 @@ class ProductUnitConversionPrice extends BaseModel
         'product_unit_conversion_id',
         'setting_id',
         'price',
+        'sales_enabled',
+        'purchase_enabled',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'sales_enabled' => 'boolean',
+        'purchase_enabled' => 'boolean',
     ];
 
     public function conversion(): BelongsTo
@@ -60,13 +64,20 @@ class ProductUnitConversionPrice extends BaseModel
     /**
      * @param iterable<int> $settingIds
      */
-    public static function seedForSettings(int $conversionId, float $price, iterable $settingIds): void
-    {
+    public static function seedForSettings(
+        int $conversionId,
+        float $price,
+        iterable $settingIds,
+        bool $salesEnabled = true,
+        bool $purchaseEnabled = true
+    ): void {
         foreach ($settingIds as $settingId) {
             static::upsertFor([
                 'product_unit_conversion_id' => $conversionId,
                 'setting_id'                 => (int) $settingId,
                 'price'                      => $price,
+                'sales_enabled'              => $salesEnabled,
+                'purchase_enabled'           => $purchaseEnabled,
             ]);
         }
     }

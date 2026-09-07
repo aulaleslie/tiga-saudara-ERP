@@ -192,7 +192,8 @@ class PurchaseNormalizer
                     $rawPrice !== null ? (float) $rawPrice : null,
                     $convId ? (int) $convId : null,
                     $unitId ? (int) $unitId : null,
-                    $snapshotData
+                    $snapshotData,
+                    $settingId ? (int) $settingId : null
                 );
 
                 $quantity = $convResult->canonicalQuantity;

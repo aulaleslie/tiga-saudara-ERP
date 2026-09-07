@@ -260,6 +260,8 @@ class ProductController extends Controller
         $conversionFormData = $product->conversions->map(function ($conversion) use ($settingId) {
             $payload = $conversion->toArray();
             $payload['price'] = $conversion->priceValueForSetting($settingId);
+            $payload['sales_enabled'] = $conversion->isSalesEnabledForSetting($settingId);
+            $payload['purchase_enabled'] = $conversion->isPurchaseEnabledForSetting($settingId);
 
             return $payload;
         })->toArray();
@@ -517,11 +519,20 @@ class ProductController extends Controller
                             }
                         }
 
-                        ProductUnitConversionPrice::upsertFor([
+                        $priceAttributes = [
                             'product_unit_conversion_id' => $model->id,
                             'setting_id'                 => $settingId,
                             'price'                      => $price,
-                        ]);
+                        ];
+
+                        if (array_key_exists('sales_enabled', $conversion)) {
+                            $priceAttributes['sales_enabled'] = (bool) $conversion['sales_enabled'];
+                        }
+                        if (array_key_exists('purchase_enabled', $conversion)) {
+                            $priceAttributes['purchase_enabled'] = (bool) $conversion['purchase_enabled'];
+                        }
+
+                        ProductUnitConversionPrice::upsertFor($priceAttributes);
                     } else {
                         $model = $product->conversions()->create($payload);
 
@@ -538,6 +549,24 @@ class ProductController extends Controller
                             $price,
                             $allSettingIds
                         );
+
+                        $explicitSales = array_key_exists('sales_enabled', $conversion) ? (bool) $conversion['sales_enabled'] : null;
+                        $explicitPurchase = array_key_exists('purchase_enabled', $conversion) ? (bool) $conversion['purchase_enabled'] : null;
+
+                        if ($explicitSales !== null || $explicitPurchase !== null) {
+                            $updatePayload = [
+                                'product_unit_conversion_id' => $model->id,
+                                'setting_id'                 => $settingId,
+                                'price'                      => $price,
+                            ];
+                            if ($explicitSales !== null) {
+                                $updatePayload['sales_enabled'] = $explicitSales;
+                            }
+                            if ($explicitPurchase !== null) {
+                                $updatePayload['purchase_enabled'] = $explicitPurchase;
+                            }
+                            ProductUnitConversionPrice::upsertFor($updatePayload);
+                        }
                     }
 
                     $processedIds[] = $model->id;

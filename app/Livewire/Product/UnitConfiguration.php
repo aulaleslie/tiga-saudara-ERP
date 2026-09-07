@@ -78,6 +78,8 @@ class UnitConfiguration extends Component
             'conversion_factor'=> '',
             'barcode'          => '',
             'price'            => '',
+            'sales_enabled'    => true,
+            'purchase_enabled' => true,
         ];
         $this->displayPrices[] = '';
         $this->rowKeys[] = uniqid('conv_', true);
@@ -141,6 +143,13 @@ class UnitConfiguration extends Component
             $normalizedPrice = ProductConversionPriceNormalizer::normalizePrice($conv['price'] ?? '');
 
             $this->conversions[$i]['price'] = $normalizedPrice;
+            $this->conversions[$i]['sales_enabled'] = array_key_exists('sales_enabled', $conv)
+                ? ProductConversionPriceNormalizer::toBoolean($conv['sales_enabled'])
+                : true;
+            $this->conversions[$i]['purchase_enabled'] = array_key_exists('purchase_enabled', $conv)
+                ? ProductConversionPriceNormalizer::toBoolean($conv['purchase_enabled'])
+                : true;
+
             $this->displayPrices[$i] = ProductConversionPriceNormalizer::isCanonicalNumeric($normalizedPrice)
                 ? ProductConversionPriceNormalizer::formatDisplay($normalizedPrice)
                 : (string) $normalizedPrice;

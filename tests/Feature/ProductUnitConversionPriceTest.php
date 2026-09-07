@@ -359,4 +359,138 @@ class ProductUnitConversionPriceTest extends TestCase
         $page->assertSee('value="17500"', false);
         $page->assertSee('value="RP 17.500,00"', false);
     }
+
+    public function test_conversion_prices_default_to_enabled_and_isolation_between_businesses(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.create');
+
+        $baseUnit = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Box');
+
+        // Create product with BOX conversion where acting business disables sales
+        $payload = [
+            'product_name'   => 'Controlled Conversion Product',
+            'product_code'   => 'CONV-CTRL-001',
+            'stock_managed'  => true,
+            'base_unit_id'   => $baseUnit->id,
+            'conversions'    => [
+                [
+                    'unit_id'           => $conversionUnit->id,
+                    'conversion_factor' => 2,
+                    'price'             => 110000,
+                    'barcode'           => 'BOX-CTRL-001',
+                    'sales_enabled'     => 0,
+                    'purchase_enabled'  => 1,
+                ],
+            ],
+            'is_purchased'   => false,
+            'is_sold'        => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->post(route('products.store'), $payload, ['X-Idempotency-Token' => 'test-token-ctrl']);
+
+        $response->assertRedirect(route('products.index'));
+
+        $conversion = ProductUnitConversion::where('barcode', 'BOX-CTRL-001')->first();
+        $this->assertNotNull($conversion);
+
+        $primaryPrice = ProductUnitConversionPrice::where([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+        ])->first();
+
+        $secondaryPrice = ProductUnitConversionPrice::where([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $secondarySetting->id,
+        ])->first();
+
+        // Primary: sales disabled, purchase enabled
+        $this->assertFalse($primaryPrice->sales_enabled);
+        $this->assertTrue($primaryPrice->purchase_enabled);
+        $this->assertFalse($conversion->isSalesEnabledForSetting($primarySetting->id));
+        $this->assertTrue($conversion->isPurchaseEnabledForSetting($primarySetting->id));
+
+        // Secondary: both enabled by default seeding
+        $this->assertTrue($secondaryPrice->sales_enabled);
+        $this->assertTrue($secondaryPrice->purchase_enabled);
+        $this->assertTrue($conversion->isSalesEnabledForSetting($secondarySetting->id));
+        $this->assertTrue($conversion->isPurchaseEnabledForSetting($secondarySetting->id));
+    }
+
+    public function test_price_only_update_preserves_stored_disabled_flags(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.edit');
+
+        $baseUnit = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Pack');
+
+        $product = Product::create([
+            'product_name'       => 'Product Flag Preserve',
+            'product_code'       => 'FLAG-PRESERVE-001',
+            'product_quantity'   => 0,
+            'product_cost'       => 0,
+            'product_price'      => 0,
+            'product_stock_alert'=> 0,
+            'base_unit_id'       => $baseUnit->id,
+            'unit_id'            => $baseUnit->id,
+            'stock_managed'      => 1,
+            'is_purchased'       => 0,
+            'is_sold'            => 0,
+            'setting_id'         => $primarySetting->id,
+        ]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id'        => $product->id,
+            'unit_id'           => $conversionUnit->id,
+            'base_unit_id'      => $baseUnit->id,
+            'conversion_factor' => 3,
+            'barcode'           => 'PACK-PRESERVE',
+        ]);
+
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+            'price'                      => 15000,
+            'sales_enabled'              => false,
+            'purchase_enabled'           => false,
+        ]);
+
+        // Price-only update where sales_enabled and purchase_enabled are omitted
+        $payload = [
+            'product_name'  => 'Product Flag Preserve',
+            'product_code'  => 'FLAG-PRESERVE-001',
+            'category_id'   => null,
+            'brand_id'      => null,
+            'stock_managed' => true,
+            'base_unit_id'  => $baseUnit->id,
+            'conversions'   => [
+                [
+                    'id'                => $conversion->id,
+                    'unit_id'           => $conversionUnit->id,
+                    'conversion_factor' => 3,
+                    'price'             => 18000,
+                    'barcode'           => 'PACK-PRESERVE',
+                ],
+            ],
+            'is_purchased'  => false,
+            'is_sold'       => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->put(route('products.update', $product), $payload);
+
+        $response->assertRedirect(route('products.index'));
+
+        $primaryPrice = ProductUnitConversionPrice::where([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+        ])->first();
+
+        $this->assertSame(18000.0, (float) $primaryPrice->price);
+        $this->assertFalse($primaryPrice->sales_enabled);
+        $this->assertFalse($primaryPrice->purchase_enabled);
+    }
 }

@@ -65,11 +65,22 @@ class PosScanResolverService
                       ->orWhere('is_sold', true);
             }))
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
-            ->with(['product', 'unit'])
+            ->with(['product', 'unit', 'prices'])
             ->first();
 
-        if ($unitConversionBarcode && $unitConversionBarcode->product && (! $unitConversionBarcode->product->stock_managed || $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds)) && $this->hasPriceForSetting($unitConversionBarcode->product->id, $settingId)) {
-            return $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
+        if ($unitConversionBarcode && $unitConversionBarcode->product) {
+            if (!$unitConversionBarcode->isSalesEnabledForSetting($settingId)) {
+                $convName = $unitConversionBarcode->unit?->name ?? 'Unit';
+                return [
+                    'type' => 'conversion_disabled',
+                    'unit_name' => $convName,
+                    'message' => "Konversi unit {$convName} dinonaktifkan untuk penjualan di bisnis ini.",
+                ];
+            }
+
+            if ((! $unitConversionBarcode->product->stock_managed || $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds)) && $this->hasPriceForSetting($unitConversionBarcode->product->id, $settingId)) {
+                return $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
+            }
         }
 
         // 3. Exact serial number match

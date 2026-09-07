@@ -20,8 +20,33 @@ class ProductConversionPriceNormalizer
                 $conversion['price'] = self::normalizePrice($conversion['price']);
             }
 
+            if (array_key_exists('sales_enabled', $conversion)) {
+                $conversion['sales_enabled'] = self::toBoolean($conversion['sales_enabled']);
+            }
+
+            if (array_key_exists('purchase_enabled', $conversion)) {
+                $conversion['purchase_enabled'] = self::toBoolean($conversion['purchase_enabled']);
+            }
+
             return $conversion;
         }, $conversions);
+    }
+
+    public static function toBoolean(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (bool) $value;
+        }
+
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['1', 'true', 'on', 'yes'], true);
+        }
+
+        return false;
     }
 
     public static function normalizePrice(mixed $value): mixed
