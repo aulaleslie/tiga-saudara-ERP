@@ -66,6 +66,8 @@
 
     @include('pos::sell.modals.camera_scanner')
 
+    @include('pos::sell.modals.unit_selection')
+
     @include('pos::sell.modals.bundle_selection')
 
     @include('pos::sell.modals.bundle_detail')
@@ -164,15 +166,22 @@
             let pendingReduceCurrentQty = null;
             let pendingReduceButton = null;
 
+            // Unit Selection Modal elements
+            const unitSelectionModal = document.getElementById('pos-unit-selection-modal');
+            const unitProductName = document.getElementById('pos-unit-product-name');
+            const unitError = document.getElementById('pos-unit-error');
+            const unitOptions = document.getElementById('pos-unit-options');
+
             // Bundle Selection Modal elements
             const bundleSelectionModal = document.getElementById('pos-bundle-selection-modal');
             const bundleParentName = document.getElementById('pos-bundle-parent-name');
+            const bundleUnitPreview = document.getElementById('pos-bundle-unit-preview');
+            const bundleUnitBadge = document.getElementById('pos-bundle-unit-badge');
             const bundleLoading = document.getElementById('pos-bundle-loading');
             const bundleError = document.getElementById('pos-bundle-error');
             const bundleOptions = document.getElementById('pos-bundle-options');
             const bundleContinueNormal = document.getElementById('pos-bundle-continue-normal');
-            let pendingBundleProduct = null;
-            let pendingBundleSerial = null;
+            let activeSelectionOperation = null;
 
             // Price Override Modal elements
             // Two row monetary overrides, each with its own DOM nodes, form
@@ -488,17 +497,21 @@
                 return findSerialInCart(serialNumber) !== null;
             }
 
-            function findCartLine(snapshot, productId, bundleId = null) {
+            function findCartLine(snapshot, productId, bundleId = null, conversionId = null) {
                 if (!snapshot || !Array.isArray(snapshot.lines)) return null;
 
                 const normalizedProductId = Number(productId);
                 const normalizedBundleId = bundleId ? Number(bundleId) : null;
+                const normalizedConversionId = conversionId ? Number(conversionId) : null;
 
                 return snapshot.lines.find(line => {
                     const lineProductId = Number(line.product_id);
                     const lineBundleId = line.bundle_id ? Number(line.bundle_id) : null;
+                    const lineConversionId = line.conversion_id ? Number(line.conversion_id) : null;
 
-                    return lineProductId === normalizedProductId && lineBundleId === normalizedBundleId;
+                    return lineProductId === normalizedProductId &&
+                        lineBundleId === normalizedBundleId &&
+                        lineConversionId === normalizedConversionId;
                 });
             }
 
@@ -1661,43 +1674,9 @@
                     return;
                 }
 
-                // If product is a bundle parent, always route through bundle selection flow
-                // regardless of existing cart lines.
-                if (product.is_bundle_parent === 1 || product.is_bundle_parent === true) {
-                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
-                    return;
-                }
-
-                if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
-                    // If no cart, add product with the serial
-                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
-                    return;
-                }
-
-                // Try to find an existing line for this product
-                // First preference: find a line with unfilled serial slots
-                let targetLine = currentSnapshot.lines.find(line => 
-                    line.product_id === product.id && 
-                    line.serial_number_required === true &&
-                    (line.assigned_serials.length < line.qty)
-                );
-
-                // Second preference: if all are full, pick the first line for this product to consolidate
-                if (!targetLine) {
-                    targetLine = currentSnapshot.lines.find(line => 
-                        line.product_id === product.id && 
-                        line.serial_number_required === true
-                    );
-                }
-
-                if (!targetLine) {
-                    // No existing line at all, add product with the serial
-                    await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
-                } else {
-                    // Found existing line (either with space or full), append serial to it
-                    // Backend will now auto-increment qty if full
-                    await appendSerialToLine(targetLine.line_id, serial.serial_number);
-                }
+                // Accepted serial scans always add product via addProductToCart
+                // to ensure quantity is incremented by exactly one base unit.
+                await addProductToCart(product, 'scan', { serialNumber: serial.serial_number });
             }
 
             // Phase 3A: Append serial to a cart line
@@ -2120,27 +2099,176 @@
                 }
             }
 
+            // Selection Lifecycle & Operation Management
+            let currentSelectionOpId = 0;
+            let scanResolveInFlight = false;
+            let isModalTransitioning = false;
+
+            function cancelActiveSelection() {
+                if (activeSelectionOperation) {
+                    activeSelectionOperation.status = 'cancelled';
+                    activeSelectionOperation = null;
+                }
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            }
+
+            function openUnitSelectionModal(product, source, options = {}) {
+                currentSelectionOpId += 1;
+                const opId = currentSelectionOpId;
+
+                const op = {
+                    id: opId,
+                    phase: 'choosing-unit',
+                    product: product,
+                    source: source,
+                    options: options,
+                    conversion: null,
+                    serialNumber: options.serialNumber || null,
+                    status: 'active',
+                };
+                activeSelectionOperation = op;
+
+                if (unitProductName) {
+                    unitProductName.textContent = product.product_name;
+                }
+                if (unitError) {
+                    unitError.classList.add('d-none');
+                    unitError.textContent = '';
+                }
+
+                renderUnitOptions(product, op);
+
+                if (typeof $ !== 'undefined') {
+                    $(unitSelectionModal).modal('show');
+                }
+            }
+
+            function renderUnitOptions(product, op) {
+                if (!unitOptions) return;
+                unitOptions.innerHTML = '';
+
+                const unitOpts = product.unit_options || {};
+                const baseUnit = unitOpts.base_unit || { name: 'PCS', short_name: null };
+                const conversions = Array.isArray(unitOpts.conversions) ? unitOpts.conversions : [];
+
+                const baseCol = document.createElement('div');
+                baseCol.className = 'col-md-6 mb-3';
+                baseCol.innerHTML = `
+                    <button type="button" class="pos-unit-card js-select-unit" data-unit-type="base">
+                        <div class="unit-name">${escapeHtml(baseUnit.name || 'PCS')}</div>
+                        <div class="unit-factor">Satuan Dasar (1 ${escapeHtml(baseUnit.name || 'PCS')})</div>
+                        <div class="unit-desc">Menambahkan 1 unit dasar produk ke keranjang.</div>
+                        <div class="unit-price">Harga: ${formatPrice(product.sale_price)}</div>
+                    </button>
+                `;
+                unitOptions.appendChild(baseCol);
+
+                conversions.forEach(conv => {
+                    const col = document.createElement('div');
+                    col.className = 'col-md-6 mb-3';
+
+                    const isSalesEnabled = conv.sales_enabled !== false;
+                    const isValid = conv.is_valid !== false;
+                    const isSelectable = isSalesEnabled && isValid;
+
+                    let statusBadge = '';
+                    let errorText = '';
+                    if (!isSalesEnabled) {
+                        statusBadge = '<span class="badge badge-secondary ml-2">Nonaktif</span>';
+                        errorText = '<div class="text-danger small mt-1">Dinonaktifkan untuk penjualan di bisnis ini.</div>';
+                    } else if (!isValid) {
+                        statusBadge = '<span class="badge badge-warning ml-2">Tidak Valid</span>';
+                        errorText = `<div class="text-danger small mt-1">${escapeHtml(conv.invalid_reason || 'Konversi tidak valid.')}</div>`;
+                    }
+
+                    const factorText = conv.conversion_factor ? `${conv.conversion_factor} ${escapeHtml(baseUnit.name || 'PCS')}` : '';
+
+                    col.innerHTML = `
+                        <button type="button" class="pos-unit-card js-select-unit ${!isSelectable ? 'pos-unit-card-disabled' : ''}"
+                                data-unit-type="conversion"
+                                data-conversion-id="${conv.id}"
+                                ${!isSelectable ? 'disabled' : ''}>
+                            <div class="unit-name">${escapeHtml(conv.unit_name || 'Unit')} ${statusBadge}</div>
+                            <div class="unit-factor">${factorText}</div>
+                            <div class="unit-desc">Kelipatan isi ${factorText} per ${escapeHtml(conv.unit_name || 'unit')}.</div>
+                            ${errorText}
+                        </button>
+                    `;
+                    unitOptions.appendChild(col);
+                });
+
+                unitOptions.querySelectorAll('.js-select-unit:not(:disabled)').forEach(btn => {
+                    btn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        if (!activeSelectionOperation || activeSelectionOperation.id !== op.id || activeSelectionOperation.status !== 'active') {
+                            return;
+                        }
+
+                        const unitType = this.dataset.unitType;
+                        if (unitType === 'base') {
+                            op.conversion = null;
+                        } else {
+                            const convId = Number(this.dataset.conversionId);
+                            const selectedConv = conversions.find(c => Number(c.id) === convId);
+                            if (!selectedConv || !selectedConv.sales_enabled || !selectedConv.is_valid) {
+                                return;
+                            }
+                            op.conversion = selectedConv;
+                        }
+
+                        isModalTransitioning = true;
+                        $(unitSelectionModal).modal('hide');
+
+                        if (op.product.is_bundle_parent === 1 || op.product.is_bundle_parent === true) {
+                            op.phase = 'choosing-bundle';
+                            openBundleSelectionModalForOp(op);
+                        } else {
+                            op.phase = 'submitting';
+                            executeCartStoreForOp(op, null);
+                        }
+                    });
+                });
+            }
+
             // Bundle Selection Functions
-            async function openBundleSelectionModal(product, source, serialNumber = null) {
-                pendingBundleProduct = product;
-                pendingBundleSource = source;
-                pendingBundleSerial = serialNumber;
-                
+            async function openBundleSelectionModalForOp(op) {
+                const product = op.product;
                 if (bundleParentName) bundleParentName.textContent = product.product_name;
                 if (bundleLoading) bundleLoading.classList.remove('d-none');
                 if (bundleError) bundleError.classList.add('d-none');
                 if (bundleOptions) bundleOptions.innerHTML = '';
-                
+
+                // Show unit preview badge if conversion chosen
+                if (bundleUnitPreview && bundleUnitBadge) {
+                    if (op.conversion && op.conversion.conversion_factor) {
+                        const factor = op.conversion.conversion_factor;
+                        const unitName = op.conversion.unit_name || 'Unit';
+                        bundleUnitBadge.textContent = `Pilihan Satuan: ${unitName} (${factor} base unit) -> Menambahkan ${factor} paket`;
+                        bundleUnitPreview.classList.remove('d-none');
+                    } else {
+                        bundleUnitBadge.textContent = '';
+                        bundleUnitPreview.classList.add('d-none');
+                    }
+                }
+
                 $(bundleSelectionModal).modal('show');
-                
+
                 try {
                     const response = await jsonRequest(`/pos/sell/products/${product.id}/bundles`, 'GET');
+                    if (op.id !== activeSelectionOperation?.id || op.status !== 'active') {
+                        return;
+                    }
                     if (bundleLoading) bundleLoading.classList.add('d-none');
-                    
+
                     if (response && response.bundles) {
-                        renderBundleOptions(response.bundles);
+                        renderBundleOptionsForOp(response.bundles, op);
                     }
                 } catch (error) {
+                    if (op.id !== activeSelectionOperation?.id || op.status !== 'active') {
+                        return;
+                    }
                     if (bundleLoading) bundleLoading.classList.add('d-none');
                     if (bundleError) {
                         bundleError.textContent = error.message || 'Gagal memuat paket.';
@@ -2149,99 +2277,69 @@
                 }
             }
 
-            function renderBundleOptions(bundles) {
+            function renderBundleOptionsForOp(bundles, op) {
                 if (!bundleOptions) return;
-                
                 bundleOptions.innerHTML = '';
-                
+
                 if (bundles.length === 0) {
                     bundleOptions.innerHTML = '<div class="col-12 text-center py-4 text-muted">Tidak ada paket tersedia untuk produk ini.</div>';
                     return;
                 }
-                
+
+                const factor = (op.conversion && op.conversion.conversion_factor) ? Number(op.conversion.conversion_factor) : 1;
+                const unitName = (op.conversion && op.conversion.unit_name) ? op.conversion.unit_name : null;
+
                 bundles.forEach(bundle => {
                     const col = document.createElement('div');
                     col.className = 'col-md-6 mb-3';
-                    
+
                     const itemsHtml = bundle.items.map(item => `
                         <div class="bundle-item">
                             <span class="bundle-item-name">${escapeHtml(item.name)}</span>
-                            <span class="bundle-item-qty">x${item.quantity}</span>
+                            <span class="bundle-item-qty">x${item.quantity} (Total: ${item.quantity * factor})</span>
                         </div>
                     `).join('');
-                    
+
+                    const bundleQtyPreviewHtml = factor > 1
+                        ? `<div class="badge badge-primary py-1 px-2 mb-2 font-weight-normal">Akan menambah: ${factor} Paket (${escapeHtml(unitName)})</div>`
+                        : '';
+
                     col.innerHTML = `
                         <div class="pos-bundle-card js-select-bundle" data-bundle-id="${bundle.id}">
                             <div class="bundle-name">${escapeHtml(bundle.name)}</div>
-                            <div class="bundle-price">${formatPrice(bundle.price)}</div>
+                            ${bundleQtyPreviewHtml}
+                            <div class="bundle-price">${formatPrice(bundle.price)} <span class="small font-weight-normal text-muted">/ paket</span></div>
                             <div class="bundle-items border-top pt-2">
                                 ${itemsHtml}
                             </div>
                         </div>
                     `;
-                    
+
                     bundleOptions.appendChild(col);
                 });
-                
-                // Event listeners for bundle selection
+
                 bundleOptions.querySelectorAll('.js-select-bundle').forEach(el => {
                     el.addEventListener('click', function() {
+                        if (!activeSelectionOperation || activeSelectionOperation.id !== op.id || activeSelectionOperation.status !== 'active') {
+                            return;
+                        }
                         const bundleId = this.dataset.bundleId;
                         const bundle = bundles.find(b => String(b.id) === bundleId);
                         if (bundle) {
-                            addBundleToCart(pendingBundleProduct, bundle, pendingBundleSource);
+                            op.phase = 'submitting';
+                            isModalTransitioning = true;
                             $(bundleSelectionModal).modal('hide');
+                            executeCartStoreForOp(op, bundle);
                         }
                     });
                 });
             }
 
-            async function addBundleToCart(product, bundle, source) {
-                latestRequestId += 1;
-                clearResults();
-                if (searchInput) {
-                    clearSearchInput({ keepFocus: false });
-                }
-
-                try {
-                    const payload = {
-                        product_id: Number(product.id),
-                        qty: 1,
-                        bundle_id: Number(bundle.id)
-                    };
-
-                    const response = await jsonRequest(cartStoreLineEndpoint, 'POST', payload);
-                    if (!response) return;
-
-                    renderCart(response.cart_snapshot || null);
-
-                    // Check for pending serial and append it to the new bundle line
-                    if (pendingBundleSerial && response.cart_snapshot) {
-                        const snapshot = response.cart_snapshot;
-                        const newLine = findCartLine(snapshot, product.id, bundle.id);
-                        if (newLine) {
-                             await appendSerialToLine(newLine.line_id, pendingBundleSerial);
-                        }
-                        pendingBundleSerial = null; // Clear it after use
-                    }
-
-                    if (searchInput) searchInput.focus();
-
-                    const msg = `Paket "${bundle.name}" ditambahkan.`;
-                    setSearchStatus(msg, 'text-success');
-                    setCartStatus('Keranjang berhasil diperbarui.', 'text-success');
-                } catch (error) {
-                    setCartStatus(error.message || 'Gagal menambahkan paket ke keranjang.', 'text-danger');
-                }
-            }
-
-            async function addProductToCart(product, source, options = {}) {
-                // If product is a bundle parent, show selection modal instead of adding directly
-                // skipBundleCheck is used when continuing without a bundle
-                if (!options.skipBundleCheck && (product.is_bundle_parent === 1 || product.is_bundle_parent === true)) {
-                    openBundleSelectionModal(product, source, options.serialNumber);
+            async function executeCartStoreForOp(op, bundle = null) {
+                if (op.status !== 'active' || op.isSubmitting) {
                     return;
                 }
+                op.isSubmitting = true;
 
                 latestRequestId += 1;
                 clearResults();
@@ -2251,48 +2349,123 @@
 
                 try {
                     const payload = {
-                        product_id: Number(product.id),
+                        product_id: Number(op.product.id),
                         qty: 1,
                     };
 
-                    // If product was resolved via conversion barcode, include conversion_id
-                    if (product.conversion && product.conversion.id) {
-                        payload.conversion_id = Number(product.conversion.id);
+                    if (bundle && bundle.id) {
+                        payload.bundle_id = Number(bundle.id);
+                    }
+
+                    if (op.conversion && op.conversion.id) {
+                        payload.conversion_id = Number(op.conversion.id);
                     }
 
                     const response = await jsonRequest(cartStoreLineEndpoint, 'POST', payload);
-
                     if (!response) {
+                        op.status = 'error';
+                        activeSelectionOperation = null;
                         return;
                     }
 
+                    op.status = 'finished';
+                    activeSelectionOperation = null;
+
                     renderCart(response.cart_snapshot || null);
 
-                    // Atomic serial appending for non-bundle paths
-                    if (options.serialNumber && response.cart_snapshot) {
+                    if (op.serialNumber && response.cart_snapshot) {
                         const snapshot = response.cart_snapshot;
-                        const newLine = findCartLine(snapshot, product.id, null);
-                        if (newLine) {
-                             await appendSerialToLine(newLine.line_id, options.serialNumber);
+                        const targetLineId = response.line_id || snapshot.target_line_id;
+                        let targetLine = null;
+
+                        if (targetLineId !== undefined && targetLineId !== null) {
+                            targetLine = snapshot.lines.find(line => Number(line.line_id) === Number(targetLineId)) || null;
+                        }
+
+                        if (!targetLine) {
+                            const opConversionId = op.conversion && op.conversion.id ? Number(op.conversion.id) : null;
+                            targetLine = findCartLine(snapshot, op.product.id, bundle ? bundle.id : null, opConversionId);
+                        }
+
+                        if (targetLine) {
+                            await appendSerialToLine(targetLine.line_id, op.serialNumber);
                         }
                     }
+
                     clearResults();
                     if (searchInput) {
                         searchInput.focus();
                     }
 
-                    if (source === 'auto') {
-                        setSearchStatus('Produk ditambahkan otomatis dari barcode.', 'text-success');
-                    } else if (source === 'scan') {
-                        setSearchStatus('Produk ditambahkan dari pindai.', 'text-success');
-                    } else {
-                        setSearchStatus('Produk ditambahkan ke keranjang.', 'text-success');
-                    }
+                    const productName = op.product.product_name || 'Produk';
+                    const unitLabel = op.conversion ? ` (${op.conversion.unit_name || 'Unit'})` : '';
+                    const bundleLabel = bundle ? ` Paket "${bundle.name}"` : '';
+                    const successMsg = bundle
+                        ? `Paket "${bundle.name}"${unitLabel} ditambahkan.`
+                        : `Produk "${productName}"${unitLabel} ditambahkan ke keranjang.`;
 
+                    setSearchStatus(successMsg, 'text-success');
                     setCartStatus('Keranjang berhasil diperbarui.', 'text-success');
                 } catch (error) {
-                    setCartStatus(error.message || 'Gagal menambahkan produk ke keranjang.', 'text-danger');
+                    op.status = 'error';
+                    activeSelectionOperation = null;
+                    const errorMsg = error.message || 'Gagal menambahkan produk ke keranjang.';
+                    setCartStatus(errorMsg, 'text-danger');
+                    setSearchStatus(errorMsg, 'text-danger');
                 }
+            }
+
+            async function addProductToCart(product, source, options = {}) {
+                // Check if unit selection modal is required:
+                // Required when:
+                // 1. Not bypassed (not options.skipUnitCheck)
+                // 2. Not from direct conversion barcode scan (no product.conversion)
+                // 3. Not serial-exact scan addition (options.serialNumber is null/not from serial scan)
+                // 4. Product has selectable sales-enabled conversions
+                const hasSelectableUnits = Boolean(product.unit_options && product.unit_options.has_selectable_units);
+                const isConversionBarcodeScan = Boolean(
+                    product.conversion && product.conversion.id &&
+                    (product.resolved_via === 'conversion_barcode' || product.matched_by === 'conversion_barcode_exact')
+                );
+                const isSerialScan = Boolean(options.serialNumber);
+
+                if (!options.skipUnitCheck && !isConversionBarcodeScan && !isSerialScan && hasSelectableUnits) {
+                    openUnitSelectionModal(product, source, options);
+                    return;
+                }
+
+                // If unit check passed or bypassed, check bundle requirement
+                if (!options.skipBundleCheck && (product.is_bundle_parent === 1 || product.is_bundle_parent === true)) {
+                    currentSelectionOpId += 1;
+                    const op = {
+                        id: currentSelectionOpId,
+                        phase: 'choosing-bundle',
+                        product: product,
+                        source: source,
+                        options: options,
+                        conversion: product.conversion || null,
+                        serialNumber: options.serialNumber || null,
+                        status: 'active',
+                    };
+                    activeSelectionOperation = op;
+                    openBundleSelectionModalForOp(op);
+                    return;
+                }
+
+                // Otherwise proceed directly to submission
+                currentSelectionOpId += 1;
+                const op = {
+                    id: currentSelectionOpId,
+                    phase: 'submitting',
+                    product: product,
+                    source: source,
+                    options: options,
+                    conversion: product.conversion || null,
+                    serialNumber: options.serialNumber || null,
+                    status: 'active',
+                };
+                activeSelectionOperation = op;
+                await executeCartStoreForOp(op, null);
             }
 
 
@@ -2507,11 +2680,44 @@
 
             // Shared scan resolver function (2.1): used by both Enter and helper button
             async function executeScanResolve(query) {
+                if (scanResolveInFlight) {
+                    return { ok: false, outcome: 'in_flight' };
+                }
+                if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
+                    return { ok: false, outcome: 'selection_active' };
+                }
+                const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                                    (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
+                if (isModalOpen) {
+                    return { ok: false, outcome: 'modal_open' };
+                }
+
+                scanResolveInFlight = true;
+                currentSelectionOpId += 1;
+                const scanOpId = currentSelectionOpId;
+
                 clearResults();
                 setSearchStatus('Memindai...', 'text-muted');
 
                 try {
                     const response = await jsonRequest(scanResolveEndpoint + '?q=' + encodeURIComponent(query), 'GET');
+
+                    // Check for stale response or superseded selection before mutating state
+                    if (scanOpId !== currentSelectionOpId) {
+                        return {
+                            ok: false,
+                            outcome: 'stale_response',
+                            message: 'Operasi pemindaian usang diabaikan.'
+                        };
+                    }
+                    if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
+                        return {
+                            ok: false,
+                            outcome: 'superseded',
+                            message: 'Operasi pemilihan sedang aktif.'
+                        };
+                    }
+
                     if (!response) {
                         setSearchStatus('Pindai gagal.', 'text-danger');
                         return {
@@ -2568,6 +2774,13 @@
                         };
                     }
                 } catch (error) {
+                    if (scanOpId !== currentSelectionOpId) {
+                        return {
+                            ok: false,
+                            outcome: 'stale_response',
+                            message: 'Operasi pemindaian usang diabaikan.'
+                        };
+                    }
                     const message = 'Pindai gagal: ' + (error.message || 'Server error');
                     setSearchStatus(message, 'text-danger');
                     return {
@@ -2576,6 +2789,8 @@
                         message: message,
                         error: error
                     };
+                } finally {
+                    scanResolveInFlight = false;
                 }
             }
 
@@ -2600,6 +2815,18 @@
                     return;
                 }
                 event.preventDefault();
+                if (scanResolveInFlight) {
+                    return;
+                }
+                if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
+                    return;
+                }
+                const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                                    (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
+                if (isModalOpen) {
+                    return;
+                }
+
                 const query = (this.value || '').trim();
                 if (!query) {
                     setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
@@ -2612,6 +2839,18 @@
             const scanHelperButton = document.getElementById('pos-btn-scan-helper');
             if (scanHelperButton) {
                 scanHelperButton.addEventListener('click', async function () {
+                    if (scanResolveInFlight) {
+                        return;
+                    }
+                    if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
+                        return;
+                    }
+                    const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                                        (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
+                    if (isModalOpen) {
+                        return;
+                    }
+
                     const query = (searchInput.value || '').trim();
                     if (!query) {
                         setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
@@ -3545,35 +3784,40 @@
             // Bundle selection "continue normal" handler
             if (bundleContinueNormal) {
                 bundleContinueNormal.addEventListener('click', async function() {
-                    if (pendingBundleProduct) {
-                        const product = pendingBundleProduct;
-                        const source = pendingBundleSource;
-                        const serial = pendingBundleSerial; // Capture serial before hiding modal
-                        
-                        pendingBundleProduct = null;
-                        pendingBundleSource = null;
-                        pendingBundleSerial = null; // Clear it here manually
-                        
+                    if (activeSelectionOperation && activeSelectionOperation.phase === 'choosing-bundle' && activeSelectionOperation.status === 'active') {
+                        const op = activeSelectionOperation;
+                        op.phase = 'submitting';
+                        isModalTransitioning = true;
                         $(bundleSelectionModal).modal('hide');
-                        
-                        // Proceed with normal add by passing skipBundleCheck and the captured serial
-                        await addProductToCart(product, source, { 
-                            skipBundleCheck: true, 
-                            serialNumber: serial 
-                        });
+                        await executeCartStoreForOp(op, null);
                     }
                 });
             }
 
-            // Reset bundle state when modal hidden
+            // Reset modal states when hidden
             if (typeof $ !== 'undefined') {
+                $(unitSelectionModal).on('hidden.bs.modal', function() {
+                    if (unitError) {
+                        unitError.classList.add('d-none');
+                        unitError.textContent = '';
+                    }
+                    if (unitOptions) unitOptions.innerHTML = '';
+                    if (!isModalTransitioning && activeSelectionOperation && activeSelectionOperation.phase === 'choosing-unit') {
+                        cancelActiveSelection();
+                    }
+                    isModalTransitioning = false;
+                });
+
                 $(bundleSelectionModal).on('hidden.bs.modal', function() {
-                    pendingBundleProduct = null;
-                    pendingBundleSource = null;
-                    pendingBundleSerial = null;
                     if (bundleLoading) bundleLoading.classList.add('d-none');
                     if (bundleError) bundleError.classList.add('d-none');
                     if (bundleOptions) bundleOptions.innerHTML = '';
+                    if (bundleUnitPreview) bundleUnitPreview.classList.add('d-none');
+                    if (bundleUnitBadge) bundleUnitBadge.textContent = '';
+                    if (!isModalTransitioning && activeSelectionOperation && activeSelectionOperation.phase === 'choosing-bundle') {
+                        cancelActiveSelection();
+                    }
+                    isModalTransitioning = false;
                 });
             }
 

@@ -700,4 +700,56 @@ class POSScanResolveEndpointTest extends TestCase
             ->assertJsonPath('type', 'conversion_disabled')
             ->assertJsonPath('unit_name', strtoupper('Dus'));
     }
+
+    public function test_base_barcode_scan_includes_unit_options_while_conversion_barcode_has_no_unit_options(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE BASE BARCODE OPTS');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE BASE BARCODE OPTS');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-SCAN-UOPTS', 'Produk Scan Options', 25000, $cashier->id);
+
+        $boxUnit = Unit::firstOrCreate([
+            'name' => 'Box',
+            'short_name' => 'BOX',
+        ]);
+
+        $convBarcode = 'CONV-SCAN-BOX-' . uniqid();
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 12,
+            'barcode' => $convBarcode,
+        ]);
+
+        // 1. Scan base product barcode: resolves to product_exact and carries unit_options
+        $baseScanResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $product->barcode]));
+
+        $baseScanResponse->assertOk()
+            ->assertJsonPath('type', 'product_exact')
+            ->assertJsonPath('product.id', $product->id);
+
+        $unitOptions = $baseScanResponse->json('product.unit_options');
+        $this->assertIsArray($unitOptions);
+        $this->assertTrue($unitOptions['has_selectable_units']);
+        $this->assertSame('PCS', $unitOptions['base_unit']['short_name']);
+        $this->assertCount(1, $unitOptions['conversions']);
+        $this->assertSame($conversion->id, $unitOptions['conversions'][0]['id']);
+        $this->assertSame(12, $unitOptions['conversions'][0]['conversion_factor']);
+        $this->assertTrue($unitOptions['conversions'][0]['is_valid']);
+        $this->assertTrue($unitOptions['conversions'][0]['sales_enabled']);
+
+        // 2. Scan conversion barcode: resolves directly to conversion match, NOT prompting unit_options
+        $convScanResponse = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $convBarcode]));
+
+        $convScanResponse->assertOk()
+            ->assertJsonPath('type', 'product_exact')
+            ->assertJsonPath('product.conversion.id', $conversion->id)
+            ->assertJsonPath('product.conversion.conversion_factor', 12);
+        $this->assertNull($convScanResponse->json('product.unit_options'));
+    }
 }

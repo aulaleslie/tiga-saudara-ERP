@@ -125,6 +125,12 @@ class PosCartService
                 $convName = $conversion->unit?->name ?? 'Unit';
                 throw new DomainException("Konversi unit {$convName} dinonaktifkan untuk penjualan di bisnis ini.");
             }
+
+            $rawFactor = (float) $conversion->conversion_factor;
+            if (! is_finite($rawFactor) || $rawFactor <= 1.0 || abs($rawFactor - round($rawFactor)) > 1e-6) {
+                $convName = $conversion->unit?->name ?? 'Unit';
+                throw new DomainException("Faktor konversi untuk unit {$convName} tidak valid.");
+            }
         }
 
         // Resolve bundle if provided
@@ -265,9 +271,11 @@ class PosCartService
             $updatedLine = $this->markPricingDirty($updatedLine);
 
             $cart['lines'][$existingLineId] = $updatedLine;
+            $targetLineId = $existingLineId;
         } else {
             // No matching line - create new line with next_line_id
             $newLineId = $cart['next_line_id']++;
+            $targetLineId = $newLineId;
 
             if ($availableQty !== null && $qty > $availableQty) {
                 throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
@@ -326,7 +334,10 @@ class PosCartService
 
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
-        return $this->buildSnapshot($settingId, $sessionId, $cart);
+        $snapshot = $this->buildSnapshot($settingId, $sessionId, $cart);
+        $snapshot['target_line_id'] = $targetLineId;
+
+        return $snapshot;
     }
 
     /**

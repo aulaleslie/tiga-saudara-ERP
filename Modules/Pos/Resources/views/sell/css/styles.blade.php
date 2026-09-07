@@ -857,6 +857,66 @@
         flex-shrink: 0;
     }
 
+    /* Unit Selection Styles */
+    .pos-unit-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        height: 100%;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        text-align: left;
+        width: 100%;
+    }
+
+    .pos-unit-card:hover:not(:disabled) {
+        border-color: #3b82f6;
+        background-color: #f8fafc;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .pos-unit-card:disabled,
+    .pos-unit-card.pos-unit-card-disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    .pos-unit-card .unit-name {
+        font-weight: 700;
+        font-size: 1.1rem;
+        color: #1e293b;
+        margin-bottom: 0.35rem;
+    }
+
+    .pos-unit-card .unit-factor {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: #3b82f6;
+        margin-bottom: 0.5rem;
+    }
+
+    .pos-unit-card .unit-desc {
+        font-size: 0.82rem;
+        color: #64748b;
+    }
+
+    .pos-unit-card .unit-price {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: #475569;
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        border-top: 1px dashed #e2e8f0;
+    }
+
     .pos-customer-shell {
         height: 100%;
         display: flex;

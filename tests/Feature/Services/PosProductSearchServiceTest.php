@@ -152,6 +152,87 @@ class PosProductSearchServiceTest extends TestCase
         $this->assertArrayNotHasKey('available_qty', $result);
     }
 
+    public function test_search_results_include_unit_options_with_business_isolation_and_missing_price_defaults(): void
+    {
+        $user = $this->createUserWithPermission('inventory.view_remaining_stock');
+        $this->actingAs($user);
+
+        $baseUnit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Piece',
+            'short_name' => 'PCS',
+        ]);
+        $boxUnit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Box',
+            'short_name' => 'BOX',
+        ]);
+        $dusUnit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Dus',
+            'short_name' => 'DS',
+        ]);
+
+        $product = $this->createProduct([
+            'product_name' => 'Product Unit Options',
+            'product_code' => 'SKU-UOPT-1',
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $baseUnit->id,
+            'product_price' => 10000,
+        ]);
+        $this->seedProductPriceForSetting($product, 10000);
+        $this->createStockForProduct($product, 100);
+
+        // Conversion 1: Box of 10. No price row for setting -> defaults to enabled!
+        $convBox = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $baseUnit->id,
+            'conversion_factor' => 10,
+            'barcode' => 'CONV-BOX-1',
+        ]);
+
+        // Conversion 2: Dus of 50. Setting row has sales_enabled = false, purchase_enabled = true (purchase flag independence)
+        $convDus = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $dusUnit->id,
+            'base_unit_id' => $baseUnit->id,
+            'conversion_factor' => 50,
+            'barcode' => 'CONV-DUS-1',
+        ]);
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convDus->id,
+            'setting_id' => $this->setting->id,
+            'price' => 450000,
+            'sales_enabled' => false,
+            'purchase_enabled' => true,
+        ]);
+
+        $service = new PosProductSearchService();
+        $results = $service->search($this->setting->id, 'Product Unit Options');
+
+        $this->assertCount(1, $results['results']);
+        $item = $results['results'][0];
+        $this->assertArrayHasKey('unit_options', $item);
+        $this->assertNotNull($item['unit_options']);
+
+        $options = $item['unit_options'];
+        $this->assertTrue($options['has_selectable_units']);
+        $this->assertSame('PCS', $options['base_unit']['short_name']);
+
+        // Conversions list has 2 conversions: Box (sales enabled, valid) and Dus (sales disabled)
+        $this->assertCount(2, $options['conversions']);
+        
+        $boxOpt = collect($options['conversions'])->firstWhere('id', $convBox->id);
+        $this->assertNotNull($boxOpt);
+        $this->assertTrue($boxOpt['is_valid']);
+        $this->assertTrue($boxOpt['sales_enabled']);
+        $this->assertSame(10, $boxOpt['conversion_factor']);
+
+        $dusOpt = collect($options['conversions'])->firstWhere('id', $convDus->id);
+        $this->assertNotNull($dusOpt);
+        $this->assertTrue($dusOpt['is_valid']);
+        $this->assertFalse($dusOpt['sales_enabled']);
+        $this->assertSame(50, $dusOpt['conversion_factor']);
+    }
+
     private function createProduct(array $attributes = []): Product
     {
         return Product::create(array_merge([

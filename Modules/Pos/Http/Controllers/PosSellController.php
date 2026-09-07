@@ -236,7 +236,10 @@ class PosSellController extends Controller
             ], 422);
         }
 
-        return response()->json(['cart_snapshot' => $snapshot]);
+        return response()->json([
+            'cart_snapshot' => $snapshot,
+            'line_id' => $snapshot['target_line_id'] ?? null,
+        ]);
     }
 
     public function cartUpdateLine(

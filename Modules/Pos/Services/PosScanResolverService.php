@@ -165,6 +165,11 @@ class PosScanResolverService
             ];
         }
 
+        $unitOptions = null;
+        if ($conversion === null) {
+            $unitOptions = app(PosUnitOptionsResolver::class)->resolveForProduct($product, $settingId);
+        }
+
         return [
             'type' => 'product_exact',
             'product' => [
@@ -177,6 +182,7 @@ class PosScanResolverService
                 'is_bundle_parent' => $isBundleParent,
                 'resolved_via' => $conversion !== null ? 'conversion_barcode' : 'product_barcode',
                 'conversion' => $conversionMetadata,
+                'unit_options' => $unitOptions,
             ],
         ];
     }

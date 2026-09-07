@@ -106,10 +106,11 @@ class PosProductSearchService
 
         $productIds = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
         $bundlesByProduct = \App\Support\ProductBundleResolver::forProducts($productIds, $settingId);
+        $unitOptionsByProduct = app(PosUnitOptionsResolver::class)->resolveForProductIds($productIds, $settingId);
 
         $canViewRemainingStock = auth()->user() && auth()->user()->can('inventory.view_remaining_stock');
 
-        $results = $rows->map(function ($row) use ($bundlesByProduct, $canViewRemainingStock) {
+        $results = $rows->map(function ($row) use ($bundlesByProduct, $unitOptionsByProduct, $canViewRemainingStock) {
             $matchedBy = 'name_partial';
 
             if ((int) $row->barcode_exact_match === 1) {
@@ -123,6 +124,7 @@ class PosProductSearchService
             }
 
             $hasEligibleBundles = isset($bundlesByProduct[(int) $row->id]) && $bundlesByProduct[(int) $row->id]->isNotEmpty();
+            $unitOptions = $unitOptionsByProduct[(int) $row->id] ?? null;
 
             $availableQty = (int) $row->available_qty;
             $isStockManaged = (bool) $row->stock_managed;
@@ -146,6 +148,7 @@ class PosProductSearchService
                 'matched_by' => $matchedBy,
                 'is_bundle_parent' => $hasEligibleBundles,
                 'conversion' => null,
+                'unit_options' => $unitOptions,
             ];
 
             if ($canViewRemainingStock) {

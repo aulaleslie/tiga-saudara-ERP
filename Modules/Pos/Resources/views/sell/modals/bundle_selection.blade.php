@@ -10,6 +10,9 @@
                 <div class="modal-body">
                     <div id="pos-bundle-modal-product-info" class="mb-4">
                         <h4 id="pos-bundle-parent-name" class="font-weight-bold mb-1 text-primary"></h4>
+                        <div id="pos-bundle-unit-preview" class="d-none mb-2">
+                            <span class="badge badge-info py-1 px-2 font-weight-normal" style="font-size: 0.9rem;" id="pos-bundle-unit-badge"></span>
+                        </div>
                         <p class="text-muted">Pilih paket kombinasi untuk mendapatkan harga khusus, atau lanjut dengan harga normal.</p>
                     </div>
                     
