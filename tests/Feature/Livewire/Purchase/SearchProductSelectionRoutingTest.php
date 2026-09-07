@@ -235,8 +235,6 @@ class SearchProductSelectionRoutingTest extends TestCase
     public static function pageBindingProvider(): array
     {
         return [
-            'adjustment create' => ['getAdjustmentCreateUrl', AdjustmentProductTable::class],
-            'adjustment edit' => ['getAdjustmentEditUrl', AdjustmentProductTable::class],
             'breakage create' => ['getBreakageCreateUrl', BreakageProductTable::class],
             'breakage edit' => ['getBreakageEditUrl', BreakageProductTable::class],
         ];

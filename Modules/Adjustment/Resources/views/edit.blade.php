@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Adjustment')
+@section('title', 'Edit Penyesuaian')
 
 @push('page_css')
     @livewireStyles
@@ -32,11 +32,9 @@
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="date">Tanggal <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ $adjustment->getAttributes()['date'] }}">
-                                        </div>
+                                    <div class="form-group">
+                                        <label for="date">Tanggal <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control" name="date" required value="{{ old('date', $adjustment->getAttributes()['date']) }}">
                                     </div>
                                 </div>
                             </div>
@@ -44,32 +42,36 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="location">Lokasi</label>
-                                        <livewire:auto-complete.location-loader :locationId="old('location_id', $adjustment->location_id)" />
-                                        @error('location_id') <span class="text-danger">{{ $message }}</span> @enderror
+                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.location-search-dropdown', [
+                                            'selected' => old('location_id', $adjustment->location_id),
+                                            'consignmentFilter' => 'standard',
+                                            'placeholder' => 'Pilih lokasi...',
+                                            'dispatchTo' => \App\Livewire\Adjustment\AdjustmentProductTable::class,
+                                        ])
+                                        @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-lg-12">
-                                    <livewire:purchase.search-product :selection-target="\App\Livewire\Adjustment\AdjustmentProductTable::class" />
                                 </div>
                             </div>
 
                             <br>
 
-                            <livewire:adjustment.adjustment-product-table :adjustedProducts="$adjustment->adjustedProducts->toArray()" :locationId="$adjustment->location_id"/>
-                            <div class="form-group">
+                            <livewire:adjustment.adjustment-product-table
+                                :adjustment="$adjustment"
+                                :adjustedProducts="$adjustment->adjustedProducts->toArray()"
+                                :locationId="old('location_id', $adjustment->location_id)"/>
+
+                            <div class="form-group mt-3">
                                 <label for="note">Catatan (Jika Dibutuhkan)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control">{{ $adjustment->note }}</textarea>
+                                <textarea name="note" id="note" rows="4" class="form-control">{{ old('note', $adjustment->note) }}</textarea>
                             </div>
+
                             <div class="mt-3">
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
                                 <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="adjustment-edit-form">
-                                    Perbaharui Penyesuaian <i class="bi bi-check"></i>
+                                    Perbaharui Proposal <i class="bi bi-check"></i>
                                 </x-button>
                             </div>
                         </form>
@@ -81,6 +83,7 @@
 @endsection
 
 @push('page_scripts')
+    @livewireScripts
     <script>
         // Initialize form submission lock
         initFormSubmissionLock('adjustment-edit-form', 'adjustment:submit-error');

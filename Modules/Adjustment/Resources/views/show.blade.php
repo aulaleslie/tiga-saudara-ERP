@@ -123,51 +123,153 @@
         <div class="row mt-4">
             <div class="col-12">
                 <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Rincian Perhitungan Fisik (Stock Opname)</h5>
+                        @if($adjustment->isVersionedCountDraft())
+                            <span class="badge badge-info">Draf Proposal v{{ $adjustment->count_draft['schema_version'] ?? 1 }}</span>
+                        @endif
+                    </div>
                     <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-bordered">
-                                <thead>
-                                <tr>
-                                    <th>Nama Produk</th>
-                                    <th>Kode Produk</th>
-                                    <th>Stok</th>
-                                    <th>Kuantitas Terhitung</th>
-                                    <th>Serial Numbers</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                @foreach($adjustment->adjustedProducts as $adjustedProduct)
+                        @if($adjustment->isVersionedCountDraft())
+                            <div class="alert alert-info py-2 mb-3">
+                                <strong>Status Proposal:</strong> Dokumen ini merupakan proposal perhitungan fisik stok (stock opname) yang belum mempengaruhi inventaris fisik sampai disetujui.
+                                @if(!empty($adjustment->count_draft['baseline_captured_at']))
+                                    <div class="small text-muted mt-1">
+                                        Waktu Snapshot Baseline: {{ \Carbon\Carbon::parse($adjustment->count_draft['baseline_captured_at'])->format('d M Y, H:i:s') }}
+                                        | Perlakuan Pajak: <strong>{{ !empty($adjustment->count_draft['is_pkp']) ? 'PKP' : 'Non-PKP' }}</strong>
+                                    </div>
+                                @endif
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-striped">
+                                    <thead class="thead-light">
                                     <tr>
-                                        <td>{{ $adjustedProduct->product->product_name }}</td>
-                                        <td>{{ $adjustedProduct->product->product_code }}</td>
-                                        <td class="text-center">
-                                            <span class="badge badge-info">
-                                                {{ $adjustedProduct->stock_info['quantity'] }} {{ $adjustedProduct->stock_info['unit'] }}
-                                            </span>
-                                            <span class="d-inline-block"
-                                                  data-toggle="tooltip"
-                                                  data-placement="top"
-                                                  title="Stok Pajak: {{ $adjustedProduct->stock_info['quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Stok Non-Pajak: {{ $adjustedProduct->stock_info['quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Pajak: {{ $adjustedProduct->stock_info['broken_quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Non-Pajak: {{ $adjustedProduct->stock_info['broken_quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }}">
-                                                <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
-                                            </span>
-                                        </td>
-                                        <td class="text-center">{{ $adjustedProduct->quantity }}</td>
-                                        <td>
-                                            @if(!empty($adjustedProduct->serialNumbers))
-                                                <ol class="mb-0 ps-3">
-                                                    @foreach($adjustedProduct->serialNumbers as $serial)
-                                                        <li>{{ $serial['serial_number'] }} - {{ $serial['tax_label'] }}</li>
-                                                    @endforeach
-                                                </ol>
-                                            @else
-                                                <span class="text-muted">N/A</span>
-                                            @endif
-                                        </td>
+                                        <th>Nama Produk</th>
+                                        <th>Kode</th>
+                                        <th>Satuan</th>
+                                        @can('adjustments.view-system-stock')
+                                            <th class="text-center">Stok Sistem (Bagus / Rusak)</th>
+                                        @endcan
+                                        <th class="text-center">Hasil Hitung Fisik (Bagus / Rusak)</th>
+                                        @can('adjustments.view-system-stock')
+                                            <th class="text-center">Selisih Fisik (Bagus / Rusak)</th>
+                                        @endcan
+                                        <th>Daftar Nomor Seri Terhitung</th>
                                     </tr>
-                                @endforeach
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody>
+                                    @foreach($adjustment->count_draft['rows'] ?? [] as $row)
+                                        @php
+                                            $baseGood = (int) ($row['baseline']['existing_good_total'] ?? 0);
+                                            $baseBad = (int) ($row['baseline']['existing_bad_total'] ?? 0);
+                                            $propGood = (int) ($row['good_count'] ?? 0);
+                                            $propBad = (int) ($row['bad_count'] ?? 0);
+                                            $diffGood = $propGood - $baseGood;
+                                            $diffBad = $propBad - $baseBad;
+                                        @endphp
+                                        <tr>
+                                            <td class="align-middle font-weight-bold">{{ $row['product_name'] }}</td>
+                                            <td class="align-middle">{{ $row['product_code'] }}</td>
+                                            <td class="align-middle">{{ $row['base_unit'] }}</td>
+                                            @can('adjustments.view-system-stock')
+                                                <td class="align-middle text-center">
+                                                    <span class="badge badge-secondary">Bagus: {{ $baseGood }}</span>
+                                                    <span class="badge badge-secondary">Rusak: {{ $baseBad }}</span>
+                                                </td>
+                                            @endcan
+                                            <td class="align-middle text-center">
+                                                <span class="badge badge-primary">Bagus: {{ $propGood }}</span>
+                                                <span class="badge badge-warning">Rusak: {{ $propBad }}</span>
+                                            </td>
+                                            @can('adjustments.view-system-stock')
+                                                <td class="align-middle text-center">
+                                                    <span class="badge {{ $diffGood >= 0 ? 'badge-success' : 'badge-danger' }}">
+                                                        Bagus: {{ $diffGood > 0 ? "+{$diffGood}" : $diffGood }}
+                                                    </span>
+                                                    <span class="badge {{ $diffBad >= 0 ? 'badge-warning' : 'badge-danger' }}">
+                                                        Rusak: {{ $diffBad > 0 ? "+{$diffBad}" : $diffBad }}
+                                                    </span>
+                                                </td>
+                                            @endcan
+                                            <td class="align-middle">
+                                                @if(!empty($row['serials']))
+                                                    <div style="max-height: 120px; overflow-y: auto;">
+                                                        <ul class="mb-0 ps-3 pl-3 small">
+                                                            @foreach($row['serials'] as $s)
+                                                                <li>
+                                                                    <code>{{ $s['serial_number'] }}</code>
+                                                                    <span class="badge badge-sm {{ ($s['condition'] ?? 'good') === 'good' ? 'badge-success' : 'badge-warning' }}">
+                                                                        {{ ($s['condition'] ?? 'good') === 'good' ? 'BAGUS' : 'RUSAK' }}
+                                                                    </span>
+                                                                    @if(!empty($s['source_location_name']))
+                                                                        <span class="text-muted">({{ $s['source_location_name'] }})</span>
+                                                                    @else
+                                                                        <span class="text-muted">(Nomor Seri Baru)</span>
+                                                                    @endif
+                                                                </li>
+                                                            @endforeach
+                                                        </ul>
+                                                    </div>
+                                                @else
+                                                    <span class="text-muted">Non-Serial</span>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table table-bordered">
+                                    <thead class="thead-light">
+                                    <tr>
+                                        <th>Nama Produk</th>
+                                        <th>Kode Produk</th>
+                                        @can('adjustments.view-system-stock')
+                                            <th>Stok</th>
+                                        @endcan
+                                        <th>Kuantitas Terhitung</th>
+                                        <th>Serial Numbers</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach($adjustment->adjustedProducts as $adjustedProduct)
+                                        <tr>
+                                            <td>{{ $adjustedProduct->product->product_name }}</td>
+                                            <td>{{ $adjustedProduct->product->product_code }}</td>
+                                            @can('adjustments.view-system-stock')
+                                                <td class="text-center">
+                                                    <span class="badge badge-info">
+                                                        {{ $adjustedProduct->stock_info['quantity'] }} {{ $adjustedProduct->stock_info['unit'] }}
+                                                    </span>
+                                                    <span class="d-inline-block"
+                                                          data-toggle="tooltip"
+                                                          data-placement="top"
+                                                          title="Stok Pajak: {{ $adjustedProduct->stock_info['quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Stok Non-Pajak: {{ $adjustedProduct->stock_info['quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Pajak: {{ $adjustedProduct->stock_info['broken_quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Non-Pajak: {{ $adjustedProduct->stock_info['broken_quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }}">
+                                                        <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
+                                                    </span>
+                                                </td>
+                                            @endcan
+                                            <td class="text-center">{{ $adjustedProduct->quantity }}</td>
+                                            <td>
+                                                @if(!empty($adjustedProduct->serialNumbers))
+                                                    <ol class="mb-0 ps-3">
+                                                        @foreach($adjustedProduct->serialNumbers as $serial)
+                                                            <li>{{ $serial['serial_number'] }} - {{ $serial['tax_label'] }}</li>
+                                                        @endforeach
+                                                    </ol>
+                                                @else
+                                                    <span class="text-muted">N/A</span>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>

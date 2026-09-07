@@ -24,6 +24,13 @@ class AdjustmentsDataTable extends DataTable
             })
             ->editColumn('status', function ($data) {
                 return strtoupper($data->status);
+            })
+            ->addColumn('adjusted_products_count', function ($data) {
+                if ($data->isVersionedCountDraft()) {
+                    $rows = $data->count_draft['rows'] ?? [];
+                    return count($rows);
+                }
+                return $data->adjusted_products_count;
             });
     }
 

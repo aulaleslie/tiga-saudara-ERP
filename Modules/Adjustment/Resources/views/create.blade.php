@@ -2,6 +2,10 @@
 
 @section('title', 'Buat Penyesuaian')
 
+@push('page_css')
+    @livewireStyles
+@endpush
+
 @section('content')
     <div class="container-fluid mb-4">
         <div class="row">
@@ -31,16 +35,15 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="location">Lokasi</label>
-                                        <livewire:auto-complete.location-loader :locationId="old('location_id')" />
-                                        @error('location_id') <span class="text-danger">{{ $message }}</span> @enderror
+                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.location-search-dropdown', [
+                                            'selected' => old('location_id'),
+                                            'consignmentFilter' => 'standard',
+                                            'placeholder' => 'Pilih lokasi stok opname...',
+                                            'dispatchTo' => \App\Livewire\Adjustment\AdjustmentProductTable::class,
+                                        ])
+                                        @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-lg-12">
-                                    <livewire:purchase.search-product :selection-target="\App\Livewire\Adjustment\AdjustmentProductTable::class" />
                                 </div>
                             </div>
 
@@ -49,7 +52,6 @@
                             <div class="form-row">
                                 <div class="col-lg-12">
                                     <livewire:adjustment.adjustment-product-table
-                                        :type="'sub'"
                                         :locationId="old('location_id')"
                                         :serial_numbers="old('serial_numbers')"
                                         :product_ids="old('product_ids')"
@@ -58,12 +60,10 @@
                                 </div>
                             </div>
 
-                            <div class="form-group">
+                            <div class="form-group mt-3">
                                 <label for="note">Catatan (Jika Dibutuhkan)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control">{{ old('note') }}</textarea>
+                                <textarea name="note" id="note" rows="4" class="form-control" placeholder="Tambahkan catatan penghitungan fisik bila diperlukan...">{{ old('note') }}</textarea>
                             </div>
-
-
 
                             <div class="mt-3">
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
@@ -71,7 +71,7 @@
                                 </a>
                                 @can('adjustments.create')
                                     <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="adjustment-create-form">
-                                        Buat Penyesuaian <i class="bi bi-check"></i>
+                                        Simpan Proposal Opname <i class="bi bi-check"></i>
                                     </x-button>
                                 @endcan
                             </div>
@@ -84,6 +84,7 @@
 @endsection
 
 @push('page_scripts')
+    @livewireScripts
     <script>
         // Initialize form submission lock
         initFormSubmissionLock('adjustment-create-form', 'adjustment:submit-error');

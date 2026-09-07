@@ -18,6 +18,7 @@
                     type="text"
                     class="form-control form-control-sm mb-2"
                     wire:model.live.debounce.300ms="search"
+                    wire:keydown.enter.prevent
                     placeholder="Cari lokasi..."
                     autocomplete="off"
                 >

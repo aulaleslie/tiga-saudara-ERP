@@ -12,6 +12,15 @@ class Adjustment extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'count_draft' => 'array',
+    ];
+
+    public function isVersionedCountDraft(): bool
+    {
+        return !empty($this->count_draft) && isset($this->count_draft['schema_version']);
+    }
+
     public function getDateAttribute($value): string
     {
         return Carbon::parse($value)->format('d M, Y');
@@ -49,8 +58,10 @@ class Adjustment extends BaseModel
                 $nextNumber = $lastNumber + 1;
             }
 
-            // Generate the new reference ID
-            $model->reference = make_reference_id('ADJ', $year, $month, $nextNumber);
+            // Generate the new reference ID if not provided or default 'ADJ'
+            if (empty($model->reference) || strtoupper($model->reference) === 'ADJ') {
+                $model->reference = make_reference_id('ADJ', $year, $month, $nextNumber);
+            }
         });
     }
 

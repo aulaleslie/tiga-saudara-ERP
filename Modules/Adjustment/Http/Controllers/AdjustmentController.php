@@ -76,6 +76,22 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('adjustments.create'), 403);
         Log::info('[Adjustment] Incoming store request:', $request->all());
+
+        // Check if request is from the count-draft workflow (either count_draft is present or legacy product_ids is absent)
+        if ($request->has('count_draft') || !$request->has('product_ids')) {
+            $service = app(\Modules\Adjustment\Services\CountDraftService::class);
+            $validatedInput = $service->validateDraftInput($request->all());
+
+            try {
+                $service->saveDraft($validatedInput);
+
+                return redirect()->route('adjustments.index')->with('success', 'Proposal penyesuaian stok (stock opname) berhasil disimpan.');
+            } catch (\Throwable $e) {
+                report($e);
+                return back()->withErrors(['message' => 'Gagal menyimpan proposal penyesuaian stok. Silakan coba beberapa saat lagi.'])->withInput();
+            }
+        }
+
         $validated = $request->validate([
             'reference' => 'required|string',
             'date' => 'required|date',
@@ -376,7 +392,11 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('adjustments.edit'), 403);
 
-        // ✅ Add this
+        $service = app(\Modules\Adjustment\Services\CountDraftService::class);
+        if (!$service->canEditAdjustment($adjustment)) {
+            abort(403, 'Hanya penyesuaian pending normal yang dapat diubah.');
+        }
+
         $adjustment->load('adjustedProducts.product.baseUnit');
 
         return view('adjustment::edit', compact('adjustment'));
@@ -386,6 +406,25 @@ class AdjustmentController extends Controller
     public function update(Request $request, Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.edit'), 403);
+
+        $service = app(\Modules\Adjustment\Services\CountDraftService::class);
+        if (!$service->canEditAdjustment($adjustment)) {
+            abort(403, 'Hanya penyesuaian pending normal yang dapat diubah.');
+        }
+
+        // Check if request is from the count-draft workflow (either count_draft is present or legacy product_ids is absent)
+        if ($request->has('count_draft') || !$request->has('product_ids')) {
+            $validatedInput = $service->validateDraftInput($request->all(), $adjustment);
+
+            try {
+                $service->saveDraft($validatedInput, $adjustment);
+
+                return redirect()->route('adjustments.index')->with('success', 'Proposal penyesuaian stok berhasil diperbaharui.');
+            } catch (\Throwable $e) {
+                report($e);
+                return back()->withErrors(['message' => 'Gagal memperbaharui proposal penyesuaian stok. Silakan coba beberapa saat lagi.'])->withInput();
+            }
+        }
 
         $validated = $request->validate([
             'reference' => 'required|string|max:255',
@@ -624,6 +663,12 @@ class AdjustmentController extends Controller
         Log::info('[Adjustment] Approving adjustment (full)', $adjustment->toArray());
         Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
 
+        if ($adjustment->isVersionedCountDraft()) {
+            return back()->withErrors([
+                'message' => 'Persetujuan untuk proposal stock opname format baru belum tersedia (alur persetujuan baru sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
+            ]);
+        }
+
         $normalizedType = Str::of($adjustment->type)->lower()->trim()->value();
 
         if ($normalizedType === 'normal') {
@@ -645,6 +690,13 @@ class AdjustmentController extends Controller
     public function approveNormal(Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.approval'), 403);
+
+        if ($adjustment->isVersionedCountDraft()) {
+            return back()->withErrors([
+                'message' => 'Persetujuan untuk proposal stock opname format baru belum tersedia (alur persetujuan baru sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
+            ]);
+        }
+
         try {
             DB::beginTransaction();
             $settingId = session('setting_id');

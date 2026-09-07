@@ -28,6 +28,7 @@ class LocationSearchDropdown extends Component
 
     protected $listeners = [
         'locationCreated' => 'handleLocationCreated',
+        'setSelectedLocation' => 'handleSetSelectedLocation',
     ];
 
     public ?string $dispatchTo = null;
@@ -125,6 +126,18 @@ class LocationSearchDropdown extends Component
         if ($option['id'] !== null) {
             $this->select($option['id']);
         }
+    }
+
+    public function handleSetSelectedLocation($locationId, ?string $name = null): void
+    {
+        if ($name && $this->name !== $name) {
+            return;
+        }
+
+        $this->selected = $locationId ?: null;
+        $this->selectedLabel = $this->resolveLabel($this->selected);
+        $this->open = false;
+        $this->search = '';
     }
 
     private function resolveLabel(int|string|null $id): ?string

@@ -46,6 +46,7 @@ return [
         'adjustments.delete' => 'Hapus',
         'adjustments.edit' => 'Ubah',
         'adjustments.show' => 'Tampilkan',
+        'adjustments.view-system-stock' => 'Lihat Stok Sistem pada Stock Opname',
     ],
 
     'Barcode' => [
