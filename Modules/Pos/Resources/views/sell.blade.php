@@ -1590,8 +1590,8 @@
                         return true;
                     });
 
-                 const canSaveDraft = hasItems && grandTotal > 0 && hasCustomer && allPricesValid && allSerialsValid;
-                 const canCheckout = canSaveDraft && canCheckoutByRole;
+                 const canSaveDraft = hasItems && grandTotal > 0 && hasCustomer && allPricesValid;
+                 const canCheckout = canSaveDraft && allSerialsValid && canCheckoutByRole;
 
                  if (btnCheckout) {
                      btnCheckout.disabled = !canCheckout;
@@ -1601,9 +1601,9 @@
                      saveDraftButton.disabled = !canSaveDraft;
                  }
 
-                 // Display serial mismatch error if present
+                 // Display serial mismatch message if present
                  if (!allSerialsValid && mismatchMessage) {
-                     setCartStatus(mismatchMessage, 'text-danger');
+                     setCartStatus(mismatchMessage, canSaveDraft ? 'text-muted' : 'text-danger');
                  } else if (requiresTerminalForCheckout && hasItems) {
                      setCartStatus('Kasir tanpa terminal tetap bisa menyiapkan draft, tetapi pembayaran baru aktif setelah sesi terhubung ke terminal.', 'text-muted');
                  } else if (!hasCheckoutAuthority && hasItems) {

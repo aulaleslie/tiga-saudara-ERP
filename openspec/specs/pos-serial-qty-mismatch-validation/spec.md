@@ -1,6 +1,9 @@
 # pos-serial-qty-mismatch-validation Specification
 
-## ADDED Requirements
+## Purpose
+Defines how the POS cart handles serial-number assignments relative to line quantity: preserving assignments across quantity edits, gating Save Draft and Checkout differently on serial/quantity mismatch, and providing UI affordances to resolve mismatches.
+
+## Requirements
 
 ### Requirement: Serial Assignments MUST Be Preserved When Cart Line Quantity Changes
 The POS cart system SHALL preserve assigned serial numbers when the user modifies the quantity of a serial-required line, allowing the user to resolve mismatches manually rather than forcing re-entry.
@@ -16,23 +19,31 @@ The POS cart system SHALL preserve assigned serial numbers when the user modifie
 - **AND** the cart state MUST contain `assigned_serials: [SN-001]` with `qty: 3`
 
 ### Requirement: Save and Checkout Operations MUST Block When Serial Count Does Not Match Quantity
-The POS checkout flow SHALL validate that assigned serial count equals the sale quantity for all serial-required items before allowing save or checkout operations.
+The POS checkout flow SHALL validate that assigned serial count equals the sale quantity for all serial-required items before allowing checkout. Save Draft SHALL NOT be gated by serial-quantity match — a cart with incomplete or mismatched serial assignments MAY be saved as a draft, deferring serial completion to a later editing session.
 
-#### Scenario: Save is blocked when serials exceed quantity
-- **WHEN** a cart line has serial_number_required=true with qty=1 and assigned_serials=[SN-001, SN-002]
-- **THEN** the Save Draft button MUST be disabled
+#### Scenario: Save Draft is allowed when serials are fewer than quantity
+- **WHEN** a cart line has `serial_number_required=true` with `qty=3` and `assigned_serials=[SN-001]`
+- **THEN** the Save Draft button MUST remain enabled (subject to other existing non-serial save conditions)
 - **AND** the Checkout button MUST be disabled
+
+#### Scenario: Save Draft is allowed when serials exceed quantity
+- **WHEN** a cart line has `serial_number_required=true` with `qty=1` and `assigned_serials=[SN-001, SN-002]`
+- **THEN** the Save Draft button MUST remain enabled (subject to other existing non-serial save conditions)
+- **AND** the Checkout button MUST be disabled
+
+#### Scenario: Checkout is blocked when serials exceed quantity
+- **WHEN** a cart line has `serial_number_required=true` with `qty=1` and `assigned_serials=[SN-001, SN-002]`
+- **THEN** the Checkout button MUST be disabled
 - **AND** an error message MUST be displayed indicating the mismatch
 
-#### Scenario: Save is blocked when quantity exceeds assigned serials
-- **WHEN** a cart line has serial_number_required=true with qty=3 and assigned_serials=[SN-001]
-- **THEN** the Save Draft button MUST be disabled
-- **AND** the Checkout button MUST be disabled
+#### Scenario: Checkout is blocked when quantity exceeds assigned serials
+- **WHEN** a cart line has `serial_number_required=true` with `qty=3` and `assigned_serials=[SN-001]`
+- **THEN** the Checkout button MUST be disabled
 
-#### Scenario: Save is enabled when counts match
-- **WHEN** a cart line has serial_number_required=true with qty=2 and assigned_serials=[SN-001, SN-002]
-- **THEN** the Save Draft button MUST be enabled
-- **AND** the Checkout button MUST be enabled (assuming other guards pass)
+#### Scenario: Checkout is enabled when counts match
+- **WHEN** a cart line has `serial_number_required=true` with `qty=2` and `assigned_serials=[SN-001, SN-002]`
+- **THEN** the Checkout button MUST be enabled (assuming other guards pass)
+- **AND** the Save Draft button MUST be enabled (assuming other guards pass)
 
 ### Requirement: User MUST Be Able To Resolve Serial-Quantity Mismatch Through Manual Adjustment
 The POS UI SHALL provide clear affordances for the user to resolve mismatches by either removing excess serials or adjusting the quantity.
