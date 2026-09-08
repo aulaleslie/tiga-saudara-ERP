@@ -5,13 +5,22 @@ namespace Modules\Pos\Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Customer;
+use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Entities\PosReturnLine;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Services\PosCartService;
 use Modules\Pos\Services\PosCartTotalsCalculator;
+use Modules\Pos\Services\PosReturnSnapshotService;
+use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Tests\TestCase;
@@ -40,6 +49,9 @@ class PosRowTotalRoundingTest extends TestCase
         ]);
 
         $this->user = User::factory()->create();
+        \Spatie\Permission\Models\Permission::findOrCreate('pos.transactions.save', 'web');
+        \Spatie\Permission\Models\Permission::findOrCreate('pos.transactions.load', 'web');
+        $this->user->givePermissionTo(['pos.transactions.save', 'pos.transactions.load']);
 
         $terminal = PosTerminal::create([
             'setting_id' => $this->setting->id,
@@ -976,4 +988,532 @@ class PosRowTotalRoundingTest extends TestCase
         $this->assertEquals(70001.00, $parentResidual);
         $this->assertEquals(79000.00, $componentTotal + $parentResidual);
     }
+
+    public function test_draft_save_persists_authoritative_rounded_row_amounts_reproducing_case_3393(): void
+    {
+        // Case 3393: 4 items in cart under increment 100
+        // Item 1: 1 x 250,000 = 250,000
+        // Item 2: 24 x 1,083 = 25,992 (rounds to 26,000)
+        // Item 3: 1 x 14,000 = 14,000
+        // Item 4: 1 x 28,000 = 28,000
+        // Expected total: 250,000 + 26,000 + 14,000 + 28,000 = 318,000
+        $this->setting->update(['row_total_rounding_increment' => 100.00]);
+
+        $category = Category::firstOrCreate(
+            ['category_code' => 'CAT-3393'],
+            [
+                'category_name' => 'Category 3393',
+                'setting_id' => $this->setting->id,
+                'created_by' => $this->user->id,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'Pcs',
+            'short_name' => 'pcs',
+        ]);
+
+        $product1 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'product_name' => 'Item 1',
+            'product_code' => 'ITM-3393-1',
+            'product_quantity' => 100,
+            'product_cost' => 100000,
+            'product_price' => 250000.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $product1->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 250000.00,
+        ]);
+
+        $product2 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'product_name' => 'Item 2',
+            'product_code' => 'ITM-3393-2',
+            'product_quantity' => 100,
+            'product_cost' => 500,
+            'product_price' => 1083.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $product2->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 1083.00,
+        ]);
+
+        $product3 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'product_name' => 'Item 3',
+            'product_code' => 'ITM-3393-3',
+            'product_quantity' => 100,
+            'product_cost' => 5000,
+            'product_price' => 14000.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $product3->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 14000.00,
+        ]);
+
+        $product4 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'product_name' => 'Item 4',
+            'product_code' => 'ITM-3393-4',
+            'product_quantity' => 100,
+            'product_cost' => 10000,
+            'product_price' => 28000.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $product4->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 28000.00,
+        ]);
+
+        // Add to session cart
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $product1->id, 1);
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $product2->id, 24);
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $product3->id, 1);
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $product4->id, 1);
+
+        $cartStore = app(\Modules\Pos\Services\PosCartSessionStore::class);
+        $cartBeforeSave = $cartStore->getCart($this->setting->id, (int) $this->session->id);
+
+        $transactionService = app(\Modules\Pos\Services\PosTransactionService::class);
+        $transaction = $transactionService->saveAndNew($this->setting->id, $this->session, $this->user, $cartBeforeSave);
+
+        // 1. Transaction header totals must be 318,000.00
+        $this->assertEquals(318000.00, (float) ($transaction->snapshot_totals['grand_total'] ?? 0));
+        $this->assertEquals(318000.00, (float) ($transaction->snapshot_totals['subtotal'] ?? 0));
+
+        // 2. Lines must carry authoritative rounded net minor and gross minor
+        $lines = $transaction->lines()->orderBy('line_no')->get();
+        $this->assertCount(4, $lines);
+
+        $line2 = $lines[1];
+        $this->assertSame((int) $product2->id, (int) $line2->product_id);
+        $this->assertEquals(24, (int) $line2->qty);
+        $this->assertEquals(1083.00, (float) $line2->unit_price);
+
+        $line2Meta = $line2->line_meta ?? [];
+        $this->assertArrayHasKey('line_total_minor', $line2Meta, 'Automatic rounded row must persist line_total_minor');
+        $this->assertSame(2600000, (int) $line2Meta['line_total_minor'], 'Line 2 rounded net minor must be 2,600,000 cents (26,000.00)');
+        $this->assertSame(2599200, (int) $line2Meta['line_gross_minor'], 'Line 2 gross minor must be 2,599,200 cents (25,992.00)');
+        $this->assertArrayHasKey(PosCartTotalsCalculator::LINE_PRICING_FINGERPRINT, $line2Meta);
+
+        // 3. Hydrating or loading the draft must restore the lines with line_total_minor and clean flag
+        $mapper = app(\Modules\Pos\Services\PosTransactionSnapshotMapper::class);
+        $hydrated = $mapper->hydrateCart($transaction);
+        $hydratedLines = array_values($hydrated['lines']);
+
+        $this->assertTrue((bool) $hydratedLines[1][PosCartTotalsCalculator::LINE_CLEAN_FLAG]);
+        $this->assertSame(2600000, (int) $hydratedLines[1]['line_total_minor']);
+
+        // 4. Recalculating the hydrated cart must keep line 2 at 26,000 and grand total at 318,000 without drift
+        $calculator = new PosCartTotalsCalculator();
+        $recalculated = $calculator->calculate(
+            lines: $hydratedLines,
+            billDiscount: ['type' => 'fixed', 'value' => 0],
+            isPkp: false,
+            settingId: $this->setting->id
+        );
+
+        $this->assertEquals(26000.00, (float) $recalculated['lines'][1]['line_subtotal']);
+        $this->assertEquals(318000.00, (float) $recalculated['totals']['grand_total']);
+    }
+
+    public function test_draft_reload_and_resave_stability_under_increment_changes_packed_overrides_and_disabled_rounding(): void
+    {
+        // Test stability across:
+        // 1. Increment change (50 -> 100)
+        // 2. Packed automatic row
+        // 3. Manual unit override
+        // 4. Manual total override
+        // 5. Disabled rounding (increment = 0)
+        $this->setting->update(['row_total_rounding_increment' => 50.00]);
+
+        // Create products
+        $prodBase = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $this->product->category_id,
+            'unit_id' => $this->product->unit_id,
+            'product_name' => 'Prod Base Rounding',
+            'product_code' => 'P-BASE-RND',
+            'product_quantity' => 100,
+            'product_cost' => 500,
+            'product_price' => 1083.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $prodBase->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 1083.00,
+        ]);
+
+        $prodPacked = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $this->product->category_id,
+            'unit_id' => $this->product->unit_id,
+            'product_name' => 'Prod Packed Rounding',
+            'product_code' => 'P-PACK-RND',
+            'product_quantity' => 100,
+            'product_cost' => 1000,
+            'product_price' => 10000.00,
+            'is_active' => true,
+            'is_sold' => true,
+            'stock_managed' => false,
+        ]);
+        ProductPrice::create([
+            'product_id' => $prodPacked->id,
+            'setting_id' => $this->setting->id,
+            'sale_price' => 10000.00,
+        ]);
+
+        // Add lines to cart:
+        // Line 1: prodBase, qty 24 (24 * 1083 = 25992 -> under increment 50, rounds to 26000)
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $prodBase->id, 24);
+        // Line 2: prodPacked, qty 1, packed breakdown raw total 78999.96 -> rounds to 79000 under increment 50
+        $this->cartService->addLine($this->setting->id, (int) $this->session->id, $prodPacked->id, 1);
+
+        $cartStore = app(\Modules\Pos\Services\PosCartSessionStore::class);
+        $cart = $cartStore->getCart($this->setting->id, (int) $this->session->id);
+        $cart['lines'][2]['price_source'] = 'PACKED';
+        $cart['lines'][2]['breakdown'] = ['line_total_minor' => 7899996];
+        $cart['lines'][2]['line_total'] = 7899996;
+        $cartStore->putCart($this->setting->id, (int) $this->session->id, $cart);
+
+        $transactionService = app(\Modules\Pos\Services\PosTransactionService::class);
+        $transaction = $transactionService->saveAndNew($this->setting->id, $this->session, $this->user, $cartStore->getCart($this->setting->id, (int) $this->session->id));
+
+        // Line 1: 26,000; Line 2: 79,000; Total = 105,000
+        $this->assertEquals(105000.00, (float) $transaction->snapshot_totals['grand_total']);
+
+        // Business changes increment to 100. Under increment 100, 25992 still rounds to 26000.
+        // What if business changes increment to 0 (disabled rounding)?
+        $this->setting->update(['row_total_rounding_increment' => 0.00]);
+
+        // Load draft into cart
+        $loadedSnapshot = $transactionService->loadToCart($this->setting->id, (int) $this->session->id, $transaction, $this->user);
+
+        // Even with rounding disabled in settings, unedited loaded draft rows must preserve their authoritative committed total!
+        $this->assertEquals(26000.00, (float) $loadedSnapshot['lines'][0]['line_subtotal']);
+        $this->assertEquals(79000.00, (float) $loadedSnapshot['lines'][1]['line_subtotal']);
+        $this->assertEquals(105000.00, (float) $loadedSnapshot['totals']['grand_total']);
+
+        // Saving again without editing must keep the same totals
+        $cartLoaded = $cartStore->getCart($this->setting->id, (int) $this->session->id);
+        $resaved = $transactionService->saveAndNew($this->setting->id, $this->session, $this->user, $cartLoaded);
+        $this->assertEquals(105000.00, (float) $resaved->snapshot_totals['grand_total']);
+
+        // Now test manual override row:
+        // Load again
+        $transactionService->loadToCart($this->setting->id, (int) $this->session->id, $resaved, $this->user);
+        $cartLoaded2 = $cartStore->getCart($this->setting->id, (int) $this->session->id);
+
+        // Apply manual line unit price override on line 1: unit price 1200.50, qty 24 = 28812.00
+        $cartLoaded2['lines'][1]['price_source'] = 'LINE_UNIT_PRICE_OVERRIDE';
+        $cartLoaded2['lines'][1]['unit_price'] = 1200.50;
+        $cartLoaded2['lines'][1]['line_gross_minor'] = 2881200;
+        $cartLoaded2['lines'][1]['line_discount_minor'] = 0;
+        $cartLoaded2['lines'][1]['line_net_minor'] = 2881200;
+        $cartLoaded2['lines'][1]['line_total_minor'] = 2881200;
+        $cartStore->putCart($this->setting->id, (int) $this->session->id, $cartLoaded2);
+
+        $savedWithOverride = $transactionService->saveAndNew($this->setting->id, $this->session, $this->user, $cartStore->getCart($this->setting->id, (int) $this->session->id));
+
+        // Line 1 override is 28812.00; Line 2 packed is 79000.00 -> Total = 107812.00
+        $this->assertEquals(107812.00, (float) $savedWithOverride->snapshot_totals['grand_total']);
+
+        // Re-enable increment = 500. Reload draft.
+        $this->setting->update(['row_total_rounding_increment' => 500.00]);
+        $loadedWithOverride = $transactionService->loadToCart($this->setting->id, (int) $this->session->id, $savedWithOverride, $this->user);
+
+        $this->assertEquals(28812.00, (float) $loadedWithOverride['lines'][0]['line_subtotal']);
+        $this->assertEquals(79000.00, (float) $loadedWithOverride['lines'][1]['line_subtotal']);
+        $this->assertEquals(107812.00, (float) $loadedWithOverride['totals']['grand_total']);
+    }
+
+    public function test_pos_transaction_line_amount_resolver_handles_all_permutations(): void
+    {
+        // 1. Canonical override line
+        $overrideLine = [
+            'qty' => 1.5,
+            'unit_price' => 12345.67,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 200.00,
+            'line_meta' => [
+                'price_source' => 'LINE_TOTAL_OVERRIDE',
+                'line_gross_minor' => 1851851, // 18,518.51
+                'line_discount_minor' => 20000, // 200.00
+                'line_net_minor' => 1831851, // 18,318.51
+                'bill_discount_amount' => 100.50,
+            ],
+        ];
+        $res1 = \Modules\Pos\Services\PosTransactionLineAmountResolver::resolve($overrideLine);
+        $this->assertEquals(18518.51, $res1['gross']);
+        $this->assertEquals(200.00, $res1['discount']);
+        $this->assertEquals(18318.51, $res1['net_before_bill']);
+        $this->assertEquals(100.50, $res1['bill_discount']);
+        $this->assertEquals(18218.01, $res1['charged_total']);
+
+        // 2. Large amount and percentage discount
+        $largeLine = [
+            'qty' => 100,
+            'unit_price' => 1250000.00, // 125,000,000.00 gross
+            'line_discount_type' => 'percentage',
+            'line_discount_value' => 10.00, // 12,500,000.00 discount
+            'line_meta' => [
+                'price_source' => 'BASE',
+                'line_gross_minor' => 12500000000,
+                'line_discount_minor' => 1250000000,
+                'line_total_minor' => 11250000000, // 112,500,000.00
+            ],
+        ];
+        $res2 = \Modules\Pos\Services\PosTransactionLineAmountResolver::resolve($largeLine);
+        $this->assertEquals(125000000.00, $res2['gross']);
+        $this->assertEquals(12500000.00, $res2['discount']);
+        $this->assertEquals(112500000.00, $res2['net_before_bill']);
+        $this->assertEquals(0.00, $res2['rounding_adjustment']);
+
+        // 3. Fallback standard calculation with rounding adjustment
+        $fallbackLine = [
+            'qty' => 3,
+            'unit_price' => 333.33,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0.00,
+            'line_meta' => [
+                'price_source' => 'BASE',
+            ],
+        ];
+        $res3 = \Modules\Pos\Services\PosTransactionLineAmountResolver::resolve($fallbackLine);
+        $this->assertEquals(999.99, $res3['gross']);
+        $this->assertEquals(0.00, $res3['discount']);
+        $this->assertEquals(999.99, $res3['net_before_bill']);
+    }
+
+    public function test_downstream_taxable_row_amounts_and_global_discounts_reconcile_in_minor_units(): void
+    {
+        $this->setting->update([
+            'is_pkp' => true,
+            'row_total_rounding_increment' => 100.00,
+        ]);
+
+        $tax = \Modules\Setting\Entities\Tax::create([
+            'name' => 'PPN 11%',
+            'value' => 11.0,
+            'is_active' => true,
+        ]);
+
+        $calculator = new PosCartTotalsCalculator();
+
+        // 1 item: 78,999.96 -> rounds to 79,000. Bill discount: 1,000.
+        // Net subtotal = 78,000.00.
+        // Tax is extracted from gross 78,000.00:
+        // tax = round(78000 * 1100 / 11100) = round(85800000 / 11100) = round(7729.7297) = 7730.
+        $snapshot = $calculator->calculate(
+            lines: [[
+                'line_id' => 1,
+                'product_id' => $this->product->id,
+                'qty' => 1,
+                'unit_price' => 78999.96,
+                'tax_id' => $tax->id,
+                'tax_rate' => 11.0,
+                'price_source' => 'BASE',
+            ]],
+            billDiscount: ['type' => 'fixed', 'value' => 1000.00],
+            isPkp: true,
+            settingId: $this->setting->id
+        );
+
+        $this->assertEquals(79000.00, $snapshot['lines'][0]['line_net_before_bill']);
+        $this->assertEquals(1000.00, $snapshot['lines'][0]['bill_discount_amount']);
+        $this->assertEquals(78000.00, $snapshot['lines'][0]['line_subtotal']);
+        $this->assertEquals(7730.00, $snapshot['lines'][0]['line_tax_total']);
+        $this->assertEquals(78000.00, $snapshot['totals']['grand_total']);
+        // Verify tax total is exactly 7730.00 without additional increment rounding
+        $this->assertEquals(7730.00, $snapshot['totals']['tax_total']);
+    }
+
+    public function test_successive_partial_returns_against_rounded_source_values_across_setting_change(): void
+    {
+        \Spatie\Permission\Models\Permission::findOrCreate('pos.returns.create', 'web');
+        $this->user->givePermissionTo('pos.returns.create');
+
+        $customer = Customer::create([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'Customer Return Test',
+            'customer_phone' => '0811111111',
+            'customer_email' => 'returntest@test.com',
+            'city' => 'City',
+            'country' => 'Indonesia',
+            'address' => 'Jl Return',
+        ]);
+
+        // Source transaction has a line rounded to 26,000.00 for qty 2 (raw unit_price: 12,999.00 -> subtotal 26,000.00).
+        $transaction = PosTransaction::create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-RET-ROUNDED',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $customer->id,
+            'snapshot_totals' => [
+                'subtotal' => 26000.00,
+                'grand_total' => 26000.00,
+            ],
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->session->terminal_id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'subtotal' => 26000.00,
+            'grand_total' => 26000.00,
+            'receipt_number' => 'RCP-RET-ROUNDED',
+            'idempotency_key' => 'IDEM-RET-01',
+            'payload_hash' => 'HASH-RET-01',
+        ]);
+
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 26000.00,
+            'paid_amount' => 26000.00,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-RET-01',
+        ]);
+
+        $checkoutSale = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->session->terminal->location_id ?? 1,
+            'grand_total' => 26000.00,
+            'subtotal' => 26000.00,
+            'split_key' => 'SPLIT-01',
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        // SaleDetail reflects the effective rounded captured price: unit_price 13,000.00, subtotal 26,000.00
+        $saleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'quantity' => 2,
+            'price' => 13000.00,
+            'unit_price' => 13000.00,
+            'sub_total' => 26000.00,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $snapshotService = app(PosReturnSnapshotService::class);
+        $submissionService = app(PosReturnSubmissionService::class);
+
+        // 1. Build initial return snapshot
+        $snapshot1 = $snapshotService->build($transaction->id);
+        $this->assertEquals(2.0, $snapshot1['lines'][0]['returnable_quantity']);
+        $this->assertEquals(13000.00, $snapshot1['lines'][0]['unit_price']);
+        $this->assertEquals(26000.00, $snapshot1['lines'][0]['line_total']);
+
+        // First partial return: return 1 qty via actual submission service
+        $this->actingAs($this->user);
+        $return1 = $submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'source_snapshot_hash' => $snapshot1['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail->id,
+                    'quantity' => 1,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+
+        $this->assertNotNull($return1);
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $return1->status);
+        $this->assertEquals(13000.00, (float) $return1->total_amount);
+        $this->assertEquals(13000.00, (float) $return1->lines->first()->expected_cash_amount);
+
+        // Approve return 1 so it consumes return quantity
+        $return1->update([
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+        ]);
+
+        // 2. Setting changes increment to 500 in the meantime
+        $this->setting->update(['row_total_rounding_increment' => 500.00]);
+
+        // 3. Build snapshot for second return
+        $snapshot2 = $snapshotService->build($transaction->id);
+        $this->assertEquals(1.0, $snapshot2['lines'][0]['returnable_quantity']);
+        $this->assertEquals(13000.00, $snapshot2['lines'][0]['unit_price']);
+
+        // Second partial return: return remaining 1 qty via actual submission service
+        $return2 = $submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'source_snapshot_hash' => $snapshot2['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail->id,
+                    'quantity' => 1,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+
+        $this->assertNotNull($return2);
+        $this->assertEquals(PosReturn::STATUS_DRAFT, $return2->status);
+        $this->assertEquals(13000.00, (float) $return2->total_amount);
+        $this->assertEquals(13000.00, (float) $return2->lines->first()->expected_cash_amount);
+
+        // Approve return 2
+        $return2->update([
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+        ]);
+
+        // Sum of both partial returns equals exactly the original captured total (26,000.00)
+        $this->assertEquals(26000.00, (float) ($return1->total_amount + $return2->total_amount));
+
+        // Verify remaining returnable quantity is now 0
+        $snapshotFinal = $snapshotService->build($transaction->id);
+        $this->assertEquals(0.0, $snapshotFinal['lines'][0]['returnable_quantity']);
+    }
 }
+

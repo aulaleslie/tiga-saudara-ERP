@@ -303,7 +303,11 @@
                                 @endif
                             @endif
                             @if(($line['discount'] ?? 0) > 0)
-                                <div class="small">Diskon: -{{ number_format((float) $line['discount'], 0, ',', '.') }}</div>
+                                @php
+                                    $lineDiscVal = (float) $line['discount'];
+                                    $lineDiscDecCount = fmod(round($lineDiscVal, 2), 1.0) != 0.0 ? 2 : 0;
+                                @endphp
+                                <div class="small">Diskon: -{{ number_format($lineDiscVal, $lineDiscDecCount, ',', '.') }}</div>
                             @endif
                             @if(!empty($line['bundle_composition']))
                                 @foreach($line['bundle_composition'] as $item)
@@ -318,7 +322,9 @@
                             @endif
                         </td>
                         @php
-                            $formattedTotal = number_format((float) $line['sub_total'], 0, ',', '.');
+                            $lineSubtotalVal = (float) $line['sub_total'];
+                            $decCount = fmod(round($lineSubtotalVal, 2), 1.0) != 0.0 ? 2 : 0;
+                            $formattedTotal = number_format($lineSubtotalVal, $decCount, ',', '.');
                             $totalLength = strlen($formattedTotal);
                             $fontSize = $totalLength > 9 ? '9px' : ($totalLength > 7 ? '10px' : '11px');
                         @endphp
@@ -326,19 +332,42 @@
                     </tr>
                 @endforeach
 
-                @if(($receiptData['discount'] ?? 0) > 0)
+                @php
+                    // Line subtotals displayed above are already net of row discounts (net_before_bill).
+                    // Sum line-level bill discounts or determine bill discount amount:
+                    $totalBillDiscount = 0.0;
+                    foreach ($receiptData['lines'] as $l) {
+                        $totalBillDiscount += (float) ($l['bill_discount'] ?? 0);
+                    }
+                    // If bill_discount is not itemized per line, fall back to max(0, discount - row_discounts)
+                    if ($totalBillDiscount <= 0 && isset($receiptData['discount'])) {
+                        $rowDiscountsSum = 0.0;
+                        foreach ($receiptData['lines'] as $l) {
+                            $rowDiscountsSum += (float) ($l['discount'] ?? 0);
+                        }
+                        $totalBillDiscount = max(0.0, round((float) $receiptData['discount'] - $rowDiscountsSum, 2));
+                    }
+                @endphp
+
+                @if($totalBillDiscount > 0)
+                    @php
+                        $billDiscDecCount = fmod(round($totalBillDiscount, 2), 1.0) != 0.0 ? 2 : 0;
+                    @endphp
                     <tr>
-                        <th colspan="2" class="col-product" style="text-align:left">Diskon</th>
-                        <th class="col-total compact-amount" style="text-align:right">{{ number_format((float) $receiptData['discount'], 0, ',', '.') }}</th>
+                        <th colspan="2" class="col-product" style="text-align:left">Diskon Tambahan</th>
+                        <th class="col-total compact-amount" style="text-align:right">-{{ number_format($totalBillDiscount, $billDiscDecCount, ',', '.') }}</th>
                     </tr>
                 @endif
+
             </tbody>
         </table>
 
         <table class="totals-table">
             <tbody>
                 @php
-                    $formattedGrandTotal = number_format((float) ($receiptData['grand_total'] ?? 0), 0, ',', '.');
+                    $grandTotalVal = (float) ($receiptData['grand_total'] ?? 0);
+                    $grandTotalDecCount = fmod(round($grandTotalVal, 2), 1.0) != 0.0 ? 2 : 0;
+                    $formattedGrandTotal = number_format($grandTotalVal, $grandTotalDecCount, ',', '.');
                     $grandTotalLength = strlen($formattedGrandTotal);
                     $grandTotalFontSize = $grandTotalLength > 9 ? '9px' : ($grandTotalLength > 7 ? '10px' : '11px');
                 @endphp
@@ -354,7 +383,9 @@
                 @if(!empty($receiptData['payment_breakdown']))
                     @foreach($receiptData['payment_breakdown'] as $payment)
                         @php
-                            $formattedPaymentAmount = number_format((float) $payment['amount'], 0, ',', '.');
+                            $paymentVal = (float) $payment['amount'];
+                            $paymentDecCount = fmod(round($paymentVal, 2), 1.0) != 0.0 ? 2 : 0;
+                            $formattedPaymentAmount = number_format($paymentVal, $paymentDecCount, ',', '.');
                             $paymentLength = strlen($formattedPaymentAmount);
                             $paymentFontSize = $paymentLength > 9 ? '9px' : ($paymentLength > 7 ? '10px' : '11px');
                         @endphp
@@ -368,7 +399,9 @@
                 @endif
                 @if(isset($receiptData['change']) && $receiptData['change'] > 0)
                     @php
-                        $formattedChangeAmount = number_format((float) $receiptData['change'], 0, ',', '.');
+                        $changeVal = (float) $receiptData['change'];
+                        $changeDecCount = fmod(round($changeVal, 2), 1.0) != 0.0 ? 2 : 0;
+                        $formattedChangeAmount = number_format($changeVal, $changeDecCount, ',', '.');
                         $changeLength = strlen($formattedChangeAmount);
                         $changeFontSize = $changeLength > 9 ? '9px' : ($changeLength > 7 ? '10px' : '11px');
                     @endphp
@@ -378,7 +411,9 @@
                     </tr>
                 @elseif(isset($receiptData['outstanding_debt']) && $receiptData['outstanding_debt'] > 0)
                     @php
-                        $formattedDebtAmount = number_format((float) $receiptData['outstanding_debt'], 0, ',', '.');
+                        $debtVal = (float) $receiptData['outstanding_debt'];
+                        $debtDecCount = fmod(round($debtVal, 2), 1.0) != 0.0 ? 2 : 0;
+                        $formattedDebtAmount = number_format($debtVal, $debtDecCount, ',', '.');
                         $debtLength = strlen($formattedDebtAmount);
                         $debtFontSize = $debtLength > 9 ? '9px' : ($debtLength > 7 ? '10px' : '11px');
                     @endphp

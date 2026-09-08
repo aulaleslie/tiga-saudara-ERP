@@ -152,12 +152,9 @@
                             @php
                                 $qty = (float) $line->qty;
                                 $unitPrice = (float) $line->unit_price;
-                                $discountValue = (float) $line->line_discount_value;
-                                $lineBase = $qty * $unitPrice;
-                                $lineDiscount = $line->line_discount_type === 'percentage'
-                                    ? ($lineBase * ($discountValue / 100))
-                                    : $discountValue;
-                                $lineSubtotal = max(0, $lineBase - $lineDiscount);
+                                $resolvedAmounts = \Modules\Pos\Services\PosTransactionLineAmountResolver::resolve($line);
+                                $lineDiscount = $resolvedAmounts['discount'];
+                                $lineSubtotal = $resolvedAmounts['net_before_bill'];
                             @endphp
                             <tr>
                                 <td>{{ $line->line_no }}</td>
@@ -185,10 +182,13 @@
                                 <td class="text-right">{{ (float) $qty }}</td>
                                 <td class="text-right">{{ number_format($unitPrice, 2, ',', '.') }}</td>
                                 <td class="text-right">
-                                    @if($line->line_discount_type === 'percentage')
-                                        {{ number_format($discountValue, 2, ',', '.') }}%
+                                    @if($lineDiscount > 0)
+                                        {{ number_format($lineDiscount, 2, ',', '.') }}
+                                        @if($line->line_discount_type === 'percentage')
+                                            <span class="small text-muted">({{ number_format((float)$line->line_discount_value, 2, ',', '.') }}%)</span>
+                                        @endif
                                     @else
-                                        {{ number_format($discountValue, 2, ',', '.') }}
+                                        0,00
                                     @endif
                                 </td>
                                 <td class="text-right font-weight-bold">{{ number_format($lineSubtotal, 2, ',', '.') }}</td>

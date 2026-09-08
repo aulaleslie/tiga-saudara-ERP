@@ -30,6 +30,7 @@ class PosServiceProvider extends ServiceProvider
 
         $this->commands([
             \Modules\Pos\Console\CleanupPosTemporaryImagesCommand::class,
+            \Modules\Pos\Console\PosRepairDraftCommand::class,
         ]);
     }
 

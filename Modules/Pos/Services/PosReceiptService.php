@@ -87,46 +87,13 @@ class PosReceiptService
                 // Receipt mapping uses deterministic amount contract:
                 // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
                 // - else if line_total exists and price_source is PACKED, treat as legacy minor units and divide by 100
-                // - else if line_total exists, use line_total directly (already in Rupiah for non-packed)
-                // - else calculate from qty × unit_price
-                // A row override persists canonical minor-unit metadata. Prefer
-                // it outright: an overridden row's amounts must be rendered as
-                // charged, never re-derived from a rounded unit price, and its
-                // net already has the row discount applied — subtracting the
-                // discount again below would double-count it.
-                $canonicalGrossMinor = $line->line_meta['line_gross_minor'] ?? null;
-                $canonicalDiscountMinor = $line->line_meta['line_discount_minor'] ?? null;
-                $canonicalNetMinor = $line->line_meta['line_net_minor'] ?? null;
-
-                if ($canonicalNetMinor !== null && $canonicalGrossMinor !== null) {
-                    $lineGross = (float) $canonicalGrossMinor / 100;
-                    $lineDiscount = (float) ($canonicalDiscountMinor ?? 0) / 100;
-                    $lineSubtotal = (float) $canonicalNetMinor / 100;
-                } else {
-                    if (isset($line->line_meta['line_total_minor'])) {
-                        $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
-                    } elseif (isset($line->line_meta['line_total'])) {
-                        // Legacy packed receipts: line_total is in minor units when price_source = PACKED
-                        if ($priceSource === 'PACKED') {
-                            $lineGross = (float)$line->line_meta['line_total'] / 100;
-                        } else {
-                            $lineGross = (float)$line->line_meta['line_total'];
-                        }
-                    } else {
-                        $lineGross = $line->qty * $line->unit_price;
-                    }
-
-                    $lineDiscount = (float)($line->line_discount_value ?? 0);
-                    $lineSubtotal = $lineGross - $lineDiscount;
-                }
-
-                // Bill-level discount allocated to this row, kept distinct from
-                // the row discount so a receipt can show both without conflating
-                // them.
-                $billDiscount = isset($line->line_meta['bill_discount_amount'])
-                    ? (float) $line->line_meta['bill_discount_amount']
-                    : 0.0;
-                $lineCharged = round($lineSubtotal - $billDiscount, 2);
+                $resolvedAmounts = PosTransactionLineAmountResolver::resolve($line);
+                $lineGross = $resolvedAmounts['gross'];
+                $lineDiscount = $resolvedAmounts['discount'];
+                $lineSubtotal = $resolvedAmounts['net_before_bill'];
+                $billDiscount = $resolvedAmounts['bill_discount'];
+                $lineCharged = $resolvedAmounts['charged_total'];
+                $roundingAdjustment = $resolvedAmounts['rounding_adjustment'];
 
                 $composition = $bundleCompositionByLine[(int) $line->id] ?? [];
 
@@ -142,6 +109,7 @@ class PosReceiptService
                     'bill_discount' => round($billDiscount, 2),
                     'sub_total' => $lineSubtotal,
                     'charged_total' => $lineCharged,
+                    'rounding_adjustment' => $roundingAdjustment,
                     'unit_breakdown' => $unitBreakdown,
                     'bundle_composition' => $composition, // Task 1.2 & 1.3
                     'assigned_serials' => $line->serials->count() > 0 
@@ -597,24 +565,13 @@ class PosReceiptService
                 }
             }
 
-            // Receipt mapping uses deterministic amount contract:
-            // - if line_total_minor exists, render line_total_minor / 100 (explicitly minor units)
-            // - else if line_total exists and price_source is PACKED, treat as legacy minor units and divide by 100
-            // - else if line_total exists, use line_total directly (already in Rupiah for non-packed)
-            // - else calculate from qty × unit_price
-            if (isset($line->line_meta['line_total_minor'])) {
-                $lineGross = (float)$line->line_meta['line_total_minor'] / 100;
-            } elseif (isset($line->line_meta['line_total'])) {
-                // Legacy packed receipts: line_total is in minor units when price_source = PACKED
-                if ($priceSource === 'PACKED') {
-                    $lineGross = (float)$line->line_meta['line_total'] / 100;
-                } else {
-                    $lineGross = (float)$line->line_meta['line_total'];
-                }
-            } else {
-                $lineGross = $line->qty * $line->unit_price;
-            }
-            $lineSubtotal = $lineGross - (float)($line->line_discount_value ?? 0);
+            $resolvedAmounts = PosTransactionLineAmountResolver::resolve($line);
+            $lineGross = $resolvedAmounts['gross'];
+            $lineDiscount = $resolvedAmounts['discount'];
+            $lineSubtotal = $resolvedAmounts['net_before_bill'];
+            $billDiscount = $resolvedAmounts['bill_discount'];
+            $lineCharged = $resolvedAmounts['charged_total'];
+            $roundingAdjustment = $resolvedAmounts['rounding_adjustment'];
 
             // Task 1.3: Draft/loaded transaction bundle context
             $composition = [];
@@ -631,8 +588,12 @@ class PosReceiptService
                 'product_name' => $line->product_name_snapshot,
                 'qty' => (float)$line->qty,
                 'price' => (float)$line->unit_price,
-                'discount' => (float)($line->line_discount_value ?? 0),
+                'line_gross' => round($lineGross, 2),
+                'discount' => round($lineDiscount, 2),
+                'bill_discount' => round($billDiscount, 2),
                 'sub_total' => $lineSubtotal,
+                'charged_total' => $lineCharged,
+                'rounding_adjustment' => $roundingAdjustment,
                 'unit_breakdown' => $unitBreakdown,
                 'bundle_composition' => $composition,
                 'assigned_serials' => $line->serials->count() > 0 
@@ -718,7 +679,8 @@ class PosReceiptService
         $symbol = $settings?->currency?->symbol ?? 'Rp';
         $thousands = $settings?->currency?->thousand_separator ?? '.';
         $decimals = $settings?->currency?->decimal_separator ?? ',';
+        $decimalsCount = fmod(round($value, 2), 1.0) != 0.0 ? 2 : 0;
 
-        return $symbol . '. ' . number_format($value, 0, $decimals, $thousands);
+        return $symbol . '. ' . number_format($value, $decimalsCount, $decimals, $thousands);
     }
 }

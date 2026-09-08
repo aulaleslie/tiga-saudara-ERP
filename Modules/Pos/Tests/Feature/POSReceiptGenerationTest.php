@@ -1431,4 +1431,71 @@ class POSReceiptGenerationTest extends TestCase
         $this->assertFalse(strpos($qtyStr, ',') !== false, 'Quantity must not contain locale comma separator');
         $this->assertFalse(strpos($qtyStr, '.00') !== false, 'Quantity must not have trailing .00');
     }
+
+    public function test_receipt_and_detail_presentation_reconciles_amounts_without_double_discount_and_preserves_decimals(): void
+    {
+        $context = $this->createCheckoutContext("POS RCP DEC & DISC");
+        $customer = $this->assignDefaultWalkInCustomer($context["setting"]);
+        $product = $this->createStockedProduct($context["setting"], $context["location"], "PROD-RCP-DISC", 20000, false);
+
+        $this->addCartLine($context["cashier"], $context["setting"], $product->id, 1);
+        $this->selectCustomerInCart($context["cashier"], $context["setting"], $customer);
+
+        $payload = [
+            "idempotency_key" => "rcp-dec-disc-01",
+            "terminal_id" => $context["terminal"]->id,
+            "amount_paid" => 20000,
+            "payment_method_id" => $context["methods"]["cash"]->id,
+            "payments" => [["payment_method_id" => $context["methods"]["cash"]->id, "amount_paid" => 20000]],
+        ];
+
+        $checkoutResponse = $this->finalize($context["cashier"], $context["setting"], $payload);
+        $checkout = \Modules\Pos\Entities\PosCheckout::with("transactions.lines")->findOrFail($checkoutResponse->json("pos_checkout_id"));
+        $transaction = $checkout->transactions->first();
+        $line = $transaction->lines->first();
+
+        // Set line with line_total_minor (rounded or override net 18,500.50), gross minor (20,000.00), discount minor (1,500.00)
+        // With rounding adjustment: 20,000 - 1,500 = 18,500. But authoritative net is 18,500.50 (+0.50 rounding).
+        $line->update([
+            "unit_price" => 20000.00,
+            "line_discount_type" => "fixed",
+            "line_discount_value" => 1500.00,
+            "line_meta" => [
+                "line_gross_minor" => 2000000,
+                "line_discount_minor" => 150000,
+                "line_total_minor" => 1850050,
+                "bill_discount_amount" => 500.25,
+            ],
+        ]);
+
+        $receiptService = app(\Modules\Pos\Services\PosReceiptService::class);
+        $freshCheckout = \Modules\Pos\Entities\PosCheckout::with(["transactions.lines.serials", "transactions.lines.conversion.unit", "transactions.lines.product.unit", "transactions.lines.product.baseUnit"])->findOrFail($checkout->id);
+        $receiptData = $receiptService->getReceiptData($freshCheckout);
+
+        $receiptLine = $receiptData["lines"][0];
+        $this->assertEquals(20000.00, $receiptLine["line_gross"]);
+        $this->assertEquals(1500.00, $receiptLine["discount"], "Discount must be 1500, not subtracted twice");
+        $this->assertEquals(18500.50, $receiptLine["sub_total"], "Subtotal must be authoritative net 18500.50");
+        $this->assertEquals(500.25, $receiptLine["bill_discount"]);
+        $this->assertEquals(18000.25, $receiptLine["charged_total"], "Charged total must be 18500.50 - 500.25 = 18000.25");
+        $this->assertEquals(0.50, $receiptLine["rounding_adjustment"]);
+
+        // Check HTML view rendering for receipt and detail
+        $htmlReceipt = view("pos::receipt", ["receiptData" => $receiptData])->render();
+        // Preserves nonzero decimals in rupiah formatting: 18.500,50
+        $this->assertStringContainsString("18.500,50", $htmlReceipt);
+        // Show the bill discount without exposing internal rounding adjustments
+        $this->assertStringContainsString("Diskon Tambahan", $htmlReceipt);
+        $this->assertStringContainsString("-500,25", $htmlReceipt);
+        $this->assertStringNotContainsString("Pembulatan", $htmlReceipt);
+        $this->assertStringNotContainsString("+0,50", $htmlReceipt);
+
+        // Transaction detail view
+        $htmlDetail = view("pos::transactions.show", [
+            "transaction" => $transaction->fresh(),
+            "bundleCompositionByLine" => [],
+            "unitBreakdownByLine" => [],
+        ])->render();
+        $this->assertStringContainsString("18.500,50", $htmlDetail);
+    }
 }

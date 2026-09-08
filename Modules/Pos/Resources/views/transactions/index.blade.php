@@ -109,10 +109,12 @@
 
             const formatCurrency = (value) => {
                 const amount = Number(value || 0);
+                const hasFraction = Math.abs(amount % 1) > 0.0001;
                 return new Intl.NumberFormat('id-ID', {
                     style: 'currency',
                     currency: 'IDR',
-                    maximumFractionDigits: 0,
+                    minimumFractionDigits: hasFraction ? 2 : 0,
+                    maximumFractionDigits: 2,
                 }).format(Number.isFinite(amount) ? amount : 0);
             };
 

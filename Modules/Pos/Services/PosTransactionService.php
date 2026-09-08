@@ -124,8 +124,9 @@ class PosTransactionService
                 ]);
             }
 
-            // Persist lines and serials
-            $this->mapper->persistLines($transaction, $cart['lines']);
+            // Persist lines and serials from the calculated snapshot
+            $snapshotLines = $this->normalizeSnapshotLines($snapshot['lines'] ?? []);
+            $this->mapper->persistLines($transaction, $snapshotLines);
 
             $transaction->refresh();
             $transaction->update([
@@ -458,7 +459,8 @@ class PosTransactionService
                 ]);
             }
 
-            $this->mapper->persistLines($transaction, $snapshotLines);
+            $normalizedSnapshotLines = $this->normalizeSnapshotLines($snapshotLines);
+            $this->mapper->persistLines($transaction, $normalizedSnapshotLines);
             $transaction->refresh();
             $transaction->update([
                 'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
