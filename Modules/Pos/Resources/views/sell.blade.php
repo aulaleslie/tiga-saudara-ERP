@@ -2185,6 +2185,11 @@
 
                     const factorText = conv.conversion_factor ? `${conv.conversion_factor} ${escapeHtml(baseUnit.name || 'PCS')}` : '';
 
+                    const conversionPrice = conv.price_for_setting;
+                    const priceText = (typeof conversionPrice === 'number' && isFinite(conversionPrice))
+                        ? `Harga: ${formatPrice(conversionPrice)} / ${escapeHtml(conv.unit_name || 'Unit')}`
+                        : 'Harga belum tersedia';
+
                     col.innerHTML = `
                         <button type="button" class="pos-unit-card js-select-unit ${!isSelectable ? 'pos-unit-card-disabled' : ''}"
                                 data-unit-type="conversion"
@@ -2193,6 +2198,7 @@
                             <div class="unit-name">${escapeHtml(conv.unit_name || 'Unit')} ${statusBadge}</div>
                             <div class="unit-factor">${factorText}</div>
                             <div class="unit-desc">Kelipatan isi ${factorText} per ${escapeHtml(conv.unit_name || 'unit')}.</div>
+                            <div class="unit-price">${priceText}</div>
                             ${errorText}
                         </button>
                     `;

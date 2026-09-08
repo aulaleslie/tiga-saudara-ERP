@@ -225,12 +225,84 @@ class PosProductSearchServiceTest extends TestCase
         $this->assertTrue($boxOpt['is_valid']);
         $this->assertTrue($boxOpt['sales_enabled']);
         $this->assertSame(10, $boxOpt['conversion_factor']);
+        $this->assertNull($boxOpt['price_for_setting']);
 
         $dusOpt = collect($options['conversions'])->firstWhere('id', $convDus->id);
         $this->assertNotNull($dusOpt);
         $this->assertTrue($dusOpt['is_valid']);
         $this->assertFalse($dusOpt['sales_enabled']);
         $this->assertSame(50, $dusOpt['conversion_factor']);
+        $this->assertSame(450000.0, $dusOpt['price_for_setting']);
+    }
+
+    public function test_unit_options_conversion_price_is_isolated_per_business(): void
+    {
+        $user = $this->createUserWithPermission('inventory.view_remaining_stock');
+        $this->actingAs($user);
+
+        $baseUnit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Piece',
+            'short_name' => 'PCS',
+        ]);
+        $boxUnit = \Modules\Setting\Entities\Unit::create([
+            'name' => 'Box',
+            'short_name' => 'BOX',
+        ]);
+
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Business',
+            'company_email' => 'other@test.com',
+            'company_phone' => '456',
+            'notification_email' => 'other-notify@test.com',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => '',
+            'company_address' => '',
+        ]);
+        Location::create([
+            'name' => 'Other Business Location',
+            'setting_id' => $otherSetting->id,
+        ]);
+
+        $product = $this->createProduct([
+            'product_name' => 'Cross Business Conversion Product',
+            'product_code' => 'SKU-UOPT-XB',
+            'base_unit_id' => $baseUnit->id,
+            'unit_id' => $baseUnit->id,
+            'product_price' => 10000,
+        ]);
+        $this->seedProductPriceForSetting($product, 10000);
+        $this->createStockForProduct($product, 100);
+        $product->prices()->create([
+            'setting_id' => $otherSetting->id,
+            'sale_price' => 10000,
+        ]);
+
+        $convBox = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $baseUnit->id,
+            'conversion_factor' => 10,
+            'barcode' => 'CONV-BOX-XB',
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convBox->id,
+            'setting_id' => $this->setting->id,
+            'price' => 120000,
+            'sales_enabled' => true,
+            'purchase_enabled' => true,
+        ]);
+
+        $service = new PosProductSearchService();
+
+        $ownResults = $service->search($this->setting->id, 'Cross Business Conversion Product');
+        $ownOpt = collect($ownResults['results'][0]['unit_options']['conversions'])->firstWhere('id', $convBox->id);
+        $this->assertEquals(120000, $ownOpt['price_for_setting']);
+
+        $otherResults = $service->search($otherSetting->id, 'Cross Business Conversion Product');
+        $otherOpt = collect($otherResults['results'][0]['unit_options']['conversions'])->firstWhere('id', $convBox->id);
+        $this->assertNull($otherOpt['price_for_setting']);
     }
 
     private function createProduct(array $attributes = []): Product

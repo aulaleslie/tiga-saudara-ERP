@@ -722,6 +722,14 @@ class POSScanResolveEndpointTest extends TestCase
             'barcode' => $convBarcode,
         ]);
 
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 280000,
+            'sales_enabled' => true,
+            'purchase_enabled' => true,
+        ]);
+
         // 1. Scan base product barcode: resolves to product_exact and carries unit_options
         $baseScanResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -740,6 +748,7 @@ class POSScanResolveEndpointTest extends TestCase
         $this->assertSame(12, $unitOptions['conversions'][0]['conversion_factor']);
         $this->assertTrue($unitOptions['conversions'][0]['is_valid']);
         $this->assertTrue($unitOptions['conversions'][0]['sales_enabled']);
+        $this->assertEquals(280000, $unitOptions['conversions'][0]['price_for_setting']);
 
         // 2. Scan conversion barcode: resolves directly to conversion match, NOT prompting unit_options
         $convScanResponse = $this->actingAs($cashier)
