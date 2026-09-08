@@ -493,4 +493,154 @@ class ProductUnitConversionPriceTest extends TestCase
         $this->assertFalse($primaryPrice->sales_enabled);
         $this->assertFalse($primaryPrice->purchase_enabled);
     }
+
+    public function test_shared_factor_change_updates_factor_globally_and_retains_other_business_prices(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.edit');
+
+        $baseUnit       = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Box');
+
+        $product = Product::create([
+            'product_name'       => 'Product Factor Change',
+            'product_code'       => 'FACTOR-CHANGE-001',
+            'product_quantity'   => 0,
+            'product_cost'       => 0,
+            'product_price'      => 0,
+            'product_stock_alert'=> 0,
+            'base_unit_id'       => $baseUnit->id,
+            'unit_id'            => $baseUnit->id,
+            'stock_managed'      => 1,
+            'is_purchased'       => 0,
+            'is_sold'            => 0,
+            'setting_id'         => $primarySetting->id,
+        ]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id'        => $product->id,
+            'unit_id'           => $conversionUnit->id,
+            'base_unit_id'      => $baseUnit->id,
+            'conversion_factor' => 12,
+            'barcode'           => 'BOX-FACTOR-12',
+        ]);
+
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+            'price'                      => 22500,
+        ]);
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $secondarySetting->id,
+            'price'                      => 25000,
+        ]);
+
+        // Acting as primary setting, change factor from 12 to 24 and price to 45000
+        $payload = [
+            'product_name'  => 'Product Factor Change',
+            'product_code'  => 'FACTOR-CHANGE-001',
+            'category_id'   => null,
+            'brand_id'      => null,
+            'stock_managed' => true,
+            'base_unit_id'  => $baseUnit->id,
+            'conversions'   => [
+                [
+                    'id'                => $conversion->id,
+                    'unit_id'           => $conversionUnit->id,
+                    'conversion_factor' => 24, // Changed factor
+                    'price'             => 45000,
+                    'barcode'           => 'BOX-FACTOR-12',
+                ],
+            ],
+            'is_purchased'  => false,
+            'is_sold'       => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->put(route('products.update', $product), $payload);
+
+        $response->assertRedirect(route('products.index'));
+
+        // Conversion factor is globally updated to 24
+        $conversionFresh = $conversion->fresh();
+        $this->assertSame(24.0, (float) $conversionFresh->conversion_factor);
+
+        // Primary setting price changed to 45000
+        $this->assertSame(45000.0, (float) ProductUnitConversionPrice::where([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+        ])->value('price'));
+
+        // Secondary setting retains its numeric price of 25000 (not recalculated!)
+        $this->assertSame(25000.0, (float) ProductUnitConversionPrice::where([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $secondarySetting->id,
+        ])->value('price'));
+    }
+
+    public function test_conversion_deletion_removes_shared_conversion_for_all_businesses(): void
+    {
+        [$primarySetting, $secondarySetting] = $this->seedSettings();
+        $this->authenticateForAbility('products.edit');
+
+        $baseUnit       = $this->createUnit($primarySetting, 'Piece');
+        $conversionUnit = $this->createUnit($primarySetting, 'Box');
+
+        $product = Product::create([
+            'product_name'       => 'Product Conversion Delete',
+            'product_code'       => 'CONV-DEL-001',
+            'product_quantity'   => 0,
+            'product_cost'       => 0,
+            'product_price'      => 0,
+            'product_stock_alert'=> 0,
+            'base_unit_id'       => $baseUnit->id,
+            'unit_id'            => $baseUnit->id,
+            'stock_managed'      => 1,
+            'is_purchased'       => 0,
+            'is_sold'            => 0,
+            'setting_id'         => $primarySetting->id,
+        ]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id'        => $product->id,
+            'unit_id'           => $conversionUnit->id,
+            'base_unit_id'      => $baseUnit->id,
+            'conversion_factor' => 12,
+            'barcode'           => 'BOX-DEL-12',
+        ]);
+
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $primarySetting->id,
+            'price'                      => 22500,
+        ]);
+        ProductUnitConversionPrice::upsertFor([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id'                 => $secondarySetting->id,
+            'price'                      => 25000,
+        ]);
+
+        // Submit empty conversions array to delete the conversion
+        $payload = [
+            'product_name'  => 'Product Conversion Delete',
+            'product_code'  => 'CONV-DEL-001',
+            'category_id'   => null,
+            'brand_id'      => null,
+            'stock_managed' => true,
+            'base_unit_id'  => $baseUnit->id,
+            'conversions'   => [],
+            'is_purchased'  => false,
+            'is_sold'       => false,
+        ];
+
+        $response = $this->withSession(['setting_id' => $primarySetting->id])
+            ->put(route('products.update', $product), $payload);
+
+        $response->assertRedirect(route('products.index'));
+
+        // Conversion is completely deleted
+        $this->assertNull(ProductUnitConversion::find($conversion->id));
+        $this->assertEquals(0, ProductUnitConversionPrice::where('product_unit_conversion_id', $conversion->id)->count());
+    }
 }

@@ -85,7 +85,10 @@
                 <div class="card" style="overflow: visible;">
                     <div class="card-body unit-conversion-table" style="overflow: visible;">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="mb-0">Konversi Unit</h5>
+                            <div>
+                                <h5 class="mb-0">Konversi Unit</h5>
+                                <small class="text-muted">Unit dan faktor konversi berlaku untuk semua bisnis. Perubahan harga hanya berlaku untuk bisnis yang aktif saat ini, sedangkan penambahan konversi baru akan mengisi harga awal ke semua bisnis.</small>
+                            </div>
                             <button type="button"
                                     class="btn btn-outline-primary btn-sm"
                                     wire:click="addConversionRow"

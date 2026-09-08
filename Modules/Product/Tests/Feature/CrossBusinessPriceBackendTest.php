@@ -303,4 +303,268 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->assertEquals(100, $existing->fresh()->sale_price);
         $this->assertNull(ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->first());
     }
+
+    public function test_conversion_matrix_renders_headers_and_empty_state()
+    {
+        // 1. Without conversions: shows empty state message
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('Harga Satuan Dasar — UNIT TEST', false);
+        $response->assertSee('Harga Satuan Konversi', false);
+        $response->assertSee('Produk ini belum memiliki konversi unit', false);
+
+        // 2. With conversion: shows unit, factor, and column headers
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+            'barcode' => 'BOX-12',
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 1,
+            'price' => 22500.50,
+            'sales_enabled' => true,
+            'purchase_enabled' => true,
+        ]);
+
+        $response2 = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response2->assertOk();
+        $response2->assertSee('KOTAK · 12 UNIT TEST (Rp)', false);
+        $response2->assertSee('value="22.500,50"', false);
+        $response2->assertSee('Belum diatur', false); // setting 2 has no conversion price row
+    }
+
+    public function test_combined_save_persists_base_and_conversion_prices_independently()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+            'barcode' => 'BOX-12',
+        ]);
+
+        $price1 = \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 1,
+            'price' => 22500,
+            'sales_enabled' => false,
+            'purchase_enabled' => true,
+        ]);
+
+        $price2 = \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 2,
+            'price' => 30000,
+            'sales_enabled' => true,
+            'purchase_enabled' => false,
+        ]);
+
+        $snapshot = app(\Modules\Product\Services\CrossBusinessPriceService::class)->generateConversionSnapshot($this->product);
+
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => 100,
+                    'tier_1_price' => 90,
+                    'tier_2_price' => 80,
+                    'last_purchase_price' => 50,
+                    'version' => null,
+                ],
+                [
+                    'setting_id' => 2,
+                    'sale_price' => 200,
+                    'tier_1_price' => 190,
+                    'tier_2_price' => 180,
+                    'last_purchase_price' => 150,
+                    'version' => null,
+                ]
+            ],
+            'conversions' => [
+                [
+                    'setting_id' => 1,
+                    'conversion_id' => $conv->id,
+                    'price' => '25000.50', // updated for setting 1
+                    'version' => $price1->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+                [
+                    'setting_id' => 2,
+                    'conversion_id' => $conv->id,
+                    'price' => '30000.00', // unchanged for setting 2
+                    'version' => $price2->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ],
+            'conversion_snapshot' => $snapshot['data'],
+            'conversion_snapshot_signature' => $snapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $price1Fresh = $price1->fresh();
+        $this->assertEquals(25000.50, (float) $price1Fresh->price);
+        $this->assertFalse($price1Fresh->sales_enabled); // Preserved
+        $this->assertTrue($price1Fresh->purchase_enabled); // Preserved
+
+        $price2Fresh = $price2->fresh();
+        $this->assertEquals(30000.00, (float) $price2Fresh->price);
+        $this->assertTrue($price2Fresh->sales_enabled); // Preserved
+        $this->assertFalse($price2Fresh->purchase_enabled); // Preserved
+    }
+
+    public function test_missing_conversion_cell_semantics_blank_vs_zero()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        $snapshot = app(\Modules\Product\Services\CrossBusinessPriceService::class)->generateConversionSnapshot($this->product);
+
+        // Setting 1 gets explicit 0.00 (should create row), Setting 2 left blank/null (should remain missing)
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 10, 'tier_1_price' => 10, 'tier_2_price' => 10, 'last_purchase_price' => 10, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 20, 'tier_1_price' => 20, 'tier_2_price' => 20, 'last_purchase_price' => 20, 'version' => null],
+            ],
+            'conversions' => [
+                ['setting_id' => 1, 'conversion_id' => $conv->id, 'price' => '0.00', 'version' => null],
+                ['setting_id' => 2, 'conversion_id' => $conv->id, 'price' => '', 'version' => null],
+            ],
+            'conversion_snapshot' => $snapshot['data'],
+            'conversion_snapshot_signature' => $snapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHas('success');
+
+        $row1 = \Modules\Product\Entities\ProductUnitConversionPrice::where('product_unit_conversion_id', $conv->id)->where('setting_id', 1)->first();
+        $this->assertNotNull($row1);
+        $this->assertEquals(0.00, (float) $row1->price);
+        $this->assertTrue($row1->sales_enabled);
+        $this->assertTrue($row1->purchase_enabled);
+
+        $row2 = \Modules\Product\Entities\ProductUnitConversionPrice::where('product_unit_conversion_id', $conv->id)->where('setting_id', 2)->first();
+        $this->assertNull($row2); // Left absent!
+    }
+
+    public function test_stale_snapshot_or_tampered_evidence_is_rejected()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        $snapshot = app(\Modules\Product\Services\CrossBusinessPriceService::class)->generateConversionSnapshot($this->product);
+
+        // 1. Tampered signature
+        $payloadTampered = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 10, 'tier_1_price' => 10, 'tier_2_price' => 10, 'last_purchase_price' => 10, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 20, 'tier_1_price' => 20, 'tier_2_price' => 20, 'last_purchase_price' => 20, 'version' => null],
+            ],
+            'conversions' => [
+                ['setting_id' => 1, 'conversion_id' => $conv->id, 'price' => '100', 'version' => null],
+                ['setting_id' => 2, 'conversion_id' => $conv->id, 'price' => '200', 'version' => null],
+            ],
+            'conversion_snapshot' => $snapshot['data'],
+            'conversion_snapshot_signature' => 'invalid-tampered-signature',
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payloadTampered)
+            ->assertSessionHas('error', "Bukti data konversi telah diubah atau tidak valid. Silakan muat ulang halaman.");
+
+        // 2. Stale factor (factor changed from 12 to 24 PCS after page load)
+        $conv->update(['conversion_factor' => 24]);
+
+        $payloadStale = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 10, 'tier_1_price' => 10, 'tier_2_price' => 10, 'last_purchase_price' => 10, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 20, 'tier_1_price' => 20, 'tier_2_price' => 20, 'last_purchase_price' => 20, 'version' => null],
+            ],
+            'conversions' => [
+                ['setting_id' => 1, 'conversion_id' => $conv->id, 'price' => '100', 'version' => null],
+                ['setting_id' => 2, 'conversion_id' => $conv->id, 'price' => '200', 'version' => null],
+            ],
+            'conversion_snapshot' => $snapshot['data'],
+            'conversion_snapshot_signature' => $snapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payloadStale)
+            ->assertSessionHas('error', "Faktor atau unit konversi telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+    }
+
+    public function test_product_without_conversions_can_save_prices()
+    {
+        // Ensure product has no conversions
+        \Modules\Product\Entities\ProductUnitConversion::where('product_id', $this->product->id)->delete();
+
+        $snapshot = app(\Modules\Product\Services\CrossBusinessPriceService::class)->generateConversionSnapshot($this->product);
+
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => 125000,
+                    'tier_1_price' => 120000,
+                    'tier_2_price' => 115000,
+                    'last_purchase_price' => 90000,
+                    'version' => null,
+                ],
+                [
+                    'setting_id' => 2,
+                    'sale_price' => 135000,
+                    'tier_1_price' => 130000,
+                    'tier_2_price' => 125000,
+                    'last_purchase_price' => 95000,
+                    'version' => null,
+                ],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $snapshot['data'],
+            'conversion_snapshot_signature' => $snapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $price1 = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->first();
+        $this->assertNotNull($price1);
+        $this->assertEquals(125000, (float) $price1->sale_price);
+
+        $price2 = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->first();
+        $this->assertNotNull($price2);
+        $this->assertEquals(135000, (float) $price2->sale_price);
+    }
 }
+

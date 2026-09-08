@@ -382,6 +382,9 @@ class ProductController extends Controller
         DB::beginTransaction();
 
         try {
+            // Coordinate product mutations with deterministic product-row lock
+            Product::where('id', $product->id)->lockForUpdate()->first();
+
             // 1) Update non-price product fields on `products`
             $oldBarcode = $product->barcode;
             $newBarcode = $validatedData['barcode'] ?? null;

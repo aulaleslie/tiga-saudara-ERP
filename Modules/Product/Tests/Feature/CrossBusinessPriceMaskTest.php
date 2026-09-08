@@ -328,5 +328,105 @@ class CrossBusinessPriceMaskTest extends TestCase
         $response->assertSee('if ($(this).prop(\'readonly\'))', false);
         $response->assertSee('focus', false);
         $response->assertSee('blur', false);
+        $response->assertSee('btn-apply-all-conv', false);
+        $response->assertSee('editable-conversion-price', false);
+    }
+
+    public function test_conversion_matrix_renders_apply_to_all_hooks_and_missing_badge()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 1,
+            'price' => 22500.50,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('name="conversions[0][price]"', false);
+        $response->assertSee('value="22.500,50"', false);
+        $response->assertSee('data-original="22500.50"', false);
+        $response->assertSee('data-conversion-id="' . $conv->id . '"', false);
+        $response->assertSee('btn-apply-all-conv', false);
+    }
+
+    public function test_conversion_prices_are_restored_by_setting_and_conversion_identity()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $packUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'PACK', 'short_name' => 'PCK']);
+
+        $convBox = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        $convPack = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $packUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 6,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convBox->id,
+            'setting_id' => 1,
+            'price' => 12000.00,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convPack->id,
+            'setting_id' => 1,
+            'price' => 6000.00,
+        ]);
+
+        // Simulate old input submitted where array positions do not match or a deleted conversion shifted indices:
+        // Position 0 has old input for $convPack (setting 1) with price 7500.00
+        // An old entry exists for deleted conversion ID 99999 with price 99999.00
+        // No old entry for $convBox (setting 1)
+        $oldConversions = [
+            0 => [
+                'setting_id' => 1,
+                'conversion_id' => 99999, // Deleted conversion
+                'price' => '99999.00',
+            ],
+            1 => [
+                'setting_id' => 1,
+                'conversion_id' => $convPack->id, // Specifically for Pack
+                'price' => '7500.50',
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)
+            ->withSession([
+                'setting_id' => 1,
+                '_old_input' => [
+                    'conversions' => $oldConversions,
+                ],
+            ])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+
+        // 1. Deleted conversion price (99.999,00) must NOT be applied to any existing conversion
+        $response->assertDontSee('99.999,00', false);
+
+        // 2. $convPack must restore its own price (7.500,50) even though its array index in old input was 1
+        $response->assertSee('value="7.500,50"', false);
+
+        // 3. $convBox was not in old input (or structure changed), so it must fallback to its canonical DB price (12.000,00)
+        $response->assertSee('value="12.000,00"', false);
     }
 }
+

@@ -19,7 +19,15 @@ class CrossBusinessPriceController extends Controller
     public function edit(Product $product)
     {
         $prices = $this->priceService->loadPricesForProduct($product);
-        return view('product::products.cross-business-prices', compact('product', 'prices'));
+        $conversionsData = $this->priceService->loadConversionPricesForProduct($product);
+        $conversionSnapshot = $this->priceService->generateConversionSnapshot($product);
+
+        return view('product::products.cross-business-prices', compact(
+            'product',
+            'prices',
+            'conversionsData',
+            'conversionSnapshot'
+        ));
     }
 
     public function update(CrossBusinessPriceUpdateRequest $request, Product $product)
@@ -27,7 +35,13 @@ class CrossBusinessPriceController extends Controller
         $validated = $request->validated();
 
         try {
-            $this->priceService->savePricesForProduct($product, $validated['prices']);
+            $this->priceService->savePricesForProduct(
+                $product,
+                $validated['prices'],
+                $validated['conversions'] ?? null,
+                $validated['conversion_snapshot'] ?? null,
+                $validated['conversion_snapshot_signature'] ?? null
+            );
             return redirect()
                 ->route('products.cross-business-prices.edit', $product)
                 ->with('success', 'Prices updated successfully.');
@@ -38,3 +52,4 @@ class CrossBusinessPriceController extends Controller
         }
     }
 }
+

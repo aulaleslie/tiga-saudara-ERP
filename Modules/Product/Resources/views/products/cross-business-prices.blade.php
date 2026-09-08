@@ -49,8 +49,32 @@
                     </div>
                 </div>
 
-                <div class="col-lg-12">
+                @php
+                    $baseUnitName = $product->baseUnit?->name ?? $product->baseUnit?->short_name ?? 'Unit';
+                    $formatDecimalDisplay = function($val) {
+                        if ($val === null || $val === '') return '';
+                        if (!is_numeric($val)) return $val;
+                        return number_format((float) $val, 2, ',', '.');
+                    };
+                    $formatCanonicalDecimal = function($val) {
+                        if ($val === null || $val === '') return '';
+                        if (!is_numeric($val)) return $val;
+                        return number_format((float) $val, 2, '.', '');
+                    };
+                @endphp
+
+                <!-- Hidden inputs for snapshot evidence -->
+                @if(!empty($conversionSnapshot))
+                    <input type="hidden" name="conversion_snapshot" value="{{ $conversionSnapshot['data'] ?? '' }}">
+                    <input type="hidden" name="conversion_snapshot_signature" value="{{ $conversionSnapshot['signature'] ?? '' }}">
+                @endif
+
+                <!-- Section 1: Harga Satuan Dasar -->
+                <div class="col-lg-12 mb-4">
                     <div class="card">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0 font-weight-bold">Harga Satuan Dasar — {{ $baseUnitName }}</h5>
+                        </div>
                         <div class="card-body">
                             <div class="table-responsive">
                                 <table class="table table-bordered">
@@ -72,16 +96,6 @@
                                                     <input type="hidden" name="prices[{{ $index }}][setting_id]" value="{{ $price['setting_id'] }}">
                                                     <input type="hidden" name="prices[{{ $index }}][version]" value="{{ $price['version'] }}">
                                                 </td>
-                                                @php
-                                                    $formatDecimalDisplay = function($val) {
-                                                        if (!is_numeric($val)) return $val;
-                                                        return number_format((float) $val, 2, ',', '.');
-                                                    };
-                                                    $formatCanonicalDecimal = function($val) {
-                                                        if (!is_numeric($val)) return $val;
-                                                        return number_format((float) $val, 2, '.', '');
-                                                    };
-                                                @endphp
                                                 <td>
                                                     <div class="d-flex align-items-center">
                                                         <input type="text" class="form-control editable-price price-mask" name="prices[{{ $index }}][sale_price]" value="{{ $formatDecimalDisplay(old('prices.'.$index.'.sale_price', $price['sale_price'])) }}" data-original="{{ $formatCanonicalDecimal($price['sale_price']) }}" data-column="sale_price" readonly>
@@ -122,6 +136,99 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Harga Satuan Konversi -->
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0 font-weight-bold">Harga Satuan Konversi</h5>
+                        </div>
+                        <div class="card-body">
+                            @if(empty($conversionsData['headers']))
+                                <div class="alert alert-info mb-0">
+                                    <i class="bi bi-info-circle"></i> Produk ini belum memiliki konversi unit. Tambahkan konversi melalui menu ubah produk jika diperlukan.
+                                </div>
+                            @else
+                                <div class="table-responsive">
+                                    <table class="table table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Bisnis</th>
+                                                @foreach($conversionsData['headers'] as $header)
+                                                    <th>{{ $header['header_title'] }} (Rp)</th>
+                                                @endforeach
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @php
+                                                $convCellIndex = 0;
+                                                $oldConversions = old('conversions');
+                                                $oldConvMap = null;
+                                                if (is_array($oldConversions)) {
+                                                    $oldConvMap = [];
+                                                    foreach ($oldConversions as $oldItem) {
+                                                        if (is_array($oldItem) && isset($oldItem['setting_id'], $oldItem['conversion_id'])) {
+                                                            $key = $oldItem['setting_id'] . '_' . $oldItem['conversion_id'];
+                                                            $oldConvMap[$key] = $oldItem['price'] ?? '';
+                                                        }
+                                                    }
+                                                }
+                                            @endphp
+                                            @foreach($conversionsData['matrix'] as $bIndex => $row)
+                                                <tr>
+                                                    <td>{{ $row['business_name'] ?? 'Setting ' . $row['setting_id'] }}</td>
+                                                    @foreach($row['conversions'] as $cIndex => $cell)
+                                                        @php
+                                                            $convKey = $row['setting_id'] . '_' . $cell['conversion_id'];
+                                                            if ($oldConvMap !== null) {
+                                                                $currentPriceVal = array_key_exists($convKey, $oldConvMap)
+                                                                    ? $oldConvMap[$convKey]
+                                                                    : $cell['canonical_price'];
+                                                            } else {
+                                                                $currentPriceVal = $cell['canonical_price'];
+                                                            }
+                                                            $isOriginallyMissing = !$cell['is_existing'];
+                                                            $displayVal = $currentPriceVal !== '' ? $formatDecimalDisplay($currentPriceVal) : '';
+                                                        @endphp
+                                                        <td>
+                                                            <input type="hidden" name="conversions[{{ $convCellIndex }}][setting_id]" value="{{ $row['setting_id'] }}">
+                                                            <input type="hidden" name="conversions[{{ $convCellIndex }}][conversion_id]" value="{{ $cell['conversion_id'] }}">
+                                                            <input type="hidden" name="conversions[{{ $convCellIndex }}][version]" value="{{ $cell['version'] }}">
+
+                                                            <div class="d-flex align-items-center">
+                                                                <div class="position-relative flex-grow-1">
+                                                                    <input type="text"
+                                                                        class="form-control editable-price editable-conversion-price price-mask"
+                                                                        name="conversions[{{ $convCellIndex }}][price]"
+                                                                        value="{{ $displayVal }}"
+                                                                        data-original="{{ $cell['canonical_price'] }}"
+                                                                        data-originally-missing="{{ $isOriginallyMissing ? 'true' : 'false' }}"
+                                                                        data-conversion-id="{{ $cell['conversion_id'] }}"
+                                                                        data-setting-id="{{ $row['setting_id'] }}"
+                                                                        placeholder=""
+                                                                        readonly>
+                                                                    <span class="missing-badge text-muted small position-absolute" style="top: 8px; left: 12px; pointer-events: none; {{ ($displayVal !== '' ? 'display: none;' : '') }}">Belum diatur</span>
+                                                                </div>
+                                                                <button type="button"
+                                                                    class="btn btn-sm btn-outline-primary btn-apply-all-conv d-none ms-1"
+                                                                    data-conversion-id="{{ $cell['conversion_id'] }}"
+                                                                    title="Terapkan ke semua bisnis untuk konversi ini"
+                                                                    style="display: none;">
+                                                                    <i class="bi bi-arrows-expand"></i>
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                        @php $convCellIndex++; @endphp
+                                                    @endforeach
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -227,14 +334,46 @@
             function updateInputDirtyState($input) {
                 const currentVal = $input.val();
                 const originalVal = $input.data('original');
-                const isDirty = parseCanonicalDecimal(currentVal) !== parseCanonicalDecimal(originalVal);
-                const $btn = $input.siblings('.btn-apply-all');
+                const isOriginallyMissing = $input.data('originally-missing') === true || $input.data('originally-missing') === 'true';
+                
+                let isDirty = false;
+                if (isOriginallyMissing) {
+                    // For originally missing: dirty if currentVal is non-empty
+                    isDirty = currentVal.trim() !== '';
+                } else {
+                    isDirty = parseCanonicalDecimal(currentVal) !== parseCanonicalDecimal(originalVal);
+                }
 
+                // Handle missing badge visibility for conversion inputs
+                const $badge = $input.siblings('.missing-badge');
+                if ($badge.length) {
+                    if (currentVal.trim() === '') {
+                        $badge.show();
+                    } else {
+                        $badge.hide();
+                    }
+                }
+
+                // Base table apply-to-all button
+                const $btn = $input.siblings('.btn-apply-all');
                 if ($btn.length) {
                     if (isDirty && !$input.prop('readonly')) {
                         $btn.removeClass('d-none').show();
                     } else {
                         $btn.addClass('d-none').hide();
+                    }
+                }
+
+                // Conversion apply-to-all button
+                const $btnConv = $input.parent().siblings('.btn-apply-all-conv');
+                if ($btnConv.length) {
+                    // Only available if dirty, not readonly, and has a valid numeric value
+                    const canonical = parseCanonicalDecimal(currentVal);
+                    const isValidNumeric = canonical !== '' && !isNaN(parseFloat(canonical)) && parseFloat(canonical) >= 0;
+                    if (isDirty && !$input.prop('readonly') && isValidNumeric) {
+                        $btnConv.removeClass('d-none').show();
+                    } else {
+                        $btnConv.addClass('d-none').hide();
                     }
                 }
             }
@@ -267,7 +406,7 @@
                 }
             });
 
-            // Handle Apply-to-all button click
+            // Handle Base Apply-to-all button click
             $(document).on('click', '.btn-apply-all', function(e) {
                 e.preventDefault();
                 const $sourceBtn = $(this);
@@ -275,8 +414,26 @@
                 const column = $sourceBtn.data('column');
                 const sourceVal = $sourceInput.val();
 
-                // Target all inputs for the same column
+                // Target all inputs for the same column in base table
                 $editableInputs.filter('[data-column="' + column + '"]').each(function() {
+                    const $targetInput = $(this);
+                    if (!$targetInput.prop('readonly')) {
+                        $targetInput.val(sourceVal);
+                        updateInputDirtyState($targetInput);
+                    }
+                });
+            });
+
+            // Handle Conversion Apply-to-all button click (scoped by conversion ID)
+            $(document).on('click', '.btn-apply-all-conv', function(e) {
+                e.preventDefault();
+                const $sourceBtn = $(this);
+                const $sourceInput = $sourceBtn.siblings().find('.editable-conversion-price');
+                const conversionId = $sourceBtn.data('conversion-id');
+                const sourceVal = $sourceInput.val();
+
+                // Target all conversion inputs for the exact same conversion ID
+                $editableInputs.filter('.editable-conversion-price[data-conversion-id="' + conversionId + '"]').each(function() {
                     const $targetInput = $(this);
                     if (!$targetInput.prop('readonly')) {
                         $targetInput.val(sourceVal);
@@ -294,8 +451,14 @@
                 // Revert values to original localized display and make readonly
                 $editableInputs.each(function () {
                     const originalCanonical = $(this).data('original');
-                    const formattedDisplay = formatLocaleDisplay(originalCanonical);
-                    $(this).val(formattedDisplay).prop('readonly', true);
+                    const isOriginallyMissing = $(this).data('originally-missing') === true || $(this).data('originally-missing') === 'true';
+
+                    if (isOriginallyMissing) {
+                        $(this).val('').prop('readonly', true);
+                    } else {
+                        const formattedDisplay = formatLocaleDisplay(originalCanonical);
+                        $(this).val(formattedDisplay).prop('readonly', true);
+                    }
                     updateInputDirtyState($(this));
                 });
             });
@@ -313,8 +476,14 @@
                 // Unmask editable prices to canonical dot decimal format before submit
                 $editableInputs.each(function() {
                     let val = $(this).val();
-                    let canonical = parseCanonicalDecimal(val);
-                    $(this).val(canonical);
+                    let isOriginallyMissing = $(this).data('originally-missing') === true || $(this).data('originally-missing') === 'true';
+
+                    if (isOriginallyMissing && val.trim() === '') {
+                        $(this).val('');
+                    } else {
+                        let canonical = parseCanonicalDecimal(val);
+                        $(this).val(canonical);
+                    }
                 });
 
                 $btnSave.prop('disabled', true).html('<i class="spinner-border spinner-border-sm"></i> Menyimpan...');
