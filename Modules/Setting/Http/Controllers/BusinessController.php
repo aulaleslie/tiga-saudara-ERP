@@ -257,6 +257,8 @@ class BusinessController extends Controller
             abort(403);
         }
 
+        $oldSettingId = $request->session()->get('setting_id');
+
         // Update the session with the new setting ID
         $request->session()->put('setting_id', $settingId);
 
@@ -269,6 +271,14 @@ class BusinessController extends Controller
         if ($role) {
             $user->syncRoles([$role->name]);
         }
+
+        $diagnostics = app(\App\Services\SessionIncidentDiagnosticsService::class);
+        $diagnostics->record('business_context_switched', [
+            'user_id' => $user->id,
+            'old_business_id' => $oldSettingId,
+            'new_business_id' => $settingId,
+            'session_fingerprint' => $diagnostics->fingerprint($request->session()->getId()),
+        ], 'info');
 
         // Redirect to the named Home route
         return redirect()->route('home');

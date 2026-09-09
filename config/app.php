@@ -61,6 +61,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Deployment Identity
+    |--------------------------------------------------------------------------
+    |
+    | Optional identifiers used only for session/CSRF incident diagnostics.
+    | Both fall back to safe "unknown" values when not configured, since not
+    | every environment exposes a release version or a stable node identity.
+    |
+    */
+
+    'deployment_version' => env('APP_DEPLOYMENT_VERSION', env('APP_VERSION', 'unknown')),
+    'node_id' => env('APP_NODE_ID', gethostname() ?: 'unknown'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
