@@ -5,7 +5,6 @@ namespace Modules\Adjustment\Services;
 use Illuminate\Support\Collection;
 use Modules\Adjustment\DTOs\ProductReconciliation;
 use Modules\Adjustment\DTOs\ReconciliationResult;
-use Modules\Adjustment\DTOs\SerialClassification;
 use Modules\Adjustment\Entities\Adjustment;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
@@ -22,6 +21,11 @@ use Modules\Setting\Entities\Location;
  */
 class StockOpnameReconciliationService
 {
+    public function __construct(
+        private StockOpnameSerialClassifier $serialClassifier,
+    ) {
+    }
+
     /**
      * Compute reconciliation for an adjustment's saved count_draft.
      *
@@ -93,9 +97,15 @@ class StockOpnameReconciliationService
             ->get()
             ->keyBy('product_id');
 
+        // `quantity` is already the per-row TOTAL (good + broken); summing it
+        // directly across locations gives the all-location grand total.
+        // `total_good`/`total_bad` are derived separately (from the good
+        // buckets and from broken_quantity respectively) purely so callers
+        // that want the good/bad split can have it without re-deriving it
+        // from `quantity - broken_quantity` themselves.
         $allLocationTotalsByProduct = ProductStock::whereIn('product_id', $productIds)
             ->whereIn('location_id', $eligibleLocationIds)
-            ->selectRaw('product_id, SUM(quantity) as total_good, SUM(broken_quantity) as total_bad')
+            ->selectRaw('product_id, SUM(quantity_tax + quantity_non_tax) as total_good, SUM(broken_quantity) as total_bad, SUM(quantity) as grand_total')
             ->groupBy('product_id')
             ->get()
             ->keyBy('product_id');
@@ -138,11 +148,14 @@ class StockOpnameReconciliationService
             ->values();
 
         // Registered available serials currently at the destination for entered
-        // serialized products, to detect destination omissions.
+        // serialized products, to detect destination omissions. Eager-load
+        // the same relations as $matchingSerialsByText above so the shared
+        // classifier's per-serial label/warning reads never lazy-load.
         $serializedProductIds = $productsById->filter(fn (Product $p) => (bool) $p->serial_number_required)->keys();
         $destinationSerialsByProduct = collect();
         if ($serializedProductIds->isNotEmpty()) {
-            $destinationSerialsByProduct = ProductSerialNumber::where('location_id', $location->id)
+            $destinationSerialsByProduct = ProductSerialNumber::with(['location', 'tax', 'product'])
+                ->where('location_id', $location->id)
                 ->whereIn('product_id', $serializedProductIds)
                 ->get()
                 ->groupBy('product_id');
@@ -184,15 +197,23 @@ class StockOpnameReconciliationService
             $baselineGood = (int) ($row['baseline']['existing_good_total'] ?? 0);
             $baselineBad = (int) ($row['baseline']['existing_bad_total'] ?? 0);
 
+            // ProductStock::quantity is the TOTAL (good + broken) per the
+            // established convention (see ProductController::
+            // handleStockInitialization / TransferMovementService::
+            // applyInventoryChange / StockOpnameApprovalService); current
+            // good must be derived from the two good buckets directly, never
+            // from `quantity`, or broken units get double-counted as good.
             $stock = $selectedLocationStocksByProduct->get($productId);
-            $currentGood = $stock ? (int) round((float) $stock->quantity) : 0;
+            $currentGood = $stock
+                ? (int) round((float) $stock->quantity_tax) + (int) round((float) $stock->quantity_non_tax)
+                : 0;
             $currentBad = $stock ? (int) round((float) $stock->broken_quantity) : 0;
 
             $enteredGood = (int) ($row['good_count'] ?? 0);
             $enteredBad = (int) ($row['bad_count'] ?? 0);
 
             $totals = $allLocationTotalsByProduct->get($productId);
-            $allLocationCurrentTotal = $totals ? (float) $totals->total_good + (float) $totals->total_bad : 0.0;
+            $allLocationCurrentTotal = $totals ? (float) $totals->grand_total : 0.0;
 
             $enteredTotal = $enteredGood + $enteredBad;
             $currentTotal = $currentGood + $currentBad;
@@ -202,7 +223,7 @@ class StockOpnameReconciliationService
                 ? $enteredTotal - $allLocationCurrentTotal
                 : 0.0;
 
-            [$serialClassifications, $omittedSerials, $serialWarnings, $serialConflicts, $newSerialCount] = $this->classifySerials(
+            $classification = $this->serialClassifier->classify(
                 product: $product,
                 row: $row,
                 destinationLocation: $location,
@@ -213,6 +234,11 @@ class StockOpnameReconciliationService
                 activeClaimSerialIds: $activeClaimSerialIds,
                 allocatedSerialIds: $allocatedSerialIds,
             );
+            $serialClassifications = $classification['entered'];
+            $omittedSerials = $classification['omitted'];
+            $serialWarnings = $classification['warnings'];
+            $serialConflicts = $classification['conflicts'];
+            $newSerialCount = $classification['newSerialCount'];
 
             if ($isSerialized) {
                 // Serialized global effect is computed per serial identity,
@@ -301,241 +327,4 @@ class StockOpnameReconciliationService
             ->pluck('id');
     }
 
-    /**
-     * Classify every entered serial for one product plus every destination
-     * serial omitted from the entered set. Returns
-     * [SerialClassification[] $entered, SerialClassification[] $omitted, string[] $warnings, string[] $conflicts, int $newSerialCount].
-     * Purely in-memory: every lookup hits an already bulk-loaded collection.
-     */
-    private function classifySerials(
-        Product $product,
-        array $row,
-        Location $destinationLocation,
-        bool $isPkp,
-        Collection $eligibleLocationIds,
-        Collection $matchingSerialsByText,
-        Collection $destinationSerialsByProduct,
-        Collection $activeClaimSerialIds,
-        Collection $allocatedSerialIds,
-    ): array {
-        if (!$product->serial_number_required) {
-            return [[], [], [], [], 0];
-        }
-
-        $entered = [];
-        $warnings = [];
-        $conflicts = [];
-        $enteredTexts = [];
-        $newSerialCount = 0;
-
-        foreach ($row['serials'] ?? [] as $serialRow) {
-            $text = ProductSerialNumber::normalize((string) ($serialRow['serial_number'] ?? ''));
-            if ($text === '') {
-                continue;
-            }
-            $enteredTexts[$text] = true;
-
-            $enteredCondition = strtolower((string) ($serialRow['condition'] ?? 'good'));
-            $destinationIsTax = $isPkp;
-
-            // Re-resolve authoritatively by product ID + normalized text, never
-            // trusting the client-supplied/saved source fields on the row.
-            $candidates = $matchingSerialsByText->get($text, collect());
-            $ownProductMatch = $candidates->first(fn (ProductSerialNumber $s) => (int) $s->product_id === (int) $product->id);
-            $otherProductMatch = $candidates->first(fn (ProductSerialNumber $s) => (int) $s->product_id !== (int) $product->id);
-
-            if ($otherProductMatch && !$ownProductMatch) {
-                $warnings[] = sprintf(
-                    "Nomor seri '%s' yang dimasukkan untuk produk %s sudah terdaftar pada produk lain (%s).",
-                    $text,
-                    $product->product_name,
-                    $otherProductMatch->product?->product_name ?? ('ID ' . $otherProductMatch->product_id)
-                );
-            }
-
-            if (!$ownProductMatch) {
-                $entered[] = new SerialClassification(
-                    serialNumber: $text,
-                    status: SerialClassification::STATUS_NEW,
-                    sourceSerialId: null,
-                    sourceLocationId: null,
-                    sourceLocationName: null,
-                    sourceCondition: null,
-                    sourceIsTax: null,
-                    enteredCondition: $enteredCondition,
-                    destinationIsTax: $destinationIsTax,
-                    sameTextOtherProduct: (bool) $otherProductMatch,
-                    label: 'Baru: akan didaftarkan di lokasi tujuan.',
-                    statuses: [SerialClassification::STATUS_NEW],
-                );
-                $newSerialCount++;
-                continue;
-            }
-
-            $sourceLocationId = $ownProductMatch->location_id ? (int) $ownProductMatch->location_id : null;
-
-            $conflictReason = $this->unsafeSerialConflictReason(
-                $ownProductMatch,
-                $eligibleLocationIds,
-                $activeClaimSerialIds,
-                $allocatedSerialIds
-            );
-            if ($conflictReason !== null) {
-                $conflicts[] = sprintf(
-                    "Nomor seri '%s' untuk produk %s tidak dapat diproses: %s",
-                    $text,
-                    $product->product_name,
-                    $conflictReason
-                );
-                $entered[] = new SerialClassification(
-                    serialNumber: $text,
-                    status: SerialClassification::STATUS_CONFLICTING,
-                    sourceSerialId: (int) $ownProductMatch->id,
-                    sourceLocationId: $sourceLocationId,
-                    sourceLocationName: $ownProductMatch->location?->name,
-                    sourceCondition: $ownProductMatch->is_broken ? 'bad' : 'good',
-                    sourceIsTax: $ownProductMatch->tax_id !== null,
-                    enteredCondition: $enteredCondition,
-                    destinationIsTax: $destinationIsTax,
-                    conflictReason: $conflictReason,
-                    label: 'Konflik: tidak dapat diproses secara aman — ' . $conflictReason,
-                    statuses: [SerialClassification::STATUS_CONFLICTING],
-                );
-                continue;
-            }
-
-            $sourceCondition = $ownProductMatch->is_broken ? 'bad' : 'good';
-            $sourceIsTax = $ownProductMatch->tax_id !== null;
-
-            $isSameLocation = $sourceLocationId === (int) $destinationLocation->id;
-            $conditionChanged = $sourceCondition !== $enteredCondition;
-            $taxChanged = $sourceIsTax !== $destinationIsTax;
-
-            // Composable: a single serial can simultaneously move, change
-            // condition, and change tax classification. Every applicable
-            // status is reported together rather than picking just one.
-            $statuses = [];
-            $labelParts = [];
-
-            if (!$isSameLocation) {
-                $statuses[] = SerialClassification::STATUS_MOVED;
-                $labelParts[] = sprintf(
-                    'Pindah dari %s ke %s.',
-                    $ownProductMatch->location?->name ?? "lokasi #{$sourceLocationId}",
-                    $destinationLocation->name
-                );
-            }
-
-            if ($conditionChanged) {
-                $statuses[] = SerialClassification::STATUS_CONDITION_CHANGED;
-                $labelParts[] = sprintf('Kondisi berubah dari %s menjadi %s.', $sourceCondition, $enteredCondition);
-            }
-
-            if ($taxChanged) {
-                $statuses[] = SerialClassification::STATUS_TAX_CHANGED;
-                $labelParts[] = $destinationIsTax
-                    ? 'Tidak Kena Pajak → Kena Pajak'
-                    : 'Kena Pajak → Tidak Kena Pajak';
-            }
-
-            if (empty($statuses)) {
-                $statuses[] = SerialClassification::STATUS_RETAINED;
-                $labelParts[] = 'Tetap di lokasi saat ini, tidak ada perubahan.';
-            }
-
-            $entered[] = new SerialClassification(
-                serialNumber: $text,
-                status: $statuses[0],
-                sourceSerialId: (int) $ownProductMatch->id,
-                sourceLocationId: $sourceLocationId,
-                sourceLocationName: $ownProductMatch->location?->name,
-                sourceCondition: $sourceCondition,
-                sourceIsTax: $sourceIsTax,
-                enteredCondition: $enteredCondition,
-                destinationIsTax: $destinationIsTax,
-                label: implode(' ', $labelParts),
-                statuses: $statuses,
-            );
-        }
-
-        // Destination serials omitted from the entered complete set.
-        $omitted = [];
-        $destinationSerials = $destinationSerialsByProduct->get($product->id, collect());
-        foreach ($destinationSerials as $existingSerial) {
-            if (isset($enteredTexts[$existingSerial->serial_number])) {
-                continue;
-            }
-            if (in_array($existingSerial->status, [ProductSerialNumber::STATUS_SOLD, ProductSerialNumber::STATUS_RETURN_IN_PROCESS], true)) {
-                // Not currently available at this location for counting purposes;
-                // omission is expected, not a discrepancy.
-                continue;
-            }
-
-            $omitted[] = new SerialClassification(
-                serialNumber: $existingSerial->serial_number,
-                status: SerialClassification::STATUS_OMITTED,
-                sourceSerialId: (int) $existingSerial->id,
-                sourceLocationId: (int) $existingSerial->location_id,
-                sourceLocationName: $destinationLocation->name,
-                sourceCondition: $existingSerial->is_broken ? 'bad' : 'good',
-                sourceIsTax: $existingSerial->tax_id !== null,
-                enteredCondition: null,
-                destinationIsTax: null,
-                label: 'Terdaftar di lokasi ini tetapi tidak disertakan dalam hitungan.',
-                statuses: [SerialClassification::STATUS_OMITTED],
-            );
-        }
-
-        if (!empty($omitted)) {
-            $warnings[] = sprintf(
-                '%s: %d nomor seri terdaftar di lokasi ini tidak disertakan dalam hitungan.',
-                $product->product_name,
-                count($omitted)
-            );
-        }
-
-        return [$entered, $omitted, $warnings, $conflicts, $newSerialCount];
-    }
-
-    /**
-     * Return a Bahasa Indonesia conflict reason if this serial's current
-     * authoritative state is unsafe to move/create/reclassify/remove, or
-     * null if it is safe to proceed. Purely in-memory against bulk-loaded
-     * eligible-location/claim/allocation sets — issues no query itself.
-     */
-    private function unsafeSerialConflictReason(
-        ProductSerialNumber $serial,
-        Collection $eligibleLocationIds,
-        Collection $activeClaimSerialIds,
-        Collection $allocatedSerialIds,
-    ): ?string {
-        if ($serial->dispatch_detail_id !== null) {
-            return 'Nomor seri terkait dengan pengiriman aktif.';
-        }
-        if ($serial->is_in_return_process) {
-            return 'Nomor seri sedang dalam proses retur.';
-        }
-        if ($serial->purchase_return_id !== null) {
-            return 'Nomor seri terkait dengan retur pembelian.';
-        }
-        if (in_array($serial->status, [ProductSerialNumber::STATUS_SOLD, ProductSerialNumber::STATUS_RETURN_IN_PROCESS], true)) {
-            return 'Nomor seri berstatus ' . $serial->status . ' dan tidak dapat diproses.';
-        }
-        if ($activeClaimSerialIds->contains($serial->id)) {
-            return 'Nomor seri memiliki klaim konsinyasi aktif.';
-        }
-        if ($allocatedSerialIds->contains($serial->id)) {
-            return 'Nomor seri memiliki alokasi konsinyasi aktif.';
-        }
-
-        // A serial currently sitting at a location outside this document's
-        // eligible same-owner, non-consignment scope (a different setting,
-        // or a consignment location) is never a movable candidate — it is a
-        // conflict, not a cross-location move.
-        if ($serial->location_id !== null && !$eligibleLocationIds->contains((int) $serial->location_id)) {
-            return 'Nomor seri berada di lokasi di luar cakupan pemilik aktif atau merupakan lokasi konsinyasi.';
-        }
-
-        return null;
-    }
 }

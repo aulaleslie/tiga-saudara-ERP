@@ -113,10 +113,12 @@ class StockOpnameReconciliationServiceTest extends TestCase
     {
         $product = $this->makeProduct();
 
+        // quantity is the established TOTAL (good + broken) convention, so
+        // 10 good_tax + 1 broken_tax => quantity = 11, not 10.
         ProductStock::create([
             'product_id' => $product->id,
             'location_id' => $this->location->id,
-            'quantity' => 10,
+            'quantity' => 11,
             'quantity_tax' => 10,
             'quantity_non_tax' => 0,
             'broken_quantity' => 1,
@@ -155,6 +157,110 @@ class StockOpnameReconciliationServiceTest extends TestCase
         $this->assertTrue($p->isConditionReclassificationOnly());
         $this->assertSame(0.0, $p->potentialGlobalIncrease);
         $this->assertFalse($p->exceedsAllLocationTotal);
+    }
+
+    /**
+     * Regression for the double-counting bug: ProductStock::quantity is
+     * already the TOTAL (good + broken) per the established convention, so
+     * current good must be derived from the two good buckets directly.
+     * Reading currentGood from `quantity` (as if it were good-only) would
+     * report currentGood=11 instead of 10 whenever broken stock is nonzero.
+     */
+    public function test_current_good_is_derived_from_good_buckets_not_from_quantity_when_broken_stock_is_nonzero()
+    {
+        $product = $this->makeProduct();
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 15, // 10 good + 5 broken
+            'quantity_tax' => 6,
+            'quantity_non_tax' => 4,
+            'broken_quantity' => 5,
+            'broken_quantity_tax' => 3,
+            'broken_quantity_non_tax' => 2,
+        ]);
+
+        $adjustment = $this->makeAdjustment([
+            'schema_version' => 1,
+            'location_id' => $this->location->id,
+            'rows' => [
+                [
+                    'product_id' => $product->id,
+                    'is_serialized' => false,
+                    'good_count' => 10,
+                    'bad_count' => 5,
+                    'baseline' => ['existing_good_total' => 10, 'existing_bad_total' => 5],
+                ],
+            ],
+        ]);
+
+        $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment);
+        $p = $result->products[0];
+
+        $this->assertSame(10, $p->currentGood);
+        $this->assertSame(5, $p->currentBad);
+        $this->assertSame(0, $p->goodDifference);
+        $this->assertSame(0, $p->badDifference);
+        $this->assertFalse($p->exceedsAllLocationTotal);
+        $this->assertSame(0.0, $p->potentialGlobalIncrease);
+    }
+
+    /**
+     * Regression for the double-counting bug in the all-location total:
+     * summing SUM(quantity) + SUM(broken_quantity) across locations doubles
+     * every location's broken units into the grand total. The correct
+     * all-location total is SUM(quantity) alone, since `quantity` already
+     * includes broken.
+     */
+    public function test_all_location_total_does_not_double_count_broken_stock_across_locations()
+    {
+        $product = $this->makeProduct();
+
+        // 10 good + 5 broken at each of two eligible locations => 30 total,
+        // never 40 (which is what SUM(quantity) + SUM(broken_quantity) would
+        // incorrectly produce: (15+15) + (5+5) = 40).
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 15,
+            'quantity_tax' => 10,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 5,
+            'broken_quantity_tax' => 5,
+            'broken_quantity_non_tax' => 0,
+        ]);
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->otherLocation->id,
+            'quantity' => 15,
+            'quantity_tax' => 10,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 5,
+            'broken_quantity_tax' => 5,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $adjustment = $this->makeAdjustment([
+            'schema_version' => 1,
+            'location_id' => $this->location->id,
+            'rows' => [
+                [
+                    'product_id' => $product->id,
+                    'is_serialized' => false,
+                    'good_count' => 10,
+                    'bad_count' => 5,
+                    'baseline' => ['existing_good_total' => 10, 'existing_bad_total' => 5],
+                ],
+            ],
+        ]);
+
+        $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment);
+        $p = $result->products[0];
+
+        $this->assertEquals(30.0, $p->allLocationCurrentTotal);
+        $this->assertFalse($p->exceedsAllLocationTotal);
+        $this->assertSame(0.0, $p->potentialGlobalIncrease);
     }
 
     public function test_warns_when_entered_total_exceeds_all_location_total()

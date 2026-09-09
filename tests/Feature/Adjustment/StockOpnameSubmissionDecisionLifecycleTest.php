@@ -760,8 +760,12 @@ class StockOpnameSubmissionDecisionLifecycleTest extends TestCase
 
     // --- Task 3.4: guarded approval entry point / legacy isolation ---
 
-    public function test_approve_on_waiting_approval_versioned_document_does_not_reach_legacy_posting()
+    public function test_approve_on_waiting_approval_versioned_document_posts_through_section_4_approval_service()
     {
+        // Destination setting is PKP (see setUp()), so approval requires a
+        // real Tax record to classify entered quantities into.
+        \Modules\Setting\Entities\Tax::create(['name' => 'PPN', 'value' => 11, 'is_default' => true]);
+
         $product = $this->makeStockManagedProduct();
         $stock = \Modules\Product\Entities\ProductStock::create([
             'product_id' => $product->id,
@@ -780,13 +784,21 @@ class StockOpnameSubmissionDecisionLifecycleTest extends TestCase
         $response = $this->actingAs($this->approver)
             ->patch(route('adjustments.approve', $adjustment->fresh()));
 
-        $response->assertSessionHasErrors('message');
+        $response->assertRedirect(route('adjustments.index'));
+        $response->assertSessionDoesntHaveErrors();
 
-        // Legacy approveNormal() would have mutated stock/status/transactions;
-        // none of that may happen here since posting is deferred to section 4.
-        $this->assertEquals(AdjustmentStatus::WaitingApproval, $adjustment->fresh()->status);
-        $this->assertEquals(5, $stock->fresh()->quantity);
-        $this->assertDatabaseCount('transactions', 0);
+        // The draft payload's entered good_count (3) is now the atomic
+        // section-4 approval poster's applied absolute count, not the
+        // "under development" no-op section 3 previously stubbed out.
+        $fresh = $adjustment->fresh();
+        $this->assertEquals(AdjustmentStatus::Approved, $fresh->status);
+        $this->assertEquals($this->approver->id, $fresh->approved_by);
+        $this->assertEquals(3, $stock->fresh()->quantity_tax);
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'type' => 'ADJ',
+        ]);
     }
 
     public function test_approve_requires_adjustments_approval_permission_for_versioned_document()

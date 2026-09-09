@@ -23,12 +23,12 @@
 
 ## 4. Atomic inventory approval
 
-- [ ] 4.1 Implement locked reconciliation inside one database transaction, locking the adjustment, entered products, affected source/destination stock rows, and relevant serial rows before recomputing current classifications.
-- [ ] 4.2 Apply absolute destination good/bad quantities only for entered non-serialized products, allocate entirely by destination PKP, leave omitted products and other locations unchanged, and update product aggregates by the verified net difference.
-- [ ] 4.3 Move entered existing serials from source to destination with exact good/bad and tax/non-tax source decrements, proposed condition, destination PKP classification, and no unintended global quantity change.
-- [ ] 4.4 Create still-unknown entered serials only during approval with destination location, proposed condition, and destination PKP classification; reject duplicate or unsafe concurrent identity conflicts.
-- [ ] 4.5 Apply the chosen domain-consistent disposition for omitted available destination serials, block serials with unsafe active links, and record every omission outcome rather than silently deleting evidence.
-- [ ] 4.6 Write inventory transactions and stock notifications for actual affected locations/products, persist the immutable locked `approval_result`, record approver/time, resolve document notifications, and guarantee rollback on any failure.
+- [x] 4.1 Implement locked reconciliation inside one database transaction, locking the adjustment, entered products, affected source/destination stock rows, and relevant serial rows before recomputing current classifications.
+- [x] 4.2 Apply absolute destination good/bad quantities only for entered non-serialized products, allocate entirely by destination PKP, leave omitted products and other locations unchanged, and update product aggregates by the verified net difference.
+- [x] 4.3 Move entered existing serials from source to destination with exact good/bad and tax/non-tax source decrements, proposed condition, destination PKP classification, and no unintended global quantity change.
+- [x] 4.4 Create still-unknown entered serials only during approval with destination location, proposed condition, and destination PKP classification; reject duplicate or unsafe concurrent identity conflicts.
+- [x] 4.5 Apply the chosen domain-consistent disposition for omitted available destination serials, block serials with unsafe active links, and record every omission outcome rather than silently deleting evidence.
+- [x] 4.6 Write inventory transactions and stock notifications for actual affected locations/products, persist the immutable locked `approval_result`, record approver/time, resolve document notifications, and guarantee rollback on any failure.
 
 ## 5. Bahasa Indonesia review interface
 

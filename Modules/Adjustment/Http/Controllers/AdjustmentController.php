@@ -743,14 +743,14 @@ class AdjustmentController extends Controller
         abort_if(Gate::denies('adjustments.approval'), 403);
 
         try {
-            app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)->assertApprovable($adjustment, auth()->user());
+            app(\Modules\Adjustment\Services\StockOpnameApprovalService::class)->approve($adjustment, auth()->user());
         } catch (ValidationException $e) {
             return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
         }
 
-        return back()->withErrors([
-            'message' => 'Rekonsiliasi dan pemrosesan persetujuan stock opname format baru belum tersedia (sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
-        ]);
+        toast('Stock Opname Disetujui!', 'success');
+
+        return redirect()->route('adjustments.index');
     }
 
     public function approveNormal(Adjustment $adjustment): RedirectResponse

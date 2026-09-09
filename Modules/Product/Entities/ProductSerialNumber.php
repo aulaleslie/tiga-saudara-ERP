@@ -36,6 +36,7 @@ class ProductSerialNumber extends BaseModel
     const STATUS_RETURN_IN_PROCESS = 'RETURN_IN_PROCESS';
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_BROKEN = 'BROKEN';
+    const STATUS_MISSING = 'MISSING';
 
     /**
      * Normalize serial number to canonical UPPERCASE trimmed UTF-8.
