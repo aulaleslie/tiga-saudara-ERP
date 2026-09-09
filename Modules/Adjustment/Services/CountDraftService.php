@@ -642,10 +642,30 @@ class CountDraftService
                 ];
 
                 if ($adjustment) {
+                    // Lock and reload the adjustment inside this transaction, then
+                    // revalidate ownership and editability against the authoritative
+                    // row immediately before updating. The pre-transaction checks above
+                    // only guard against an already-stale request; without this
+                    // re-check here, a concurrent submit() could transition the row to
+                    // WAITING_APPROVAL between the pre-check and this update(), and this
+                    // save would silently overwrite it back to DRAFT.
+                    /** @var \Modules\Adjustment\Entities\Adjustment $lockedAdjustment */
+                    $lockedAdjustment = \Modules\Adjustment\Entities\Adjustment::where('id', $adjustment->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if ($lockedAdjustment->isNormalVersioned() && !$this->canEditAdjustment($lockedAdjustment)) {
+                        throw new InvalidArgumentException(
+                            'Dokumen penyesuaian ini tidak dapat diubah karena statusnya bukan draf atau ditolak.'
+                        );
+                    }
+
+                    app(AdjustmentOwnershipGuard::class)->assertOwned($lockedAdjustment);
+
                     // Revising a rejected document returns it to draft. Prior rejection
                     // evidence (rejected_by/at, rejection_reason) is retained as historical
                     // record; incompatible submission/approval metadata is cleared here.
-                    $wasRejected = AdjustmentStatus::normalize($adjustment->status) === AdjustmentStatus::Rejected;
+                    $wasRejected = AdjustmentStatus::normalize($lockedAdjustment->status) === AdjustmentStatus::Rejected;
                     if ($wasRejected) {
                         $headerData['submitted_by'] = null;
                         $headerData['submitted_at'] = null;
@@ -654,7 +674,12 @@ class CountDraftService
                         $headerData['approval_result'] = null;
                     }
 
-                    $adjustment->update($headerData);
+                    $lockedAdjustment->update($headerData);
+                    $adjustment = $lockedAdjustment;
+
+                    if ($wasRejected) {
+                        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($adjustment);
+                    }
                 } else {
                     $adjustment = \Modules\Adjustment\Entities\Adjustment::create($headerData);
                 }

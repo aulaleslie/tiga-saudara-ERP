@@ -16,10 +16,10 @@
 
 ## 3. Submission and decision lifecycle
 
-- [ ] 3.1 Add idempotent submit routing/action for an owned nonempty `draft`, record submitter/time, transition to `waiting_approval`, lock editing, and send one approval-needed notification.
-- [ ] 3.2 Update edit/update/delete guards and index actions so only allowed draft/rejected operations appear and submitted/approved documents cannot be mutated through direct requests.
-- [ ] 3.3 Add idempotent rejection routing/action restricted to owned `waiting_approval` documents and `adjustments.approval`, requiring a Bahasa Indonesia reason and recording rejector/time without inventory mutation.
-- [ ] 3.4 Replace redesigned approval blocking with a guarded approval entry point restricted to owned `waiting_approval` documents and `adjustments.approval`; prevent legacy approval code from receiving redesigned documents.
+- [x] 3.1 Add idempotent submit routing/action for an owned nonempty `draft`, record submitter/time, transition to `waiting_approval`, lock editing, and send one approval-needed notification.
+- [x] 3.2 Update edit/update/delete guards and index actions so only allowed draft/rejected operations appear and submitted/approved documents cannot be mutated through direct requests.
+- [x] 3.3 Add idempotent rejection routing/action restricted to owned `waiting_approval` documents and `adjustments.approval`, requiring a Bahasa Indonesia reason and recording rejector/time without inventory mutation.
+- [x] 3.4 Replace redesigned approval blocking with a guarded approval entry point restricted to owned `waiting_approval` documents and `adjustments.approval`; prevent legacy approval code from receiving redesigned documents.
 
 ## 4. Atomic inventory approval
 

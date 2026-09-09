@@ -8,8 +8,16 @@
     $dataStatus = $data->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
         ? $data->status->value
         : strtoupper((string) $data->status);
+    $isVersionedRow = $data->isNormalVersioned();
+    $rowEditable = $isVersionedRow
+        ? in_array($dataStatus, [
+            \Modules\Adjustment\Entities\AdjustmentStatus::Draft->value,
+            \Modules\Adjustment\Entities\AdjustmentStatus::Rejected->value,
+        ], true)
+        : ($dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Approved->value
+            && $dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Rejected->value);
 @endphp
-@if ($dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Approved->value && $dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Rejected->value)
+@if ($rowEditable)
     @canany(['adjustments.edit', 'adjustments.breakage.edit'])
         <a href="{{ $data->type === 'breakage' ? route('adjustments.editBreakage', $data->id) : route('adjustments.edit', $data->id) }}"
            class="btn btn-info btn-sm">

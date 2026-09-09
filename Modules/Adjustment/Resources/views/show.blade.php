@@ -27,6 +27,7 @@
                     $canApproveAny = $user?->can('adjustments.approval');
                     $canApproveBreakage = $user?->can('adjustments.breakage.approval');
                     $canRejectGeneric = $user?->can('adjustments.reject');
+                    $canEdit = $user?->can('adjustments.edit');
 
                     // Normalisasi
                     $statusValue = $adjustment->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
@@ -34,59 +35,63 @@
                         : $adjustment->status;
                     $status      = is_string($statusValue) ? strtolower(trim($statusValue)) : $statusValue;
                     $type        = is_string($adjustment->type)   ? strtolower(trim($adjustment->type))   : $adjustment->type;
-                    $isPending   = $status === 'pending';
                     $isBreakage  = $type === 'breakage';
+                    $isVersioned = $adjustment->isNormalVersioned();
 
-                    // Hitung visibility tombol (terlepas dari status, buat debug)
-                    $showApprove = $isBreakage
-                        ? ($canApproveBreakage || $canApproveAny)
-                        : $canApproveAny;
+                    if ($isVersioned) {
+                        // Redesigned Stock Opname lifecycle: draft -> waiting_approval -> approved/rejected.
+                        // Submit only accepts DRAFT; a rejected document must first be
+                        // edited (which returns it to draft) before it can be resubmitted.
+                        $isDraft = $status === 'draft';
+                        $isWaitingApproval = $status === 'waiting_approval';
 
-                    $showReject = $isBreakage
-                        ? ($canApproveBreakage || $canApproveAny || $canRejectGeneric)
-                        : ($canApproveAny || $canRejectGeneric);
+                        $showSubmit  = $isDraft && $canEdit;
+                        $showApprove = $isWaitingApproval && $canApproveAny;
+                        $showReject  = $isWaitingApproval && $canApproveAny;
+                    } else {
+                        // Legacy/breakage lifecycle: single 'pending' status gate.
+                        $isPending = $status === 'pending';
 
-                    \Log::debug('[Adjustment::show] Approval gate check', [
-                        'user_id'            => $user?->id,
-                        'user_roles'         => method_exists($user, 'getRoleNames') ? $user->getRoleNames()->toArray() : null,
-                        'adjustment_id'      => $adjustment->id,
-                        'adjustment_type'    => $adjustment->type,
-                        'adjustment_status'  => $adjustment->status,
-                        'normalized_type'    => $type,
-                        'normalized_status'  => $status,
-                        'canApproveAny'      => $canApproveAny,
-                        'canApproveBreakage' => $canApproveBreakage,
-                        'canRejectGeneric'   => $canRejectGeneric,
-                        'isPending'          => $isPending,
-                        'showApprove'        => $showApprove,
-                        'showReject'         => $showReject,
-                    ]);
+                        $showSubmit  = false;
+                        $showApprove = $isPending && ($isBreakage ? ($canApproveBreakage || $canApproveAny) : $canApproveAny);
+                        $showReject  = $isPending && ($isBreakage ? ($canApproveBreakage || $canApproveAny || $canRejectGeneric) : ($canApproveAny || $canRejectGeneric));
+                    }
                 @endphp
 
-                @if(config('app.debug'))
-                    <div class="alert alert-warning small mb-2">
-                        <strong>Approval Debug:</strong>
-                        <div>raw status: {{ $statusValue }}</div>
-                        <div>raw type: {{ $adjustment->type }}</div>
-                        <div>isPending: {{ $isPending ? 'true' : 'false' }}</div>
-                        <div>isBreakage: {{ $isBreakage ? 'true' : 'false' }}</div>
-                        <div>canApproveAny: {{ $canApproveAny ? 'true' : 'false' }}</div>
-                        <div>canApproveBreakage: {{ $canApproveBreakage ? 'true' : 'false' }}</div>
-                        <div>canRejectGeneric: {{ $canRejectGeneric ? 'true' : 'false' }}</div>
-                        <div>showApprove: {{ $showApprove ? 'true' : 'false' }}</div>
-                        <div>showReject: {{ $showReject ? 'true' : 'false' }}</div>
-                    </div>
+                @if($showSubmit)
+                    <form action="{{ route('adjustments.submit', $adjustment) }}" method="POST" class="d-inline">
+                        @csrf @method('PATCH')
+                        <button type="submit" class="btn btn-primary">Ajukan Persetujuan</button>
+                    </form>
                 @endif
 
-                @if($isPending)
-                    @if($showApprove)
-                        <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST" class="d-inline">
-                            @csrf @method('PATCH')
-                            <button type="submit" class="btn btn-success">Setuju</button>
-                        </form>
-                    @endif
+                @if($showApprove)
+                    <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST" class="d-inline">
+                        @csrf @method('PATCH')
+                        <button type="submit" class="btn btn-success">Setuju</button>
+                    </form>
+                @endif
 
-                    @if($showReject)
+                @if($showReject)
+                    @if($isVersioned)
+                        <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST" class="d-inline"
+                              onsubmit="return promptStockOpnameRejectionReason(this);">
+                            @csrf @method('PATCH')
+                            <input type="hidden" name="rejection_reason" class="js-rejection-reason">
+                            <button type="submit" class="btn btn-danger">Tolak</button>
+                        </form>
+                        <script>
+                            function promptStockOpnameRejectionReason(form) {
+                                const reason = window.prompt('Masukkan alasan penolakan (wajib diisi):', '');
+                                if (reason === null || reason.trim() === '') {
+                                    alert('Alasan penolakan wajib diisi.');
+                                    return false;
+                                }
+                                form.querySelector('.js-rejection-reason').value = reason.trim();
+                                return true;
+                            }
+                        </script>
+                    @else
                         <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST" class="d-inline">
                             @csrf @method('PATCH')
                             <button type="submit" class="btn btn-danger">Tolak</button>

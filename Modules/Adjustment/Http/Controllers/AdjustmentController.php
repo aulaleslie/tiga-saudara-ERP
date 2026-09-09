@@ -402,6 +402,22 @@ class AdjustmentController extends Controller
 
 
 
+    public function submit(Adjustment $adjustment): RedirectResponse
+    {
+        abort_if(Gate::denies('adjustments.edit'), 403);
+        $this->assertAdjustmentOwned($adjustment);
+
+        try {
+            app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)->submit($adjustment, auth()->user());
+        } catch (ValidationException $e) {
+            return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
+        }
+
+        toast('Proposal stock opname berhasil diajukan untuk persetujuan.', 'success');
+
+        return redirect()->route('adjustments.index');
+    }
+
     public function edit(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.edit'), 403);
@@ -666,6 +682,20 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('adjustments.delete'), 403);
 
+        if ($adjustment->isNormalVersioned()) {
+            $this->assertAdjustmentOwned($adjustment);
+
+            try {
+                app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)->deleteDraft($adjustment, auth()->user());
+            } catch (ValidationException $e) {
+                abort(403, (string) collect($e->errors())->flatten()->first());
+            }
+
+            toast('Adjustment Deleted!', 'warning');
+
+            return redirect()->route('adjustments.index');
+        }
+
         $adjustment->delete();
 
         toast('Adjustment Deleted!', 'warning');
@@ -680,9 +710,7 @@ class AdjustmentController extends Controller
         Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
 
         if ($adjustment->isVersionedCountDraft()) {
-            return back()->withErrors([
-                'message' => 'Persetujuan untuk proposal stock opname format baru belum tersedia (alur persetujuan baru sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
-            ]);
+            return $this->approveVersionedStockOpname($adjustment);
         }
 
         $normalizedType = Str::of($adjustment->type)->lower()->trim()->value();
@@ -703,14 +731,34 @@ class AdjustmentController extends Controller
         return redirect()->route('adjustments.index');
     }
 
+    /**
+     * Guarded approval entry point for redesigned (normal versioned) Stock
+     * Opname documents. Actual reconciliation and inventory mutation is
+     * implemented separately (section 4); this only verifies eligibility so
+     * that the legacy approveNormal()/approveBreakage() postings can never
+     * receive a redesigned document.
+     */
+    protected function approveVersionedStockOpname(Adjustment $adjustment): RedirectResponse
+    {
+        abort_if(Gate::denies('adjustments.approval'), 403);
+
+        try {
+            app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)->assertApprovable($adjustment, auth()->user());
+        } catch (ValidationException $e) {
+            return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
+        }
+
+        return back()->withErrors([
+            'message' => 'Rekonsiliasi dan pemrosesan persetujuan stock opname format baru belum tersedia (sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
+        ]);
+    }
+
     public function approveNormal(Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.approval'), 403);
 
         if ($adjustment->isVersionedCountDraft()) {
-            return back()->withErrors([
-                'message' => 'Persetujuan untuk proposal stock opname format baru belum tersedia (alur persetujuan baru sedang dalam pengembangan). Status dokumen dan stok tetap tidak berubah.'
-            ]);
+            return $this->approveVersionedStockOpname($adjustment);
         }
 
         try {
@@ -1053,8 +1101,28 @@ class AdjustmentController extends Controller
         return redirect()->route('adjustments.index');
     }
 
-    public function reject(Adjustment $adjustment): RedirectResponse
+    public function reject(Request $request, Adjustment $adjustment): RedirectResponse
     {
+        if ($adjustment->isNormalVersioned()) {
+            abort_if(Gate::denies('adjustments.approval'), 403);
+
+            $reason = trim((string) $request->input('rejection_reason', ''));
+            if ($reason === '') {
+                return back()->withErrors(['rejection_reason' => 'Alasan penolakan wajib diisi.']);
+            }
+
+            try {
+                app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)
+                    ->reject($adjustment, auth()->user(), $reason);
+            } catch (ValidationException $e) {
+                return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
+            }
+
+            toast('Penyesuaian Ditolak!', 'info');
+
+            return redirect()->route('adjustments.index');
+        }
+
         abort_unless(Gate::any([
             'adjustments.reject',
             'adjustments.approval',
@@ -1065,10 +1133,10 @@ class AdjustmentController extends Controller
 
         app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($adjustment);
         app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
-            $adjustment, 
-            $adjustment->reference ?? 'Penyesuaian Barang', 
-            session('setting_id'), 
-            '', 
+            $adjustment,
+            $adjustment->reference ?? 'Penyesuaian Barang',
+            session('setting_id'),
+            '',
             $adjustment->location_id
         );
 
