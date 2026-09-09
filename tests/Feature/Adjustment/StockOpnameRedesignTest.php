@@ -1253,10 +1253,11 @@ class StockOpnameRedesignTest extends TestCase
 
         $showResponse = $this->get(route('adjustments.show', $adj));
         $showResponse->assertOk();
-        $showResponse->assertDontSee('Stok Sistem (Bagus / Rusak)');
-        $showResponse->assertDontSee('Selisih Fisik (Bagus / Rusak)');
-        $showResponse->assertDontSee('Bagus: 142');
-        $showResponse->assertDontSee('Rusak: 7');
+        $showResponse->assertDontSee('Saat Ini');
+        $showResponse->assertDontSee('Selisih Bagus');
+        $showResponse->assertDontSee('Selisih Rusak');
+        $showResponse->assertDontSee('142');
+        $showResponse->assertDontSee('Ringkasan Peninjauan');
 
         // 3. Edit View
         $editResponse = $this->get(route('adjustments.edit', $adj));
@@ -1327,10 +1328,9 @@ class StockOpnameRedesignTest extends TestCase
 
         $showResponse = $this->get(route('adjustments.show', $adj));
         $showResponse->assertOk();
-        $showResponse->assertSee('Stok Sistem (Bagus / Rusak)');
-        $showResponse->assertSee('Selisih Fisik (Bagus / Rusak)');
-        $showResponse->assertSee('Bagus: 50');
-        $showResponse->assertSee('Rusak: 5');
+        $showResponse->assertSee('Saat Ini');
+        $showResponse->assertSee('Selisih Bagus');
+        $showResponse->assertSee('Selisih Rusak');
     }
 
     /**

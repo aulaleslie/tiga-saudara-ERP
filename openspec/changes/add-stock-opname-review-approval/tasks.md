@@ -32,19 +32,19 @@
 
 ## 5. Bahasa Indonesia review interface
 
-- [ ] 5.1 Rebuild the Stock Opname detail header and status/actions in Bahasa Indonesia, remove the debug permission panel, and show submit/approve/reject/edit controls only for valid status-permission combinations.
-- [ ] 5.2 Render the counter-safe view with only document metadata and entered product, good/bad count, serial text, and entered condition information.
-- [ ] 5.3 Render the permitted reviewer summary with product-difference count, potential global increases, moved/new serial totals, tax reclassification totals, drift totals, and conflicts.
-- [ ] 5.4 Render the permitted product comparison table separating `Saat mulai dihitung`, `Saat ini`, `Hasil hitung`, and `Setelah disetujui`, including selected-location and all-location effects.
-- [ ] 5.5 Add expandable serial-impact details with Bahasa Indonesia classifications for retained, moved, new, condition-changed, tax-changed, omitted, and conflicting serials, including source and destination locations where permitted.
-- [ ] 5.6 Render approved documents from immutable `approval_result`, add Bahasa Indonesia rejection/revision history, and normalize index statuses, confirmations, validations, notifications, and audit messages.
+- [x] 5.1 Rebuild the Stock Opname detail header and status/actions in Bahasa Indonesia, remove the debug permission panel, and show submit/approve/reject/edit controls only for valid status-permission combinations.
+- [x] 5.2 Render the counter-safe view with only document metadata and entered product, good/bad count, serial text, and entered condition information.
+- [x] 5.3 Render the permitted reviewer summary with product-difference count, potential global increases, moved/new serial totals, tax reclassification totals, drift totals, and conflicts.
+- [x] 5.4 Render the permitted product comparison table separating `Saat mulai dihitung`, `Saat ini`, `Hasil hitung`, and `Setelah disetujui`, including selected-location and all-location effects.
+- [x] 5.5 Add expandable serial-impact details with Bahasa Indonesia classifications for retained, moved, new, condition-changed, tax-changed, omitted, and conflicting serials, including source and destination locations where permitted.
+- [x] 5.6 Render approved documents from immutable `approval_result`, add Bahasa Indonesia rejection/revision history, and normalize index statuses, confirmations, validations, notifications, and audit messages.
 
 ## 6. Focused verification and human handoff
 
-- [ ] 6.1 Add focused lifecycle tests for draft save without notification, explicit idempotent submission, edit locks, required rejection reason, rejected revision, wrong-state decisions, and actor/timestamp metadata.
-- [ ] 6.2 Add focused permission tests proving counter HTML/public state contains only entered facts while permitted reviewers receive reconciliation data and review permission alone does not grant approval.
-- [ ] 6.3 Add focused non-serial reconciliation and approval tests for PKP/non-PKP allocation, good/bad reclassification, all-location warning, selected-location absolute update, omitted-product preservation, product aggregate consistency, and drift.
-- [ ] 6.4 Add focused serial tests for same-location retention, cross-location movement, new creation, condition change, taxable-to-non-tax and reverse movement, same text on another product, omitted destination serials, conflicts, and locked revalidation.
-- [ ] 6.5 Add focused transaction tests proving source/destination buckets, serial records, inventory transactions, immutable applied results, notification resolution, idempotency, and complete rollback remain consistent under failures.
-- [ ] 6.6 Add focused active-setting and consignment tests for show/edit/update/delete/submit/approve/reject plus product/location resolution, without running or planning the full suite.
-- [ ] 6.7 Prepare a human-executed browser checklist covering Bahasa Indonesia counter/reviewer/approved views, hidden system facts, submission, summaries, warnings, serial expansion, confirmation, approval, rejection, and revision; report browser execution as pending unless a human records completion.
+- [x] 6.1 Add focused lifecycle tests for draft save without notification, explicit idempotent submission, edit locks, required rejection reason, rejected revision, wrong-state decisions, and actor/timestamp metadata.
+- [x] 6.2 Add focused permission tests proving counter HTML/public state contains only entered facts while permitted reviewers receive reconciliation data and review permission alone does not grant approval.
+- [x] 6.3 Add focused non-serial reconciliation and approval tests for PKP/non-PKP allocation, good/bad reclassification, all-location warning, selected-location absolute update, omitted-product preservation, product aggregate consistency, and drift.
+- [x] 6.4 Add focused serial tests for same-location retention, cross-location movement, new creation, condition change, taxable-to-non-tax and reverse movement, same text on another product, omitted destination serials, conflicts, and locked revalidation.
+- [x] 6.5 Add focused transaction tests proving source/destination buckets, serial records, inventory transactions, immutable applied results, notification resolution, idempotency, and complete rollback remain consistent under failures.
+- [x] 6.6 Add focused active-setting and consignment tests for show/edit/update/delete/submit/approve/reject plus product/location resolution, without running or planning the full suite.
+- [x] 6.7 Prepare a human-executed browser checklist covering Bahasa Indonesia counter/reviewer/approved views, hidden system facts, submission, summaries, warnings, serial expansion, confirmation, approval, rejection, and revision; report browser execution as pending unless a human records completion.

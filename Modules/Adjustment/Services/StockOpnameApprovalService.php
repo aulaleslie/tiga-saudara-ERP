@@ -164,7 +164,8 @@ class StockOpnameApprovalService
             // the whole discovery+lock sequence is retried once (bounded);
             // if it disagrees again, revalidation raises a conflict rather
             // than proceeding against a stock set that might be incomplete.
-            $products = Product::whereIn('id', $productIds)
+            $products = Product::with('baseUnit')
+                ->whereIn('id', $productIds)
                 ->where('setting_id', $setting->id)
                 ->orderBy('id')
                 ->lockForUpdate()
@@ -601,6 +602,8 @@ class StockOpnameApprovalService
         return [
             'product_id' => (int) $product->id,
             'product_name' => (string) $product->product_name,
+            'product_code' => (string) $product->product_code,
+            'base_unit' => (string) ($product->baseUnit?->unit_name ?? $product->baseUnit?->name ?? ''),
             'is_serialized' => false,
             'before' => [
                 'good' => $plan['current_good'],
@@ -612,6 +615,8 @@ class StockOpnameApprovalService
                 'bad' => $plan['entered_bad'],
             ],
             'applied' => [
+                'good' => $plan['new_good_tax'] + $plan['new_good_non_tax'],
+                'bad' => $plan['new_bad_tax'] + $plan['new_bad_non_tax'],
                 'good_tax' => $plan['new_good_tax'],
                 'good_non_tax' => $plan['new_good_non_tax'],
                 'bad_tax' => $plan['new_bad_tax'],
@@ -807,6 +812,8 @@ class StockOpnameApprovalService
                 'before_total' => (float) $stock->quantity_tax + (float) $stock->quantity_non_tax
                     + (float) $stock->broken_quantity_tax + (float) $stock->broken_quantity_non_tax,
                 'before_broken' => (float) $stock->broken_quantity_tax + (float) $stock->broken_quantity_non_tax,
+                'before_good' => (float) $stock->quantity_tax + (float) $stock->quantity_non_tax,
+                'before_bad' => (float) $stock->broken_quantity_tax + (float) $stock->broken_quantity_non_tax,
             ];
             return $stock;
         };
@@ -1041,18 +1048,49 @@ class StockOpnameApprovalService
             'before' => $previousProductQuantity, 'after' => $afterProductQuantity,
         ];
 
+        // Destination-location good/bad, not just the total/broken rollup
+        // above: the approved view (both counter and reviewer) needs the
+        // exact good vs. bad split at the selected location, derived here
+        // from this plan's own before/after touch data rather than ever
+        // being re-derived later from current (possibly since-changed) stock.
+        $destinationBefore = $touchedStocks[$destinationLocation->id] ?? null;
+        $destinationAfter = $stockDeltas[$destinationLocation->id]['stock'] ?? null;
+        $beforeDestGood = (float) ($destinationBefore['before_good'] ?? 0);
+        $beforeDestBad = (float) ($destinationBefore['before_bad'] ?? 0);
+        $appliedDestGood = $destinationAfter
+            ? (float) $destinationAfter->quantity_tax + (float) $destinationAfter->quantity_non_tax
+            : $beforeDestGood;
+        $appliedDestBad = $destinationAfter
+            ? (float) $destinationAfter->broken_quantity_tax + (float) $destinationAfter->broken_quantity_non_tax
+            : $beforeDestBad;
+
+        // Entered good/bad: every entry actually applied (moved/created,
+        // never a conflict — conflicts are excluded from $plan['entries'] by
+        // planSerializedRow()) counted by its entered condition, i.e. exactly
+        // what the counter physically reported for this product.
+        $enteredGood = collect($plan['entries'])->filter(fn (array $e) => !$e['is_bad'])->count();
+        $enteredBad = collect($plan['entries'])->filter(fn (array $e) => $e['is_bad'])->count();
+
         return [
             'product_id' => (int) $product->id,
             'product_name' => (string) $product->product_name,
+            'product_code' => (string) $product->product_code,
+            'base_unit' => (string) ($product->baseUnit?->unit_name ?? $product->baseUnit?->name ?? ''),
             'is_serialized' => true,
             'before' => [
+                'good' => $beforeDestGood,
+                'bad' => $beforeDestBad,
                 'product_quantity' => $previousProductQuantity,
                 'broken_quantity' => $previousProductBroken,
             ],
             'entered' => [
+                'good' => $enteredGood,
+                'bad' => $enteredBad,
                 'serial_count' => count($plan['entries']),
             ],
             'applied' => [
+                'good' => $appliedDestGood,
+                'bad' => $appliedDestBad,
                 'new_serial_count' => $newSerialCount,
                 'net_delta' => $netProductDelta,
                 'broken_delta' => $netBrokenDelta,

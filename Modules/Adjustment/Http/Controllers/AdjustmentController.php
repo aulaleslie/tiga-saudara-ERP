@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Modules\Adjustment\Entities\AdjustedProduct;
 use Modules\Adjustment\Entities\Adjustment;
+use Modules\Adjustment\Entities\AdjustmentStatus;
+use Modules\Adjustment\Services\CountDraftService;
+use Modules\Adjustment\Services\StockOpnameReconciliationService;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
@@ -340,6 +343,18 @@ class AdjustmentController extends Controller
         abort_if(Gate::denies('adjustments.show'), 403);
         $this->assertAdjustmentOwned($adjustment);
 
+        if ($adjustment->isNormalVersioned()) {
+            $adjustment->load(['location', 'submittedBy', 'approvedBy', 'rejectedBy']);
+
+            $viewModel = $this->buildStockOpnameViewModel($adjustment);
+            $document = $this->buildStockOpnameDocument($adjustment);
+
+            return view('adjustment::show', array_merge(
+                ['adjustment' => $document, 'isNormalVersioned' => true],
+                $viewModel
+            ));
+        }
+
         $adjustment->load([
             'adjustedProducts.product.baseUnit',
             'location'
@@ -400,7 +415,130 @@ class AdjustmentController extends Controller
         return view('adjustment::show', compact('adjustment'));
     }
 
+    /**
+     * Build a permission-decided view model for a normal versioned Stock
+     * Opname before the view is ever rendered (design.md Decision 6): the
+     * reviewer-shaped array is never constructed for a user without
+     * adjustments.view-system-stock, and count_draft/approval_result/DTOs are
+     * never passed to Blade directly.
+     */
+    protected function buildStockOpnameViewModel(Adjustment $adjustment): array
+    {
+        $user = auth()->user();
+        $status = AdjustmentStatus::normalize($adjustment->status);
 
+        $canViewSystemStock = (bool) $user?->can('adjustments.view-system-stock');
+        $canApprove = (bool) $user?->can('adjustments.approval');
+        $canEditPermission = (bool) $user?->can('adjustments.edit');
+        $canEdit = $canEditPermission && app(CountDraftService::class)->canEditAdjustment($adjustment);
+
+        $isDraft = $status === AdjustmentStatus::Draft;
+        $isWaitingApproval = $status === AdjustmentStatus::WaitingApproval;
+        $isRejected = $status === AdjustmentStatus::Rejected;
+        $isApproved = $status === AdjustmentStatus::Approved;
+
+        $showSubmit = $isDraft && $canEditPermission;
+        $showApprove = $isWaitingApproval && $canApprove;
+        $showReject = $isWaitingApproval && $canApprove;
+        $showEdit = ($isDraft || $isRejected) && $canEdit;
+        $showDelete = ($isDraft || $isRejected) && (bool) $user?->can('adjustments.delete');
+
+        if ($isApproved) {
+            $stockOpname = $this->buildApprovedStockOpnameProjection($adjustment, $canViewSystemStock);
+        } else {
+            $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment, locked: false);
+            $stockOpname = $canViewSystemStock ? $result->toReviewerArray() : $result->toCounterArray();
+        }
+
+        return [
+            'stockOpnameViewModel' => $stockOpname,
+            'canViewSystemStock' => $canViewSystemStock,
+            'canApprove' => $canApprove,
+            'canEdit' => $canEdit,
+            'isDraft' => $isDraft,
+            'isWaitingApproval' => $isWaitingApproval,
+            'isRejected' => $isRejected,
+            'isApproved' => $isApproved,
+            'showSubmit' => $showSubmit,
+            'showApprove' => $showApprove,
+            'showReject' => $showReject,
+            'showEdit' => $showEdit,
+            'showDelete' => $showDelete,
+        ];
+    }
+
+    /**
+     * A safe header/lifecycle projection for the versioned Stock Opname
+     * partials: only IDs and metadata needed for routes, actions, and
+     * history text. The raw Adjustment model (and therefore its
+     * count_draft/approval_result casts) must never reach the versioned
+     * Blade partials, which only receive this array plus the already
+     * permission-decided stockOpnameViewModel.
+     */
+    protected function buildStockOpnameDocument(Adjustment $adjustment): array
+    {
+        return [
+            'id' => $adjustment->id,
+            'reference' => (string) $adjustment->reference,
+            'date' => $adjustment->date,
+            'note' => $adjustment->note,
+            'status' => AdjustmentStatus::normalize($adjustment->status)->value,
+            'submitted_by_name' => $adjustment->submittedBy?->name,
+            'submitted_at' => optional($adjustment->submitted_at)->toIso8601String(),
+            'approved_by_name' => $adjustment->approvedBy?->name,
+            'approved_at' => optional($adjustment->approved_at)->toIso8601String(),
+            'rejected_by_name' => $adjustment->rejectedBy?->name,
+            'rejected_at' => optional($adjustment->rejected_at)->toIso8601String(),
+            'rejection_reason' => $adjustment->rejection_reason,
+        ];
+    }
+
+    /**
+     * approval_result is the immutable ground truth for an approved document
+     * (design.md Decision 6 / spec "View an approved document after stock
+     * changes again"): it is read as-is, never recomputed from current stock.
+     * approval_result itself is reviewer-shaped (before/system totals/tax),
+     * so a counter-safe projection is built by hand from only its
+     * entered/applied facts.
+     */
+    protected function buildApprovedStockOpnameProjection(Adjustment $adjustment, bool $canViewSystemStock): array
+    {
+        $result = is_array($adjustment->approval_result) ? $adjustment->approval_result : [];
+
+        if ($canViewSystemStock) {
+            return $result;
+        }
+
+        $products = collect($result['products'] ?? [])->map(function (array $product) {
+            $serials = collect($product['serials'] ?? [])
+                ->reject(fn (array $serial) => ($serial['action'] ?? null) === 'missing')
+                ->map(fn (array $serial) => [
+                    'serial_number' => $serial['serial_number'] ?? '',
+                    'condition' => $serial['applied_condition'] ?? null,
+                ])->values()->all();
+
+            return [
+                'product_id' => $product['product_id'] ?? null,
+                'product_name' => $product['product_name'] ?? '',
+                'product_code' => $product['product_code'] ?? '',
+                'base_unit' => $product['base_unit'] ?? '',
+                'is_serialized' => $product['is_serialized'] ?? false,
+                'entered' => [
+                    'good' => $product['entered']['good'] ?? null,
+                    'bad' => $product['entered']['bad'] ?? null,
+                    'serial_count' => $product['entered']['serial_count'] ?? null,
+                ],
+                'serials' => $serials,
+            ];
+        })->values()->all();
+
+        return [
+            'adjustment_id' => $result['adjustment_id'] ?? $adjustment->id,
+            'location_id' => $result['location_id'] ?? $adjustment->location_id,
+            'location_name' => $result['location_name'] ?? ($adjustment->location->name ?? ''),
+            'products' => $products,
+        ];
+    }
 
     public function submit(Adjustment $adjustment): RedirectResponse
     {
