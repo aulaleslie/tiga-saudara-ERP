@@ -175,10 +175,22 @@ class SyncNotificationsCommand extends Command
             if ($e->status === 'REJECTED') $docService->notifyRevisionNeeded($e, $e->reference ?? 'Pengeluaran', $e->setting_id);
         }
 
-        $adjustments = \Modules\Adjustment\Entities\Adjustment::whereIn('status', ['PENDING APPROVAL', 'REJECTED'])->get();
+        $adjustments = \Modules\Adjustment\Entities\Adjustment::with('location')
+            ->whereIn('status', [
+                \Modules\Adjustment\Entities\AdjustmentStatus::WaitingApproval->value,
+                \Modules\Adjustment\Entities\AdjustmentStatus::Rejected->value,
+            ])->get();
         foreach ($adjustments as $a) {
-            if ($a->status === 'PENDING APPROVAL') $docService->notifyApprovalNeeded($a, $a->reference ?? 'Penyesuaian', $a->setting_id);
-            if ($a->status === 'REJECTED') $docService->notifyRevisionNeeded($a, $a->reference ?? 'Penyesuaian', $a->setting_id);
+            $settingId = $a->location?->setting_id;
+            if ($settingId === null) {
+                continue;
+            }
+            if ($a->status === \Modules\Adjustment\Entities\AdjustmentStatus::WaitingApproval) {
+                $docService->notifyApprovalNeeded($a, $a->reference ?? 'Penyesuaian', $settingId);
+            }
+            if ($a->status === \Modules\Adjustment\Entities\AdjustmentStatus::Rejected) {
+                $docService->notifyRevisionNeeded($a, $a->reference ?? 'Penyesuaian', $settingId);
+            }
         }
 
         $purchaseReturns = \Modules\PurchasesReturn\Entities\PurchaseReturn::whereIn('status', ['Pending Approval', 'Rejected', 'PENDING_APPROVAL', 'REJECTED', 'pending_approval', 'rejected'])->get();

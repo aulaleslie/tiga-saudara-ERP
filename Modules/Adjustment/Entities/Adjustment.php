@@ -3,6 +3,7 @@
 namespace Modules\Adjustment\Entities;
 
 use App\Models\BaseModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -14,11 +15,36 @@ class Adjustment extends BaseModel
 
     protected $casts = [
         'count_draft' => 'array',
+        'approval_result' => 'array',
+        'status' => AdjustmentStatus::class,
+        'submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     public function isVersionedCountDraft(): bool
     {
         return !empty($this->count_draft) && isset($this->count_draft['schema_version']);
+    }
+
+    public function isNormalVersioned(): bool
+    {
+        return strtolower(trim((string) $this->type)) === 'normal' && $this->isVersionedCountDraft();
+    }
+
+    public function submittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 
     public function getDateAttribute($value): string

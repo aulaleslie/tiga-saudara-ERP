@@ -441,7 +441,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $this->assertContains('Terdapat dokumen Retur Pembelian yang belum selesai untuk produk ini.', $result->blockingReasons);
     }
 
-    public function test_eligibility_allows_conversion_when_only_draft_adjustment_exists()
+    public function test_eligibility_allows_conversion_when_only_approved_adjustment_exists()
     {
         $user = User::factory()->create();
 
@@ -481,7 +481,7 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
 
         $adj = \Modules\Adjustment\Entities\Adjustment::create([
             'location_id' => $loc->id,
-            'status' => 'draft',
+            'status' => 'approved',
             'date' => now(),
         ]);
 
@@ -554,7 +554,161 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $result = $service->checkEligibility($product);
 
         $this->assertFalse($result->isEligible);
-        $this->assertContains('Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/DRAFT untuk produk ini.', $result->blockingReasons);
+        $this->assertContains('Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/WAITING_APPROVAL untuk produk ini.', $result->blockingReasons);
+    }
+
+    /**
+     * A header-level DRAFT Stock Opname has not moved stock and must not
+     * block conversion, per existing-stock-serialization-conversion spec
+     * ("Draft document does not block conversion"). Uses an authentic
+     * versioned count_draft document (the only way a redesigned Stock
+     * Opname actually stores product membership) rather than a legacy
+     * adjusted_products row.
+     */
+    public function test_eligibility_allows_conversion_when_only_versioned_draft_adjustment_exists()
+    {
+        $setting = Setting::create([
+            'company_name' => 'Adj Setting 2',
+            'company_email' => 'adj2@example.com',
+            'company_phone' => '08123456780',
+            'notification_email' => 'adj2@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Adj2',
+            'company_address' => 'Adj2 Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang Adj 2', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Draft Adj',
+            'product_code' => 'PIDA-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        \Modules\Adjustment\Entities\Adjustment::create([
+            'location_id' => $loc->id,
+            'status' => 'draft',
+            'date' => now(),
+            'count_draft' => [
+                'schema_version' => 1,
+                'location_id' => $loc->id,
+                'rows' => [
+                    ['product_id' => $product->id, 'good_count' => 1, 'bad_count' => 0, 'serials' => []],
+                ],
+            ],
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+        $result = $service->checkEligibility($product);
+
+        $this->assertTrue($result->isEligible);
+        $this->assertEmpty($result->blockingReasons);
+    }
+
+    /**
+     * A redesigned Stock Opname in WAITING_APPROVAL is an active review state
+     * (submitted, awaiting a decision) and must block conversion, unlike
+     * DRAFT. Uses an authentic versioned count_draft document so this test
+     * actually proves count_draft.rows membership detection works, not just
+     * the legacy adjusted_products path.
+     */
+    public function test_eligibility_blocks_conversion_when_versioned_waiting_approval_adjustment_exists()
+    {
+        $setting = Setting::create([
+            'company_name' => 'Adj Setting 3',
+            'company_email' => 'adj3@example.com',
+            'company_phone' => '08123456781',
+            'notification_email' => 'adj3@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Adj3',
+            'company_address' => 'Adj3 Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang Adj 3', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Waiting Approval Adj',
+            'product_code' => 'PIWA-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        // A second product in the same document proves membership detection
+        // is per-product, not "any versioned document blocks every product".
+        $unrelatedProduct = Product::create([
+            'product_name' => 'Unrelated Product',
+            'product_code' => 'UNREL-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+        ProductStock::create([
+            'product_id' => $unrelatedProduct->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        \Modules\Adjustment\Entities\Adjustment::create([
+            'location_id' => $loc->id,
+            'status' => 'waiting_approval',
+            'date' => now(),
+            'count_draft' => [
+                'schema_version' => 1,
+                'location_id' => $loc->id,
+                'rows' => [
+                    ['product_id' => $product->id, 'good_count' => 1, 'bad_count' => 0, 'serials' => []],
+                ],
+            ],
+        ]);
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+
+        $blockedResult = $service->checkEligibility($product);
+        $this->assertFalse($blockedResult->isEligible);
+        $this->assertContains('Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/WAITING_APPROVAL untuk produk ini.', $blockedResult->blockingReasons);
+
+        $unrelatedResult = $service->checkEligibility($unrelatedProduct);
+        $this->assertTrue($unrelatedResult->isEligible);
+        $this->assertEmpty($unrelatedResult->blockingReasons);
     }
 
     public function test_eligibility_allows_conversion_when_only_draft_sales_return_exists()

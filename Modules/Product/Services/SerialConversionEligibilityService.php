@@ -283,12 +283,42 @@ class SerialConversionEligibilityService
         }
 
         // - Active Adjustments
+        // Header-level DRAFT is not an active stock-affecting process (stock has
+        // not moved), so it must not block conversion. Legacy PENDING and the
+        // redesigned WAITING_APPROVAL are active review states and do block.
+        // Legacy adjustments store their products in the `adjusted_products`
+        // table; redesigned (versioned) Stock Opname stores them only in the
+        // `count_draft` JSON column, so both membership sources must be checked.
         if (class_exists(\Modules\Adjustment\Entities\Adjustment::class)) {
-            $activeAdjustments = \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status'])
-                ->whereIn('status', ['pending', 'PENDING'])
-                ->whereHas('adjustedProducts', function ($q) use ($product) {
+            $blockingAdjustmentStatuses = [
+                \Modules\Adjustment\Entities\AdjustmentStatus::Pending->value,
+                \Modules\Adjustment\Entities\AdjustmentStatus::WaitingApproval->value,
+            ];
+
+            $candidateAdjustments = \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status', 'count_draft'])
+                ->whereIn('status', $blockingAdjustmentStatuses)
+                ->where(function ($q) use ($product) {
+                    $q->whereHas('adjustedProducts', function ($sub) use ($product) {
+                        $sub->where('product_id', $product->id);
+                    })->orWhereNotNull('count_draft');
+                })
+                ->with(['adjustedProducts' => function ($q) use ($product) {
                     $q->where('product_id', $product->id);
-                })->get();
+                }])
+                ->get();
+
+            $activeAdjustments = $candidateAdjustments->filter(function ($adj) use ($product) {
+                if ($adj->isVersionedCountDraft()) {
+                    $rows = $adj->count_draft['rows'] ?? [];
+                    return collect($rows)->contains(fn ($row) => (int) ($row['product_id'] ?? 0) === (int) $product->id);
+                }
+
+                // Legacy (non-versioned) document: verify actual membership
+                // explicitly rather than trusting the SQL-level candidate filter,
+                // since that filter is deliberately broad (widened by the
+                // whereNotNull('count_draft') branch to catch versioned rows).
+                return $adj->adjustedProducts->isNotEmpty();
+            });
 
             foreach ($activeAdjustments as $adj) {
                 $docNum = $adj->reference ?? "ID #{$adj->id}";
@@ -296,12 +326,14 @@ class SerialConversionEligibilityService
                     type: 'adjustment',
                     documentId: $adj->id,
                     documentNumber: $docNum,
-                    status: (string) $adj->status,
-                    reason: 'Dokumen penyesuaian stok berstatus PENDING atau DRAFT.',
+                    status: $adj->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
+                        ? $adj->status->value
+                        : (string) $adj->status,
+                    reason: 'Dokumen penyesuaian stok berstatus PENDING atau WAITING_APPROVAL.',
                     routeName: 'adjustments.show',
                     routeParams: [$adj->id],
                     permissionName: 'adjustments.show',
-                    fallbackReasonText: 'Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/DRAFT untuk produk ini.'
+                    fallbackReasonText: 'Terdapat dokumen Penyesuaian Stok (Adjustment) berstatus PENDING/WAITING_APPROVAL untuk produk ini.'
                 );
             }
         }

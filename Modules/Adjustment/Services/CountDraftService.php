@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Modules\Adjustment\Entities\AdjustmentStatus;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 
@@ -120,8 +121,11 @@ class CountDraftService
         if (!$location) {
             throw new InvalidArgumentException('Lokasi yang dipilih tidak ditemukan.');
         }
-        if ($location->is_consignment) {
-            throw new InvalidArgumentException('Penyesuaian stok tidak dapat dilakukan pada lokasi konsinyasi.');
+
+        try {
+            app(AdjustmentOwnershipGuard::class)->assertLocationOwned($location);
+        } catch (ValidationException $e) {
+            throw new InvalidArgumentException((string) collect($e->errors())->flatten()->first());
         }
 
         // Build map of existing server-held product baselines if updating the same location
@@ -424,14 +428,25 @@ class CountDraftService
 
     /**
      * Check if an adjustment is eligible for editing count drafts.
-     * Only pending normal adjustments are eligible.
+     * Normal adjustments are editable while in draft or rejected status.
+     * Legacy (non-versioned) normal documents remain editable while pending,
+     * preserving prior behavior for documents not yet migrated.
      */
     public function canEditAdjustment(\Modules\Adjustment\Entities\Adjustment $adjustment): bool
     {
-        $status = strtolower(trim((string) $adjustment->status));
+        $status = AdjustmentStatus::normalize($adjustment->status);
         $type = strtolower(trim((string) $adjustment->type));
 
-        return $status === 'pending' && $type === 'normal';
+        if ($type !== 'normal') {
+            return false;
+        }
+
+        if (in_array($status, [AdjustmentStatus::Draft, AdjustmentStatus::Rejected], true)) {
+            return true;
+        }
+
+        // Legacy non-versioned pending documents remain editable for backward compatibility.
+        return $status === AdjustmentStatus::Pending && !$adjustment->isVersionedCountDraft();
     }
 
     /**
@@ -547,6 +562,21 @@ class CountDraftService
      */
     public function saveDraft(array $inputData, ?\Modules\Adjustment\Entities\Adjustment $adjustment = null): \Modules\Adjustment\Entities\Adjustment
     {
+        // Reject saving over an existing document unless it is currently
+        // editable (draft or rejected). This guards direct service usage,
+        // not just the controller's canEditAdjustment() pre-check, so a
+        // waiting_approval or approved document can never be silently reset
+        // to draft.
+        if ($adjustment && $adjustment->isNormalVersioned() && !$this->canEditAdjustment($adjustment)) {
+            throw new InvalidArgumentException(
+                'Dokumen penyesuaian ini tidak dapat diubah karena statusnya bukan draf atau ditolak.'
+            );
+        }
+
+        if ($adjustment) {
+            app(AdjustmentOwnershipGuard::class)->assertOwned($adjustment);
+        }
+
         if (isset($inputData['structured_draft']) && is_array($inputData['structured_draft'])) {
             $structuredDraft = $inputData['structured_draft'];
         } else {
@@ -608,10 +638,22 @@ class CountDraftService
                     'note' => $inputData['note'] ?? null,
                     'count_draft' => $structuredDraft,
                     'type' => 'normal',
-                    'status' => 'pending',
+                    'status' => AdjustmentStatus::Draft,
                 ];
 
                 if ($adjustment) {
+                    // Revising a rejected document returns it to draft. Prior rejection
+                    // evidence (rejected_by/at, rejection_reason) is retained as historical
+                    // record; incompatible submission/approval metadata is cleared here.
+                    $wasRejected = AdjustmentStatus::normalize($adjustment->status) === AdjustmentStatus::Rejected;
+                    if ($wasRejected) {
+                        $headerData['submitted_by'] = null;
+                        $headerData['submitted_at'] = null;
+                        $headerData['approved_by'] = null;
+                        $headerData['approved_at'] = null;
+                        $headerData['approval_result'] = null;
+                    }
+
                     $adjustment->update($headerData);
                 } else {
                     $adjustment = \Modules\Adjustment\Entities\Adjustment::create($headerData);
@@ -659,14 +701,8 @@ class CountDraftService
                     }
                 }
 
-                // Trigger notification convention
-                app(\App\Services\Notification\DocumentNotificationService::class)
-                    ->notifyApprovalNeeded(
-                        $adjustment,
-                        $adjustment->reference,
-                        $structuredDraft['location_setting_id'] ?? session('setting_id'),
-                        $adjustment->location_id
-                    );
+                // Ordinary draft saves (create/update) never notify approvers.
+                // Approval-needed notifications are sent only on explicit submission (task 3.1).
 
                 return $adjustment;
             });

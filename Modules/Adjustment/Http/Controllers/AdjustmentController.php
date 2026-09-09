@@ -33,6 +33,19 @@ class AdjustmentController extends Controller
         $this->middleware('idempotency')->only(['store', 'storeBreakage']);
     }
 
+    /**
+     * Guard against cross-setting access: the document's destination location
+     * must belong to the active session setting and must not be consignment.
+     */
+    protected function assertAdjustmentOwned(Adjustment $adjustment): void
+    {
+        try {
+            app(\Modules\Adjustment\Services\AdjustmentOwnershipGuard::class)->assertOwned($adjustment);
+        } catch (ValidationException $e) {
+            abort(403, (string) collect($e->errors())->flatten()->first());
+        }
+    }
+
     public function index(AdjustmentsDataTable $dataTable)
     {
         abort_if(Gate::denies('adjustments.access'), 403);
@@ -325,6 +338,7 @@ class AdjustmentController extends Controller
     public function show(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.show'), 403);
+        $this->assertAdjustmentOwned($adjustment);
 
         $adjustment->load([
             'adjustedProducts.product.baseUnit',
@@ -391,10 +405,11 @@ class AdjustmentController extends Controller
     public function edit(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.edit'), 403);
+        $this->assertAdjustmentOwned($adjustment);
 
         $service = app(\Modules\Adjustment\Services\CountDraftService::class);
         if (!$service->canEditAdjustment($adjustment)) {
-            abort(403, 'Hanya penyesuaian pending normal yang dapat diubah.');
+            abort(403, 'Hanya penyesuaian normal berstatus draf atau ditolak yang dapat diubah.');
         }
 
         $adjustment->load('adjustedProducts.product.baseUnit');
@@ -406,10 +421,11 @@ class AdjustmentController extends Controller
     public function update(Request $request, Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.edit'), 403);
+        $this->assertAdjustmentOwned($adjustment);
 
         $service = app(\Modules\Adjustment\Services\CountDraftService::class);
         if (!$service->canEditAdjustment($adjustment)) {
-            abort(403, 'Hanya penyesuaian pending normal yang dapat diubah.');
+            abort(403, 'Hanya penyesuaian normal berstatus draf atau ditolak yang dapat diubah.');
         }
 
         // Check if request is from the count-draft workflow (either count_draft is present or legacy product_ids is absent)

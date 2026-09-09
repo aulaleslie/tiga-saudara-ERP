@@ -23,7 +23,9 @@ class AdjustmentsDataTable extends DataTable
                 return strtoupper($data->type);
             })
             ->editColumn('status', function ($data) {
-                return strtoupper($data->status);
+                return $data->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
+                    ? $data->status->value
+                    : strtoupper((string) $data->status);
             })
             ->addColumn('adjusted_products_count', function ($data) {
                 if ($data->isVersionedCountDraft()) {

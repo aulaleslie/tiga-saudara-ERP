@@ -29,7 +29,10 @@
                     $canRejectGeneric = $user?->can('adjustments.reject');
 
                     // Normalisasi
-                    $status      = is_string($adjustment->status) ? strtolower(trim($adjustment->status)) : $adjustment->status;
+                    $statusValue = $adjustment->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
+                        ? $adjustment->status->value
+                        : $adjustment->status;
+                    $status      = is_string($statusValue) ? strtolower(trim($statusValue)) : $statusValue;
                     $type        = is_string($adjustment->type)   ? strtolower(trim($adjustment->type))   : $adjustment->type;
                     $isPending   = $status === 'pending';
                     $isBreakage  = $type === 'breakage';
@@ -63,7 +66,7 @@
                 @if(config('app.debug'))
                     <div class="alert alert-warning small mb-2">
                         <strong>Approval Debug:</strong>
-                        <div>raw status: {{ $adjustment->status }}</div>
+                        <div>raw status: {{ $statusValue }}</div>
                         <div>raw type: {{ $adjustment->type }}</div>
                         <div>isPending: {{ $isPending ? 'true' : 'false' }}</div>
                         <div>isBreakage: {{ $isBreakage ? 'true' : 'false' }}</div>

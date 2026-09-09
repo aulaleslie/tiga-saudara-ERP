@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Adjustment\Entities\Adjustment;
 use Modules\Adjustment\Entities\AdjustedProduct;
+use Modules\Adjustment\Entities\AdjustmentStatus;
 use Modules\Currency\Entities\Currency;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
@@ -142,7 +143,7 @@ class ApproveBreakageTest extends TestCase
         $taxableSerial->refresh();
         $nonTaxSerial->refresh();
 
-        $this->assertSame('APPROVED', $adjustment->status);
+        $this->assertSame(AdjustmentStatus::Approved, $adjustment->status);
         $this->assertEquals(4, (int) $stock->quantity_tax);
         $this->assertEquals(4, (int) $stock->quantity_non_tax);
         $this->assertEquals(1, (int) $stock->broken_quantity_tax);

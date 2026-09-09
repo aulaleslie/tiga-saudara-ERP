@@ -4,7 +4,12 @@
     </a>
 @endcan
 
-@if ($data->status !== 'approved' && $data->status !== 'rejected')
+@php
+    $dataStatus = $data->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
+        ? $data->status->value
+        : strtoupper((string) $data->status);
+@endphp
+@if ($dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Approved->value && $dataStatus !== \Modules\Adjustment\Entities\AdjustmentStatus::Rejected->value)
     @canany(['adjustments.edit', 'adjustments.breakage.edit'])
         <a href="{{ $data->type === 'breakage' ? route('adjustments.editBreakage', $data->id) : route('adjustments.edit', $data->id) }}"
            class="btn btn-info btn-sm">
