@@ -23,7 +23,10 @@ class LoginController extends Controller
     |
     */
 
-    use AuthenticatesUsers;
+    use AuthenticatesUsers {
+        login as protected traitLogin;
+        logout as protected traitLogout;
+    }
 
     /**
      * Where to redirect users after login.
@@ -47,7 +50,7 @@ class LoginController extends Controller
         $diagnostics = app(SessionIncidentDiagnosticsService::class);
         $beforeFingerprint = $diagnostics->fingerprint($request->session()->getId());
 
-        $response = parent::login($request);
+        $response = $this->traitLogin($request);
 
         $diagnostics->record('auth_session_rotated', [
             'cause' => 'login',
@@ -65,7 +68,7 @@ class LoginController extends Controller
         $userId = Auth::id();
         $beforeFingerprint = $diagnostics->fingerprint($request->session()->getId());
 
-        $response = parent::logout($request);
+        $response = $this->traitLogout($request);
 
         $diagnostics->record('auth_session_rotated', [
             'cause' => 'logout',
