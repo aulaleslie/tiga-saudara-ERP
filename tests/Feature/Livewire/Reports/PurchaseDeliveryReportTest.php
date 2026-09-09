@@ -348,7 +348,7 @@ class PurchaseDeliveryReportTest extends TestCase
         
         $firstRow = $export->map($collection->first());
         $this->assertEquals('SUPPLIER A - PRD-A', $firstRow['Supplier & Kode produk / SKU']);
-        $this->assertEquals('PRODUCT A', $firstRow['Nama produk']);
+        $this->assertEquals('Product A', $firstRow['Nama produk']);
         $this->assertEquals(5, $firstRow['Qty']);
         $this->assertEquals(500, $firstRow['Jumlah']);
 

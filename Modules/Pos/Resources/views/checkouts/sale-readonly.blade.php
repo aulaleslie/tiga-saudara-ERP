@@ -30,7 +30,7 @@
         @foreach($sale->saleDetails as $detail)
             <tr>
                 <td class="align-middle">
-                    {{ $detail->product_name }} <br>
+                    {{ $detail->display_product_name ?? $detail->product_name }} <br>
                     <span class="badge bg-success">{{ $detail->product_code }}</span>
                 </td>
                 <td class="align-middle">{{ format_currency($detail->price) }}</td>

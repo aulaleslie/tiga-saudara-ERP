@@ -61,7 +61,7 @@ class PurchaseReceivingsDataTable extends DataTable
             ->byPurchase()
             ->with([
                 'purchase',
-                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetails.purchaseDetail.product',
                 'receivedNoteDetails.product',
                 'receivedNoteDetails.productSerialNumbers',
                 'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',

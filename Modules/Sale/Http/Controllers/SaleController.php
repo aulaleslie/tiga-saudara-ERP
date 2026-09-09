@@ -172,8 +172,8 @@ class SaleController extends Controller
         Log::info('SaleController::show: passed ensureSaleBelongsToCurrentSetting');
 
         $sale->load([
-            'saleDetails.bundleItems',
-            'bundleItems', // Standalone bundle items
+            'saleDetails.bundleItems.product',
+            'bundleItems.product', // Standalone bundle items
             'saleDetails.tax',
             'saleDispatches.details',
             'saleDispatches.details.product',
@@ -522,7 +522,7 @@ class SaleController extends Controller
                     'product_id' => $pid,
                     'tax_id' => $taxId,
                     'bundle_id' => $bundleId,
-                    'product_name' => $detail->product_name,
+                    'product_name' => filled($product->product_name) ? $product->product_name : $detail->product_name,
                     'product_code' => $product ? $product->product_code : null,
                     'tax_name' => $tax ? $tax->name : null,
                     'is_tax_included' => $sale->is_tax_included,
@@ -555,7 +555,7 @@ class SaleController extends Controller
                     'product_id' => $pid,
                     'tax_id' => $taxId,
                     'bundle_id' => $bundleId,
-                    'product_name' => $bundleItem->name,
+                    'product_name' => filled($product->product_name) ? $product->product_name : $bundleItem->name,
                     'product_code' => $product ? $product->product_code : null,
                     'tax_name' => $tax ? $tax->name : null,
                     'is_tax_included' => $sale->is_tax_included,
@@ -1406,6 +1406,7 @@ class SaleController extends Controller
 
         $sale->load([
             'saleDetails.product.baseUnit',
+            'bundleItems.product',
             'salePayments.paymentMethod',
         ]);
 

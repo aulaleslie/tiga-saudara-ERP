@@ -59,6 +59,22 @@ class SaleDetails extends BaseModel
     }
 
     /**
+     * Resolved display name: current linked product name first, then the
+     * persisted snapshot. Falls back to null if neither is available, letting
+     * the view boundary apply its own unknown-product label.
+     */
+    public function getDisplayProductNameAttribute(): ?string
+    {
+        $currentName = $this->product?->product_name;
+
+        if (filled($currentName)) {
+            return $currentName;
+        }
+
+        return filled($this->product_name) ? $this->product_name : null;
+    }
+
+    /**
      * Get all serial numbers for this sale detail.
      * This relationship retrieves ProductSerialNumber records whose IDs are in the serial_number_ids JSON array.
      */

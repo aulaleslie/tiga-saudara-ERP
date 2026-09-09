@@ -643,7 +643,7 @@ class SaleDeliveryReportTest extends TestCase
             ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
             ->call('applyFilters')
             ->assertSee($customer->customer_name)
-            ->assertSee($saleDetail->product_name)
+            ->assertSee($product->product_name)
             ->assertSee('2.000') // Unit amount
             ->assertSee('Subtotal')
             ->assertSee('Total Keseluruhan');

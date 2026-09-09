@@ -134,7 +134,7 @@ class SaleByCustomerReportTest extends TestCase
         // Assert there are 3 rows: Product, Diskon, Pajak
         $this->assertCount(3, $mappedRows);
         
-        $this->assertEquals('TEST PRODUCT', $mappedRows[0]['Nama produk']);
+        $this->assertEquals('Test Product', $mappedRows[0]['Nama produk']);
         $this->assertEquals(100000, $mappedRows[0]['Nominal tagihan']);
         
         $this->assertEquals('Diskon', $mappedRows[1]['Nama produk']);
@@ -217,13 +217,13 @@ class SaleByCustomerReportTest extends TestCase
         // First detail (not last)
         $mappedRows1 = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($sales[0], 0, false);
         $this->assertCount(2, $mappedRows1); // Product + Pajak
-        $this->assertEquals('TEST PRODUCT 1', $mappedRows1[0]['Nama produk']);
+        $this->assertEquals('Test Product', $mappedRows1[0]['Nama produk']);
         $this->assertEquals('Pajak', $mappedRows1[1]['Nama produk']);
 
         // Second detail (last)
         $mappedRows2 = \App\Services\Reports\SaleByCustomerReportQueryService::mapRows($sales[1], 111000, true);
         $this->assertCount(3, $mappedRows2); // Product + Diskon + Pajak
-        $this->assertEquals('TEST PRODUCT 2', $mappedRows2[0]['Nama produk']);
+        $this->assertEquals('Test Product', $mappedRows2[0]['Nama produk']);
         $this->assertEquals('Diskon', $mappedRows2[1]['Nama produk']);
         $this->assertEquals(-5000, $mappedRows2[1]['Nominal tagihan']);
         $this->assertEquals('Pajak', $mappedRows2[2]['Nama produk']);

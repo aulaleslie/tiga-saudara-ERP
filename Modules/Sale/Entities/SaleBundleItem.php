@@ -108,4 +108,20 @@ class SaleBundleItem extends BaseModel
 
         return (float) $this->tax_amount;
     }
+
+    /**
+     * Resolved display name: current linked product name first, then the
+     * persisted snapshot `name`. Falls back to null if neither is available,
+     * letting the view boundary apply its own unknown-product label.
+     */
+    public function getDisplayProductNameAttribute(): ?string
+    {
+        $currentName = $this->product?->product_name;
+
+        if (filled($currentName)) {
+            return $currentName;
+        }
+
+        return filled($this->name) ? $this->name : null;
+    }
 }

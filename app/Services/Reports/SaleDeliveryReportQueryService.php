@@ -144,7 +144,7 @@ class SaleDeliveryReportQueryService
                 'delivery.tax_id',
                 'delivery.bundle_id',
                 'delivery.delivered_quantity',
-                DB::raw('COALESCE(exact.product_name, commercial.product_name, products.product_name) as product_name'),
+                DB::raw("CASE WHEN TRIM(COALESCE(products.product_name, '')) <> '' THEN products.product_name ELSE COALESCE(exact.product_name, commercial.product_name) END as product_name"),
                 DB::raw('COALESCE(exact.product_code, commercial.product_code, products.product_code) as product_code'),
                 DB::raw('COALESCE(units.short_name, base_units.short_name, products.product_unit, \'-\') as unit_name'),
                 DB::raw('COALESCE(exact.ordered_quantity, commercial.ordered_quantity) as ordered_quantity'),

@@ -92,7 +92,7 @@
     @foreach($details as $detail)
         <tr>
             <td>
-                {{ $detail->product_name ?? ($detail->product->product_name ?? '-') }}
+                {{ $detail->display_product_name ?? '-' }}
                 @if(!empty($detail->product_code))
                     <br><span class="small">{{ $detail->product_code }}</span>
                 @endif

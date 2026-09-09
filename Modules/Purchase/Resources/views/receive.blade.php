@@ -91,7 +91,7 @@
                                     @foreach ($purchase->purchaseDetails as $detail)
                                         <tr>
                                             <td>
-                                                {{ $detail->product_name }}
+                                                {{ $detail->display_product_name ?? $detail->product_name }}
                                                 <br>
                                                 <span class="badge badge-success">{{ $detail->product_code }}</span>
                                             </td>

@@ -167,7 +167,7 @@
                                 @foreach($purchase->purchaseDetails as $item)
                                     <tr>
                                         <td class="align-middle">
-                                            {{ $item->product_name }} <br>
+                                            {{ $item->display_product_name ?? $item->product_name }} <br>
                                             <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>

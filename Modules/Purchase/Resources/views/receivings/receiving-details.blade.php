@@ -12,7 +12,7 @@
         <tbody>
         @foreach($data->receivedNoteDetails as $detail)
             <tr>
-                <td>{{ optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
+                <td>{{ optional($detail->purchaseDetail)->display_product_name ?? optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
                 <td>
                     {{ $detail->quantity_received }}
                     @if($detail->uomNormalizationLines && $detail->uomNormalizationLines->count() > 0)

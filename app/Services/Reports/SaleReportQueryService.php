@@ -272,7 +272,7 @@ SQL;
             'Alamat'                      => $customer?->address ?? '-',
             'Tag'                         => self::tagNames($sale),
             'Gudang'                      => $detail->gudang ?? '-',
-            'Nama Produk'                 => $detail->product_name ?? '-',
+            'Nama Produk'                 => $detail->display_product_name ?? '-',
             'Kode Produk'                 => $detail->product_code ?? '-',
             'Deskripsi'                   => $detail->product?->description ?? '-',
             'Kuantitas'                   => $detail->quantity ?? 0,

@@ -149,7 +149,7 @@
                         @foreach($sale->saleDetails as $detail)
                             <tr>
                                 <td class="align-middle">
-                                    {{ $detail->product_name }} <br>
+                                    {{ $detail->display_product_name ?? $detail->product_name }} <br>
                                     <span class="badge bg-success">{{ $detail->product_code }}</span>
                                 </td>
                                 <td class="align-middle">{{ format_currency($detail->price) }}</td>
@@ -184,7 +184,7 @@
                                                 <tbody>
                                                 @foreach($detail->bundleItems as $bundle)
                                                     <tr>
-                                                        <td>{{ $bundle->name }}</td>
+                                                        <td>{{ $bundle->display_product_name ?? $bundle->name }}</td>
                                                         <td>{{ ($bundle->price > 0) ? format_currency($bundle->price) : '-' }}</td>
                                                         <td>{{ $bundle->quantity }}</td>
                                                         <td>{{ ($bundle->sub_total > 0) ? format_currency($bundle->sub_total) : '-' }}</td>
@@ -211,7 +211,7 @@
                             @foreach($standaloneBundles as $bundle)
                                 <tr>
                                     <td class="align-middle">
-                                        {{ $bundle->name }} <br>
+                                        {{ $bundle->display_product_name ?? $bundle->name }} <br>
                                         <span class="badge bg-success">{{ $bundle->product->product_code ?? 'N/A' }}</span>
                                     </td>
                                     <td class="align-middle">{{ format_currency($bundle->price) }}</td>

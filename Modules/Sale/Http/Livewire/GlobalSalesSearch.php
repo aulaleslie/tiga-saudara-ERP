@@ -171,7 +171,7 @@ class GlobalSalesSearch extends Component
                         }
 
                         return [
-                            'product' => $detail->product_name ?? ($detail->product->product_name ?? 'N/A'),
+                            'product' => $detail->display_product_name ?? 'N/A',
                             'code' => $detail->product_code ?? ($detail->product->product_code ?? 'N/A'),
                             'quantity' => $detail->quantity,
                             'price' => $detail->unit_price,

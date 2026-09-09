@@ -103,6 +103,22 @@ class PurchaseDetail extends BaseModel
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
+    /**
+     * Resolved display name: current linked product name first, then the
+     * persisted snapshot. Falls back to null if neither is available, letting
+     * the view boundary apply its own unknown-product label.
+     */
+    public function getDisplayProductNameAttribute(): ?string
+    {
+        $currentName = $this->product?->product_name;
+
+        if (filled($currentName)) {
+            return $currentName;
+        }
+
+        return filled($this->product_name) ? $this->product_name : null;
+    }
+
     public function purchase(): BelongsTo
     {
         return $this->belongsTo(Purchase::class, 'purchase_id', 'id');

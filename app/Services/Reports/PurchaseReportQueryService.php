@@ -304,7 +304,7 @@ SQL;
             'No Ref'                      => $purchase?->supplier_reference_no ?? '-',
             'Tag'                         => self::tagNames($purchase),
             'Gudang'                      => $detail->gudang ?? '-',
-            'Nama Produk'                 => $detail->product_name ?? '-',
+            'Nama Produk'                 => $detail->display_product_name ?? '-',
             'Kode Produk'                 => $detail->product_code ?? '-',
             'Deskripsi'                   => $detail->product?->description ?? '-',
             'Kuantitas'                   => $detail->quantity ?? 0,

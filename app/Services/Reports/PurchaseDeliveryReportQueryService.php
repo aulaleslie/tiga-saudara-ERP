@@ -25,7 +25,7 @@ class PurchaseDeliveryReportQueryService
                 'purchase_details.product_id',
                 DB::raw('MAX(received_notes.date) as last_delivery_date'),
                 DB::raw('SUM(received_note_details.quantity_received) as delivered_quantity'),
-                DB::raw('MAX(COALESCE(purchase_details.product_name, products.product_name)) as product_name'),
+                DB::raw("MAX(CASE WHEN TRIM(COALESCE(products.product_name, '')) <> '' THEN products.product_name ELSE purchase_details.product_name END) as product_name"),
                 DB::raw('MAX(COALESCE(purchase_details.product_code, products.product_code)) as product_code'),
                 DB::raw('MAX(COALESCE(units.short_name, base_units.short_name, products.product_unit, \'-\')) as unit_name'),
                 DB::raw('SUM(received_note_details.quantity_received * (CASE WHEN purchase_details.quantity > 0 THEN purchase_details.sub_total / purchase_details.quantity ELSE 0 END)) as delivered_amount')
