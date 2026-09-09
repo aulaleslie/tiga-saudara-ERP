@@ -88,33 +88,21 @@ The editor SHALL provide a Good/Bad toggle directing subsequent inputs without c
 - **AND** save/edit retains the captured baseline rather than presenting it as approval-time live stock
 
 ### Requirement: Pending proposals persist without inventory mutations
-Create/update SHALL atomically persist a versioned count proposal with location, location-setting context, per-product counts, serial text/condition/source references, and baseline. They SHALL enforce existing permissions and pending normal-document eligibility. Actual stock, serial records, transactions, and stock histories SHALL remain unchanged. Explicit zero rows SHALL remain part of the proposal and omitted products SHALL remain outside it.
+Create/update SHALL atomically persist a versioned count proposal with location, location-setting context, per-product counts, serial text/condition/source references, and baseline. A newly created or edited proposal SHALL have `draft` status, SHALL remain editable by authorized counters, and SHALL NOT notify approvers until explicit submission. Actual stock, serial records, transactions, and stock histories SHALL remain unchanged. Explicit zero rows SHALL remain part of the proposal and omitted products SHALL remain outside it. Historical legacy-format adaptation is not required for the supported workflow.
 
 #### Scenario: Save and reopen counts
-- **WHEN** a pending proposal containing good/bad counts and unregistered serial text is saved and reopened
-- **THEN** all counts, serial assignments, and baseline information are restored exactly without live inventory changes
+- **WHEN** a draft proposal containing good/bad counts and unregistered serial text is saved and reopened
+- **THEN** all counts, serial assignments, and baseline information are restored exactly without live inventory changes or an approval-needed notification
 
 #### Scenario: Edit location or encounter validation errors
 - **WHEN** a valid location change is saved
 - **THEN** the adjustment header and proposal use the same new location
 - **AND** failed validation preserves the attempted location, counts, serials, date, and note for correction
 
-#### Scenario: Legacy edit compatibility
-- **WHEN** an authorized user opens a legacy pending normal adjustment
-- **THEN** legacy quantities and serials are adapted as proposed good counts with zero proposed bad counts without writing on read
-- **AND** saving produces a versioned proposal while preserving historical legacy data
-
 #### Scenario: Explicit zero and omitted product
 - **WHEN** a proposal includes one product at zero and omits another
 - **THEN** the zero-count product remains explicitly proposed as zero and no count is inferred for the omitted product
 
-### Requirement: Legacy approval cannot apply new count proposals
-The system SHALL identify versioned count proposals in the pending workflow and SHALL block all legacy approval paths for them before inventory mutation until compatible approval behavior is implemented. Existing legacy-format approval SHALL remain unchanged.
-
-#### Scenario: Attempt premature approval
-- **WHEN** a legacy approval action is requested for a versioned count proposal
-- **THEN** it reports that compatible approval is not yet available and preserves pending status and all inventory
-
-#### Scenario: Review pending proposal
-- **WHEN** a user views a new-format pending document
-- **THEN** its proposed counts are identifiable and it is not presented as an empty legacy adjustment or an already-applied stock change
+#### Scenario: Save a rejected proposal revision
+- **WHEN** an authorized counter edits and saves a rejected proposal
+- **THEN** the revised document becomes `draft` and requires explicit resubmission before approval
