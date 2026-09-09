@@ -7,12 +7,12 @@
 
 ## 2. Reconciliation model and queries
 
-- [ ] 2.1 Define typed reconciliation result structures for document summary, product baseline/current/entered/projected values, drift, global effects, warnings, serial classifications, conflicts, and applied audit evidence.
-- [ ] 2.2 Implement bulk scoped queries for entered products, selected-location stocks, same-owner eligible-location totals, destination setting PKP, matching product serials, and destination serial omissions without queries inside row or serial loops.
-- [ ] 2.3 Implement non-serialized absolute-count reconciliation, including separate good/bad differences, condition reclassification, selected-location effect, all-location total, projected global total, and over-total warnings.
-- [ ] 2.4 Implement serialized reconciliation for already-present, cross-location movement, new-for-product, condition change, tax change, same-text-other-product warning, destination omission, drift, and unsafe conflict classifications.
-- [ ] 2.5 Make current destination `setting.is_pkp` authoritative in reconciliation and expose Bahasa Indonesia `Kena Pajak → Tidak Kena Pajak` and reverse classifications without trusting client or saved serial tax state.
-- [ ] 2.6 Expose separate counter-safe and permitted-reviewer projections so protected baseline, stock, serial-source, tax, and impact facts never enter unauthorized response or Livewire state.
+- [x] 2.1 Define typed reconciliation result structures for document summary, product baseline/current/entered/projected values, drift, global effects, warnings, serial classifications, conflicts, and applied audit evidence.
+- [x] 2.2 Implement bulk scoped queries for entered products, selected-location stocks, same-owner eligible-location totals, destination setting PKP, matching product serials, and destination serial omissions without queries inside row or serial loops.
+- [x] 2.3 Implement non-serialized absolute-count reconciliation, including separate good/bad differences, condition reclassification, selected-location effect, all-location total, projected global total, and over-total warnings.
+- [x] 2.4 Implement serialized reconciliation for already-present, cross-location movement, new-for-product, condition change, tax change, same-text-other-product warning, destination omission, drift, and unsafe conflict classifications.
+- [x] 2.5 Make current destination `setting.is_pkp` authoritative in reconciliation and expose Bahasa Indonesia `Kena Pajak → Tidak Kena Pajak` and reverse classifications without trusting client or saved serial tax state.
+- [x] 2.6 Expose separate counter-safe and permitted-reviewer projections so protected baseline, stock, serial-source, tax, and impact facts never enter unauthorized response or Livewire state.
 
 ## 3. Submission and decision lifecycle
 

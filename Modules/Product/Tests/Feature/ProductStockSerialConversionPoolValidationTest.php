@@ -1835,4 +1835,99 @@ class ProductStockSerialConversionPoolValidationTest extends TestCase
         $response->assertSee('Produk tidak aktif.');
         $response->assertSee('Jumlah stok harus berupa bilangan bulat utuh (ditemukan pecahan pada quantity).');
     }
+
+    public function test_eligibility_legacy_adjustment_scan_query_count_does_not_scale_per_document()
+    {
+        // Legacy (non-versioned) PENDING adjustments are matched in SQL by
+        // whereHas('adjustedProducts', ...), then their filtered
+        // adjustedProducts relation must be read to confirm membership.
+        // chunkById() (unlike cursor()) still honors the eager load, so this
+        // read must stay one bulk query per chunk, not one lazy-load query
+        // per candidate document.
+        $setting = Setting::create([
+            'company_name' => 'Adj Query Setting',
+            'company_email' => 'adjquery@example.com',
+            'company_phone' => '08123456789',
+            'notification_email' => 'adjquery@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Adj',
+            'company_address' => 'Adj Address',
+        ]);
+        $loc = Location::create(['name' => 'Gudang Adj Query', 'setting_id' => $setting->id]);
+
+        $product = Product::create([
+            'product_name' => 'Product In Many Adjustments',
+            'product_code' => 'PIMA-001',
+            'setting_id' => $setting->id,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $loc->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $makeLegacyPendingAdjustment = function () use ($loc, $product) {
+            $adj = \Modules\Adjustment\Entities\Adjustment::create([
+                'location_id' => $loc->id,
+                'status' => 'pending',
+                'date' => now(),
+            ]);
+
+            \Modules\Adjustment\Entities\AdjustedProduct::create([
+                'adjustment_id' => $adj->id,
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'type' => 'add',
+            ]);
+
+            return $adj;
+        };
+
+        $service = app(\Modules\Product\Services\SerialConversionEligibilityService::class);
+
+        // Baseline: one legacy PENDING adjustment referencing the product.
+        $makeLegacyPendingAdjustment();
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $smallResult = $service->checkEligibility($product);
+        $smallQueryCount = count(\Illuminate\Support\Facades\DB::getQueryLog());
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+
+        // Add many more legacy PENDING adjustments referencing the same
+        // product. Fixture creation itself is not part of what is measured.
+        for ($i = 0; $i < 20; $i++) {
+            $makeLegacyPendingAdjustment();
+        }
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $largeResult = $service->checkEligibility($product);
+        $largeQueryCount = count(\Illuminate\Support\Facades\DB::getQueryLog());
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertFalse($smallResult->isEligible);
+        $this->assertFalse($largeResult->isEligible);
+
+        // Query count must not scale with the number of matching documents:
+        // going from 1 to 21 legacy PENDING adjustments should add at most a
+        // small constant number of extra queries (e.g. one more chunk pass),
+        // never one adjustedProducts lazy-load per document.
+        $this->assertLessThanOrEqual(
+            $smallQueryCount + 3,
+            $largeQueryCount,
+            "Query count scaled with legacy adjustment count: {$smallQueryCount} (1 doc) vs {$largeQueryCount} (21 docs)."
+        );
+    }
 }

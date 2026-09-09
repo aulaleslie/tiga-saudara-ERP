@@ -295,7 +295,18 @@ class SerialConversionEligibilityService
                 \Modules\Adjustment\Entities\AdjustmentStatus::WaitingApproval->value,
             ];
 
-            $candidateAdjustments = \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status', 'count_draft'])
+            // Memory-bounded scan: candidate rows can include every WAITING_APPROVAL/
+            // PENDING document, so page through via chunkById() instead of get()
+            // to avoid materializing every matching versioned count_draft JSON blob
+            // at once. chunkById() (unlike cursor()) still honors eager loads, so
+            // the filtered adjustedProducts relation below stays a single bulk
+            // query per chunk instead of lazy-loading once per candidate row.
+            // Legacy membership is narrowed in SQL (whereHas); versioned
+            // membership still requires a PHP-side JSON row scan per candidate,
+            // but never loads the full candidate set into memory simultaneously.
+            $activeAdjustments = collect();
+
+            \Modules\Adjustment\Entities\Adjustment::select(['id', 'reference', 'status', 'count_draft'])
                 ->whereIn('status', $blockingAdjustmentStatuses)
                 ->where(function ($q) use ($product) {
                     $q->whereHas('adjustedProducts', function ($sub) use ($product) {
@@ -305,20 +316,28 @@ class SerialConversionEligibilityService
                 ->with(['adjustedProducts' => function ($q) use ($product) {
                     $q->where('product_id', $product->id);
                 }])
-                ->get();
+                ->chunkById(200, function ($chunk) use ($product, &$activeAdjustments) {
+                    foreach ($chunk as $adj) {
+                        if ($adj->isVersionedCountDraft()) {
+                            $rows = $adj->count_draft['rows'] ?? [];
+                            $matches = collect($rows)->contains(fn ($row) => (int) ($row['product_id'] ?? 0) === (int) $product->id);
+                            if ($matches) {
+                                $activeAdjustments->push($adj);
+                            }
+                            continue;
+                        }
 
-            $activeAdjustments = $candidateAdjustments->filter(function ($adj) use ($product) {
-                if ($adj->isVersionedCountDraft()) {
-                    $rows = $adj->count_draft['rows'] ?? [];
-                    return collect($rows)->contains(fn ($row) => (int) ($row['product_id'] ?? 0) === (int) $product->id);
-                }
-
-                // Legacy (non-versioned) document: verify actual membership
-                // explicitly rather than trusting the SQL-level candidate filter,
-                // since that filter is deliberately broad (widened by the
-                // whereNotNull('count_draft') branch to catch versioned rows).
-                return $adj->adjustedProducts->isNotEmpty();
-            });
+                        // Legacy (non-versioned) document: verify actual membership
+                        // explicitly rather than trusting the SQL-level candidate filter,
+                        // since that filter is deliberately broad (widened by the
+                        // whereNotNull('count_draft') branch to catch versioned rows).
+                        // adjustedProducts is eager-loaded per chunk above, so this
+                        // never triggers a per-row lazy-load query.
+                        if ($adj->adjustedProducts->isNotEmpty()) {
+                            $activeAdjustments->push($adj);
+                        }
+                    }
+                });
 
             foreach ($activeAdjustments as $adj) {
                 $docNum = $adj->reference ?? "ID #{$adj->id}";
