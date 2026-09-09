@@ -1368,22 +1368,42 @@ class StockOpnameApprovalTest extends TestCase
 
     // --- Lock-order regression (stock before serial, matching TransferMovementService) ---
 
-    public function test_approval_query_log_shows_product_stock_locked_before_product_serial_number()
+    public function test_approval_query_log_shows_full_lock_hierarchy_order()
     {
-        // Direct regression for the lock-order contract: the raw SQL log
-        // must show a `product_stocks ... for update` (or SQLite's
-        // lock-equivalent select) query before the first
-        // `product_serial_numbers ... for update` query, for a document
-        // that touches both a source and destination stock row plus a
-        // matched serial. This is the concrete, inspectable evidence that
-        // discoverAndLockStockThenSerials() actually issues its stock lock
-        // query before its serial lock query -- the same order
-        // TransferMovementService::dispatch() uses (ProductStock::
-        // lockForUpdate() at Modules/Adjustment/Services/
-        // TransferMovementService.php:31-35, before allocateSerialized()'s
-        // ProductSerialNumber::lockForUpdate() at ~469-473) -- rather than
-        // only inferring it from the mutation's end result, which a
-        // different internal implementation could also produce.
+        // Direct regression for the complete lock-order contract: the raw
+        // SQL log must show, in order, the first PRINCIPAL locking query
+        // ("... for update", SQLite's lock-equivalent select in every case)
+        // against each of adjustments < locations < settings < products <
+        // product_stocks < product_serial_numbers, for a document that
+        // touches both a source and destination stock row plus a matched
+        // serial. "Principal" locking queries are distinguished from
+        // eager-load/plain-read queries (e.g. the unlocked discovery reads
+        // in discoverSerialLocations(), or Product's with('baseUnit') eager
+        // load) by requiring both a WHERE ... IN (...) filter AND an
+        // "order by id asc" clause -- the shape only the ordered
+        // ::lockForUpdate() queries in approve()/lockAffectedLocations()/
+        // lockStocksThenSerials() produce. This is the concrete, inspectable
+        // evidence that:
+        //   1. Adjustment (already locked before this method's discovery
+        //      begins) precedes every subsequent principal lock;
+        //   2. Location is locked as ONE ordered query covering the
+        //      complete affected set (lockAffectedLocations()) before
+        //      Setting, Product, ProductStock, or ProductSerialNumber;
+        //   3. Setting is locked (from the already-locked destination
+        //      Location) before Product;
+        //   4. Product is locked (approve(), step 5) before ProductStock and
+        //      ProductSerialNumber, and with NO with('product') eager-load
+        //      anywhere in the log before this point;
+        //   5. ProductStock is locked (lockStocksThenSerials()) before
+        //      ProductSerialNumber -- matching the order
+        //      TransferMovementService::dispatch() uses (ProductStock::
+        //      lockForUpdate() at Modules/Adjustment/Services/
+        //      TransferMovementService.php:31-35, before
+        //      allocateSerialized()'s ProductSerialNumber::lockForUpdate()
+        //      at ~469-473).
+        // This is stronger than only inferring the order from the
+        // mutation's end result, which a different internal implementation
+        // could also produce.
         $product = $this->makeProduct(true);
         $this->makeStockRow($product, $this->otherLocation, goodTax: 1);
         $this->makeStockRow($product, $this->location);
@@ -1400,38 +1420,753 @@ class StockOpnameApprovalTest extends TestCase
         $log = \Illuminate\Support\Facades\DB::getQueryLog();
         \Illuminate\Support\Facades\DB::disableQueryLog();
 
-        $firstStockLockIndex = null;
-        $firstSerialLockIndex = null;
-        foreach ($log as $index => $entry) {
-            $sql = strtolower($entry['query']);
-            if ($firstStockLockIndex === null && str_contains($sql, 'from "product_stocks"') && str_contains($sql, 'order by "id" asc')) {
-                $firstStockLockIndex = $index;
+        // A "principal" lock query: filters by an IN (...) list (or, for
+        // Adjustment/Setting, a plain "= ?" primary-key predicate) AND is
+        // explicitly ordered by id -- Adjustment and Setting are looked up
+        // by a single id (no ordering needed for a one-row result), so those
+        // two are matched on table + "for update"/lock-equivalent select
+        // alone, while Location/Product/ProductStock/ProductSerialNumber
+        // are matched on table + "order by id asc" (the ordered
+        // multi-row locking shape this refactor requires), which by
+        // construction excludes every eager-load (with('baseUnit'), the
+        // unlocked discovery reads, etc.) that this codebase never orders
+        // by id.
+        $firstIndexMatching = function (array $log, string $table, bool $requiresOrder): ?int {
+            foreach ($log as $index => $entry) {
+                $sql = strtolower($entry['query']);
+                if (!str_contains($sql, "from \"{$table}\"")) {
+                    continue;
+                }
+                if ($requiresOrder && !str_contains($sql, 'order by "id" asc')) {
+                    continue;
+                }
+                return $index;
             }
-            if ($firstSerialLockIndex === null && str_contains($sql, 'from "product_serial_numbers"') && str_contains($sql, 'order by "id" asc')) {
-                $firstSerialLockIndex = $index;
+            return null;
+        };
+
+        $adjustmentLockIndex = $firstIndexMatching($log, 'adjustments', false);
+        $locationLockIndex = $firstIndexMatching($log, 'locations', true);
+        $settingLockIndex = $firstIndexMatching($log, 'settings', false);
+        $productLockIndex = $firstIndexMatching($log, 'products', true);
+        $stockLockIndex = $firstIndexMatching($log, 'product_stocks', true);
+        $serialLockIndex = $firstIndexMatching($log, 'product_serial_numbers', true);
+
+        $this->assertNotNull($adjustmentLockIndex, 'Expected a locked Adjustment query in the log.');
+        $this->assertNotNull($locationLockIndex, 'Expected a single ordered locked Location query in the log.');
+        $this->assertNotNull($settingLockIndex, 'Expected a locked Setting query in the log.');
+        $this->assertNotNull($productLockIndex, 'Expected a single ordered locked Product query in the log.');
+        $this->assertNotNull($stockLockIndex, 'Expected a single ordered locked ProductStock query in the log.');
+        $this->assertNotNull($serialLockIndex, 'Expected a single ordered locked ProductSerialNumber query in the log.');
+
+        $this->assertLessThan($locationLockIndex, $adjustmentLockIndex, 'Adjustment must be locked before Location.');
+        $this->assertLessThan($settingLockIndex, $locationLockIndex, 'Location must be locked before Setting.');
+        $this->assertLessThan($productLockIndex, $settingLockIndex, 'Setting must be locked before Product.');
+        $this->assertLessThan($stockLockIndex, $productLockIndex, 'Product must be locked before ProductStock.');
+        $this->assertLessThan($serialLockIndex, $stockLockIndex, 'ProductStock must be locked before ProductSerialNumber.');
+
+        // No with('product') eager-load of Product happens before the
+        // authoritative Product lock: every "products" table query in the
+        // log up to and including $productLockIndex must be the single
+        // ordered lock query itself, never an earlier unlocked eager-load
+        // row fetch triggered by ProductStock/ProductSerialNumber's
+        // with('product').
+        $productQueriesBeforeLock = 0;
+        foreach (array_slice($log, 0, $productLockIndex + 1) as $entry) {
+            $sql = strtolower($entry['query']);
+            if (str_contains($sql, 'from "products"')) {
+                $productQueriesBeforeLock++;
+            }
+        }
+        $this->assertEquals(
+            1,
+            $productQueriesBeforeLock,
+            'Exactly one "products" query (the authoritative ordered lock) is expected up to and including the Product lock -- an eager with(\'product\') read before it would add a second.'
+        );
+
+        // The destination location participates in the SAME single ordered
+        // Location lock query as every other affected location -- assert
+        // its id is among that one query's bindings, rather than being
+        // pulled out into an earlier, separate lock.
+        $locationLockBindings = $log[$locationLockIndex]['bindings'];
+        $this->assertContains(
+            $this->location->id,
+            $locationLockBindings,
+            'The destination Location id must be a binding of the single ordered Location lock query, not locked separately.'
+        );
+    }
+
+    /**
+     * Opposite-direction cross-setting lock ordering: Adjustment A's
+     * destination is B's discovered serial source, and Adjustment B's
+     * destination is A's discovered serial source. Under the OLD
+     * implementation each transaction locked its own destination Location
+     * first (out of any global order), then later tried to lock the other's
+     * source/destination location as part of its own sorted set -- a
+     * classic opposite-direction deadlock shape. The fix folds the
+     * destination into the SAME single ascending-ID Location lock as every
+     * other candidate location, so this scenario can no longer deadlock: it
+     * is provable statically by confirming both directions produce the
+     * identical ascending-ID Location lock query (same SQL, same bind
+     * order) regardless of which side is the "destination" for that
+     * particular approval, which is exactly what a single global hierarchy
+     * guarantees and a destination-first hierarchy does not.
+     */
+    public function test_opposite_direction_cross_setting_lock_ordering_uses_one_ascending_location_lock_covering_both_sides()
+    {
+        // Both locations belong to the active setting (approval enforces
+        // destination ownership per AdjustmentOwnershipGuard), but the
+        // serial CUSTODY move itself is deliberately cross-setting-shaped by
+        // giving each product a "home" setting_id that differs from the
+        // location it is actually stocked/moved at -- exercising the same
+        // global movement-eligible discovery path a genuine cross-setting
+        // move would, while keeping both destinations approvable in this
+        // single active session. What this test actually proves is lock
+        // ORDERING, not cross-setting tax mechanics (already covered
+        // elsewhere), so this keeps the setup minimal and deterministic.
+        [$lowLocation, $highLocation] = $this->location->id < $this->otherLocation->id
+            ? [$this->location, $this->otherLocation]
+            : [$this->otherLocation, $this->location];
+
+        $productA = $this->makeProduct(true);
+        $productB = $this->makeProduct(true);
+
+        // Adjustment A: destination = highLocation, its entered serial
+        // currently sits at lowLocation (a cross-location move INTO high).
+        $this->makeStockRow($productA, $lowLocation, goodTax: 0, goodNonTax: 1);
+        $this->makeStockRow($productA, $highLocation);
+        $this->makeSerial($productA, $lowLocation, 'SN-OPP-A', isBroken: false, taxId: null);
+
+        // Adjustment B: destination = lowLocation, its entered serial
+        // currently sits at highLocation (a cross-location move INTO low) --
+        // the exact opposite direction of A.
+        $this->makeStockRow($productB, $highLocation, goodTax: 0, goodNonTax: 1);
+        $this->makeStockRow($productB, $lowLocation);
+        $this->makeSerial($productB, $highLocation, 'SN-OPP-B', isBroken: false, taxId: null);
+
+        $adjustmentA = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $productA->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-OPP-A', 'condition' => 'good'],
+            ]],
+        ], $highLocation);
+
+        $adjustmentB = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $productB->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-OPP-B', 'condition' => 'good'],
+            ]],
+        ], $lowLocation);
+
+        $extractFirstLocationLockSql = function (Adjustment $adjustment): ?array {
+            \Illuminate\Support\Facades\DB::enableQueryLog();
+            $this->service()->approve($adjustment, $this->approver);
+            $log = \Illuminate\Support\Facades\DB::getQueryLog();
+            \Illuminate\Support\Facades\DB::disableQueryLog();
+
+            foreach ($log as $entry) {
+                $sql = strtolower($entry['query']);
+                if (str_contains($sql, 'from "locations"') && str_contains($sql, 'order by "id" asc')) {
+                    return ['sql' => $sql, 'bindings' => $entry['bindings']];
+                }
+            }
+
+            return null;
+        };
+
+        $lockQueryA = $extractFirstLocationLockSql($adjustmentA);
+        $lockQueryB = $extractFirstLocationLockSql($adjustmentB);
+
+        $this->assertNotNull($lockQueryA, 'Expected a single ascending-ID Location lock query for adjustment A.');
+        $this->assertNotNull($lockQueryB, 'Expected a single ascending-ID Location lock query for adjustment B.');
+
+        // Both directions lock the SAME pair of location IDs (low, high) via
+        // the identical single ascending-ID query shape -- the destination is
+        // never pulled out into its own earlier lock on either side.
+        sort($lockQueryA['bindings']);
+        sort($lockQueryB['bindings']);
+        $this->assertEquals(
+            [$lowLocation->id, $highLocation->id],
+            $lockQueryA['bindings'],
+            'Adjustment A must lock exactly {low, high} location IDs via one ordered query.'
+        );
+        $this->assertEquals(
+            [$lowLocation->id, $highLocation->id],
+            $lockQueryB['bindings'],
+            'Adjustment B must lock exactly {low, high} location IDs via one ordered query.'
+        );
+
+        $this->assertEquals(AdjustmentStatus::Approved, $adjustmentA->fresh()->status);
+        $this->assertEquals(AdjustmentStatus::Approved, $adjustmentB->fresh()->status);
+    }
+
+    /**
+     * Direct unit-level proof that discoverSerialLocations() (phase 1)
+     * itself never issues a second discovery SELECT when
+     * assertSerialLocationsUnchanged() (phase 8) detects a disagreement: the
+     * query log for a rejected approval must contain exactly ONE unlocked
+     * (non-"for update"/non-lock-select) read of product_serial_numbers by
+     * serial_number -- the single discovery read -- never two, which would
+     * be the fingerprint of an in-transaction retry.
+     */
+    public function test_discovery_disagreement_issues_exactly_one_discovery_read_no_inner_retry()
+    {
+        $product = $this->makeProduct(true);
+        $sourceLocation = Location::create([
+            'name' => 'Gudang Akan Konsinyasi Lagi', 'setting_id' => $this->setting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+        $this->makeStockRow($product, $sourceLocation, goodNonTax: 1);
+        $this->makeStockRow($product, $this->location);
+        $this->makeSerial($product, $sourceLocation, 'SN-NORETRY', isBroken: false, taxId: null);
+
+        // Flip to consignment so the locked revalidation path is reached
+        // deterministically without a second real connection (movement
+        // eligibility is rejected via the classifier, but the discovery-read
+        // COUNT assertion below is about discovery itself, independent of
+        // which specific guard ultimately raises the conflict).
+        $sourceLocation->update(['is_consignment' => true]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-NORETRY', 'condition' => 'good'],
+            ]],
+        ]);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        try {
+            $this->service()->approve($adjustment, $this->approver);
+        } catch (ValidationException $e) {
+            // expected for the consignment-source case; the assertion below
+            // is what this test actually verifies.
+        }
+        $log = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $discoveryReadCount = 0;
+        foreach ($log as $entry) {
+            $sql = strtolower($entry['query']);
+            // Discovery-by-serial-text's distinguishing shape: filters by
+            // "serial_number" in (...) and is unlocked (no "for update"/no
+            // locked "order by id asc" clause the later lockForUpdate()
+            // queries carry). This deliberately excludes the separate
+            // destination-serial discovery read (filtered by location_id +
+            // product_id instead) so this count isolates only the
+            // serial-text discovery path a retry would duplicate.
+            if (str_contains($sql, 'from "product_serial_numbers"')
+                && str_contains($sql, '"serial_number" in (')
+                && !str_contains($sql, 'order by "id" asc')) {
+                $discoveryReadCount++;
             }
         }
 
-        $this->assertNotNull($firstStockLockIndex, 'Expected a locked ProductStock query in the log.');
-        $this->assertNotNull($firstSerialLockIndex, 'Expected a locked ProductSerialNumber query in the log.');
-        $this->assertLessThan(
-            $firstSerialLockIndex,
-            $firstStockLockIndex,
-            'ProductStock must be locked before ProductSerialNumber to match TransferMovementService\'s hierarchy.'
+        $this->assertEquals(
+            1,
+            $discoveryReadCount,
+            'Exactly one unlocked discovery read of product_serial_numbers by serial_number is expected -- a second would be an in-transaction retry.'
         );
     }
 
     /**
      * Note on concurrency-test limitations: PHPUnit's single connection/
      * single-process test harness cannot truly interleave a second
-     * transaction inside StockOpnameApprovalService::discoverAndLockStockThenSerials()'s
-     * retry window, so the retry-on-changed-location branch itself is not
-     * exercised by an automated test here. What IS covered above is the
-     * observable contract that makes the retry safe to rely on: the actual
-     * SQL lock order (stock before serial) and correct posting outcomes
-     * for a moved serial. A true interleaved-transaction test would require
-     * either a second real DB connection paused mid-transaction or a
+     * transaction inside StockOpnameApprovalService's discovery window, so a
+     * genuine race is not exercised by an automated test here. What IS
+     * covered here and below is the observable contract that makes the
+     * no-inner-retry design safe: the actual SQL lock order (location, then
+     * stock, then serial, with the destination inside the single ordered
+     * location lock), correct posting outcomes for a moved serial, and a
+     * clean rollback with zero mutations when discovery disagrees with the
+     * locked state. A true interleaved-transaction test would require either
+     * a second real DB connection paused mid-transaction or a
      * database-level deadlock/race harness, which is out of scope for this
      * focused section-4 suite.
      */
+
+    // --- Global product catalogue: Product::setting_id never gates approval
+    // eligibility; ownership is enforced entirely through location scoping. ---
+
+    public function test_approval_of_globally_shared_product_zeroes_only_destination_location_and_leaves_other_setting_stock_untouched()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Setting Lain', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        // The product's own (legacy) setting_id differs from the destination
+        // setting, but it is genuinely stocked at $this->location (which IS
+        // owned by the destination setting) and also at a location belonging
+        // to another setting entirely.
+        $sharedProduct = $this->makeProduct();
+        $sharedProduct->update(['setting_id' => $otherSetting->id]);
+
+        $destinationStock = $this->makeStockRow($sharedProduct, $this->location, goodTax: 5);
+        $foreignStock = $this->makeStockRow($sharedProduct, $foreignSettingLocation, goodTax: 42);
+        $sharedProduct->update(['product_quantity' => 5 + 42]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $sharedProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => []],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $this->assertEquals(AdjustmentStatus::Approved, $adjustment->fresh()->status);
+
+        // Destination location's quantity is zeroed (the entered absolute count).
+        $freshDestination = $destinationStock->fresh();
+        $this->assertEquals(0, $freshDestination->quantity_tax);
+        $this->assertEquals(0, $freshDestination->quantity);
+
+        // The same product's stock at the other setting's location is
+        // completely untouched -- global product identity never authorizes
+        // mutating stock outside the destination setting's own locations.
+        $freshForeign = $foreignStock->fresh();
+        $this->assertEquals(42, $freshForeign->quantity_tax);
+        $this->assertEquals(42, $freshForeign->quantity);
+
+        // Product aggregate reflects only the destination-location delta (-5).
+        $this->assertEquals(42, $sharedProduct->fresh()->product_quantity);
+    }
+
+    /**
+     * Corrected domain behavior: an active, unencumbered serial at another
+     * setting's ordinary (non-consignment) location is a safe stock-movement
+     * candidate -- the product catalogue and physical serial custody are
+     * global. Approval must move it exactly like a same-setting move: decrement
+     * the source bucket, increment the destination bucket using the
+     * destination's current PKP classification, move location_id, keep the
+     * global product quantity net change at zero, write Transaction evidence
+     * for BOTH locations with each row's OWN location's setting_id (not
+     * unconditionally the destination's), and notify both locations.
+     */
+    public function test_approval_moves_a_cross_setting_active_serial_with_exact_buckets_and_per_location_transaction_settings()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'GUDANG BARANG PERDANA', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        // Destination setting ($this->setting, set up in setUp()) is PKP,
+        // source setting is Non-PKP: the move also converts tax classification.
+        $sharedProduct = $this->makeProduct(true);
+        $sharedProduct->update(['setting_id' => $otherSetting->id]);
+
+        $sourceStock = $this->makeStockRow($sharedProduct, $foreignSettingLocation, goodNonTax: 1);
+        $destStock = $this->makeStockRow($sharedProduct, $this->location);
+        $sharedProduct->update(['product_quantity' => 1]);
+        $serial = $this->makeSerial($sharedProduct, $foreignSettingLocation, 'SN-CROSS-SETTING-MOVE', isBroken: false, taxId: null);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $sharedProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-CROSS-SETTING-MOVE', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $this->assertEquals(AdjustmentStatus::Approved, $adjustment->fresh()->status);
+
+        // Serial moved and reclassified to the destination's PKP status.
+        $freshSerial = $serial->fresh();
+        $this->assertEquals($this->location->id, $freshSerial->location_id);
+        $this->assertNotNull($freshSerial->tax_id, 'Destination is PKP, so the moved serial must become taxable.');
+
+        // Exact source bucket decrement, exact destination bucket increment.
+        $this->assertEquals(0, $sourceStock->fresh()->quantity_non_tax);
+        $this->assertEquals(0, $sourceStock->fresh()->quantity);
+        $this->assertEquals(1, $destStock->fresh()->quantity_tax);
+        $this->assertEquals(0, $destStock->fresh()->quantity_non_tax);
+        $this->assertEquals(1, $destStock->fresh()->quantity);
+
+        // Pure movement: verified global net effect is zero.
+        $this->assertEquals(1, $sharedProduct->fresh()->product_quantity);
+
+        // Transaction evidence for BOTH locations, each with ITS OWN setting_id.
+        $this->assertEquals(2, Transaction::where('product_id', $sharedProduct->id)->count());
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $sharedProduct->id,
+            'location_id' => $foreignSettingLocation->id,
+            'setting_id' => $otherSetting->id,
+            'quantity' => -1,
+        ]);
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $sharedProduct->id,
+            'location_id' => $this->location->id,
+            'setting_id' => $this->setting->id,
+            'quantity' => 1,
+        ]);
+
+        // approval_result records the movement + tax-change evidence needed
+        // for row-level reviewer rendering (Dipindahkan / GUDANG BARANG
+        // PERDANA -> destination / Tidak Kena Pajak -> Kena Pajak).
+        $entry = $adjustment->fresh()->approval_result['products'][0]['serials'][0];
+        $this->assertEquals('moved', $entry['action']);
+        $this->assertEquals($foreignSettingLocation->id, $entry['source_location_id']);
+        $this->assertFalse($entry['source_is_tax']);
+        $this->assertTrue($entry['applied_is_tax']);
+    }
+
+    /**
+     * Notifications must fire for BOTH the source and destination locations
+     * of a cross-setting move, not only the destination.
+     */
+    public function test_approval_of_cross_setting_serial_move_notifies_both_source_and_destination_locations()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Setting Lain Notify', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $sharedProduct = $this->makeProduct(true);
+        $sharedProduct->update(['setting_id' => $otherSetting->id, 'product_stock_alert' => 5]);
+
+        // Source starts above alert and drops to/below it; destination starts
+        // at/below alert and rises past it -- both directions must notify.
+        $sourceStock = $this->makeStockRow($sharedProduct, $foreignSettingLocation, goodNonTax: 6);
+        $destStock = $this->makeStockRow($sharedProduct, $this->location, goodTax: 5);
+        $this->makeSerial($sharedProduct, $foreignSettingLocation, 'SN-NOTIFY-CROSS-SETTING', isBroken: false, taxId: null);
+
+        // Low-stock recipients are resolved from the PRODUCT's own
+        // setting_id (see StockNotificationService::createLocationStockNotifications),
+        // not the touched location's setting -- so the watcher role must be
+        // attached under the shared product's own (other) setting for this
+        // cross-setting scenario to actually produce a notification.
+        $permission = Permission::findOrCreate('notifications.lowStock', 'web');
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Stock Watcher Cross Setting', 'guard_name' => 'web']);
+        $role->givePermissionTo($permission);
+        $this->approver->settings()->attach($otherSetting->id, ['role_id' => $role->id]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $sharedProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-NOTIFY-CROSS-SETTING', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $this->assertDatabaseHas('notifications', [
+            'source_type' => ProductStock::class,
+            'source_id' => $sourceStock->id,
+            'category' => 'stock',
+            'type' => 'location_low_stock',
+        ]);
+    }
+
+    /**
+     * A consignment source location remains a blocking conflict even though
+     * cross-setting movement is otherwise allowed -- movement eligibility is
+     * broadened by setting, never by consignment status.
+     */
+    public function test_approval_still_blocks_a_serial_at_a_consignment_location_regardless_of_setting()
+    {
+        $consignmentLocation = Location::create([
+            'name' => 'Titik Konsinyasi Approval', 'setting_id' => $this->setting->id,
+            'is_active' => true, 'is_consignment' => true,
+        ]);
+
+        $product = $this->makeProduct(true);
+        $this->makeStockRow($product, $consignmentLocation, goodTax: 1);
+        $this->makeStockRow($product, $this->location);
+        $serial = $this->makeSerial($product, $consignmentLocation, 'SN-CONSIGNMENT-APPROVAL', isBroken: false, taxId: $this->tax->id);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-CONSIGNMENT-APPROVAL', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            $this->service()->approve($adjustment, $this->approver);
+        } finally {
+            $this->assertEquals(AdjustmentStatus::WaitingApproval, $adjustment->fresh()->status);
+            $this->assertEquals($consignmentLocation->id, $serial->fresh()->location_id);
+            $this->assertDatabaseCount('transactions', 0);
+        }
+    }
+
+    /**
+     * The "all locations" total used for the same-setting over-total warning
+     * must exclude a product's stock recorded under another setting, even
+     * though that product is globally shared and movement itself is allowed
+     * across settings.
+     */
+    public function test_same_setting_all_location_total_excludes_stock_recorded_under_another_setting()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Setting Lain Total', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $sharedProduct = $this->makeProduct();
+        $sharedProduct->update(['setting_id' => $otherSetting->id]);
+
+        $this->makeStockRow($sharedProduct, $this->location, goodTax: 5);
+        $this->makeStockRow($sharedProduct, $this->otherLocation, goodTax: 3);
+        // Stock under another setting's location: must be excluded from the
+        // "all locations" total evidence even though the product is shared.
+        $this->makeStockRow($sharedProduct, $foreignSettingLocation, goodTax: 999);
+        $sharedProduct->update(['product_quantity' => 5 + 3 + 999]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $sharedProduct->id, 'good_count' => 5, 'bad_count' => 0, 'serials' => []],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $result = $adjustment->fresh()->approval_result;
+        $this->assertEquals(8.0, $result['products'][0]['all_location_current_total_before']);
+    }
+
+    // --- Locked-location revalidation corrections ---
+
+    /**
+     * A source location that becomes consignment AFTER discovery's unlocked
+     * read but is caught once the referenced Location rows are actually
+     * locked must block the move -- the earlier unlocked
+     * movementEligibleLocationIds-style snapshot is never final authority
+     * for locked approval.
+     */
+    public function test_source_location_becoming_consignment_between_discovery_and_lock_blocks_approval_with_zero_mutations()
+    {
+        $sourceLocation = Location::create([
+            'name' => 'Gudang Akan Jadi Konsinyasi', 'setting_id' => $this->setting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $product = $this->makeProduct(true);
+        $sourceStock = $this->makeStockRow($product, $sourceLocation, goodTax: 1);
+        $destStock = $this->makeStockRow($product, $this->location);
+        $serial = $this->makeSerial($product, $sourceLocation, 'SN-BECOMES-CONSIGNMENT', isBroken: false, taxId: $this->tax->id);
+
+        // Flip the source location to consignment strictly between when a
+        // caller might have read an earlier eligibility snapshot and when
+        // approval actually locks/revalidates -- simulated here simply by
+        // making the flip the authoritative state approval will observe when
+        // it locks Location rows, since this test drives approve() directly
+        // rather than needing a second real concurrent transaction.
+        $sourceLocation->update(['is_consignment' => true]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-BECOMES-CONSIGNMENT', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            $this->service()->approve($adjustment, $this->approver);
+        } finally {
+            $this->assertEquals(AdjustmentStatus::WaitingApproval, $adjustment->fresh()->status);
+            $this->assertEquals($sourceLocation->id, $serial->fresh()->location_id);
+            $this->assertEquals(1, $sourceStock->fresh()->quantity_tax, 'Source bucket must be untouched.');
+            $this->assertEquals(0, $destStock->fresh()->quantity_tax, 'Destination bucket must be untouched.');
+            $this->assertDatabaseCount('transactions', 0);
+        }
+    }
+
+    /**
+     * A missing/invalid source Location is unreachable through any write
+     * path in this schema: product_serial_numbers.location_id is declared
+     * with onDelete('cascade') AND the foreign key is enforced at the
+     * database level (verified directly -- even a raw, Eloquent-bypassing
+     * UPDATE to a non-existent location_id is rejected by SQLite's FK
+     * constraint). A serial can therefore never reference a Location absent
+     * from the locked map by the time approval runs; the two reachable
+     * "source location invalid at lock time" scenarios --
+     * became-consignment and changed-during-discovery -- are covered by
+     * test_source_location_becoming_consignment_between_discovery_and_lock_blocks_approval_with_zero_mutations
+     * and the existing test_approval_revalidates_against_authoritative_state_not_stale_row_reference
+     * respectively. assertSerialLocationsUnchanged()'s missingLockedLocation
+     * guard remains as defense-in-depth for that database invariant.
+     */
+
+    /**
+     * Every Transaction row a cross-setting move writes must obtain its
+     * setting_id from the LOCKED source/destination Location rows -- never
+     * unconditionally the destination's setting, and never a fresh
+     * Location::find() read outside the lock.
+     */
+    public function test_cross_setting_transactions_obtain_setting_id_from_locked_source_and_destination_locations()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Setting Lain Locked', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $product = $this->makeProduct(true);
+        $product->update(['setting_id' => $otherSetting->id]);
+
+        $this->makeStockRow($product, $foreignSettingLocation, goodNonTax: 1);
+        $this->makeStockRow($product, $this->location);
+        $this->makeSerial($product, $foreignSettingLocation, 'SN-LOCKED-SETTING-EVIDENCE', isBroken: false, taxId: null);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-LOCKED-SETTING-EVIDENCE', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $product->id,
+            'location_id' => $foreignSettingLocation->id,
+            'setting_id' => $otherSetting->id,
+        ]);
+        $this->assertDatabaseHas('transactions', [
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'setting_id' => $this->setting->id,
+        ]);
+    }
+
+    /**
+     * There must be no code path by which a source-location Transaction row
+     * silently receives the destination's setting_id as a fallback: assert
+     * directly against the actual persisted row rather than only the happy
+     * path, so a regression that reintroduces the fallback is caught even if
+     * it coincidentally produces the right value in other tests.
+     */
+    public function test_no_destination_setting_fallback_is_possible_for_source_location_transaction()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Co', 'company_email' => 'other@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => true,
+        ]);
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Setting Lain No Fallback', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $product = $this->makeProduct(true);
+        $product->update(['setting_id' => $otherSetting->id]);
+
+        $this->makeStockRow($product, $foreignSettingLocation, goodTax: 1);
+        $this->makeStockRow($product, $this->location);
+        $this->makeSerial($product, $foreignSettingLocation, 'SN-NO-FALLBACK', isBroken: false, taxId: $this->tax->id);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-NO-FALLBACK', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $this->service()->approve($adjustment, $this->approver);
+
+        $sourceTransaction = Transaction::where('product_id', $product->id)
+            ->where('location_id', $foreignSettingLocation->id)
+            ->first();
+
+        $this->assertNotNull($sourceTransaction);
+        $this->assertEquals($otherSetting->id, $sourceTransaction->setting_id);
+        $this->assertNotEquals(
+            $this->setting->id,
+            $sourceTransaction->setting_id,
+            'The source-location transaction must never fall back to the destination setting_id.'
+        );
+    }
+
+    /**
+     * Approval's Location-locking step must be one bulk query regardless of
+     * how many serials/transactions the document touches -- adding this
+     * correction must not introduce a query per serial or per transaction.
+     */
+    public function test_approval_query_count_does_not_scale_with_transaction_count()
+    {
+        $fewProduct = $this->makeProduct(true);
+        $this->makeStockRow($fewProduct, $this->otherLocation, goodTax: 2);
+        $this->makeStockRow($fewProduct, $this->location);
+        $fewSerials = [];
+        for ($s = 0; $s < 2; $s++) {
+            $this->makeSerial($fewProduct, $this->otherLocation, "SN-TXN-FEW-{$s}", isBroken: false, taxId: $this->tax->id);
+            $fewSerials[] = ['serial_number' => "SN-TXN-FEW-{$s}", 'condition' => 'good'];
+        }
+        $fewAdjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $fewProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => $fewSerials],
+        ]);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $this->service()->approve($fewAdjustment, $this->approver);
+        $fewQueryCount = count(\Illuminate\Support\Facades\DB::getQueryLog());
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+
+        // Each moved serial legitimately writes its own SerialNumberHistory
+        // row (one INSERT per serial -- genuine per-row audit data, not a
+        // query-count defect), so the delta between 2 and 12 serials is
+        // expected to include roughly 10 such inserts. What this test
+        // isolates is that the NEW Location-locking query added by this
+        // correction (a single bulk whereIn over referenced location ids)
+        // does not ALSO turn into one query per serial on top of that
+        // already-expected per-serial history write -- i.e. the delta stays
+        // close to "one history insert per extra serial", not "one history
+        // insert plus one location lock plus other per-serial overhead".
+        $manyProduct = $this->makeProduct(true);
+        $this->makeStockRow($manyProduct, $this->otherLocation, goodTax: 12);
+        $this->makeStockRow($manyProduct, $this->location);
+        $manySerials = [];
+        for ($s = 0; $s < 12; $s++) {
+            $this->makeSerial($manyProduct, $this->otherLocation, "SN-TXN-MANY-{$s}", isBroken: false, taxId: $this->tax->id);
+            $manySerials[] = ['serial_number' => "SN-TXN-MANY-{$s}", 'condition' => 'good'];
+        }
+        $manyAdjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $manyProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => $manySerials],
+        ]);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $this->service()->approve($manyAdjustment, $this->approver);
+        $manyQueryCount = count(\Illuminate\Support\Facades\DB::getQueryLog());
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        // 10 extra serials (2 -> 12), each expected to add exactly two
+        // queries (its own UPDATE plus one SerialNumberHistory INSERT --
+        // both genuine per-row writes, not a query-count defect): the total
+        // delta must stay close to 20, not balloon well beyond it, which is
+        // what an accidental per-serial Location::find()/lock query (the
+        // exact regression this correction fixes) would add on top.
+        $this->assertLessThan(
+            $fewQueryCount + 25,
+            $manyQueryCount,
+            'Query count must not scale beyond the expected two-writes-per-serial cost; the new Location lock must remain a single bulk query.'
+        );
+    }
 }

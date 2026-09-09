@@ -52,6 +52,9 @@
                             @foreach($statuses as $status)
                                 <span class="badge {{ $statusLabels[$status][1] ?? 'badge-secondary' }}">{{ $statusLabels[$status][0] ?? $status }}</span>
                             @endforeach
+                            @if(!empty($serial['cross_setting']))
+                                <span class="badge badge-info">Lintas Pengaturan</span>
+                            @endif
                             @if(!empty($serial['same_text_other_product']))
                                 <span class="badge badge-warning">Nomor seri sama dipakai produk lain</span>
                             @endif
@@ -113,6 +116,9 @@
                         <td><code>{{ $serial['serial_number'] }}</code></td>
                         <td>
                             <span class="badge {{ $statusLabels[$action][1] ?? 'badge-secondary' }}">{{ $statusLabels[$action][0] ?? $action }}</span>
+                            @if(!empty($serial['cross_setting']))
+                                <span class="badge badge-info">Lintas Pengaturan</span>
+                            @endif
                             @if(!empty($serial['same_text_other_product']))
                                 <span class="badge badge-warning">Nomor seri sama dipakai produk lain</span>
                             @endif

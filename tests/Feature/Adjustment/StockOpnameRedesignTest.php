@@ -2186,6 +2186,102 @@ class StockOpnameRedesignTest extends TestCase
         // Crucial: original baseline of 30 was preserved, NOT overwritten with current stock 25
         $this->assertEquals(30, $savedRows[0]['baseline']['existing_good_total']);
     }
+
+    // --- Correction: productSelected() must add exactly one row per genuine
+    // selection and never surface both the generic session flash alert and
+    // the component's own feedbackMessage for a duplicate selection. ---
+
+    private function makeSelectableProduct(string $name, string $code): Product
+    {
+        return Product::create([
+            'product_name' => $name,
+            'product_code' => $code,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_first_product_selection_adds_exactly_one_row_with_only_success_feedback()
+    {
+        $product = $this->makeSelectableProduct('Produk Pertama', 'FIRST-1');
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $resolver = app(AdjustmentProductResolver::class);
+        $normalized = $resolver->normalizeProductData($product);
+        $component->call('productSelected', $normalized);
+
+        $this->assertCount(1, $component->get('products'));
+        $this->assertEquals(
+            "Produk 'Produk Pertama' berhasil ditambahkan ke daftar.",
+            $component->get('feedbackMessage')
+        );
+        $this->assertEquals('success', $component->get('feedbackType'));
+
+        // No generic session-flash alert coexisting with the component's own message.
+        $this->assertFalse(session()->has('message'));
+    }
+
+    public function test_second_selection_of_same_product_keeps_one_row_and_shows_only_duplicate_feedback()
+    {
+        $product = $this->makeSelectableProduct('Produk Kedua', 'SECOND-1');
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $resolver = app(AdjustmentProductResolver::class);
+        $normalized = $resolver->normalizeProductData($product);
+
+        $component->call('productSelected', $normalized);
+        $this->assertCount(1, $component->get('products'));
+
+        $component->call('productSelected', $normalized);
+
+        // Still exactly one row: the duplicate selection must not add a second row.
+        $this->assertCount(1, $component->get('products'));
+        $this->assertEquals(
+            "Produk 'Produk Kedua' sudah ada di daftar (baris 1).",
+            $component->get('feedbackMessage')
+        );
+        $this->assertEquals('info', $component->get('feedbackType'));
+
+        // The generic "Produk sudah dipilih." session alert must never appear
+        // alongside (or instead of) the component's own duplicate message.
+        $this->assertFalse(session()->has('message'));
+        $this->assertNotEquals('Produk sudah dipilih.', session('message'));
+    }
+
+    public function test_selecting_two_distinct_products_produces_two_rows()
+    {
+        $productA = $this->makeSelectableProduct('Produk A', 'DIST-A');
+        $productB = $this->makeSelectableProduct('Produk B', 'DIST-B');
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $resolver = app(AdjustmentProductResolver::class);
+        $component->call('productSelected', $resolver->normalizeProductData($productA));
+        $component->call('productSelected', $resolver->normalizeProductData($productB));
+
+        $products = $component->get('products');
+        $this->assertCount(2, $products);
+        $this->assertEquals('Produk A', $products[0]['product_name']);
+        $this->assertEquals('Produk B', $products[1]['product_name']);
+        $this->assertEquals(
+            "Produk 'Produk B' berhasil ditambahkan ke daftar.",
+            $component->get('feedbackMessage')
+        );
+        $this->assertFalse(session()->has('message'));
+    }
 }
 
 

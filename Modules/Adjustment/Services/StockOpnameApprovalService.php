@@ -87,20 +87,97 @@ class StockOpnameApprovalService
                 ]);
             }
 
-            // Lock and reload the destination Location and its governing
-            // Setting before making any ownership or PKP decision. Without
-            // this, a concurrent change to the location's setting_id,
-            // is_consignment flag, or the setting's is_pkp value between
-            // this read and the mutation below could let approval post
-            // against a destination that has since become foreign,
-            // consignment, or a different tax classification than what was
-            // decided here.
-            $location = Location::where('id', $locked->location_id)->lockForUpdate()->first();
+            $destinationLocationId = (int) $locked->location_id;
+
+            $productIds = collect($rows)
+                ->map(fn ($row) => (int) ($row['product_id'] ?? 0))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $enteredSerialTexts = collect();
+            foreach ($rows as $row) {
+                foreach ($row['serials'] ?? [] as $serial) {
+                    $text = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
+                    if ($text !== '') {
+                        $enteredSerialTexts->push($text);
+                    }
+                }
+            }
+            $enteredSerialTexts = $enteredSerialTexts->unique()->values();
+
+            // ---- Global lock hierarchy (single order shared by every path
+            // through this method, and matching TransferMovementService's
+            // stock-before-serial order): ----
+            //   1. Adjustment (already locked above)
+            //   2. every affected Location, ordered by ID -- the destination
+            //      is a member of this SAME ordered lock, never locked
+            //      separately or earlier. Two opposite-direction approvals
+            //      (A's destination is B's discovered source, and B's
+            //      destination is A's discovered source) previously could
+            //      deadlock because each transaction locked its own
+            //      destination first, then later tried to lock the other's
+            //      already-held destination as part of its own sorted
+            //      source-location set. Folding the destination into the
+            //      same single ascending-ID location query removes that
+            //      possibility: whichever transaction reaches the lower
+            //      location ID first acquires it, and the other transaction
+            //      simply waits its turn on the same ordered lock, exactly
+            //      as it would for any other pair of rows in one hierarchy.
+            //   3. destination Setting (derived from the locked location map)
+            //   4. Product rows, ordered by ID
+            //   5. ProductStock rows, ordered by ID
+            //   6. ProductSerialNumber rows, ordered by ID
+            //
+            // Which non-destination Location rows belong in step 2 is not
+            // known in advance -- a matched serial's current location_id
+            // (its move source) is only readable from the ProductSerialNumber
+            // row itself. This is resolved with bounded discovery: an
+            // UNLOCKED read of the candidate serials (discoverSerialLocations())
+            // first identifies candidate location IDs (never locking anything
+            // by itself), the complete location set (destination + every
+            // discovered candidate) is then locked ONCE in ascending ID order
+            // (lockAffectedLocations()), Setting/Product are locked next
+            // (ordinary code in this method, steps 3-4), ProductStock and
+            // ProductSerialNumber are locked after that (lockStocksThenSerials(),
+            // steps 5-6), and only then is every discovered serial's location
+            // revalidated against both the original unlocked discovery read
+            // and the locked location map (assertSerialLocationsUnchanged()).
+            // If a concurrent mover changed a serial's location in the window
+            // between the unlocked discovery read and the location lock, this
+            // raises a conflict and rolls back rather than silently
+            // proceeding against a location set that might be incomplete --
+            // per the requirement that a discovery disagreement not be
+            // retried inside this same transaction (retrying here would mean
+            // re-running discovery while first-attempt locks are still held,
+            // letting the acquired lock set grow in an order not reducible to
+            // the single hierarchy above).
+
+            // ---- Step 2 (discovery, unlocked): candidate location IDs ----
+            $discovery = $this->discoverSerialLocations(
+                destinationLocationId: $destinationLocationId,
+                productIds: $productIds,
+                enteredSerialTexts: $enteredSerialTexts,
+            );
+
+            // ---- Step 2 (lock): complete affected Location set, ascending
+            // ID, in ONE query. The destination is a member of this set --
+            // never locked separately or earlier. ----
+            $lockedLocationsById = $this->lockAffectedLocations(
+                destinationLocationId: $destinationLocationId,
+                discoveredLocationIds: $discovery['locationIds'],
+            );
+
+            $location = $lockedLocationsById->get($destinationLocationId);
             if (!$location) {
                 throw ValidationException::withMessages([
                     'location_id' => ['Lokasi tujuan tidak ditemukan.'],
                 ]);
             }
+
+            // ---- Step 3: destination Setting, resolved and locked from the
+            // already-locked destination Location row -- never from a
+            // separate unlocked Location::find(). ----
             $setting = \Modules\Setting\Entities\Setting::where('id', $location->setting_id)->lockForUpdate()->first();
             if (!$setting) {
                 throw ValidationException::withMessages([
@@ -109,10 +186,11 @@ class StockOpnameApprovalService
             }
             $location->setRelation('setting', $setting);
 
-            // Revalidate ownership/consignment against the just-locked rows,
-            // not the possibly-stale check performed before this transaction
-            // began (AdjustmentOwnershipGuard::assertOwned above only read
-            // $adjustment->location, which is not the locked row).
+            // ---- Step 4: revalidate destination ownership/consignment
+            // against the just-locked destination row, not the possibly-stale
+            // check performed before this transaction began
+            // (AdjustmentOwnershipGuard::assertOwned above only read
+            // $adjustment->location, which is not the locked row). ----
             app(AdjustmentOwnershipGuard::class)->assertLocationOwned($location, $activeSettingId);
 
             $isPkp = (bool) $setting->is_pkp;
@@ -131,42 +209,20 @@ class StockOpnameApprovalService
                 }
             }
 
-            $productIds = collect($rows)
-                ->map(fn ($row) => (int) ($row['product_id'] ?? 0))
-                ->filter()
-                ->unique()
-                ->values();
-
-            // Deterministic lock order: Adjustment (already locked above),
-            // then Location + Setting (already locked above), then Product
-            // rows, then ProductStock rows, then ProductSerialNumber rows --
-            // matching the order
-            // TransferMovementService::dispatch()/dispatchReturn() already
-            // use (stock locked before the serials at that stock's location).
-            // A single hierarchy is required across both services: if
-            // approval locked serials before stock while Transfer locks
-            // stock before serials, a Transfer dispatch and a Stock Opname
-            // approval touching the same product's stock and serial rows
-            // could deadlock (each holds what the other is waiting for).
-            //
-            // The complication unique to this service is that which
-            // ProductStock rows to lock is not known in advance: a matched
-            // serial's current location_id determines its move source, and
-            // that location_id can only be read from the ProductSerialNumber
-            // row. This is resolved with bounded discovery: an UNLOCKED read
-            // of the candidate serials first identifies candidate locations,
-            // ProductStock rows are then locked at those locations (matching
-            // Transfer's stock-before-serial order), the serial rows are
-            // then locked, and each locked serial's location_id is
-            // revalidated against what discovery found. If a concurrent
-            // mover changed a serial's location between the unlocked read and
-            // the stock lock, the stock lock set could be short one row, and
-            // the whole discovery+lock sequence is retried once (bounded);
-            // if it disagrees again, revalidation raises a conflict rather
-            // than proceeding against a stock set that might be incomplete.
+            // ---- Step 5 (Product): locked AFTER the Location/Setting pair
+            // and before ProductStock/ProductSerialNumber. No with('product')
+            // is used anywhere before this authoritative lock -- every
+            // ProductStock/ProductSerialNumber row locked afterward has its
+            // `product` relation injected from this SAME locked collection.
+            // The product catalogue is global: Product::setting_id never
+            // gates approval eligibility. Ownership is enforced entirely
+            // through the already-locked destination Location/Setting above
+            // and the location-scoped stock/serial handling below -- never by
+            // filtering products to the destination setting's own catalogue.
             $products = Product::with('baseUnit')
                 ->whereIn('id', $productIds)
-                ->where('setting_id', $setting->id)
+                ->where('is_active', true)
+                ->where('stock_managed', true)
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get()
@@ -175,40 +231,61 @@ class StockOpnameApprovalService
             foreach ($productIds as $productId) {
                 if (!$products->has($productId)) {
                     throw ValidationException::withMessages([
-                        'count_draft' => ["Produk dengan ID {$productId} tidak ditemukan atau bukan milik pengaturan aktif ini."],
+                        'count_draft' => ["Produk dengan ID {$productId} tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola."],
                     ]);
                 }
             }
 
-            $eligibleLocationIds = Location::standard()
-                ->where('setting_id', $setting->id)
-                ->orderBy('id')
-                ->pluck('id');
-
-            $enteredSerialTexts = collect();
-            foreach ($rows as $row) {
-                foreach ($row['serials'] ?? [] as $serial) {
-                    $text = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
-                    if ($text !== '') {
-                        $enteredSerialTexts->push($text);
-                    }
-                }
-            }
-            $enteredSerialTexts = $enteredSerialTexts->unique()->values();
-
-            $serializedProductIds = $products->filter(fn (Product $p) => (bool) $p->serial_number_required)->keys();
-
+            // ---- Steps 6-7: lock ProductStock then ProductSerialNumber,
+            // injecting the already-locked Product/Location instances into
+            // every returned row's relations rather than re-querying or
+            // eager-loading separate unlocked copies. ----
             [
                 $matchingSerials,
                 $destinationSerials,
                 $stocksByProductAndLocation,
-            ] = $this->discoverAndLockStockThenSerials(
-                location: $location,
+            ] = $this->lockStocksThenSerials(
+                destinationLocationId: $destinationLocationId,
                 productIds: $productIds,
                 enteredSerialTexts: $enteredSerialTexts,
-                serializedProductIds: $serializedProductIds,
                 products: $products,
+                lockedLocationsById: $lockedLocationsById,
             );
+
+            // ---- Step 8: revalidate every discovered serial's location
+            // against the original unlocked discovery read AND the locked
+            // location map. No retry runs inside this transaction: a
+            // disagreement here throws immediately and rolls back with zero
+            // mutations. A caller may retry the entire approve() call (a
+            // genuine OUTER retry starting a fresh transaction that releases
+            // every lock first) -- this method never re-runs discovery while
+            // any lock from this attempt is still held. ----
+            $this->assertSerialLocationsUnchanged(
+                matchingSerials: $matchingSerials,
+                destinationSerials: $destinationSerials,
+                discoveredLocationsByText: $discovery['locationsByText'],
+                lockedLocationsById: $lockedLocationsById,
+            );
+
+            // settingEligibleLocationIds (same-setting, non-consignment) is
+            // used only for the all-location total evidence recorded below --
+            // an unlocked snapshot is acceptable here since it only feeds an
+            // informational sum, never a mutation decision.
+            $settingEligibleLocationIds = Location::standard()
+                ->where('setting_id', $setting->id)
+                ->orderBy('id')
+                ->pluck('id');
+
+            // Movement eligibility for LOCKED approval is derived exclusively
+            // from the just-locked location map, never from an unlocked
+            // pre-transaction snapshot: a source location's is_consignment
+            // flag (or its very existence) is only authoritative once locked.
+            // A location referenced by a serial but absent from the locked
+            // map (deleted, or excluded because discovery/revalidation
+            // rejected it) is correctly treated as NOT movement-eligible.
+            $movementEligibleLocationIds = $lockedLocationsById
+                ->filter(fn (Location $loc) => !$loc->is_consignment)
+                ->keys();
 
             $matchingSerialsByText = $matchingSerials->groupBy('serial_number');
             $destinationSerialsByProduct = $destinationSerials->groupBy('product_id');
@@ -243,7 +320,7 @@ class StockOpnameApprovalService
             // approval_result (never SUM(quantity) + SUM(broken_quantity),
             // which double-counts broken units).
             $allLocationTotalsByProduct = ProductStock::whereIn('product_id', $productIds)
-                ->whereIn('location_id', $eligibleLocationIds)
+                ->whereIn('location_id', $settingEligibleLocationIds)
                 ->selectRaw('product_id, SUM(quantity) as grand_total')
                 ->groupBy('product_id')
                 ->get()
@@ -270,7 +347,7 @@ class StockOpnameApprovalService
                         row: $row,
                         destinationLocation: $location,
                         isPkp: $isPkp,
-                        eligibleLocationIds: $eligibleLocationIds,
+                        movementEligibleLocationIds: $movementEligibleLocationIds,
                         matchingSerialsByText: $matchingSerialsByText,
                         destinationSerialsByProduct: $destinationSerialsByProduct,
                         activeClaimSerialIds: $activeClaimSerialIds,
@@ -311,7 +388,7 @@ class StockOpnameApprovalService
                     $destinationStock = $stocksByProductAndLocation->get($productId . ':' . $location->id, collect())->first();
                     $applied = $this->applyNonSerializedPlan($product, $location, $destinationStock, $plan, $locked, $actor, $stockNotificationChecks);
                 } else {
-                    $applied = $this->applySerializedPlan($product, $location, $plan, $locked, $actor, $applicableTaxId, $stocksByProductAndLocation, $lockedSerialsById, $stockNotificationChecks);
+                    $applied = $this->applySerializedPlan($product, $location, $plan, $locked, $actor, $applicableTaxId, $stocksByProductAndLocation, $lockedSerialsById, $lockedLocationsById, $stockNotificationChecks);
                 }
 
                 $totals = $allLocationTotalsByProduct->get($productId);
@@ -371,121 +448,201 @@ class StockOpnameApprovalService
     }
 
     /**
-     * Lock ProductStock rows before ProductSerialNumber rows (matching
-     * TransferMovementService's order) despite this service needing to
-     * discover which stock locations matter from the serials themselves.
+     * Phase 1 (unlocked discovery): learn every candidate Location ID this
+     * approval might need to lock, purely from plain (non-locking) reads.
+     * Locks nothing. The destination's own candidate-serial locations cannot
+     * be known without reading the ProductSerialNumber rows themselves (a
+     * matched serial's current location_id is its move source), so this
+     * issues an unlocked scan of both the entered serial texts (wherever
+     * they currently are) and the destination (for every entered product's
+     * existing serials there, to catch destination omissions) before any
+     * lock in this transaction is taken.
      *
-     * Bounded discovery + ordered lock + revalidate: an UNLOCKED read of the
-     * candidate serials identifies candidate stock locations; ProductStock
-     * rows are locked at those locations (stock before serial); the serial
-     * rows are then locked; each locked serial's location_id is compared
-     * against what the unlocked discovery read found. If a concurrent mover
-     * changed a serial's location in the window between discovery and the
-     * stock lock, the stock lock set could be missing that location's row,
-     * so the whole sequence is retried once. If discovery disagrees again
-     * on the second attempt, this raises a conflict instead of proceeding
-     * against a potentially incomplete stock lock set -- correctness is
-     * enforced by revalidation, not by the (very small in practice) retry
-     * bound.
+     * The returned `locationsByText` (serial id => location id at discovery
+     * time) is retained ONLY for later revalidation in
+     * assertSerialLocationsUnchanged() -- it is never treated as
+     * authoritative for a mutation decision.
+     *
+     * @return array{locationIds: \Illuminate\Support\Collection, locationsByText: \Illuminate\Support\Collection}
+     */
+    private function discoverSerialLocations(
+        int $destinationLocationId,
+        Collection $productIds,
+        Collection $enteredSerialTexts,
+    ): array {
+        $discoveredLocationsByText = collect();
+        if ($enteredSerialTexts->isNotEmpty()) {
+            $discoveredLocationsByText = ProductSerialNumber::whereIn('serial_number', $enteredSerialTexts)
+                ->pluck('location_id', 'id');
+        }
+
+        // Serialized-ness is not yet known (Product is not locked yet at
+        // this discovery phase), so the destination is scanned for every
+        // entered product's serials up front, unlocked, purely to discover
+        // which location IDs matter; the actual destination-serial rows are
+        // re-queried (and locked) later in lockStocksThenSerials(),
+        // restricted to the truly serialized subset once Product is locked.
+        $destinationSerialLocationIds = collect();
+        if ($productIds->isNotEmpty()) {
+            $destinationSerialLocationIds = ProductSerialNumber::where('location_id', $destinationLocationId)
+                ->whereIn('product_id', $productIds)
+                ->pluck('location_id');
+        }
+
+        $discoveredLocationIds = collect([$destinationLocationId])
+            ->concat($discoveredLocationsByText->values()->filter())
+            ->concat($destinationSerialLocationIds)
+            ->unique()
+            ->sort()
+            ->values();
+
+        return [
+            'locationIds' => $discoveredLocationIds,
+            'locationsByText' => $discoveredLocationsByText,
+        ];
+    }
+
+    /**
+     * Phase 2 (Location lock): lock the complete affected Location set
+     * exactly once, in ascending ID order, in ONE query -- the destination
+     * is a member of this SAME ordered lock, never locked separately or
+     * earlier. This is what removes the opposite-direction deadlock: two
+     * approvals where each one's destination is the other's discovered
+     * source now compete for locks in the same global ascending-ID order
+     * instead of each eagerly grabbing its own destination first.
+     *
+     * The returned map is the sole authoritative location map for the rest
+     * of approval: destination resolution, movement eligibility, per-serial
+     * revalidation, and every Transaction's setting_id are derived
+     * exclusively from it, never from the earlier unlocked discovery
+     * snapshot (which remains valid for the reviewer preview, informative
+     * and can go stale, but never for locked approval) and never from a
+     * fresh Location::find() call inside a mutation loop.
+     */
+    private function lockAffectedLocations(int $destinationLocationId, Collection $discoveredLocationIds): Collection
+    {
+        return Location::whereIn('id', $discoveredLocationIds)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+    }
+
+    /**
+     * Phases 6-7 (ProductStock then ProductSerialNumber locks, in that
+     * order -- matching TransferMovementService's stock-before-serial
+     * hierarchy). Runs strictly after Location, Setting, and Product are
+     * already locked by the caller: every returned ProductStock and
+     * ProductSerialNumber row has its `product` and `location` relations
+     * injected from the caller's already-locked `$products` and
+     * `$lockedLocationsById` collections -- never from with('product') or
+     * with('location') eager-loading a separate, unlocked copy, and never
+     * from a fresh per-row query.
      *
      * @return array{0: \Illuminate\Support\Collection, 1: \Illuminate\Support\Collection, 2: \Illuminate\Support\Collection}
      *   [matchingSerials, destinationSerials, stocksByProductAndLocation]
      */
-    private function discoverAndLockStockThenSerials(
-        Location $location,
+    private function lockStocksThenSerials(
+        int $destinationLocationId,
         Collection $productIds,
         Collection $enteredSerialTexts,
-        Collection $serializedProductIds,
         Collection $products,
+        Collection $lockedLocationsById,
     ): array {
-        $maxAttempts = 2;
+        // ---- Lock ProductStock rows (stock before serial) ----
+        $stocksByProductAndLocation = ProductStock::whereIn('product_id', $productIds)
+            ->whereIn('location_id', $lockedLocationsById->keys())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->each(function (ProductStock $s) use ($products, $lockedLocationsById) {
+                if ($products->has($s->product_id)) {
+                    $s->setRelation('product', $products->get($s->product_id));
+                }
+                if ($lockedLocationsById->has($s->location_id)) {
+                    $s->setRelation('location', $lockedLocationsById->get($s->location_id));
+                }
+            })
+            ->groupBy(fn (ProductStock $s) => $s->product_id . ':' . $s->location_id);
 
-        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-            // ---- Discovery (unlocked): learn candidate serial locations ----
-            $discoveredLocationsByText = collect();
-            if ($enteredSerialTexts->isNotEmpty()) {
-                $discoveredLocationsByText = ProductSerialNumber::whereIn('serial_number', $enteredSerialTexts)
-                    ->pluck('location_id', 'id');
-            }
-
-            $stockLocationIds = collect([$location->id])
-                ->concat($discoveredLocationsByText->values()->filter())
-                ->unique()
-                ->sort()
-                ->values();
-
-            // ---- Lock ProductStock rows first (stock before serial) ----
-            $stocksByProductAndLocation = ProductStock::with(['product', 'location'])
-                ->whereIn('product_id', $productIds)
-                ->whereIn('location_id', $stockLocationIds)
+        // ---- Lock ProductSerialNumber rows ----
+        // No with('product')/with('location') eager-load: every locked
+        // serial's relations are injected below from the caller's
+        // already-locked $products/$lockedLocationsById collections, so
+        // classification never reads an unlocked, separately-fetched copy of
+        // either relation.
+        $matchingSerials = collect();
+        if ($enteredSerialTexts->isNotEmpty()) {
+            $matchingSerials = ProductSerialNumber::whereIn('serial_number', $enteredSerialTexts)
                 ->orderBy('id')
                 ->lockForUpdate()
-                ->get()
-                ->each(function (ProductStock $s) use ($products) {
-                    // Reuse the already-locked Product instance from this
-                    // transaction's own lock set instead of the separately
-                    // queried (and separately locked) copy from with('product'),
-                    // so every mutation in this service acts on one
-                    // consistent, already-locked Product row per product id.
-                    if ($products->has($s->product_id)) {
-                        $s->setRelation('product', $products->get($s->product_id));
-                    }
-                })
-                ->groupBy(fn (ProductStock $s) => $s->product_id . ':' . $s->location_id);
-
-            // ---- Lock ProductSerialNumber rows second ----
-            // Eager-load `location` and `product` (what
-            // StockOpnameSerialClassifier reads off each serial for
-            // labels/warnings) up front so classification never triggers a
-            // lazy per-serial query; `with()` is a separate, unlocked
-            // query -- only the ProductSerialNumber rows themselves need
-            // (and get) the row lock.
-            $matchingSerials = collect();
-            if ($enteredSerialTexts->isNotEmpty()) {
-                $matchingSerials = ProductSerialNumber::with(['location', 'product'])
-                    ->whereIn('serial_number', $enteredSerialTexts)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get();
-            }
-
-            $destinationSerials = collect();
-            if ($serializedProductIds->isNotEmpty()) {
-                $destinationSerials = ProductSerialNumber::with(['location', 'product'])
-                    ->where('location_id', $location->id)
-                    ->whereIn('product_id', $serializedProductIds)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get();
-            }
-
-            // ---- Revalidate: did any matched serial's location change
-            // between the unlocked discovery read and the stock lock? ----
-            $locationChanged = $matchingSerials->contains(
-                fn (ProductSerialNumber $s) => (int) $discoveredLocationsByText->get($s->id) !== (int) $s->location_id
-            );
-
-            if (!$locationChanged) {
-                return [$matchingSerials, $destinationSerials, $stocksByProductAndLocation];
-            }
-
-            if ($attempt >= $maxAttempts) {
-                throw ValidationException::withMessages([
-                    'count_draft' => ['Lokasi salah satu nomor seri berubah secara bersamaan saat proses persetujuan berjalan. Silakan coba lagi.'],
-                ]);
-            }
-            // Retry inside the same transaction: row locks already acquired
-            // (MySQL/PostgreSQL InnoDB/MVCC row locks) are held until this
-            // transaction commits or rolls back and are never released mid
-            // -transaction, so re-running discovery does not lose them. The
-            // second attempt's stock lock query simply issues SELECT ... FOR
-            // UPDATE again with the now-current (and possibly larger)
-            // location set, which is a no-op for rows already locked and
-            // additionally locks any newly-discovered location's row.
+                ->get();
         }
 
-        // Unreachable: the loop always returns or throws.
-        throw new \LogicException('discoverAndLockStockThenSerials exited without returning or throwing.');
+        $destinationSerials = collect();
+        if ($productIds->isNotEmpty()) {
+            $destinationSerials = ProductSerialNumber::where('location_id', $destinationLocationId)
+                ->whereIn('product_id', $productIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+        }
+
+        $matchingSerials->concat($destinationSerials)
+            ->unique('id')
+            ->each(function (ProductSerialNumber $s) use ($products, $lockedLocationsById) {
+                if ($products->has($s->product_id)) {
+                    $s->setRelation('product', $products->get($s->product_id));
+                }
+                if ($s->location_id !== null && $lockedLocationsById->has($s->location_id)) {
+                    $s->setRelation('location', $lockedLocationsById->get($s->location_id));
+                }
+            });
+
+        return [$matchingSerials, $destinationSerials, $stocksByProductAndLocation];
+    }
+
+    /**
+     * Phase 8 (revalidation): compare every matched/destination serial's
+     * now-locked location_id against both the original unlocked discovery
+     * read and the locked location map. No retry runs inside this
+     * transaction -- a disagreement here throws immediately and rolls back
+     * the whole approval with zero mutations. A caller may retry the entire
+     * approve() call (a genuine OUTER retry, starting a fresh transaction
+     * that releases every lock first), but this method never re-runs
+     * discovery while any lock from this attempt is still held, which is
+     * what let the acquired lock set grow out of the single ordered
+     * hierarchy in the old implementation.
+     */
+    private function assertSerialLocationsUnchanged(
+        Collection $matchingSerials,
+        Collection $destinationSerials,
+        Collection $discoveredLocationsByText,
+        Collection $lockedLocationsById,
+    ): void {
+        // Did any matched serial's location change between the unlocked
+        // discovery read and the location lock?
+        $locationChanged = $matchingSerials->contains(
+            fn (ProductSerialNumber $s) => (int) $discoveredLocationsByText->get($s->id) !== (int) $s->location_id
+        );
+
+        // Every matched/destination serial's location must still exist in
+        // the locked map. (Consignment-source rejection remains a
+        // per-serial business conflict raised later by
+        // StockOpnameSerialClassifier via movement eligibility, not a
+        // conflict here -- a location that IS consignment is a valid,
+        // stable, locked fact, not evidence of a race.)
+        $missingLockedLocation = $matchingSerials
+            ->concat($destinationSerials)
+            ->contains(
+                fn (ProductSerialNumber $s) => $s->location_id !== null && !$lockedLocationsById->has((int) $s->location_id)
+            );
+
+        if ($locationChanged || $missingLockedLocation) {
+            throw ValidationException::withMessages([
+                'count_draft' => ['Lokasi salah satu nomor seri berubah atau tidak valid secara bersamaan saat proses persetujuan berjalan. Silakan coba lagi.'],
+            ]);
+        }
     }
 
     /**
@@ -695,6 +852,7 @@ class StockOpnameApprovalService
                 'is_bad' => $isBad,
                 'entered_condition' => $serial->enteredCondition,
                 'same_text_other_product' => $serial->sameTextOtherProduct,
+                'cross_setting' => $serial->crossSetting,
                 'label' => $serial->label,
             ];
         }
@@ -771,6 +929,10 @@ class StockOpnameApprovalService
      *
      * @param Collection $stocksByProductAndLocation keyed "productId:locationId" => Collection<ProductStock>, already locked
      * @param Collection $lockedSerialsById keyed by serial id => already-locked, already eager-loaded ProductSerialNumber
+     * @param Collection $lockedLocationsById keyed by location id => already-locked Location; the sole authoritative
+     *   source for every touched stock row's `location` relation and every Transaction's setting_id in this method.
+     *   No Location::find() call and no destination-setting fallback are used: a location referenced by a plan entry
+     *   that is somehow absent from this map is a data-integrity conflict, not a value to guess at.
      * @param array $stockNotificationChecks by-ref accumulator of location/global before-after pairs to check once at the end
      */
     private function applySerializedPlan(
@@ -782,6 +944,7 @@ class StockOpnameApprovalService
         ?int $applicableTaxId,
         Collection $stocksByProductAndLocation,
         Collection $lockedSerialsById,
+        Collection $lockedLocationsById,
         array &$stockNotificationChecks,
     ): array {
         // Bucket availability was already validated (and would have thrown
@@ -791,12 +954,24 @@ class StockOpnameApprovalService
         // ---- Apply: mutate a get-or-create-and-lock ProductStock helper per (product, location) ----
         $touchedStocks = []; // keyed by location_id => ['stock' => ProductStock, 'before_total' => float]
 
-        $touchStock = function (int $locationId) use (&$touchedStocks, $product, $stocksByProductAndLocation) {
+        $touchStock = function (int $locationId) use (&$touchedStocks, $product, $stocksByProductAndLocation, $lockedLocationsById) {
             if (isset($touchedStocks[$locationId])) {
                 return $touchedStocks[$locationId]['stock'];
             }
             $stock = $stocksByProductAndLocation->get($product->id . ':' . $locationId, collect())->first();
             if (!$stock) {
+                $lockedLocation = $lockedLocationsById->get($locationId);
+                if (!$lockedLocation) {
+                    // Every location a plan touches was discovered in
+                    // discoverSerialLocations() and locked in
+                    // lockAffectedLocations(); reaching here means that
+                    // invariant broke -- fail loudly rather than create
+                    // a ProductStock row with no authoritative location/
+                    // setting to attribute its Transaction evidence to.
+                    throw ValidationException::withMessages([
+                        'count_draft' => ["Lokasi #{$locationId} tidak memiliki data lokasi terkunci yang sah untuk memproses stok."],
+                    ]);
+                }
                 $stock = ProductStock::create([
                     'product_id' => $product->id,
                     'location_id' => $locationId,
@@ -804,7 +979,7 @@ class StockOpnameApprovalService
                     'broken_quantity' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity_tax' => 0,
                 ]);
                 $stock = ProductStock::where('id', $stock->id)->lockForUpdate()->first();
-                $stock->setRelation('location', Location::find($locationId));
+                $stock->setRelation('location', $lockedLocation);
             }
             $stock->setRelation('product', $product);
             $touchedStocks[$locationId] = [
@@ -917,6 +1092,7 @@ class StockOpnameApprovalService
                 'source_location_name' => $entry['source_location_name'] ?? null,
                 'source_condition' => $entry['source_is_bad'] ? 'bad' : 'good',
                 'source_is_tax' => $entry['source_is_tax'],
+                'cross_setting' => $entry['cross_setting'] ?? false,
                 'destination_location_id' => (int) $destinationLocation->id,
                 'applied_condition' => $entry['is_bad'] ? 'bad' : 'good',
                 'applied_is_tax' => $isPkp,
@@ -1012,9 +1188,29 @@ class StockOpnameApprovalService
             // net total change) and a genuine zero-delta cross-location move
             // both still get a Transaction row: quantity=0 evidence, not a
             // skipped record, so bucket-only changes remain auditable.
+            //
+            // setting_id must be this transaction row's OWN location's
+            // setting, never unconditionally the destination's: a
+            // cross-setting serial move writes two Transaction rows (source
+            // and destination) and the source row belongs to the source
+            // location's setting, not the destination's. Built exclusively
+            // from the locked location map -- no Location::find() fallback
+            // and no destination-setting fallback: a location this method is
+            // about to write a Transaction for that is somehow missing from
+            // the locked map is a data-integrity conflict, not a value to
+            // guess at, and must roll back the whole approval rather than
+            // silently misattribute the transaction's owning setting.
+            $lockedLocation = $lockedLocationsById->get($locationId);
+            if (!$lockedLocation) {
+                throw ValidationException::withMessages([
+                    'count_draft' => ["Lokasi #{$locationId} tidak memiliki data lokasi terkunci yang sah untuk mencatat transaksi."],
+                ]);
+            }
+            $transactionSettingId = $lockedLocation->setting_id;
+
             Transaction::create([
                 'product_id' => $product->id,
-                'setting_id' => $destinationLocation->setting_id,
+                'setting_id' => $transactionSettingId,
                 'type' => 'ADJ',
                 'quantity' => $delta,
                 'current_quantity' => (float) $stock->quantity,

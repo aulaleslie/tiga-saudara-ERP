@@ -23,6 +23,13 @@ class StockOpnameSerialClassifier
      * Classify every entered serial for one product plus every destination
      * serial omitted from the entered set.
      *
+     * @param Collection $movementEligibleLocationIds Any existing
+     *   non-consignment location ID, regardless of setting -- an active,
+     *   unencumbered serial may move in from any of these. This is
+     *   deliberately broader than the same-setting scope used for
+     *   "all locations" totals (see StockOpnameReconciliationService::
+     *   settingEligibleLocationIds()): the product catalogue and physical
+     *   serial custody are global, while ownership totals stay per-setting.
      * @return array{
      *   entered: SerialClassification[],
      *   omitted: SerialClassification[],
@@ -36,7 +43,7 @@ class StockOpnameSerialClassifier
         array $row,
         Location $destinationLocation,
         bool $isPkp,
-        Collection $eligibleLocationIds,
+        Collection $movementEligibleLocationIds,
         Collection $matchingSerialsByText,
         Collection $destinationSerialsByProduct,
         Collection $activeClaimSerialIds,
@@ -109,7 +116,7 @@ class StockOpnameSerialClassifier
 
             $conflictReason = $this->unsafeSerialConflictReason(
                 $ownProductMatch,
-                $eligibleLocationIds,
+                $movementEligibleLocationIds,
                 $activeClaimSerialIds,
                 $allocatedSerialIds
             );
@@ -144,6 +151,17 @@ class StockOpnameSerialClassifier
             $conditionChanged = $sourceCondition !== $enteredCondition;
             $taxChanged = $sourceIsTax !== $destinationIsTax;
 
+            // A safe stock-movement candidate's source setting may legitimately
+            // differ from the destination's: the product catalogue and
+            // physical serial custody are global. This is surfaced as a
+            // structured movement fact (crossSetting), never a blocking
+            // conflict -- unsafeSerialConflictReason() above already rejected
+            // every genuinely unsafe state (consignment source, active
+            // dispatch/claim/allocation, SOLD/RETURN_IN_PROCESS/MISSING).
+            $crossSetting = !$isSameLocation
+                && $ownProductMatch->location !== null
+                && (int) $ownProductMatch->location->setting_id !== (int) $destinationLocation->setting_id;
+
             // Composable: a single serial can simultaneously move, change
             // condition, and change tax classification. Every applicable
             // status is reported together rather than picking just one.
@@ -157,6 +175,9 @@ class StockOpnameSerialClassifier
                     $ownProductMatch->location?->name ?? "lokasi #{$sourceLocationId}",
                     $destinationLocation->name
                 );
+                if ($crossSetting) {
+                    $labelParts[] = 'Perpindahan lintas pengaturan (lokasi asal berbeda pengaturan dari lokasi tujuan).';
+                }
             }
 
             if ($conditionChanged) {
@@ -188,6 +209,7 @@ class StockOpnameSerialClassifier
                 destinationIsTax: $destinationIsTax,
                 label: implode(' ', $labelParts),
                 statuses: $statuses,
+                crossSetting: $crossSetting,
             );
         }
 
@@ -260,7 +282,7 @@ class StockOpnameSerialClassifier
      */
     public function unsafeSerialConflictReason(
         ProductSerialNumber $serial,
-        Collection $eligibleLocationIds,
+        Collection $movementEligibleLocationIds,
         Collection $activeClaimSerialIds,
         Collection $allocatedSerialIds,
     ): ?string {
@@ -291,12 +313,14 @@ class StockOpnameSerialClassifier
             return 'Nomor seri memiliki alokasi konsinyasi aktif.';
         }
 
-        // A serial currently sitting at a location outside this document's
-        // eligible same-owner, non-consignment scope (a different setting,
-        // or a consignment location) is never a movable candidate — it is a
-        // conflict, not a cross-location move.
-        if ($serial->location_id !== null && !$eligibleLocationIds->contains((int) $serial->location_id)) {
-            return 'Nomor seri berada di lokasi di luar cakupan pemilik aktif atau merupakan lokasi konsinyasi.';
+        // Movement eligibility is deliberately broader than the same-owner
+        // "all locations" total scope: the product catalogue and physical
+        // serial custody are global, so an active, unencumbered serial may
+        // move in from ANY non-consignment location regardless of setting.
+        // Only a consignment source (never a safe stock-movement candidate)
+        // or a location that no longer exists is a conflict here.
+        if ($serial->location_id !== null && !$movementEligibleLocationIds->contains((int) $serial->location_id)) {
+            return 'Nomor seri berada di lokasi konsinyasi atau lokasi yang tidak valid untuk perpindahan stok.';
         }
 
         return null;

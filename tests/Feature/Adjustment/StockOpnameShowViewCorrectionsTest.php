@@ -408,11 +408,17 @@ class StockOpnameShowViewCorrectionsTest extends TestCase
             ],
         ]);
 
-        // Sanity: a reviewer would actually see warnings for this same document.
+        // Sanity: a reviewer would actually see this as a genuine warning
+        // condition for the same document (structured fields on the product
+        // row -- exceeds-all-location-total and drift are no longer
+        // duplicated as free-text strings in the flat warnings list).
         $reviewerVm = app(\Modules\Adjustment\Services\StockOpnameReconciliationService::class)
             ->reconcile($adjustment, locked: false)
             ->toReviewerArray();
-        $this->assertNotEmpty($reviewerVm['warnings'], 'Test setup must actually produce a warning to be a meaningful negative assertion.');
+        $this->assertTrue(
+            $reviewerVm['products'][0]['exceeds_all_location_total'] || $reviewerVm['products'][0]['drift'] != 0,
+            'Test setup must actually produce a warning condition to be a meaningful negative assertion.'
+        );
 
         $response = $this->get(route('adjustments.show', $adjustment));
         $response->assertOk();
@@ -553,6 +559,119 @@ class StockOpnameShowViewCorrectionsTest extends TestCase
         $response = $this->patch(route('adjustments.submit', $adjustment));
         $response->assertForbidden();
         $this->assertEquals(AdjustmentStatus::Draft, $adjustment->fresh()->status);
+    }
+
+    // --- Cross-setting serialized movement: row-level rendering, no
+    // duplication in the global summary card. ---
+
+    public function test_reviewer_sees_cross_setting_movement_and_tax_change_rendered_in_the_serial_row_not_duplicated_in_summary()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'CV Tiga Nusa Computer', 'company_email' => 'tiganusa@company.com',
+            'company_phone' => '000', 'notification_email' => 'n@company.com',
+            'footer_text' => 'F', 'company_address' => 'Bandung',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::first()->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => false,
+        ]);
+        $sourceLocation = Location::create([
+            'name' => 'GUDANG BARANG PERDANA', 'setting_id' => $otherSetting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+        $destinationLocation = Location::create([
+            'name' => 'GUDANG BARANG CV TIGA NUSA COMPUTER', 'setting_id' => $this->setting->id,
+            'is_active' => true, 'is_consignment' => false,
+        ]);
+
+        $product = $this->makeProduct(true, 'Unit');
+        $product->update(['setting_id' => $otherSetting->id]);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $sourceLocation->id,
+            'quantity' => 1, 'quantity_non_tax' => 1, 'quantity_tax' => 0,
+            'broken_quantity' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity_tax' => 0,
+        ]);
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $destinationLocation->id,
+            'quantity' => 0, 'quantity_non_tax' => 0, 'quantity_tax' => 0,
+            'broken_quantity' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity_tax' => 0,
+        ]);
+        $this->makeSerial($product, $sourceLocation, 'SN-EXAMPLE-1', isBroken: false, taxId: null);
+
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-CROSS-SETTING-VIEW',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::WaitingApproval,
+            'location_id' => $destinationLocation->id,
+            'submitted_at' => now(),
+            'count_draft' => ['schema_version' => 1, 'rows' => [
+                ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                    ['serial_number' => 'SN-EXAMPLE-1', 'condition' => 'good'],
+                ]],
+            ]],
+        ]);
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertOk();
+
+        // Row-level: the serial's expanded detail shows the movement and tax
+        // change together, per the required example rendering.
+        $response->assertSee('Dipindahkan');
+        $response->assertSee('GUDANG BARANG PERDANA');
+        $response->assertSee('GUDANG BARANG CV TIGA NUSA COMPUTER');
+        $response->assertSee('Tidak Kena Pajak');
+        $response->assertSee('Kena Pajak');
+        $response->assertSee('Lintas Pengaturan');
+
+        // Not a blocking conflict: classified as a safe move.
+        $response->assertDontSee('Konflik');
+
+        // The compact summary card shows counts only -- it must not repeat
+        // this serial's own movement/location/tax narrative a second time.
+        $vm = $response->viewData('stockOpnameViewModel');
+        $this->assertEmpty($vm['unattributed_conflicts']);
+        $this->assertEmpty($vm['conflicts']);
+    }
+
+    /**
+     * Regression: a single serial conflict must be counted exactly once in
+     * the reviewer summary card. The flat aggregate $vm['conflicts'] already
+     * contains this same conflict message (it is the source both
+     * hasConflicts() and the structured per-serial "conflicting" status draw
+     * from), so the summary must never separately count that flat array on
+     * top of the structured per-serial conflict count -- doing so would
+     * render "1 nomor seri berkonflik dan 1 konflik lainnya" for what is
+     * actually a single problem.
+     */
+    public function test_one_serial_conflict_appears_as_exactly_one_conflict_in_the_summary()
+    {
+        $product = $this->makeProduct(true);
+        $this->makeStockRow($product, $this->location);
+        $serial = $this->makeSerial($product, $this->location, 'SN-SUMMARY-CONFLICT', isBroken: false, taxId: $this->tax->id);
+        $serial->update(['dispatch_detail_id' => 999]);
+
+        $adjustment = $this->makeWaitingApprovalAdjustment([
+            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => [
+                ['serial_number' => 'SN-SUMMARY-CONFLICT', 'condition' => 'good'],
+            ]],
+        ]);
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertOk();
+
+        $vm = $response->viewData('stockOpnameViewModel');
+
+        // Sanity: exactly one structured serial conflict, and exactly one
+        // flat conflict message (the same underlying problem, not two).
+        $conflictingSerials = collect($vm['products'][0]['serials'])
+            ->filter(fn ($s) => ($s['status'] ?? null) === 'conflicting');
+        $this->assertCount(1, $conflictingSerials);
+        $this->assertCount(1, $vm['conflicts']);
+        $this->assertEmpty($vm['unattributed_conflicts'], 'A serial conflict is attributable to its row, not unattributed.');
+
+        // Rendered summary text: "1 nomor seri berkonflik dan 0 konflik lainnya".
+        $response->assertSee('1 nomor seri berkonflik dan 0 konflik lainnya');
+        $response->assertDontSee('1 nomor seri berkonflik dan 1 konflik lainnya');
     }
 
     private function makeSerial(Product $product, Location $location, string $serialNumber, bool $isBroken = false, ?int $taxId = null): ProductSerialNumber

@@ -310,8 +310,14 @@ class StockOpnameReconciliationServiceTest extends TestCase
         $this->assertEquals(10.0, $p->allLocationCurrentTotal);
         $this->assertTrue($p->exceedsAllLocationTotal);
         $this->assertEquals(2.0, $p->potentialGlobalIncrease);
-        $this->assertNotEmpty($result->warnings);
-        $this->assertStringContainsString('melebihi total stok', collect($result->warnings)->first());
+
+        // Rendered from these structured fields directly in/beneath the
+        // product's own row, not duplicated as a free-text string in the
+        // document-level warnings list.
+        $this->assertFalse(
+            collect($result->warnings)->contains(fn (string $w) => str_contains($w, 'melebihi total stok')),
+            'The over-total warning must be structured on the product row, not duplicated as a document-level string.'
+        );
     }
 
     public function test_consignment_location_excluded_from_all_location_total()
@@ -666,20 +672,101 @@ class StockOpnameReconciliationServiceTest extends TestCase
 
         $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment);
         $counterArray = $result->toCounterArray();
-        $encoded = json_encode($counterArray);
 
-        $this->assertStringNotContainsString('baseline', $encoded);
-        $this->assertStringNotContainsString('current', $encoded);
-        $this->assertStringNotContainsString('99', $encoded);
-        $this->assertStringNotContainsString('source_location', $encoded);
-        $this->assertStringNotContainsString('warnings', $encoded);
-        $this->assertArrayNotHasKey('warnings', $counterArray);
-        $this->assertArrayNotHasKey('conflicts', $counterArray);
+        // Exact allowed shape: only document identity/location and, per
+        // product, identity fields plus entered good/bad and entered
+        // serial text/condition. Any key outside this exact structure --
+        // whether a top-level addition or an extra key nested under a
+        // product/serial -- fails this assertion.
+        $this->assertSame([
+            'adjustment_id' => $adjustment->id,
+            'location_id' => $this->location->id,
+            'location_name' => $this->location->name,
+            'products' => [
+                [
+                    'product_id' => $product->id,
+                    'product_name' => $product->product_name,
+                    'product_code' => $product->product_code,
+                    'base_unit' => $this->baseUnit->name,
+                    'is_serialized' => true,
+                    'entered' => [
+                        'good' => 1,
+                        'bad' => 0,
+                    ],
+                    'serials' => [
+                        [
+                            'serial_number' => 'SN-SECRET',
+                            'condition' => 'good',
+                        ],
+                    ],
+                ],
+            ],
+        ], $counterArray);
+
+        // Recursive defense-in-depth: no protected key name appears
+        // anywhere in the counter tree, at any nesting depth -- catches a
+        // future regression that adds a protected field alongside (rather
+        // than instead of) the exact shape above.
+        $this->assertNoProtectedKeysPresent($counterArray, [
+            'baseline',
+            'current',
+            'all_location_current_total',
+            'projected_global_total',
+            'difference',
+            'drift',
+            'warnings',
+            'conflicts',
+            'exceeds_all_location_total',
+            'potential_global_increase',
+            'is_condition_reclassification_only',
+            'source_serial_id',
+            'source_location_id',
+            'source_location_name',
+            'source_condition',
+            'source_is_tax',
+            'destination_is_tax',
+            'status',
+            'statuses',
+            'conflict_reason',
+            'cross_setting',
+            'same_text_other_product',
+            'label',
+        ]);
+
+        // The entered count and serial text/condition remain present and
+        // correct -- the counter-safe view is not simply empty.
+        $this->assertEquals(1, $counterArray['products'][0]['entered']['good']);
+        $this->assertEquals(0, $counterArray['products'][0]['entered']['bad']);
+        $this->assertEquals('SN-SECRET', $counterArray['products'][0]['serials'][0]['serial_number']);
+        $this->assertEquals('good', $counterArray['products'][0]['serials'][0]['condition']);
 
         $reviewerArray = $result->toReviewerArray();
         $this->assertArrayHasKey('warnings', $reviewerArray);
         $this->assertArrayHasKey('conflicts', $reviewerArray);
         $this->assertEquals(99, $reviewerArray['products'][0]['current']['good']);
+    }
+
+    /**
+     * Recursively assert that none of the given protected key names appear
+     * anywhere in $data (at any array nesting depth, keyed or list). Used to
+     * prove a counter-safe projection cannot leak a protected field even if
+     * it is nested somewhere other than where the exact-shape assertion
+     * above already checks.
+     */
+    private function assertNoProtectedKeysPresent(array $data, array $protectedKeys): void
+    {
+        foreach ($data as $key => $value) {
+            if (is_string($key)) {
+                $this->assertNotContains(
+                    $key,
+                    $protectedKeys,
+                    "Counter-safe projection must not contain protected key '{$key}'."
+                );
+            }
+            if (is_array($value)) {
+                $this->assertNoProtectedKeysPresent($value, $protectedKeys);
+            }
+        }
     }
 
     public function test_serialized_global_projection_is_identity_based_not_delta_based()
@@ -764,7 +851,15 @@ class StockOpnameReconciliationServiceTest extends TestCase
         $this->assertEquals(3.0, $p->projectedGlobalTotal);
     }
 
-    public function test_foreign_setting_product_is_rejected_as_conflict()
+    /**
+     * The product catalogue is global: Product::setting_id is a legacy field
+     * that never gates whether a product can be counted. A product whose own
+     * setting_id differs from the destination setting must still reconcile
+     * normally as long as it exists, is active, and is stock-managed --
+     * ownership is enforced through location scoping (selected-location
+     * stock, all-location totals, serial location), not the product row.
+     */
+    public function test_globally_shared_product_with_different_own_setting_id_is_still_reconciled()
     {
         $otherSetting = Setting::create([
             'company_name' => 'Other Co',
@@ -778,9 +873,12 @@ class StockOpnameReconciliationServiceTest extends TestCase
             'is_pkp' => true,
         ]);
 
-        $foreignProduct = Product::create([
-            'product_name' => 'Barang Asing',
-            'product_code' => 'FOREIGN-' . uniqid(),
+        // The product's own (legacy) setting_id points elsewhere, but it is
+        // physically stocked at $this->location, which belongs to
+        // $this->setting -- the destination setting for this adjustment.
+        $sharedProduct = Product::create([
+            'product_name' => 'Barang Bersama',
+            'product_code' => 'SHARED-' . uniqid(),
             'barcode' => 'BAR-' . uniqid(),
             'product_cost' => 1000,
             'product_price' => 2000,
@@ -792,28 +890,103 @@ class StockOpnameReconciliationServiceTest extends TestCase
             'serial_number_required' => false,
         ]);
 
+        // Selected-location stock: 5 good.
+        ProductStock::create([
+            'product_id' => $sharedProduct->id,
+            'location_id' => $this->location->id,
+            'quantity' => 5,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Another eligible location in the SAME destination setting also
+        // stocks this product -- must be included in the all-location total.
+        ProductStock::create([
+            'product_id' => $sharedProduct->id,
+            'location_id' => $this->otherLocation->id,
+            'quantity' => 3,
+            'quantity_tax' => 3,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // A location belonging to the product's OWN (different) setting also
+        // stocks it -- must be excluded from the all-location total, since
+        // "all locations" is scoped to the destination setting, not the
+        // product's own setting_id.
+        $foreignSettingLocation = Location::create([
+            'name' => 'Gudang Milik Setting Lain',
+            'setting_id' => $otherSetting->id,
+            'is_active' => true,
+            'is_consignment' => false,
+        ]);
+        ProductStock::create([
+            'product_id' => $sharedProduct->id,
+            'location_id' => $foreignSettingLocation->id,
+            'quantity' => 999,
+            'quantity_tax' => 999,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Zero count: the counter physically found none at the selected
+        // location. A zero row must still render, never be silently dropped.
         $adjustment = $this->makeAdjustment([
             'schema_version' => 1,
             'location_id' => $this->location->id,
             'rows' => [
                 [
-                    'product_id' => $foreignProduct->id,
+                    'product_id' => $sharedProduct->id,
                     'is_serialized' => false,
-                    'good_count' => 5,
+                    'good_count' => 0,
                     'bad_count' => 0,
-                    'baseline' => ['existing_good_total' => 0, 'existing_bad_total' => 0],
+                    'baseline' => ['existing_good_total' => 5, 'existing_bad_total' => 0],
                 ],
             ],
         ]);
 
         $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment);
 
-        $this->assertCount(0, $result->products);
-        $this->assertTrue($result->hasConflicts());
-        $this->assertStringContainsString('tidak ditemukan atau bukan milik pengaturan aktif', collect($result->conflicts)->implode(' | '));
+        $this->assertFalse($result->hasConflicts());
+        $this->assertCount(1, $result->products);
+
+        $productResult = $result->products[0];
+        $this->assertSame($sharedProduct->id, $productResult->productId);
+
+        // Zero-count product still renders for both projections.
+        $counterArray = $result->toCounterArray()['products'][0];
+        $this->assertSame(0, $counterArray['entered']['good']);
+        $this->assertSame(0, $counterArray['entered']['bad']);
+
+        $reviewerArray = $result->toReviewerArray()['products'][0];
+        $this->assertSame(0, $reviewerArray['entered']['good']);
+
+        // Selected-location difference: entered 0 vs. current 5 good => -5.
+        $this->assertSame(-5, $productResult->goodDifference);
+        $this->assertSame(5, $productResult->currentGood);
+
+        // All-location total only includes locations in the destination
+        // setting (5 + 3 = 8), never the foreign-setting location's 999.
+        $this->assertEquals(8.0, $productResult->allLocationCurrentTotal);
     }
 
-    public function test_serial_at_cross_owner_or_consignment_location_is_rejected_as_conflict_not_movable()
+    /**
+     * A serial at a consignment location is always a blocking conflict, but
+     * an active, unencumbered serial at another setting's ordinary
+     * (non-consignment) location is a safe stock-movement candidate: the
+     * product catalogue and physical serial custody are global, so this
+     * must classify as "moved" with a structured cross-setting flag, not a
+     * conflict. This replaces the previous assumption that any cross-setting
+     * serial was unconditionally unsafe.
+     */
+    public function test_serial_at_consignment_location_is_a_conflict_while_cross_setting_active_serial_is_moved()
     {
         $product = $this->makeProduct(['serial_number_required' => true]);
 
@@ -829,7 +1002,7 @@ class StockOpnameReconciliationServiceTest extends TestCase
             'is_pkp' => true,
         ]);
 
-        $foreignLocation = Location::create([
+        $foreignSettingLocation = Location::create([
             'name' => 'Gudang Milik Lain',
             'setting_id' => $otherSetting->id,
             'is_active' => true,
@@ -845,8 +1018,8 @@ class StockOpnameReconciliationServiceTest extends TestCase
 
         ProductSerialNumber::create([
             'product_id' => $product->id,
-            'location_id' => $foreignLocation->id,
-            'serial_number' => 'SN-CROSS-OWNER',
+            'location_id' => $foreignSettingLocation->id,
+            'serial_number' => 'SN-CROSS-SETTING',
             'tax_id' => null,
             'status' => ProductSerialNumber::STATUS_ACTIVE,
             'is_broken' => false,
@@ -872,7 +1045,7 @@ class StockOpnameReconciliationServiceTest extends TestCase
                     'bad_count' => 0,
                     'baseline' => ['existing_good_total' => 0, 'existing_bad_total' => 0],
                     'serials' => [
-                        ['serial_number' => 'SN-CROSS-OWNER', 'condition' => 'good'],
+                        ['serial_number' => 'SN-CROSS-SETTING', 'condition' => 'good'],
                         ['serial_number' => 'SN-CONSIGNMENT', 'condition' => 'good'],
                     ],
                 ],
@@ -884,10 +1057,68 @@ class StockOpnameReconciliationServiceTest extends TestCase
 
         $byText = collect($p->serials)->keyBy('serialNumber');
 
-        $this->assertSame(SerialClassification::STATUS_CONFLICTING, $byText->get('SN-CROSS-OWNER')->status);
+        // Cross-setting, non-consignment, active, unencumbered: a safe move,
+        // not a conflict.
+        $crossSetting = $byText->get('SN-CROSS-SETTING');
+        $this->assertSame(SerialClassification::STATUS_MOVED, $crossSetting->status);
+        $this->assertTrue($crossSetting->crossSetting);
+        $this->assertSame($foreignSettingLocation->id, $crossSetting->sourceLocationId);
+
+        // Consignment source remains a blocking conflict regardless of setting.
         $this->assertSame(SerialClassification::STATUS_CONFLICTING, $byText->get('SN-CONSIGNMENT')->status);
         $this->assertTrue($result->hasConflicts());
-        $this->assertCount(2, $result->conflicts);
+        $this->assertCount(1, $result->conflicts);
+    }
+
+    /**
+     * Kept for backward compatibility of the original assertion shape: the
+     * consignment-only half of the split scenario above, verified in isolation.
+     */
+    public function test_serial_at_consignment_location_is_rejected_as_conflict_not_movable()
+    {
+        $product = $this->makeProduct(['serial_number_required' => true]);
+
+        $consignmentLocation = Location::create([
+            'name' => 'Titik Konsinyasi 3',
+            'setting_id' => $this->setting->id,
+            'is_active' => true,
+            'is_consignment' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $consignmentLocation->id,
+            'serial_number' => 'SN-CONSIGNMENT-ONLY',
+            'tax_id' => null,
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        $adjustment = $this->makeAdjustment([
+            'schema_version' => 1,
+            'location_id' => $this->location->id,
+            'rows' => [
+                [
+                    'product_id' => $product->id,
+                    'is_serialized' => true,
+                    'good_count' => 1,
+                    'bad_count' => 0,
+                    'baseline' => ['existing_good_total' => 0, 'existing_bad_total' => 0],
+                    'serials' => [
+                        ['serial_number' => 'SN-CONSIGNMENT-ONLY', 'condition' => 'good'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $result = app(StockOpnameReconciliationService::class)->reconcile($adjustment);
+        $p = $result->products[0];
+
+        $byText = collect($p->serials)->keyBy('serialNumber');
+
+        $this->assertSame(SerialClassification::STATUS_CONFLICTING, $byText->get('SN-CONSIGNMENT-ONLY')->status);
+        $this->assertTrue($result->hasConflicts());
+        $this->assertCount(1, $result->conflicts);
     }
 
     public function test_moved_serial_reports_simultaneous_tax_and_condition_change()

@@ -15,8 +15,20 @@ class ReconciliationResult
 {
     /**
      * @param ProductReconciliation[] $products
-     * @param string[] $warnings Bahasa Indonesia warning messages (reviewer-only)
-     * @param string[] $conflicts Bahasa Indonesia conflict messages (reviewer-only); non-empty blocks approval
+     * @param string[] $warnings Bahasa Indonesia warning messages (reviewer-only).
+     *   Every product/serial-attributable warning is ALSO available as a
+     *   structured field on its own ProductReconciliation/SerialClassification
+     *   row (exceedsAllLocationTotal, drift, statuses, sameTextOtherProduct,
+     *   crossSetting, ...); this flat list is the full set used for the
+     *   immutable approval_result audit trail, not a UI display list.
+     * @param string[] $conflicts Bahasa Indonesia conflict messages (reviewer-only);
+     *   non-empty blocks approval. Same relationship to structured per-row
+     *   data as $warnings above.
+     * @param string[] $unattributedConflicts Subset of $conflicts that cannot
+     *   be attached to any rendered product/serial row (e.g. a row
+     *   referencing a product that could not be resolved into a row, or an
+     *   invalid destination location) -- the only conflicts a document-level
+     *   UI alert may show, so a row-level conflict is never displayed twice.
      */
     public function __construct(
         public readonly int $adjustmentId,
@@ -28,6 +40,7 @@ class ReconciliationResult
         public readonly array $products,
         public readonly array $warnings = [],
         public readonly array $conflicts = [],
+        public readonly array $unattributedConflicts = [],
         public readonly ?string $computedAt = null,
     ) {
     }
@@ -50,6 +63,7 @@ class ReconciliationResult
             'products' => array_map(fn (ProductReconciliation $p) => $p->toReviewerArray(), $this->products),
             'warnings' => $this->warnings,
             'conflicts' => $this->conflicts,
+            'unattributed_conflicts' => $this->unattributedConflicts,
             'has_conflicts' => $this->hasConflicts(),
         ];
     }

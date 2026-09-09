@@ -38,6 +38,13 @@ class SerialClassification
         public readonly ?string $conflictReason = null,
         public readonly string $label = '',
         public readonly array $statuses = [],
+        /**
+         * True when this serial's source location belongs to a different
+         * setting than the destination location. A structured flag (not a
+         * parsed label string) so Blade and other consumers can render the
+         * cross-setting movement fact without string-matching human text.
+         */
+        public readonly bool $crossSetting = false,
     ) {
     }
 
@@ -62,6 +69,7 @@ class SerialClassification
             'destination_is_tax' => $this->destinationIsTax,
             'same_text_other_product' => $this->sameTextOtherProduct,
             'conflict_reason' => $this->conflictReason,
+            'cross_setting' => $this->crossSetting,
         ];
     }
 

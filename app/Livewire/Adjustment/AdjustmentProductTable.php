@@ -722,7 +722,6 @@ class AdjustmentProductTable extends Component
         $existingIndex = $this->findProductRowIndex($productId);
 
         if ($existingIndex !== null) {
-            session()->flash('message', 'Produk sudah dipilih.');
             $this->feedbackMessage = "Produk '{$this->products[$existingIndex]['product_name']}' sudah ada di daftar (baris " . ($existingIndex + 1) . ").";
             $this->feedbackType = 'info';
             $this->closeSearchModal();

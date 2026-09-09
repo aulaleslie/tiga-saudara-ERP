@@ -167,7 +167,23 @@
             ->filter(fn ($s) => in_array($s['status'] ?? null, ['moved', 'new'], true))->count();
         $taxChangedCount = collect($products)->flatMap(fn ($p) => $p['serials'] ?? [])
             ->filter(fn ($s) => in_array('tax_changed', $s['statuses'] ?? [($s['status'] ?? null)], true))->count();
-        $conflictCount = count($vm['conflicts'] ?? []);
+        $crossSettingCount = collect($products)->flatMap(fn ($p) => $p['serials'] ?? [])
+            ->filter(fn ($s) => $s['cross_setting'] ?? false)->count();
+        $serialConflictCount = collect($products)->flatMap(fn ($p) => $p['serials'] ?? [])
+            ->filter(fn ($s) => ($s['status'] ?? null) === 'conflicting')->count();
+
+        // Structured field from the service (StockOpnameReconciliationService::
+        // reconcile()), never derived here by matching product names inside
+        // conflict strings: only a conflict that could not be attached to any
+        // rendered product/serial row (e.g. an invalid destination location,
+        // or a row referencing a product that could not be resolved at all).
+        // $vm['conflicts'] is the FLAT aggregate used internally for
+        // hasConflicts()/the audit trail and already includes every
+        // structured serial conflict counted in $serialConflictCount above --
+        // it must never be counted again here, or one serial conflict would
+        // be shown as two.
+        $unattributedConflicts = $vm['unattributed_conflicts'] ?? [];
+        $otherConflictCount = count($unattributedConflicts);
     @endphp
 
     <div class="row mt-3">
@@ -180,26 +196,19 @@
                         <li>{{ $increaseCount }} produk berpotensi menyebabkan kenaikan stok global (melebihi total stok di semua lokasi terkait).</li>
                         <li>{{ $movedOrNewCount }} nomor seri akan dipindahkan atau didaftarkan sebagai baru.</li>
                         <li>{{ $taxChangedCount }} nomor seri akan mengalami perubahan klasifikasi pajak.</li>
+                        <li>{{ $crossSettingCount }} nomor seri berpindah lintas pengaturan.</li>
                         <li>{{ $driftCount }} produk mengalami perubahan stok (drift) sejak baseline perhitungan diambil.</li>
-                        <li>{{ $conflictCount }} konflik ditemukan{{ $conflictCount > 0 ? ' — persetujuan akan diblokir sampai konflik ini diselesaikan' : '' }}.</li>
+                        <li>{{ $serialConflictCount }} nomor seri berkonflik dan {{ $otherConflictCount }} konflik lainnya ditemukan{{ $otherConflictCount > 0 || $serialConflictCount > 0 ? ' — persetujuan akan diblokir sampai konflik ini diselesaikan' : '' }}.</li>
                     </ul>
+                    <p class="small text-muted mt-2 mb-0">
+                        Rincian selisih, drift, potensi kenaikan global, dan konflik per produk/nomor seri ditampilkan langsung pada baris produk dan rincian seri di bawah.
+                    </p>
 
-                    @if(!empty($vm['warnings']))
-                        <div class="alert alert-warning mt-3 mb-0">
-                            <strong>Peringatan:</strong>
-                            <ul class="mb-0">
-                                @foreach($vm['warnings'] as $warning)
-                                    <li>{{ $warning }}</li>
-                                @endforeach
-                            </ul>
-                        </div>
-                    @endif
-
-                    @if(!empty($vm['conflicts']))
+                    @if(!empty($unattributedConflicts))
                         <div class="alert alert-danger mt-3 mb-0">
-                            <strong>Konflik:</strong>
+                            <strong>Konflik dokumen (tidak terkait produk/seri tertentu):</strong>
                             <ul class="mb-0">
-                                @foreach($vm['conflicts'] as $conflict)
+                                @foreach($unattributedConflicts as $conflict)
                                     <li>{{ $conflict }}</li>
                                 @endforeach
                             </ul>
@@ -260,6 +269,8 @@
                                     $rowId = 'stock-opname-serials-' . $i;
                                     $hasSerials = !empty($product['serials']) || !empty($product['omitted_serials']);
                                     $isConditionOnly = $product['is_condition_reclassification_only'] ?? false;
+                                    $productConflictingSerialCount = collect($product['serials'] ?? [])
+                                        ->filter(fn ($s) => ($s['status'] ?? null) === 'conflicting')->count();
                                 @endphp
                                 <tr>
                                     <td>
@@ -267,6 +278,17 @@
                                         <div class="small text-muted">{{ $product['product_code'] ?? '' }} @if(!empty($product['base_unit'])) &middot; {{ $product['base_unit'] }} @endif</div>
                                         @if($isConditionOnly)
                                             <span class="badge badge-info mt-1">Reklasifikasi kondisi, total tidak berubah</span>
+                                        @endif
+                                        @if(!$isApproved && (float) ($product['drift'] ?? 0) != 0.0)
+                                            @php $driftVal = $product['drift']; @endphp
+                                            <span class="badge badge-warning mt-1 d-block">
+                                                Drift {{ $driftVal > 0 ? "+{$driftVal}" : $driftVal }} sejak baseline
+                                            </span>
+                                        @endif
+                                        @if($productConflictingSerialCount > 0)
+                                            <span class="badge badge-danger mt-1 d-block">
+                                                {{ $productConflictingSerialCount }} nomor seri berkonflik — lihat rincian seri
+                                            </span>
                                         @endif
                                     </td>
 

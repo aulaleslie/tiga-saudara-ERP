@@ -45,6 +45,9 @@ class StockOpnameReconciliationService
         $settingId = (int) ($setting?->id ?? 0);
 
         if (!$location || !$setting) {
+            // No location/setting to attach a product row to at all: this is
+            // the canonical unattributed (document-level) conflict.
+            $unattributed = empty($rows) ? [] : ['Lokasi atau pengaturan tujuan tidak ditemukan.'];
             return new ReconciliationResult(
                 adjustmentId: (int) $adjustment->id,
                 locked: $locked,
@@ -54,7 +57,8 @@ class StockOpnameReconciliationService
                 isPkp: $isPkp,
                 products: [],
                 warnings: [],
-                conflicts: empty($rows) ? [] : ['Lokasi atau pengaturan tujuan tidak ditemukan.'],
+                conflicts: $unattributed,
+                unattributedConflicts: $unattributed,
                 computedAt: now()->toIso8601String(),
             );
         }
@@ -81,14 +85,31 @@ class StockOpnameReconciliationService
         // Bulk-loaded context, keyed for O(1) per-product/per-serial lookup
         // in the classification pass below. Nothing below this block queries
         // inside the per-product or per-serial loop.
-        $eligibleLocationIds = $this->eligibleLocationIds($settingId);
+        //
+        // Two distinct scopes, never conflated:
+        // - settingEligibleLocationIds: same-setting, non-consignment
+        //   locations only. Used exclusively for selected-business totals
+        //   ("all locations" sums) and the over-total warning -- ownership
+        //   accounting stays strictly per-setting.
+        // - movementEligibleLocationIds: ANY existing non-consignment
+        //   location, regardless of setting. The product catalogue and
+        //   physical serial custody are global: an active, unencumbered
+        //   serial may move in from any non-consignment location, including
+        //   across settings. Only a consignment source location remains a
+        //   blocking conflict for movement purposes.
+        $settingEligibleLocationIds = $this->settingEligibleLocationIds($settingId);
+        $movementEligibleLocationIds = $this->movementEligibleLocationIds();
 
-        // Products belonging to a different setting are foreign and must be
-        // rejected as conflicts rather than reconciled, since product/location
-        // resolution is constrained to the relevant owner scope.
+        // The product catalogue is global: a product's own (legacy)
+        // Product::setting_id never gates whether it can be counted here.
+        // Only its existence, active flag, and stock-managed flag matter --
+        // ownership is enforced entirely through location scoping below
+        // (selected-location stock, all-location totals, and serial
+        // location/setting checks), never through the product row itself.
         $productsById = Product::with('baseUnit')
             ->whereIn('id', $productIds)
-            ->where('setting_id', $settingId)
+            ->where('is_active', true)
+            ->where('stock_managed', true)
             ->get()
             ->keyBy('id');
 
@@ -104,7 +125,7 @@ class StockOpnameReconciliationService
         // that want the good/bad split can have it without re-deriving it
         // from `quantity - broken_quantity` themselves.
         $allLocationTotalsByProduct = ProductStock::whereIn('product_id', $productIds)
-            ->whereIn('location_id', $eligibleLocationIds)
+            ->whereIn('location_id', $settingEligibleLocationIds)
             ->selectRaw('product_id, SUM(quantity_tax + quantity_non_tax) as total_good, SUM(broken_quantity) as total_bad, SUM(quantity) as grand_total')
             ->groupBy('product_id')
             ->get()
@@ -182,12 +203,18 @@ class StockOpnameReconciliationService
         $products = [];
         $documentWarnings = [];
         $documentConflicts = [];
+        $unattributedConflicts = [];
 
         foreach ($rows as $row) {
             $productId = (int) ($row['product_id'] ?? 0);
             $product = $productsById->get($productId);
             if (!$product) {
-                $documentConflicts[] = "Produk dengan ID {$productId} tidak ditemukan atau bukan milik pengaturan aktif ini.";
+                // No ProductReconciliation row can be built for an
+                // unresolvable product, so this conflict is genuinely
+                // unattributable to any rendered row.
+                $message = "Produk dengan ID {$productId} tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola.";
+                $documentConflicts[] = $message;
+                $unattributedConflicts[] = $message;
                 continue;
             }
 
@@ -228,7 +255,7 @@ class StockOpnameReconciliationService
                 row: $row,
                 destinationLocation: $location,
                 isPkp: $isPkp,
-                eligibleLocationIds: $eligibleLocationIds,
+                movementEligibleLocationIds: $movementEligibleLocationIds,
                 matchingSerialsByText: $matchingSerialsByText,
                 destinationSerialsByProduct: $destinationSerialsByProduct,
                 activeClaimSerialIds: $activeClaimSerialIds,
@@ -257,24 +284,18 @@ class StockOpnameReconciliationService
 
             $drift = ($currentGood + $currentBad) - ($baselineGood + $baselineBad);
 
-            if ($exceedsAllLocationTotal) {
-                $documentWarnings[] = sprintf(
-                    "Produk %s: total hitung di lokasi terpilih (%d) melebihi total stok saat ini di seluruh lokasi yang memenuhi syarat (%s), potensi penambahan stok global %s unit.",
-                    $product->product_name,
-                    $enteredTotal,
-                    rtrim(rtrim(number_format($allLocationCurrentTotal, 3), '0'), '.'),
-                    rtrim(rtrim(number_format($potentialGlobalIncrease, 3), '0'), '.')
-                );
-            }
-
-            if ($drift !== 0) {
-                $documentWarnings[] = sprintf(
-                    'Produk %s: stok saat ini berbeda dari saat perhitungan dimulai (drift %+d unit).',
-                    $product->product_name,
-                    $drift
-                );
-            }
-
+            // Product-level (exceeds-all-location-total, drift) and
+            // per-serial (moved/new/tax-changed/conflict/same-text-other-
+            // product) facts are ALSO available as structured fields directly
+            // on ProductReconciliation/SerialClassification
+            // (exceedsAllLocationTotal, potentialGlobalIncrease, drift,
+            // statuses, conflictReason, sameTextOtherProduct, crossSetting,
+            // ...) so a row can render its own warning/conflict without
+            // string-matching. The flat arrays below remain the authoritative
+            // set used by hasConflicts() (blocks approval) and preserved
+            // verbatim on the immutable approval_result audit trail -- Blade
+            // must render them as per-row detail, never re-dump this flat
+            // list as a second copy of the same information.
             $documentWarnings = array_merge($documentWarnings, $serialWarnings);
             $documentConflicts = array_merge($documentConflicts, $serialConflicts);
 
@@ -312,19 +333,35 @@ class StockOpnameReconciliationService
             products: $products,
             warnings: array_values(array_unique($documentWarnings)),
             conflicts: array_values(array_unique($documentConflicts)),
+            unattributedConflicts: array_values(array_unique($unattributedConflicts)),
             computedAt: now()->toIso8601String(),
         );
     }
 
     /**
      * Non-consignment location IDs in the given setting's owner scope.
-     * "All locations" is scoped to this set, never across settings.
+     * "All locations" totals and the over-total warning are scoped to this
+     * set, never across settings.
      */
-    private function eligibleLocationIds(int $settingId): Collection
+    private function settingEligibleLocationIds(int $settingId): Collection
     {
         return Location::standard()
             ->where('setting_id', $settingId)
             ->pluck('id');
+    }
+
+    /**
+     * Every existing non-consignment location ID, regardless of setting.
+     * Movement eligibility (whether a serial may safely move into the
+     * destination location) is deliberately broader than the same-setting
+     * total scope above: the product catalogue and physical serial custody
+     * are global, so an active, unencumbered serial may move in from any
+     * non-consignment location. Only a consignment source remains a
+     * movement conflict.
+     */
+    private function movementEligibleLocationIds(): Collection
+    {
+        return Location::standard()->pluck('id');
     }
 
 }

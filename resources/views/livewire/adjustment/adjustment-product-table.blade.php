@@ -261,7 +261,9 @@
                         <div class="list-group list-group-flush border rounded" style="max-height: 350px; overflow-y: auto;">
                             @forelse($searchResults as $result)
                                 <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-                                        wire:click="productSelected({{ json_encode($result) }})">
+                                        wire:click="productSelected({{ json_encode($result) }})"
+                                        wire:loading.attr="disabled"
+                                        wire:target="productSelected">
                                     <div>
                                         <div class="font-weight-bold">{{ $result['product_name'] }}</div>
                                         <small class="text-muted">
