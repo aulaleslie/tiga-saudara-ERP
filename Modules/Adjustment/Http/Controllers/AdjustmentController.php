@@ -49,6 +49,43 @@ class AdjustmentController extends Controller
         }
     }
 
+    /**
+     * A breakage document can only be edited while still pending approval;
+     * an approved (or otherwise non-pending) document must never be
+     * reopened for edit through a direct request. The document must also
+     * actually BE a breakage document -- a legacy 'normal' adjustment with a
+     * (legacy) pending status must never pass through the breakage edit
+     * routes just because its status happens to match.
+     */
+    protected function assertBreakageEditable(Adjustment $adjustment): void
+    {
+        $normalizedType = Str::of($adjustment->type)->lower()->trim()->value();
+        abort_if($normalizedType !== 'breakage', 403, 'Dokumen ini bukan penyesuaian barang rusak.');
+
+        $status = \Modules\Adjustment\Entities\AdjustmentStatus::normalize($adjustment->status);
+
+        abort_if($status !== \Modules\Adjustment\Entities\AdjustmentStatus::Pending, 403, 'Hanya penyesuaian barang rusak yang masih menunggu persetujuan yang dapat diubah.');
+    }
+
+    /**
+     * Resolve a product for breakage entry, scoped to the destination
+     * location's own setting, active, and stock-managed. A product outside
+     * this scope (wrong setting, inactive, or not stock-managed) is treated
+     * as not found rather than silently accepted -- UI-side filtering alone
+     * does not establish this boundary.
+     */
+    protected function resolveBreakageProduct(int $productId, \Modules\Setting\Entities\Location $location): ?Product
+    {
+        return Product::query()
+            ->where('id', $productId)
+            ->active()
+            ->where('stock_managed', true)
+            ->where(function ($q) use ($location) {
+                $q->whereNull('setting_id')->orWhere('setting_id', $location->setting_id);
+            })
+            ->first();
+    }
+
     public function index(AdjustmentsDataTable $dataTable)
     {
         abort_if(Gate::denies('adjustments.access'), 403);
@@ -199,6 +236,8 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('adjustments.breakage.create'), 403);
 
+        $activeSettingId = (int) session('setting_id');
+
         $request->validate([
             'reference' => 'required|string|max:255',
             'date' => 'required|date',
@@ -211,27 +250,47 @@ class AdjustmentController extends Controller
             'serial_numbers' => 'nullable|array',
             'serial_numbers.*' => 'array',
             'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id',
-            'location_id' => [
-                'required',
-                'exists:locations,id',
-                function ($attribute, $value, $fail) {
-                    $location = \Modules\Setting\Entities\Location::find($value);
-                    if ($location && $location->is_consignment) {
-                        $fail('Penyesuaian stok rusak tidak dapat dilakukan pada lokasi konsinyasi.');
-                    }
-                },
-            ],
+            'location_id' => ['required', 'exists:locations,id'],
         ], [
             'location_id.required' => 'Lokasi wajib diisi.',
         ]);
 
+        $location = Location::with('setting')->find($request->location_id);
+
+        try {
+            app(\Modules\Adjustment\Services\AdjustmentOwnershipGuard::class)
+                ->assertLocationOwned($location, $activeSettingId);
+        } catch (ValidationException $e) {
+            return back()->withErrors(['location_id' => (string) collect($e->errors())->flatten()->first()])->withInput();
+        }
+
+        $isPkp = (bool) $location->setting->is_pkp;
+        $serialPolicy = app(\Modules\Adjustment\Services\BreakageSerialPolicy::class);
+
+        if (count($request->product_ids) !== count(array_unique($request->product_ids))) {
+            return back()
+                ->withErrors(['product_ids' => 'Setiap produk hanya boleh muncul satu kali dalam dokumen barang rusak.'])
+                ->withInput();
+        }
+
+        $allSerialIds = collect($request->serial_numbers ?? [])->flatten()->map('intval');
+        if ($allSerialIds->count() !== $allSerialIds->unique()->count()) {
+            return back()
+                ->withErrors(['serial_numbers' => 'Nomor seri yang sama tidak boleh digunakan lebih dari satu kali dalam satu dokumen.'])
+                ->withInput();
+        }
+
         // Custom validation for serial numbers count matching quantity
         foreach ($request->product_ids as $key => $id) {
-            // Retrieve product details
-            $product = Product::find($id);
+            $product = $this->resolveBreakageProduct((int) $id, $location);
 
-            if ($product && $product->serial_number_required) {
-                // Ensure serial numbers exist
+            if (!$product) {
+                return back()
+                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif."])
+                    ->withInput();
+            }
+
+            if ($product->serial_number_required) {
                 if (empty($request->serial_numbers[$key])) {
                     return back()
                         ->withErrors([
@@ -240,21 +299,20 @@ class AdjustmentController extends Controller
                         ->withInput();
                 }
 
-                // Ensure serial numbers count matches quantity
-                $serialCount = count($request->serial_numbers[$key]);
-                $expected = (int) ($request->quantities_tax[$key] ?? 0) + (int) ($request->quantities_non_tax[$key] ?? 0);
+                $serialIds = array_map('intval', $request->serial_numbers[$key]);
+                $classification = $serialPolicy->classify($product, $location, $isPkp, $serialIds);
 
-                if ($serialCount !== $expected) {
+                if (!empty($classification['serial_conflicts']) || count($classification['eligible']) !== count($serialIds)) {
                     return back()
                         ->withErrors([
-                            "serial_numbers.$key" => "Jumlah serial number untuk produk {$product->product_name} harus sama dengan total kuantitas ($expected)."
+                            "serial_numbers.$key" => implode(' ', $classification['conflicts']) ?: "Nomor seri untuk produk {$product->product_name} tidak valid.",
                         ])
                         ->withInput();
                 }
             }
         }
 
-        DB::transaction(function () use ($request) {
+        DB::transaction(function () use ($request, $location, $isPkp, $serialPolicy) {
             $adjustment = Adjustment::create([
                 'reference' => $request->reference,
                 'date' => $request->date,
@@ -268,28 +326,40 @@ class AdjustmentController extends Controller
                 ->notifyApprovalNeeded($adjustment, $adjustment->reference, session('setting_id'), $adjustment->location_id);
 
             foreach ($request->product_ids as $key => $id) {
-                $product = Product::findOrFail($id);
-                $serialIds = $request->serial_numbers[$key] ?? [];
+                $product = $this->resolveBreakageProduct((int) $id, $location);
+                if (!$product) {
+                    throw ValidationException::withMessages([
+                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif.",
+                    ]);
+                }
+                $serialIds = array_map('intval', $request->serial_numbers[$key] ?? []);
                 $serialNumbers = [];
                 $quantityTax = (int) ($request->quantities_tax[$key] ?? 0);
                 $quantityNonTax = (int) ($request->quantities_non_tax[$key] ?? 0);
 
-                if (!empty($serialIds)) {
-                    $serials = ProductSerialNumber::whereIn('id', $serialIds)
-                        ->where('product_id', $id)
-                        ->whereNull('dispatch_detail_id')
-                        ->get(['id', 'tax_id']);
+                if ($product->serial_number_required) {
+                    $classification = $serialPolicy->classify($product, $location, $isPkp, $serialIds);
 
-                    $serialNumbers = $serials->pluck('id')->map(function ($serialId) {
-                        return (int) $serialId;
-                    })->toArray();
+                    if (!empty($classification['serial_conflicts']) || count($classification['eligible']) !== count($serialIds)) {
+                        throw ValidationException::withMessages([
+                            "serial_numbers.$key" => $classification['conflicts'] ?: ["Nomor seri untuk produk {$product->product_name} tidak valid."],
+                        ]);
+                    }
 
-                    $quantityTax = $serials->whereNotNull('tax_id')->count();
-                    $quantityNonTax = $serials->count() - $quantityTax;
+                    $serialNumbers = collect($classification['eligible'])->pluck('serial_id')->all();
+                    $quantityTax = $isPkp ? count($serialNumbers) : 0;
+                    $quantityNonTax = $isPkp ? 0 : count($serialNumbers);
+                } else {
+                    $otherBucket = $isPkp ? $quantityNonTax : $quantityTax;
+                    if ($otherBucket > 0) {
+                        throw ValidationException::withMessages([
+                            "quantities_tax.$key" => "Kuantitas untuk {$product->product_name} harus berada pada kelompok pajak yang sesuai dengan pengaturan PKP lokasi ini.",
+                        ]);
+                    }
                 }
 
                 $productStock = ProductStock::where('product_id', $id)
-                    ->where('location_id', $request->location_id)
+                    ->where('location_id', $location->id)
                     ->first();
 
                 if (!$productStock) {
@@ -298,22 +368,18 @@ class AdjustmentController extends Controller
                     ]);
                 }
 
-                $availableTax = (int) ($productStock->quantity_tax ?? 0);
-                $availableNonTax = (int) ($productStock->quantity_non_tax ?? 0);
+                $availableGood = $isPkp
+                    ? (int) ($productStock->quantity_tax ?? 0)
+                    : (int) ($productStock->quantity_non_tax ?? 0);
+                $requestedMovement = $quantityTax + $quantityNonTax;
 
-                if ($quantityTax > $availableTax) {
+                if ($requestedMovement > $availableGood) {
                     throw ValidationException::withMessages([
-                        "quantities_tax.$key" => "Stok kena pajak untuk {$product->product_name} tidak mencukupi (tersedia {$availableTax}).",
+                        "quantities_tax.$key" => "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood}).",
                     ]);
                 }
 
-                if ($quantityNonTax > $availableNonTax) {
-                    throw ValidationException::withMessages([
-                        "quantities_non_tax.$key" => "Stok non-pajak untuk {$product->product_name} tidak mencukupi (tersedia {$availableNonTax}).",
-                    ]);
-                }
-
-                if (($quantityTax + $quantityNonTax) <= 0) {
+                if ($requestedMovement <= 0) {
                     throw ValidationException::withMessages([
                         "quantities_tax.$key" => "Jumlah kuantitas rusak untuk {$product->product_name} harus lebih dari 0.",
                     ]);
@@ -677,6 +743,8 @@ class AdjustmentController extends Controller
     public function editBreakage(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.breakage.edit'), 403);
+        $this->assertAdjustmentOwned($adjustment);
+        $this->assertBreakageEditable($adjustment);
 
         $adjustment->load(['adjustedProducts.product', 'location']);
 
@@ -694,6 +762,10 @@ class AdjustmentController extends Controller
     public function updateBreakage(Request $request, Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.breakage.edit'), 403);
+        $this->assertAdjustmentOwned($adjustment);
+        $this->assertBreakageEditable($adjustment);
+
+        $activeSettingId = (int) session('setting_id');
 
         $request->validate([
             'date' => 'required|date',
@@ -706,42 +778,72 @@ class AdjustmentController extends Controller
             'serial_numbers' => 'nullable|array',
             'serial_numbers.*' => 'array',
             'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id',
-            'location_id' => [
-                'required',
-                'exists:locations,id',
-                function ($attribute, $value, $fail) {
-                    $location = \Modules\Setting\Entities\Location::find($value);
-                    if ($location && $location->is_consignment) {
-                        $fail('Penyesuaian stok rusak tidak dapat dilakukan pada lokasi konsinyasi.');
-                    }
-                },
-            ],
+            'location_id' => ['required', 'exists:locations,id'],
         ]);
 
+        $location = Location::with('setting')->find($request->location_id);
+
+        try {
+            app(\Modules\Adjustment\Services\AdjustmentOwnershipGuard::class)
+                ->assertLocationOwned($location, $activeSettingId);
+        } catch (ValidationException $e) {
+            return back()->withErrors(['location_id' => (string) collect($e->errors())->flatten()->first()])->withInput();
+        }
+
+        $isPkp = (bool) $location->setting->is_pkp;
+        $serialPolicy = app(\Modules\Adjustment\Services\BreakageSerialPolicy::class);
+
+        if (count($request->product_ids) !== count(array_unique($request->product_ids))) {
+            return back()
+                ->withErrors(['product_ids' => 'Setiap produk hanya boleh muncul satu kali dalam dokumen barang rusak.'])
+                ->withInput();
+        }
+
+        $allSerialIds = collect($request->serial_numbers ?? [])->flatten()->map('intval');
+        if ($allSerialIds->count() !== $allSerialIds->unique()->count()) {
+            return back()
+                ->withErrors(['serial_numbers' => 'Nomor seri yang sama tidak boleh digunakan lebih dari satu kali dalam satu dokumen.'])
+                ->withInput();
+        }
+
         foreach ($request->product_ids as $key => $id) {
-            $product = Product::find($id);
+            $product = $this->resolveBreakageProduct((int) $id, $location);
 
-            if ($product && $product->serial_number_required) {
-                $serialCount = isset($request->serial_numbers[$key])
-                    ? count($request->serial_numbers[$key])
-                    : 0;
-                $expected = (int) ($request->quantities_tax[$key] ?? 0) + (int) ($request->quantities_non_tax[$key] ?? 0);
+            if (!$product) {
+                return back()
+                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif."])
+                    ->withInput();
+            }
 
-                if ($serialCount !== $expected) {
+            if ($product->serial_number_required) {
+                $serialIds = array_map('intval', $request->serial_numbers[$key] ?? []);
+
+                if (empty($serialIds)) {
                     return back()
                         ->withErrors([
-                            "serial_numbers.$key" => "Jumlah serial number untuk produk {$product->product_name} harus sama dengan total kuantitas ($expected)."
+                            "serial_numbers.$key" => "Produk {$product->product_name} memerlukan serial number."
+                        ])
+                        ->withInput();
+                }
+
+                $classification = $serialPolicy->classify($product, $location, $isPkp, $serialIds);
+
+                if (!empty($classification['serial_conflicts']) || count($classification['eligible']) !== count($serialIds)) {
+                    return back()
+                        ->withErrors([
+                            "serial_numbers.$key" => implode(' ', $classification['conflicts']) ?: "Nomor seri untuk produk {$product->product_name} tidak valid.",
                         ])
                         ->withInput();
                 }
             }
         }
 
-        DB::transaction(function () use ($request, $adjustment) {
+        DB::transaction(function () use ($request, $adjustment, $location, $isPkp, $serialPolicy) {
             // Update Adjustment Header
             $adjustment->update([
                 'date' => $request->date,
                 'note' => $request->note,
+                'location_id' => $location->id,
             ]);
 
             // Delete previous adjusted products
@@ -749,25 +851,39 @@ class AdjustmentController extends Controller
 
             // Insert new adjusted products
             foreach ($request->product_ids as $key => $id) {
-                $product = Product::findOrFail($id);
-                $serialIds = $request->serial_numbers[$key] ?? [];
+                $product = $this->resolveBreakageProduct((int) $id, $location);
+                if (!$product) {
+                    throw ValidationException::withMessages([
+                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif.",
+                    ]);
+                }
+                $serialIds = array_map('intval', $request->serial_numbers[$key] ?? []);
                 $quantityTax = (int) ($request->quantities_tax[$key] ?? 0);
                 $quantityNonTax = (int) ($request->quantities_non_tax[$key] ?? 0);
 
-                if (!empty($serialIds)) {
-                    $serials = ProductSerialNumber::whereIn('id', $serialIds)
-                        ->where('product_id', $id)
-                        ->whereNull('dispatch_detail_id')
-                        ->get(['id', 'tax_id']);
+                if ($product->serial_number_required) {
+                    $classification = $serialPolicy->classify($product, $location, $isPkp, $serialIds);
 
-                    $quantityTax = $serials->whereNotNull('tax_id')->count();
-                    $quantityNonTax = $serials->count() - $quantityTax;
+                    if (!empty($classification['serial_conflicts']) || count($classification['eligible']) !== count($serialIds)) {
+                        throw ValidationException::withMessages([
+                            "serial_numbers.$key" => $classification['conflicts'] ?: ["Nomor seri untuk produk {$product->product_name} tidak valid."],
+                        ]);
+                    }
 
-                    $serialIds = $serials->pluck('id')->map(fn ($serialId) => (int) $serialId)->toArray();
+                    $serialIds = collect($classification['eligible'])->pluck('serial_id')->all();
+                    $quantityTax = $isPkp ? count($serialIds) : 0;
+                    $quantityNonTax = $isPkp ? 0 : count($serialIds);
+                } else {
+                    $otherBucket = $isPkp ? $quantityNonTax : $quantityTax;
+                    if ($otherBucket > 0) {
+                        throw ValidationException::withMessages([
+                            "quantities_tax.$key" => "Kuantitas untuk {$product->product_name} harus berada pada kelompok pajak yang sesuai dengan pengaturan PKP lokasi ini.",
+                        ]);
+                    }
                 }
 
                 $productStock = ProductStock::where('product_id', $id)
-                    ->where('location_id', $request->location_id)
+                    ->where('location_id', $location->id)
                     ->first();
 
                 if (!$productStock) {
@@ -776,22 +892,18 @@ class AdjustmentController extends Controller
                     ]);
                 }
 
-                $availableTax = (int) ($productStock->quantity_tax ?? 0);
-                $availableNonTax = (int) ($productStock->quantity_non_tax ?? 0);
+                $availableGood = $isPkp
+                    ? (int) ($productStock->quantity_tax ?? 0)
+                    : (int) ($productStock->quantity_non_tax ?? 0);
+                $requestedMovement = $quantityTax + $quantityNonTax;
 
-                if ($quantityTax > $availableTax) {
+                if ($requestedMovement > $availableGood) {
                     throw ValidationException::withMessages([
-                        "quantities_tax.$key" => "Stok kena pajak untuk {$product->product_name} tidak mencukupi (tersedia {$availableTax}).",
+                        "quantities_tax.$key" => "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood}).",
                     ]);
                 }
 
-                if ($quantityNonTax > $availableNonTax) {
-                    throw ValidationException::withMessages([
-                        "quantities_non_tax.$key" => "Stok non-pajak untuk {$product->product_name} tidak mencukupi (tersedia {$availableNonTax}).",
-                    ]);
-                }
-
-                if (($quantityTax + $quantityNonTax) <= 0) {
+                if ($requestedMovement <= 0) {
                     throw ValidationException::withMessages([
                         "quantities_tax.$key" => "Jumlah kuantitas rusak untuk {$product->product_name} harus lebih dari 0.",
                     ]);
@@ -1061,180 +1173,12 @@ class AdjustmentController extends Controller
         abort_unless(Gate::any(['adjustments.breakage.approval', 'adjustments.approval']), 403);
 
         try {
-            DB::beginTransaction();
-
-            // Eager load to avoid N+1 surprises
-            $adjustment->load('adjustedProducts.product');
-
-            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-                $product    = $adjustedProduct->product;
-                $locationId = $adjustment->location_id;
-
-                $quantityTax = max(0, (int) ($adjustedProduct->quantity_tax ?? 0));
-                $quantityNonTax = max(0, (int) ($adjustedProduct->quantity_non_tax ?? 0));
-                $qtyToBreak = $quantityTax + $quantityNonTax;
-
-                // Backward compatibility for legacy rows
-                if ($qtyToBreak === 0 && (int) $adjustedProduct->quantity > 0) {
-                    if ((bool) $adjustedProduct->is_taxable) {
-                        $quantityTax = (int) $adjustedProduct->quantity;
-                    } else {
-                        $quantityNonTax = (int) $adjustedProduct->quantity;
-                    }
-
-                    $qtyToBreak = $quantityTax + $quantityNonTax;
-                }
-
-                // Lock stock row; must exist for breakage
-                $productStock = ProductStock::where('product_id', $product->id)
-                    ->where('location_id', $locationId)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$productStock) {
-                    throw new Exception("Stok tidak ditemukan untuk {$product->product_name} di lokasi ini.");
-                }
-
-                // Snapshot before
-                $beforeTax       = (int) ($productStock->quantity_tax ?? 0);
-                $beforeNonTax    = (int) ($productStock->quantity_non_tax ?? 0);
-                $beforeBrokenTax = (int) ($productStock->broken_quantity_tax ?? 0);
-                $beforeBrokenNon = (int) ($productStock->broken_quantity_non_tax ?? 0);
-                $prevQuantityAtLocation = (int) ($productStock->quantity ?? ($beforeTax + $beforeNonTax));
-
-                if ($product->serial_number_required) {
-                    $serialIds = json_decode($adjustedProduct->serial_numbers, true) ?? [];
-                    $serialIds = array_map('intval', $serialIds);
-
-                    // 1) strict quantity vs serials
-                    if (count($serialIds) !== $qtyToBreak) {
-                        throw new Exception("Jumlah serial (" . count($serialIds) . ") tidak sama dengan kuantitas breakage ($qtyToBreak) untuk {$product->product_name}.");
-                    }
-
-                    // 2) fetch serials with all safety constraints
-                    $serials = ProductSerialNumber::query()
-                        ->whereIn('id', $serialIds)
-                        ->where('product_id', $product->id)
-                        ->where('location_id', $locationId)
-                        ->whereNull('dispatch_detail_id')
-                        ->where(function ($q) {
-                            $q->whereNull('is_broken')->orWhere('is_broken', false);
-                        })
-                        ->lockForUpdate()
-                        ->get();
-
-                    if ($serials->count() !== $qtyToBreak) {
-                        throw new Exception("Beberapa serial tidak tersedia/valid untuk {$product->product_name}.");
-                    }
-
-                    // 3) classify by tax status based on serial.tax_id
-                    $taxableCount    = $serials->whereNotNull('tax_id')->count();
-                    $nonTaxableCount = $serials->count() - $taxableCount;
-
-                    $quantityTax = $taxableCount;
-                    $quantityNonTax = $nonTaxableCount;
-                    $qtyToBreak = $taxableCount + $nonTaxableCount;
-
-                    // 4) sufficiency check vs current stock
-                    if ($taxableCount > $beforeTax) {
-                        throw new Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$taxableCount}, ada {$beforeTax}).");
-                    }
-                    if ($nonTaxableCount > $beforeNonTax) {
-                        throw new Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$nonTaxableCount}, ada {$beforeNonTax}).");
-                    }
-
-                    // 5) mutate stock
-                    $productStock->quantity_tax            = $beforeTax - $taxableCount;
-                    $productStock->quantity_non_tax        = $beforeNonTax - $nonTaxableCount;
-                    $productStock->broken_quantity_tax     = $beforeBrokenTax + $taxableCount;
-                    $productStock->broken_quantity_non_tax = $beforeBrokenNon + $nonTaxableCount;
-                    $productStock->quantity                = max(0, ($productStock->quantity_tax ?? 0) + ($productStock->quantity_non_tax ?? 0));
-                    $productStock->broken_quantity         = ($productStock->broken_quantity_tax ?? 0) + ($productStock->broken_quantity_non_tax ?? 0);
-                    $productStock->save();
-
-                    // 6) mark serials as broken
-                    ProductSerialNumber::whereIn('id', $serialIds)
-                        ->update([
-                            'is_broken' => true,
-                        ]);
-
-                } else {
-                    if ($quantityTax > $beforeTax) {
-                        throw new Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$quantityTax}, ada {$beforeTax}).");
-                    }
-
-                    if ($quantityNonTax > $beforeNonTax) {
-                        throw new Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$quantityNonTax}, ada {$beforeNonTax}).");
-                    }
-
-                    $productStock->quantity_tax            = $beforeTax - $quantityTax;
-                    $productStock->quantity_non_tax        = $beforeNonTax - $quantityNonTax;
-                    $productStock->broken_quantity_tax     = $beforeBrokenTax + $quantityTax;
-                    $productStock->broken_quantity_non_tax = $beforeBrokenNon + $quantityNonTax;
-                    $productStock->quantity                = max(0, ($productStock->quantity_tax ?? 0) + ($productStock->quantity_non_tax ?? 0));
-                    $productStock->broken_quantity         = ($productStock->broken_quantity_tax ?? 0) + ($productStock->broken_quantity_non_tax ?? 0);
-                    $productStock->save();
-                }
-
-                // Re-read persisted "after" values from the model for accurate logging
-                $afterTax       = (int) ($productStock->quantity_tax ?? 0);
-                $afterNonTax    = (int) ($productStock->quantity_non_tax ?? 0);
-                $afterBrokenTax = (int) ($productStock->broken_quantity_tax ?? 0);
-                $afterBrokenNon = (int) ($productStock->broken_quantity_non_tax ?? 0);
-                $newQuantityAtLocation = (int) ($productStock->quantity ?? ($afterTax + $afterNonTax));
-
-                Transaction::create([
-                    'product_id'                     => $product->id,
-                    'setting_id'                     => session('setting_id'),
-                    'type'                           => 'ADJ',
-                    'quantity'                       => $qtyToBreak,
-
-                    'previous_quantity'              => $prevQuantityAtLocation,
-                    'after_quantity'                 => $newQuantityAtLocation,
-                    'previous_quantity_at_location'  => $prevQuantityAtLocation,
-                    'after_quantity_at_location'     => $newQuantityAtLocation,
-
-                    'quantity_tax'                   => $afterTax,
-                    'quantity_non_tax'               => $afterNonTax,
-                    'broken_quantity_tax'            => $afterBrokenTax,
-                    'broken_quantity_non_tax'        => $afterBrokenNon,
-                    'broken_quantity'                => $afterBrokenTax + $afterBrokenNon,
-                    'current_quantity'               => $newQuantityAtLocation,
-
-                    'location_id'                    => $locationId,
-                    'user_id'                        => auth()->id(),
-                    'reason'                         => 'Breakage adjustment approved',
-
-                    'created_at'                     => now(),
-                    'updated_at'                     => now(),
-                ]);
-
-                app(\App\Services\Notification\StockNotificationService::class)
-                    ->checkLocationStock($productStock, $prevQuantityAtLocation, $newQuantityAtLocation);
-
-                // Optional: keep product-level broken counter if you use it
-                if ($qtyToBreak > 0) {
-                    $product->increment('broken_quantity', $qtyToBreak);
-                }
-            }
-
-            $adjustment->update(['status' => 'approved']);
-
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($adjustment);
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($adjustment);
-
-            DB::commit();
-
-            toast('Breakage Adjustment Approved!', 'success');
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('Breakage adjustment approval failed', [
-                'adjustment_id' => $adjustment->id,
-                'error' => $e->getMessage(),
-            ]);
-            session()->flash('error', 'Failed to approve breakage adjustment.');
-            toast('Error Approving Breakage Adjustment!', 'error');
+            app(\Modules\Adjustment\Services\BreakageApprovalService::class)->approve($adjustment, auth()->user());
+        } catch (ValidationException $e) {
+            return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
         }
+
+        toast('Penyesuaian Barang Rusak Disetujui!', 'success');
 
         return redirect()->route('adjustments.index');
     }

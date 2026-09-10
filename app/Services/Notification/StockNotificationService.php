@@ -27,6 +27,17 @@ class StockNotificationService
         }
     }
 
+    /**
+     * @param float $previousQuantity The quantity the threshold decision is based on, BEFORE the change.
+     * @param float $currentQuantity The quantity the threshold decision is based on, AFTER the change.
+     *   For most callers this is the same figure as $stock->quantity (physical
+     *   good+broken total). Breakage intentionally holds $stock->quantity
+     *   invariant and instead passes the SELLABLE (good-only) quantity here,
+     *   so the displayed "current / threshold" figure must reflect that same
+     *   sellable quantity, not $stock->quantity -- otherwise a low-stock
+     *   notification can render an unrelated, always-above-threshold physical
+     *   total next to the alert.
+     */
     public function checkLocationStock(ProductStock $stock, float $previousQuantity, float $currentQuantity): void
     {
         $product = $stock->product;
@@ -37,7 +48,7 @@ class StockNotificationService
         $alert = (float) $product->product_stock_alert;
 
         if ($currentQuantity <= $alert && $previousQuantity > $alert) {
-            $this->createLocationStockNotifications($stock);
+            $this->createLocationStockNotifications($stock, $currentQuantity);
         } elseif ($currentQuantity > $alert && $previousQuantity <= $alert) {
             $this->resolveLocationStockNotifications($stock);
         }
@@ -78,11 +89,18 @@ class StockNotificationService
         );
     }
 
-    public function createLocationStockNotifications(ProductStock $stock): void
+    /**
+     * @param float|null $currentQuantity The quantity that actually crossed
+     *   the threshold (per checkLocationStock's doc comment). Defaults to
+     *   $stock->quantity for callers that check against the physical total,
+     *   preserving their existing behavior.
+     */
+    public function createLocationStockNotifications(ProductStock $stock, ?float $currentQuantity = null): void
     {
         $product = $stock->product;
         $recipients = $this->permissionResolver->getLowStockRecipients($product->setting_id);
-        
+        $displayQuantity = $currentQuantity ?? (float) $stock->quantity;
+
         $locationName = $stock->location->location_name ?? 'Lokasi';
 
         foreach ($recipients as $user) {
@@ -93,13 +111,13 @@ class StockNotificationService
                 'category' => 'stock',
                 'type' => 'location_low_stock',
                 'title' => 'Stok Lokasi Menipis',
-                'message' => "Stok untuk produk {$product->product_name} di {$locationName} menipis ({$stock->quantity} / {$product->product_stock_alert}).",
+                'message' => "Stok untuk produk {$product->product_name} di {$locationName} menipis ({$displayQuantity} / {$product->product_stock_alert}).",
                 'source_type' => ProductStock::class,
                 'source_id' => $stock->id,
                 'fingerprint' => "stock:location:{$stock->id}:user:{$user->id}",
                 'action_url' => route('products.show', $product->id),
                 'metadata' => [
-                    'current_quantity' => $stock->quantity,
+                    'current_quantity' => $displayQuantity,
                     'threshold' => $product->product_stock_alert,
                     'location_name' => $locationName,
                 ]

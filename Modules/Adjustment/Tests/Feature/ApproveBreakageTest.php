@@ -97,17 +97,20 @@ class ApproveBreakageTest extends TestCase
             'tax_id' => null,
         ]);
 
-        $taxableSerial = ProductSerialNumber::create([
-            'product_id' => $product->id,
-            'location_id' => $location->id,
-            'serial_number' => 'SN-TAX-1',
-            'tax_id' => $tax->id,
-        ]);
-
+        // Setting defaults to Non-PKP (is_pkp not set), so breakage moves
+        // only the non-tax bucket -- the single-PKP-bucket contract now
+        // enforced by BreakageApprovalService/BreakageSerialPolicy.
         $nonTaxSerial = ProductSerialNumber::create([
             'product_id' => $product->id,
             'location_id' => $location->id,
             'serial_number' => 'SN-NONTAX-1',
+            'tax_id' => null,
+        ]);
+
+        $anotherNonTaxSerial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'serial_number' => 'SN-NONTAX-2',
             'tax_id' => null,
         ]);
 
@@ -123,9 +126,9 @@ class ApproveBreakageTest extends TestCase
             'adjustment_id' => $adjustment->id,
             'product_id' => $product->id,
             'quantity' => 2,
-            'quantity_tax' => 1,
-            'quantity_non_tax' => 1,
-            'serial_numbers' => json_encode([$taxableSerial->id, $nonTaxSerial->id]),
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 2,
+            'serial_numbers' => json_encode([$nonTaxSerial->id, $anotherNonTaxSerial->id]),
             'type' => 'sub',
             'is_taxable' => 0,
         ]);
@@ -140,16 +143,16 @@ class ApproveBreakageTest extends TestCase
         $adjustment->refresh();
         $stock->refresh();
         $product->refresh();
-        $taxableSerial->refresh();
         $nonTaxSerial->refresh();
+        $anotherNonTaxSerial->refresh();
 
         $this->assertSame(AdjustmentStatus::Approved, $adjustment->status);
-        $this->assertEquals(4, (int) $stock->quantity_tax);
-        $this->assertEquals(4, (int) $stock->quantity_non_tax);
-        $this->assertEquals(1, (int) $stock->broken_quantity_tax);
-        $this->assertEquals(1, (int) $stock->broken_quantity_non_tax);
-        $this->assertTrue($taxableSerial->is_broken);
+        $this->assertEquals(5, (int) $stock->quantity_tax);
+        $this->assertEquals(3, (int) $stock->quantity_non_tax);
+        $this->assertEquals(0, (int) $stock->broken_quantity_tax);
+        $this->assertEquals(2, (int) $stock->broken_quantity_non_tax);
         $this->assertTrue($nonTaxSerial->is_broken);
+        $this->assertTrue($anotherNonTaxSerial->is_broken);
         $this->assertSame(2, $product->broken_quantity);
 
         // TODO: Fix transaction recording - currently not being persisted properly
