@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Adjustment\Entities\Adjustment;
 use Modules\Adjustment\Services\AdjustmentProductResolver;
@@ -39,7 +40,18 @@ class AdjustmentProductTable extends Component
     public $quantities = [];
     public array $serialNumberErrors = [];
     public $hasAdjustments = false;
-    public $locationId = null;
+
+    /**
+     * Locked against direct client mutation: Livewire's wire protocol lets a
+     * crafted request $set() any public property regardless of which method
+     * it is bound to in the Blade template, so without #[Locked] a request
+     * could set locationId straight to a foreign-setting location and skip
+     * handleLocationChange()'s ownership check entirely. Every location
+     * transition must go through locationSelected()/locationDropdownSelected()
+     * or confirmLocationChange(), which revalidate via resolveOwnedLocation().
+     */
+    #[Locked]
+    public ?int $locationId = null;
 
     // Redesigned Stock Opname State
     public ?string $draftSessionId = null;
@@ -49,9 +61,12 @@ class AdjustmentProductTable extends Component
     public ?string $feedbackMessage = null;
     public string $feedbackType = 'info'; // 'success', 'warning', 'danger', 'info'
 
-    // Ambiguity resolution state
+    // Ambiguity resolution state (locked against direct client manipulation)
     public bool $showAmbiguityModal = false;
+    #[Locked]
     public array $ambiguousCandidates = [];
+    #[Locked]
+    public string $ambiguousCondition = 'good';
 
     // Row serial dialog state
     public bool $showSerialModal = false;
@@ -62,7 +77,15 @@ class AdjustmentProductTable extends Component
 
     // Location confirmation modal state
     public bool $showLocationConfirmModal = false;
-    public $pendingLocationId = null;
+
+    /**
+     * Locked for the same reason as locationId above: confirmLocationChange()
+     * trusts this value to already be an owned location because
+     * handleLocationChange() is the only path that sets it. resolveOwnedLocation()
+     * is still re-checked in applyLocationChange() as defense in depth.
+     */
+    #[Locked]
+    public ?int $pendingLocationId = null;
 
     // Product search modal state
     public bool $showSearchModal = false;
@@ -79,7 +102,9 @@ class AdjustmentProductTable extends Component
         $adjustment = null
     ): void {
         $this->products = [];
-        $this->locationId = $locationId;
+        $rawLocationId = $locationId ? (int) $locationId : null;
+        $resolvedLoc = $rawLocationId ? $this->resolveOwnedLocation($rawLocationId) : null;
+        $this->locationId = $resolvedLoc ? (int) $resolvedLoc->id : null;
         $this->quantities = $quantities ?? [];
         $this->draftSessionId = (string) \Illuminate\Support\Str::uuid();
 
@@ -90,7 +115,9 @@ class AdjustmentProductTable extends Component
             $draftData = is_string($oldDraft) ? json_decode($oldDraft, true) : $oldDraft;
             $oldLocation = old('location_id') ?? (session()->has('_old_input') ? session()->getOldInput('location_id') : null);
 
-            $this->locationId = $oldLocation ?: ($draftData['location_id'] ?? $this->locationId);
+            $candidateLocation = $oldLocation ?: ($draftData['location_id'] ?? $this->locationId);
+            $resolvedOldLoc = $candidateLocation ? $this->resolveOwnedLocation((int) $candidateLocation) : null;
+            $this->locationId = $resolvedOldLoc ? (int) $resolvedOldLoc->id : null;
             if (!empty($draftData['draft_session_id'])) {
                 $this->draftSessionId = (string) $draftData['draft_session_id'];
             }
@@ -341,6 +368,28 @@ class AdjustmentProductTable extends Component
     }
 
     /**
+     * Every Livewire action that accepts a location ID from the client must
+     * revalidate it server-side against the active session setting and
+     * exclude consignment locations -- the LocationSearchDropdown's rendered
+     * options are a UI convenience, not a security boundary, so a crafted
+     * request could otherwise read another setting's location/stock data.
+     */
+    protected function resolveOwnedLocation(?int $locationId): ?Location
+    {
+        if (!$locationId) {
+            return null;
+        }
+
+        $activeSettingId = (int) session('setting_id');
+
+        return Location::with('setting')
+            ->where('id', $locationId)
+            ->where('setting_id', $activeSettingId)
+            ->where('is_consignment', false)
+            ->first();
+    }
+
+    /**
      * Location dropdown event bridge.
      */
     public function locationDropdownSelected($name, $value): void
@@ -358,6 +407,13 @@ class AdjustmentProductTable extends Component
     protected function handleLocationChange($newLocationId): void
     {
         $newLocationId = !empty($newLocationId) ? (int) $newLocationId : null;
+
+        if ($newLocationId !== null && !$this->resolveOwnedLocation($newLocationId)) {
+            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
+            $this->feedbackType = 'danger';
+            $this->dispatch('setSelectedLocation', locationId: $this->locationId);
+            return;
+        }
 
         if ($this->locationId === $newLocationId) {
             return;
@@ -390,15 +446,28 @@ class AdjustmentProductTable extends Component
         $this->dispatch('setSelectedLocation', locationId: $this->locationId);
     }
 
+    /**
+     * Single funnel that assigns $this->locationId from PHP.
+     * Revalidates ownership again as defense in depth.
+     */
     protected function applyLocationChange($newLocationId): void
     {
+        $newLocationId = !empty($newLocationId) ? (int) $newLocationId : null;
+
+        if ($newLocationId !== null && !$this->resolveOwnedLocation($newLocationId)) {
+            $newLocationId = null;
+            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
+            $this->feedbackType = 'danger';
+        } else {
+            $this->feedbackMessage = 'Lokasi telah diubah. Daftar perhitungan telah diatur ulang.';
+            $this->feedbackType = 'info';
+        }
+
         $this->locationId = $newLocationId;
         $this->products = [];
         $this->quantities = [];
         $this->serialNumberErrors = [];
         $this->hasAdjustments = false;
-        $this->feedbackMessage = 'Lokasi telah diubah. Daftar perhitungan telah diatur ulang.';
-        $this->feedbackType = 'info';
     }
 
     /**
@@ -412,18 +481,24 @@ class AdjustmentProductTable extends Component
     }
 
     /**
-     * Scan bar input handler (called on Enter / scan completion).
+     * Scan bar input handler (called on Enter / scan completion or explicit queue drain).
+     * Accepts an optional explicit $code while falling back to $this->scanInput.
+     * Also accepts an optional explicit $condition ('good' or 'bad') to preserve the condition
+     * captured when the scan was enqueued, even if $activeCondition changed later.
      */
-    public function processScan(): void
+    public function processScan(?string $code = null, ?string $condition = null): void
     {
-        $code = trim($this->scanInput);
+        $code = trim($code ?? $this->scanInput);
         $this->feedbackMessage = null;
+
+        $targetCondition = in_array($condition, ['good', 'bad'], true) ? $condition : $this->activeCondition;
 
         if ($code === '') {
             return;
         }
 
-        if (!$this->locationId) {
+        if (!$this->locationId || !$this->resolveOwnedLocation($this->locationId)) {
+            $this->locationId = null;
             $this->feedbackMessage = 'Pilih lokasi terlebih dahulu sebelum memindai.';
             $this->feedbackType = 'warning';
             $this->dispatch('select-scan-input');
@@ -442,12 +517,14 @@ class AdjustmentProductTable extends Component
 
         if ($result['status'] === 'ambiguous') {
             $this->ambiguousCandidates = $result['candidates'] ?? [];
+            $this->ambiguousCondition = $targetCondition;
             $this->showAmbiguityModal = true;
+            $this->dispatch('opname-ambiguity-opened');
             return;
         }
 
         if ($result['status'] === 'resolved') {
-            $applied = $this->applyResolvedCandidate($result['candidate']);
+            $applied = $this->applyResolvedCandidate($result['candidate'], $targetCondition);
             if ($applied) {
                 $this->scanInput = '';
                 $this->dispatch('restore-scanner-focus');
@@ -464,9 +541,12 @@ class AdjustmentProductTable extends Component
     {
         if (isset($this->ambiguousCandidates[$candidateIndex])) {
             $candidate = $this->ambiguousCandidates[$candidateIndex];
+            $condition = in_array($this->ambiguousCondition, ['good', 'bad'], true) ? $this->ambiguousCondition : 'good';
             $this->showAmbiguityModal = false;
             $this->ambiguousCandidates = [];
-            $applied = $this->applyResolvedCandidate($candidate);
+            $this->ambiguousCondition = 'good';
+            $this->dispatch('opname-ambiguity-closed');
+            $applied = $this->applyResolvedCandidate($candidate, $condition);
             if ($applied) {
                 $this->scanInput = '';
                 $this->dispatch('restore-scanner-focus');
@@ -480,38 +560,48 @@ class AdjustmentProductTable extends Component
     {
         $this->showAmbiguityModal = false;
         $this->ambiguousCandidates = [];
+        $this->ambiguousCondition = 'good';
+        $this->dispatch('opname-ambiguity-closed');
         $this->dispatch('restore-scanner-focus');
     }
 
     /**
      * Apply a resolved match candidate to the opname table.
-     * Returns true if application succeeded, false if rejected (e.g. duplicate serial or invalid conversion factor).
+     * Returns true if application succeeded, false if rejected (e.g. duplicate serial, invalid conversion factor, or row creation failure).
      */
-    protected function applyResolvedCandidate(array $candidate): bool
+    protected function applyResolvedCandidate(array $candidate, ?string $targetCondition = null): bool
     {
         $type = $candidate['type'];
         $productData = $candidate['product'];
         $productId = (int) $productData['id'];
 
+        $condition = in_array($targetCondition, ['good', 'bad'], true) ? $targetCondition : $this->activeCondition;
+        $conditionLabel = $condition === 'good' ? 'Bagus' : 'Rusak';
+
         $existingIndex = $this->findProductRowIndex($productId);
-        $conditionLabel = $this->activeCondition === 'good' ? 'Bagus' : 'Rusak';
 
         if ($type === 'product') {
             if ($productData['serial_number_required']) {
                 // Serialized barcode: create row at 0 or focus without increment
                 if ($existingIndex === null) {
-                    $this->addProductRow($productData);
+                    $newIndex = $this->addProductRow($productData);
+                    if ($newIndex === null) {
+                        return false;
+                    }
                     $this->feedbackMessage = "Produk berseri '{$productData['product_name']}' ditambahkan. Silakan masukkan nomor seri.";
                 } else {
                     $this->feedbackMessage = "Produk berseri '{$productData['product_name']}' difokuskan (baris " . ($existingIndex + 1) . ").";
                 }
                 $this->feedbackType = 'info';
             } else {
-                // Ordinary barcode: add 1 to active condition
+                // Ordinary barcode: add 1 to target condition
                 if ($existingIndex === null) {
                     $existingIndex = $this->addProductRow($productData);
+                    if ($existingIndex === null) {
+                        return false;
+                    }
                 }
-                $this->incrementCount($existingIndex, $this->activeCondition, 1);
+                $this->incrementCount($existingIndex, $condition, 1);
                 $this->feedbackMessage = "+1 ({$conditionLabel}) untuk '{$productData['product_name']}'.";
                 $this->feedbackType = 'success';
             }
@@ -532,7 +622,10 @@ class AdjustmentProductTable extends Component
             if ($productData['serial_number_required']) {
                 // Serialized conversion barcode: create at 0 or focus without increment
                 if ($existingIndex === null) {
-                    $this->addProductRow($productData);
+                    $newIndex = $this->addProductRow($productData);
+                    if ($newIndex === null) {
+                        return false;
+                    }
                     $this->feedbackMessage = "Produk berseri '{$productData['product_name']}' ditambahkan. Silakan masukkan nomor seri.";
                 } else {
                     $this->feedbackMessage = "Produk berseri '{$productData['product_name']}' difokuskan.";
@@ -541,8 +634,11 @@ class AdjustmentProductTable extends Component
             } else {
                 if ($existingIndex === null) {
                     $existingIndex = $this->addProductRow($productData);
+                    if ($existingIndex === null) {
+                        return false;
+                    }
                 }
-                $this->incrementCount($existingIndex, $this->activeCondition, $factorInt);
+                $this->incrementCount($existingIndex, $condition, $factorInt);
                 $this->feedbackMessage = "+{$factorInt} satuan dasar ({$conversion['unit_name']}) {$conditionLabel} untuk '{$productData['product_name']}'.";
                 $this->feedbackType = 'success';
             }
@@ -553,6 +649,9 @@ class AdjustmentProductTable extends Component
 
             if ($existingIndex === null) {
                 $existingIndex = $this->addProductRow($productData);
+                if ($existingIndex === null) {
+                    return false;
+                }
             }
 
             // Check if serial already exists on this product row
@@ -566,7 +665,7 @@ class AdjustmentProductTable extends Component
             // Add serial entry
             $this->products[$existingIndex]['serial_numbers'][] = [
                 'serial_number' => $serialText,
-                'condition' => $this->activeCondition,
+                'condition' => $condition,
                 'source_serial_id' => (int) $serialData['id'],
                 'source_location_id' => !empty($serialData['location_id']) ? (int) $serialData['location_id'] : null,
                 'source_location_name' => $serialData['location_name'] ?? null,
@@ -586,13 +685,21 @@ class AdjustmentProductTable extends Component
     /**
      * Add a product row initialized at zero counts with captured baseline.
      */
-    protected function addProductRow(array $productData): int
+    protected function addProductRow(array $productData): ?int
     {
+        $resolvedLocation = $this->resolveOwnedLocation($this->locationId);
+        if (!$resolvedLocation) {
+            $this->locationId = null;
+            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
+            $this->feedbackType = 'danger';
+            return null;
+        }
+
         $productId = (int) $productData['id'];
         $resolver = app(AdjustmentProductResolver::class);
         $baseline = $resolver->captureBaseline(
             $productId,
-            (int) $this->locationId,
+            (int) $resolvedLocation->id,
             auth()->id(),
             $this->draftSessionId,
             $this->adjustmentId
@@ -711,7 +818,8 @@ class AdjustmentProductTable extends Component
     {
         Log::info('AdjustmentProductTable: productSelected', ['product' => $product]);
 
-        if (!$this->locationId) {
+        if (!$this->locationId || !$this->resolveOwnedLocation($this->locationId)) {
+            $this->locationId = null;
             session()->flash('message', 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.');
             $this->feedbackMessage = 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.';
             $this->feedbackType = 'warning';
@@ -733,7 +841,11 @@ class AdjustmentProductTable extends Component
         if ($productEntity) {
             $resolver = app(AdjustmentProductResolver::class);
             $normalized = $resolver->normalizeProductData($productEntity);
-            $this->addProductRow($normalized);
+            $addedIndex = $this->addProductRow($normalized);
+            if ($addedIndex === null) {
+                $this->closeSearchModal();
+                return;
+            }
             $this->feedbackMessage = "Produk '{$normalized['product_name']}' berhasil ditambahkan ke daftar.";
             $this->feedbackType = 'success';
         }

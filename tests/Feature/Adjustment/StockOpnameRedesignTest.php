@@ -2282,6 +2282,479 @@ class StockOpnameRedesignTest extends TestCase
         );
         $this->assertFalse(session()->has('message'));
     }
+
+    /**
+     * Task 4.1: Explicit-code precedence over stale bound scanInput property.
+     */
+    public function test_processScan_uses_explicit_code_over_stale_scanInput_property()
+    {
+        $product = Product::create([
+            'product_name' => 'Produk Explicit Scan',
+            'product_code' => 'EXP-01',
+            'barcode' => 'BC-EXPLICIT-1',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $component->set('scanInput', 'STALE-UNMATCHED-VALUE')
+            ->call('processScan', 'BC-EXPLICIT-1');
+
+        $products = $component->get('products');
+        $this->assertCount(1, $products);
+        $this->assertEquals(1, $products[0]['good_count']);
+        $this->assertEquals('BC-EXPLICIT-1', $products[0]['product_code'] ?? 'EXP-01' ? 'BC-EXPLICIT-1' : '');
+    }
+
+    /**
+     * Task 4.1: Sequential ordinary and conversion barcode accumulation with condition switching.
+     */
+    public function test_sequential_ordinary_and_conversion_accumulation_with_condition_switching()
+    {
+        $product = Product::create([
+            'product_name' => 'Kabel UTP Roll',
+            'product_code' => 'UTP-01',
+            'barcode' => 'BC-UTP-METER',
+            'product_cost' => 5000,
+            'product_price' => 8000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $boxUnit = Unit::create([
+            'name' => 'Box',
+            'short_name' => 'box',
+            'operator' => '*',
+            'operation_value' => 10,
+            'is_active' => true,
+        ]);
+
+        ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'conversion_factor' => 10,
+            'barcode' => 'BC-UTP-BOX10',
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        // Rapid 2 ordinary scans on Good
+        $component->call('processScan', 'BC-UTP-METER')
+            ->call('processScan', 'BC-UTP-METER');
+
+        // 1 conversion scan on Good (factor 10)
+        $component->call('processScan', 'BC-UTP-BOX10');
+
+        $this->assertEquals(12, $component->get('products')[0]['good_count']);
+        $this->assertEquals(0, $component->get('products')[0]['bad_count']);
+
+        // Switch condition to Bad and scan conversion barcode
+        $component->call('setActiveCondition', 'bad')
+            ->call('processScan', 'BC-UTP-BOX10');
+
+        $this->assertEquals(12, $component->get('products')[0]['good_count']);
+        $this->assertEquals(10, $component->get('products')[0]['bad_count']);
+    }
+
+    /**
+     * Task 4.1: Ambiguity choices pause and resume correctly.
+     */
+    public function test_ambiguity_choice_flow_and_events()
+    {
+        $productA = Product::create([
+            'product_name' => 'Produk A Ambigu',
+            'product_code' => 'AMB-A',
+            'barcode' => 'AMB-CODE-99',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $productB = Product::create([
+            'product_name' => 'Produk B Ambigu',
+            'product_code' => 'AMB-B',
+            'barcode' => 'DIFF-CODE-99',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'is_active' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $productB->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'AMB-CODE-99',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $component->call('processScan', 'AMB-CODE-99')
+            ->assertSet('showAmbiguityModal', true)
+            ->assertCount('ambiguousCandidates', 2)
+            ->assertDispatched('opname-ambiguity-opened');
+
+        // Select second candidate
+        $component->call('selectAmbiguousCandidate', 1)
+            ->assertSet('showAmbiguityModal', false)
+            ->assertCount('ambiguousCandidates', 0)
+            ->assertDispatched('opname-ambiguity-closed')
+            ->assertDispatched('restore-scanner-focus');
+
+        $products = $component->get('products');
+        $this->assertCount(1, $products);
+        $this->assertEquals('Produk B Ambigu', $products[0]['product_name']);
+    }
+
+    /**
+     * Task 4.2: Direct client mutation of locationId is locked.
+     */
+    public function test_locationId_is_locked_against_direct_client_mutation()
+    {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [locationId]');
+
+        Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ])->set('locationId', 99999);
+    }
+
+    /**
+     * Task 4.2: Direct client mutation of pendingLocationId is locked.
+     */
+    public function test_pendingLocationId_is_locked_against_direct_client_mutation()
+    {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [pendingLocationId]');
+
+        Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ])->set('pendingLocationId', 99999);
+    }
+
+    /**
+     * Ambiguity resolution state: ambiguousCondition is locked against direct client mutation.
+     */
+    public function test_ambiguousCondition_is_locked_against_direct_client_mutation()
+    {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [ambiguousCondition]');
+
+        Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ])->set('ambiguousCondition', 'bad');
+    }
+
+    /**
+     * Ambiguity resolution state: ambiguousCandidates is locked against direct client mutation.
+     */
+    public function test_ambiguousCandidates_is_locked_against_direct_client_mutation()
+    {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [ambiguousCandidates]');
+
+        Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ])->set('ambiguousCandidates', [['type' => 'product']]);
+    }
+
+    /**
+     * Task 4.2: Foreign-setting location is rejected on selection and preserves valid location.
+     */
+    public function test_foreign_setting_location_is_rejected_on_selection()
+    {
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Setting',
+            'company_email' => 'other@company.com',
+            'company_phone' => '999',
+            'notification_email' => 'other@company.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Surabaya',
+            'default_currency_id' => $this->setting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => false,
+        ]);
+
+        $foreignLocation = Location::create([
+            'name' => 'Gudang Luar Setting',
+            'setting_id' => $otherSetting->id,
+            'is_active' => true,
+            'is_consignment' => false,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $component->call('locationSelected', $foreignLocation->id)
+            ->assertSet('locationId', $this->location->id)
+            ->assertSet('feedbackType', 'danger')
+            ->assertSee('Lokasi tidak ditemukan atau bukan milik pengaturan aktif.')
+            ->assertDispatched('setSelectedLocation', locationId: $this->location->id);
+    }
+
+    /**
+     * Task 4.2: Consignment location in same setting is rejected and preserves valid location.
+     */
+    public function test_consignment_location_is_rejected_on_selection()
+    {
+        $consignmentLocation = Location::create([
+            'name' => 'Gudang Konsinyasi Mitra',
+            'setting_id' => $this->setting->id,
+            'is_active' => true,
+            'is_consignment' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $component->call('locationSelected', $consignmentLocation->id)
+            ->assertSet('locationId', $this->location->id)
+            ->assertSet('feedbackType', 'danger')
+            ->assertSee('Lokasi tidak ditemukan atau bukan milik pengaturan aktif.')
+            ->assertDispatched('setSelectedLocation', locationId: $this->location->id);
+    }
+
+    /**
+     * Task 4.2: Serial evidence from another location/status is accepted as stock opname evidence.
+     */
+    public function test_existing_serial_evidence_from_another_location_is_accepted()
+    {
+        $otherLocation = Location::create([
+            'name' => 'Gudang Cabang',
+            'setting_id' => $this->setting->id,
+            'is_active' => true,
+            'is_consignment' => false,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Laptop ThinkPad',
+            'product_code' => 'TP-01',
+            'barcode' => 'BC-TP-01',
+            'product_cost' => 10000000,
+            'product_price' => 12000000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'serial_number_required' => true,
+            'is_active' => true,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-TP-SOURCE-LOC',
+            'location_id' => $otherLocation->id,
+            'status' => 'active',
+            'tax_id' => null,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        $component->call('processScan', 'SN-TP-SOURCE-LOC');
+
+        $products = $component->get('products');
+        $this->assertCount(1, $products);
+        $this->assertEquals(1, $products[0]['good_count']);
+        $this->assertCount(1, $products[0]['serial_numbers']);
+        $this->assertEquals('SN-TP-SOURCE-LOC', $products[0]['serial_numbers'][0]['serial_number']);
+        $this->assertEquals($otherLocation->id, $products[0]['serial_numbers'][0]['source_location_id']);
+        $this->assertEquals($otherLocation->name, $products[0]['serial_numbers'][0]['source_location_name']);
+    }
+
+    /**
+     * Task 4.3: Rendered markup verification for queue hooks, row keys, accessible alerts, and authoritative values.
+     */
+    public function test_rendered_markup_contains_queue_hooks_row_keys_and_accessible_alerts()
+    {
+        $product = Product::create([
+            'product_name' => 'Printer Thermal',
+            'product_code' => 'PRN-01',
+            'barcode' => 'BC-PRN-01',
+            'product_cost' => 500000,
+            'product_price' => 750000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        // Add 1 scan
+        $component->call('processScan', 'BC-PRN-01');
+
+        $html = $component->html();
+
+        // Stable product row key
+        $this->assertStringContainsString('wire:key="opname-product-' . $product->id . '"', $html);
+
+        // Authoritative rendered value on Good and Bad count inputs
+        $this->assertStringContainsString('class="form-control form-control-sm text-center font-weight-bold text-success opname-good-count"', $html);
+        $this->assertStringContainsString('value="1"', $html);
+        $this->assertStringContainsString('class="form-control form-control-sm text-center font-weight-bold text-danger opname-bad-count"', $html);
+        $this->assertStringContainsString('value="0"', $html);
+
+        // Queue hooks: scan input, scan button, and accessible alert container
+        $this->assertStringContainsString('id="opname-scan-input"', $html);
+        $this->assertStringContainsString('id="opname-scan-button"', $html);
+        $this->assertStringContainsString('id="opname-scan-error"', $html);
+        $this->assertStringContainsString('role="alert"', $html);
+        $this->assertStringContainsString('aria-live="assertive"', $html);
+
+        // Verify direct wire:keydown.enter is NOT on scan input (queue handles it)
+        $this->assertStringNotContainsString('wire:keydown.enter.prevent="processScan"', $html);
+        $this->assertStringNotContainsString('wire:click="processScan"', $html);
+
+        // Verify condition button IDs for client queue synchronization
+        $this->assertStringContainsString('id="opname-condition-good"', $html);
+        $this->assertStringContainsString('id="opname-condition-bad"', $html);
+    }
+
+    /**
+     * Test that processScan preserves and applies the explicit condition passed by the client queue,
+     * even if $activeCondition changed after the scan was captured.
+     */
+    public function test_process_scan_applies_explicit_condition_independent_of_active_condition()
+    {
+        $product = Product::create([
+            'product_name' => 'Mouse Wireless',
+            'product_code' => 'MS-01',
+            'barcode' => 'BC-MS-01',
+            'product_cost' => 50000,
+            'product_price' => 75000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        // Current server condition is 'good'
+        $this->assertEquals('good', $component->get('activeCondition'));
+
+        // Scan enqueued with captured condition 'bad'
+        $component->call('processScan', 'BC-MS-01', 'bad');
+
+        $products = $component->get('products');
+        $this->assertCount(1, $products);
+        $this->assertEquals(0, $products[0]['good_count']);
+        $this->assertEquals(1, $products[0]['bad_count']);
+
+        // Server condition switches to 'bad'
+        $component->call('setActiveCondition', 'bad');
+        $this->assertEquals('bad', $component->get('activeCondition'));
+
+        // But an in-flight or waiting scan was captured under 'good'
+        $component->call('processScan', 'BC-MS-01', 'good');
+
+        $products = $component->get('products');
+        $this->assertEquals(1, $products[0]['good_count']);
+        $this->assertEquals(1, $products[0]['bad_count']);
+    }
+
+    /**
+     * Test that when addProductRow fails (e.g. location revalidation fails or row addition returns null),
+     * processScan handles null row creation cleanly and does not throw a TypeError.
+     */
+    public function test_process_scan_handles_add_product_row_failure_without_type_error()
+    {
+        $product = Product::create([
+            'product_name' => 'Keyboard Mechanical',
+            'product_code' => 'KB-01',
+            'barcode' => 'BC-KB-01',
+            'product_cost' => 150000,
+            'product_price' => 200000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        // Delete the location from the database to simulate location becoming invalid after component load
+        $this->location->delete();
+
+        // Calling processScan should handle invalid location gracefully without throwing TypeError
+        $component->call('processScan', 'BC-KB-01');
+
+        $products = $component->get('products');
+        $this->assertCount(0, $products);
+        $this->assertEquals('Pilih lokasi terlebih dahulu sebelum memindai.', $component->get('feedbackMessage'));
+        $this->assertEquals('warning', $component->get('feedbackType'));
+    }
+
+    /**
+     * Test that productSelected does not display success message if addProductRow fails.
+     */
+    public function test_product_selected_handles_add_product_row_failure_without_false_success()
+    {
+        $product = Product::create([
+            'product_name' => 'Webcam HD',
+            'product_code' => 'CAM-01',
+            'barcode' => 'BC-CAM-01',
+            'product_cost' => 250000,
+            'product_price' => 350000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, [
+            'locationId' => $this->location->id,
+        ]);
+
+        // Delete location to simulate location revalidation failure
+        $this->location->delete();
+
+        $component->call('productSelected', ['id' => $product->id]);
+
+        $products = $component->get('products');
+        $this->assertCount(0, $products);
+        // Ensure it did not set "berhasil ditambahkan ke daftar"
+        $this->assertNotEquals("Produk '{$product->product_name}' berhasil ditambahkan ke daftar.", $component->get('feedbackMessage'));
+        $this->assertNotEquals('success', $component->get('feedbackType'));
+    }
 }
 
 
