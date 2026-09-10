@@ -758,6 +758,188 @@ class POSSerialValidationCheckoutTest extends TestCase
             ->json('cart_snapshot');
     }
 
+    public function test_cart_assignment_rejects_broken_or_missing_serial(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL BROKEN MISSING ASSIGN');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-BAD', 100000, true);
+
+        $brokenSn = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'serial_number' => 'SN-BROKEN-001',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => true,
+            'is_in_return_process' => false,
+        ]);
+
+        $missingSn = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'serial_number' => 'SN-MISSING-001',
+            'status' => ProductSerialNumber::STATUS_MISSING,
+            'is_broken' => false,
+            'is_in_return_process' => false,
+        ]);
+
+        // Verify search endpoint excludes broken and missing
+        $searchResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.serials.search', [
+                'product_id' => $product->id,
+                'q' => 'SN-',
+            ]));
+        $searchResponse->assertOk()
+            ->assertJsonCount(0, 'serials');
+
+        // Add line to cart
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Direct assignment of broken serial must fail
+        $brokenAssign = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-BROKEN-001'],
+            ]);
+        $brokenAssign->assertStatus(422);
+
+        // Direct assignment of missing serial must fail
+        $missingAssign = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-MISSING-001'],
+            ]);
+        $missingAssign->assertStatus(422);
+    }
+
+    public function test_finalize_rejects_serial_that_became_broken_with_full_rollback(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL BECOMES BROKEN');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-STALE-B', 100000, true);
+
+        $sn = $this->createSerialNumber($product, $context['location'], 'SN-STALE-B01');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign valid serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-STALE-B01'],
+            ])
+            ->assertOk();
+
+        // Stale mutation: serial becomes broken before finalize
+        $sn->update(['is_broken' => true]);
+
+        // Attempt finalize
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-STALE-BROKEN',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'SERIAL_INVALID');
+
+        // Verify serial was NOT marked SOLD
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'ACTIVE',
+            'is_broken' => true,
+            'dispatch_detail_id' => null,
+        ]);
+        $this->assertDatabaseMissing('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'SOLD',
+        ]);
+
+        // Full rollback: no sales, no sale details, no payments, no dispatches, no dispatch details
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_details', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+
+        // Product stock quantity remains unchanged (20)
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'quantity' => 20,
+        ]);
+    }
+
+    public function test_finalize_rejects_serial_that_became_missing_with_full_rollback(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL BECOMES MISSING');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-STALE-M', 100000, true);
+
+        $sn = $this->createSerialNumber($product, $context['location'], 'SN-STALE-M01');
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign valid serial
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-STALE-M01'],
+            ])
+            ->assertOk();
+
+        // Stale mutation: serial becomes missing before finalize
+        $sn->update(['status' => ProductSerialNumber::STATUS_MISSING]);
+
+        // Attempt finalize
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-STALE-MISSING',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'SERIAL_INVALID');
+
+        // Verify serial remains MISSING and was NOT marked SOLD
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'MISSING',
+            'dispatch_detail_id' => null,
+        ]);
+        $this->assertDatabaseMissing('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'SOLD',
+        ]);
+
+        // Full rollback: no sales, no sale details, no payments, no dispatches, no dispatch details
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_details', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+
+        // Product stock quantity remains unchanged (20)
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'quantity' => 20,
+        ]);
+    }
+
     private function finalize(User $cashier, Setting $setting, array $payload)
     {
         return $this->actingAs($cashier)

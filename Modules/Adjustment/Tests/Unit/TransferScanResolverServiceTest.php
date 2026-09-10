@@ -178,7 +178,42 @@ class TransferScanResolverServiceTest extends TestCase
         ]);
 
         $result = $this->service->resolve($this->setting->id, 'SN-SOLD', $this->location->id);
-        $this->assertEquals('none', $result['type']);
+        $this->assertEquals('serial_rejected', $result['type']);
+    }
+
+    public function test_enforces_normal_mode_and_broken_mode_scans()
+    {
+        $goodSerial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-GOOD-1',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        $brokenSerial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-BROKEN-1',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => true,
+        ]);
+
+        // Normal mode accepts good
+        $resNormalGood = $this->service->resolve($this->setting->id, 'SN-GOOD-1', $this->location->id, false);
+        $this->assertEquals('serial_exact', $resNormalGood['type']);
+
+        // Normal mode rejects broken
+        $resNormalBroken = $this->service->resolve($this->setting->id, 'SN-BROKEN-1', $this->location->id, false);
+        $this->assertEquals('serial_rejected', $resNormalBroken['type']);
+
+        // Broken mode accepts broken
+        $resBrokenBroken = $this->service->resolve($this->setting->id, 'SN-BROKEN-1', $this->location->id, true);
+        $this->assertEquals('serial_exact', $resBrokenBroken['type']);
+
+        // Broken mode rejects good
+        $resBrokenGood = $this->service->resolve($this->setting->id, 'SN-GOOD-1', $this->location->id, true);
+        $this->assertEquals('serial_rejected', $resBrokenGood['type']);
     }
 
     public function test_rejects_serial_not_at_location()

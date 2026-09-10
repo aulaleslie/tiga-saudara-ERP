@@ -87,8 +87,7 @@ class PosScanResolverService
         $normalizedSerialQuery = ProductSerialNumber::normalize($query);
         $serialRecord = ProductSerialNumber::query()
             ->where('serial_number', $normalizedSerialQuery)
-            ->where('status', 'ACTIVE')
-            ->whereNull('dispatch_detail_id')
+            ->sellable()
             ->whereIn('location_id', $allowedLocationIds)
             ->with('product')
             ->first();

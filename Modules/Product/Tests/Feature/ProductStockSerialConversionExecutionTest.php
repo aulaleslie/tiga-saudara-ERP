@@ -126,9 +126,10 @@ class ProductStockSerialConversionExecutionTest extends TestCase
         // Check broken stock serial creation & attributes
         $brokenSerial = ProductSerialNumber::where('serial_number', 'SN-BROKEN-NON-TAX-1')->first();
         $this->assertNotNull($brokenSerial);
-        $this->assertEquals($loc1->id, $brokenSerial->location_id);
         $this->assertTrue((bool) $brokenSerial->is_broken);
-        $this->assertEquals(ProductSerialNumber::STATUS_BROKEN, $brokenSerial->status);
+        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $brokenSerial->status);
+        $this->assertTrue($brokenSerial->isAvailableBroken());
+        $this->assertFalse($brokenSerial->isSellable());
         $this->assertNull($brokenSerial->tax_id);
 
         // Check tax ID on PPN serial

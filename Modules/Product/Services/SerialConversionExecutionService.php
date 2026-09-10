@@ -199,7 +199,7 @@ class SerialConversionExecutionService
                         $isTax = in_array($poolKey, ['normal_tax', 'broken_tax'], true);
                         $isBroken = str_starts_with($poolKey, 'broken_');
                         $taxId = $isTax ? $defaultTaxId : null;
-                        $status = $isBroken ? ProductSerialNumber::STATUS_BROKEN : ProductSerialNumber::STATUS_ACTIVE;
+                        $status = ProductSerialNumber::STATUS_ACTIVE;
 
                         foreach ($settingStocks as $stock) {
                             if (empty($serialsToAllocate)) {

@@ -211,7 +211,7 @@ class ResolvePosStockAllocationsService
                 ];
             }
 
-            if (strtoupper((string) $record->status) !== ProductSerialNumber::STATUS_ACTIVE || $record->dispatch_detail_id !== null) {
+            if (! $record->isSellable() || $record->dispatch_detail_id !== null) {
                 return [
                     'allocations' => [],
                     'reason_code' => 'SERIAL_NOT_ACTIVE',

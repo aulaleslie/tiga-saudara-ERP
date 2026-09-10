@@ -124,16 +124,36 @@ class ProductSerialNumbersTable extends Component
         $this->editingValue = '';
     }
 
+    public function getCountsProperty(): array
+    {
+        $settingId = $this->getActiveSettingId();
+
+        $base = ProductSerialNumber::where('product_id', $this->productId)
+            ->whereHas('location', function ($q) use ($settingId) {
+                $q->where('setting_id', $settingId);
+            });
+
+        return [
+            'sellable' => (clone $base)->sellable()->count(),
+            'broken' => (clone $base)->availableBroken()->count(),
+            'returning' => (clone $base)->whereNull('dispatch_detail_id')->where('is_in_return_process', true)->count(),
+            'missing' => (clone $base)->where('status', ProductSerialNumber::STATUS_MISSING)->count(),
+            'history' => (clone $base)->where(function ($q) {
+                $q->whereNotNull('dispatch_detail_id')
+                    ->orWhereIn('status', [
+                        ProductSerialNumber::STATUS_SOLD,
+                        ProductSerialNumber::STATUS_RETURNED,
+                        ProductSerialNumber::STATUS_MISSING,
+                    ]);
+            })->count(),
+        ];
+    }
+
     public function getSerialNumbersProperty()
     {
         $settingId = $this->getActiveSettingId();
 
         $query = ProductSerialNumber::where('product_id', $this->productId)
-            ->whereNull('dispatch_detail_id')
-            ->where(function ($q) {
-                $q->whereNull('status')
-                    ->orWhereRaw('LOWER(status) != ?', ['returned']);
-            })
             ->whereHas('location', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId);
             })
@@ -144,12 +164,22 @@ class ProductSerialNumbersTable extends Component
         }
 
         if ($this->currentTab === 'sellable') {
-            $query->where('is_broken', false)
-                ->where('is_in_return_process', false);
+            $query->sellable();
         } elseif ($this->currentTab === 'broken') {
-            $query->where('is_broken', true);
+            $query->availableBroken();
         } elseif ($this->currentTab === 'returning') {
-            $query->where('is_in_return_process', true);
+            $query->whereNull('dispatch_detail_id')->where('is_in_return_process', true);
+        } elseif ($this->currentTab === 'missing') {
+            $query->where('status', ProductSerialNumber::STATUS_MISSING);
+        } elseif ($this->currentTab === 'history') {
+            $query->where(function ($q) {
+                $q->whereNotNull('dispatch_detail_id')
+                    ->orWhereIn('status', [
+                        ProductSerialNumber::STATUS_SOLD,
+                        ProductSerialNumber::STATUS_RETURNED,
+                        ProductSerialNumber::STATUS_MISSING,
+                    ]);
+            });
         }
 
         return $query->orderBy('serial_number')->paginate($this->perPage);
@@ -159,6 +189,7 @@ class ProductSerialNumbersTable extends Component
     {
         return view('livewire.product.product-serial-numbers-table', [
             'serialNumbers' => $this->serialNumbers,
+            'counts' => $this->counts,
         ]);
     }
 }

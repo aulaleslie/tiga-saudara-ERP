@@ -1732,7 +1732,7 @@ class PosCartService
                     throw new DomainException("Serial number $sn does not exist for this product.");
                 }
 
-                if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+                if (! $record->isSellable()) {
                     throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
                 }
 
@@ -1797,7 +1797,7 @@ class PosCartService
                 throw new DomainException("Serial number $sn does not exist for this product.");
             }
 
-            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+            if (! $record->isSellable()) {
                 throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
             }
 
@@ -2010,8 +2010,7 @@ class PosCartService
         return \Modules\Product\Entities\ProductSerialNumber::query()
             ->where('product_id', $productId)
             ->whereIn('location_id', $allowedLocationIds)
-            ->where('status', 'ACTIVE')
-            ->whereNull('dispatch_detail_id')
+            ->sellable()
             ->when($reservedSerials !== [], fn ($q) => $q->whereNotIn('serial_number', $reservedSerials))
             ->when($query !== '', fn ($q) => $q->where('serial_number', 'LIKE', "%{$query}%"))
             ->limit($limit)
@@ -2063,11 +2062,10 @@ class PosCartService
 
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
 
-        // 1. Find the active serial record
+        // 1. Find the sellable serial record
         $serialRecord = \Modules\Product\Entities\ProductSerialNumber::query()
             ->where('serial_number', $serialNumber)
-            ->where('status', 'ACTIVE')
-            ->whereNull('dispatch_detail_id')
+            ->sellable()
             ->whereIn('location_id', $allowedLocationIds)
             ->first();
 
@@ -2222,7 +2220,7 @@ class PosCartService
                 throw new DomainException("Serial number $serialNumber does not exist for this product.");
             }
 
-            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+            if (! $record->isSellable()) {
                 throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
             }
 
@@ -2291,7 +2289,7 @@ class PosCartService
             throw new DomainException("Serial number $serialNumber does not exist for this product.");
         }
 
-        if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+        if (! $record->isSellable()) {
             throw new DomainException("Serial number $serialNumber is not available (status: {$record->status}).");
         }
 

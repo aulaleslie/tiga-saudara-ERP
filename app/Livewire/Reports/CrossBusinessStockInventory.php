@@ -286,6 +286,7 @@ class CrossBusinessStockInventory extends Component
         $data = $queryService->getReportData($filterData, 15, $this->getPage());
 
         $serialNumbersPaginator = null;
+        $dialogDiscrepancy = null;
         if ($this->showSerialDialog && $this->dialogProductId && $this->dialogSettingId) {
             $serialNumbersPaginator = $queryService->getSerialNumbers(
                 productId: $this->dialogProductId,
@@ -296,6 +297,31 @@ class CrossBusinessStockInventory extends Component
                 perPage: 10,
                 page: $this->dialogPage
             );
+
+            // Compute discrepancy without mutating balances
+            $stockQuery = \Modules\Product\Entities\ProductStock::query()
+                ->where('product_id', $this->dialogProductId)
+                ->whereHas('location', function ($loc) {
+                    $loc->where('setting_id', $this->dialogSettingId)
+                        ->where('is_active', true);
+                    if ($this->dialogLocationId !== null) {
+                        $loc->where('id', $this->dialogLocationId);
+                    }
+                });
+
+            $bucketTotal = $this->dialogCondition === 'bad'
+                ? (float) ($stockQuery->sum('broken_quantity_tax') + $stockQuery->sum('broken_quantity_non_tax'))
+                : (float) ($stockQuery->sum('quantity_tax') + $stockQuery->sum('quantity_non_tax'));
+
+            $serialCount = (int) $serialNumbersPaginator->total();
+
+            if (empty($this->dialogSearch) && (int) round($bucketTotal) !== $serialCount) {
+                $dialogDiscrepancy = [
+                    'bucket_total' => (int) round($bucketTotal),
+                    'serial_count' => $serialCount,
+                    'condition' => $this->dialogCondition === 'bad' ? 'Rusak' : 'Bagus (Siap Jual)',
+                ];
+            }
         }
 
         return view('livewire.reports.cross-business-stock-inventory', [
@@ -304,6 +330,7 @@ class CrossBusinessStockInventory extends Component
             'businesses' => $data['businesses'],
             'availableSettings' => $this->getAvailableSettings(),
             'dialogSerials' => $serialNumbersPaginator,
+            'dialogDiscrepancy' => $dialogDiscrepancy,
         ]);
     }
 }

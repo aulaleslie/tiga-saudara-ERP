@@ -64,23 +64,26 @@ class SerialNumberLoader extends Component
             ]);
 
             $baseQuery = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
-                ->where('status', '!=', 'RETURNED')
                 ->when(
                     $this->location_id,
                     fn($query) => $query->where('location_id', $this->location_id)
                 )
-                ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
-                // Filter by broken mode only if specified, allow all tax/non-tax serials
-                ->when(
-                    ! is_null($this->is_broken),
-                    fn($query) => $query->where('is_broken', (bool) $this->is_broken)
-                )
-                ->when(
-                    $this->is_dispatch,
-                    fn($query) => $query->whereNull('dispatch_detail_id')
-                        ->where('status', 'active')
-                        ->where('is_in_return_process', false)
-                );
+                ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id));
+
+            if ($this->is_dispatch) {
+                if ((bool) $this->is_broken) {
+                    $baseQuery->availableBroken();
+                } else {
+                    $baseQuery->sellable();
+                }
+            } else {
+                // If not in explicit dispatch mode, exclude known unavailable states
+                $baseQuery->available()
+                    ->when(
+                        ! is_null($this->is_broken),
+                        fn($query) => $this->is_broken ? $query->availableBroken() : $query->sellable()
+                    );
+            }
 
             $this->query_count = $baseQuery->count();
 
@@ -92,25 +95,29 @@ class SerialNumberLoader extends Component
 
     public function selectSerialNumber($serialNumberId): void
     {
-        $serialNumber = ProductSerialNumber::query()
+        $query = ProductSerialNumber::query()
             ->whereKey($serialNumberId)
-            ->where('status', '!=', 'RETURNED')
             ->when(
                 $this->location_id,
-                fn($query) => $query->where('location_id', $this->location_id)
+                fn($q) => $q->where('location_id', $this->location_id)
             )
-            ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
-            ->when(
-                ! is_null($this->is_broken),
-                fn($query) => $query->where('is_broken', (bool) $this->is_broken)
-            )
-            ->when(
-                $this->is_dispatch,
-                fn($query) => $query->whereNull('dispatch_detail_id')
-                    ->where('status', 'active')
-                    ->where('is_in_return_process', false)
-            )
-            ->first();
+            ->when($this->product_id > 0, fn($q) => $q->where('product_id', $this->product_id));
+
+        if ($this->is_dispatch) {
+            if ((bool) $this->is_broken) {
+                $query->availableBroken();
+            } else {
+                $query->sellable();
+            }
+        } else {
+            $query->available()
+                ->when(
+                    ! is_null($this->is_broken),
+                    fn($q) => $this->is_broken ? $q->availableBroken() : $q->sellable()
+                );
+        }
+
+        $serialNumber = $query->first();
 
         if ($serialNumber) {
             $this->search_results = [$serialNumber];

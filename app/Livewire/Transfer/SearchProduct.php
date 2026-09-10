@@ -172,7 +172,12 @@ class SearchProduct extends Component
             return;
         }
 
-        $result = $scanService->resolve($settingId, $query, $this->locationId);
+        $result = $scanService->resolve($settingId, $query, $this->locationId, $this->is_broken_mode);
+
+        if ($result['type'] === 'serial_rejected') {
+            $this->dispatch('scanFailed', $result['message']);
+            return;
+        }
 
         if ($result['type'] === 'none') {
             // Also try to fallback to normal search if scan fails

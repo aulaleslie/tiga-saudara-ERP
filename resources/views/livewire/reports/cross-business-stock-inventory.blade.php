@@ -483,6 +483,15 @@
                             </div>
                         </div>
 
+                        @if($dialogDiscrepancy)
+                            <div class="alert alert-warning py-2 px-3 small d-flex align-items-center gap-2 mb-3">
+                                <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                                <div>
+                                    Perhatian: Terdapat selisih antara saldo stok tercatat ({{ $dialogDiscrepancy['bucket_total'] }}) dan jumlah nomor seri tersedia ({{ $dialogDiscrepancy['serial_count'] }}) untuk kondisi {{ $dialogDiscrepancy['condition'] }}.
+                                </div>
+                            </div>
+                        @endif
+
                         @if($dialogSerials && $dialogSerials->count() > 0)
                             <div class="table-responsive border rounded mb-3" style="max-height: 350px;">
                                 <table class="table table-sm table-hover mb-0 align-middle">
@@ -496,16 +505,15 @@
                                     </thead>
                                     <tbody>
                                         @foreach($dialogSerials as $index => $serial)
+                                            @php
+                                                $combinedState = $serial->getCombinedState();
+                                            @endphp
                                             <tr>
                                                 <td class="ps-3 text-muted small">{{ $dialogSerials->firstItem() + $index }}</td>
                                                 <td><code>{{ $serial->serial_number }}</code></td>
                                                 <td class="small">{{ optional($serial->location)->name ?? '-' }}</td>
                                                 <td>
-                                                    @if($serial->is_broken)
-                                                        <span class="badge bg-danger">Rusak</span>
-                                                    @else
-                                                        <span class="badge bg-success">Siap Jual</span>
-                                                    @endif
+                                                    <span class="badge {{ $combinedState['badge_class'] }}">{{ $combinedState['label'] }}</span>
                                                 </td>
                                             </tr>
                                         @endforeach

@@ -714,11 +714,8 @@ class SaleController extends Controller
                                     }
                                 }
 
-                                if ($snRecord->dispatch_detail_id) {
-                                    $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sudah terpakai.");
-                                }
-                                if (strtoupper($snRecord->status) !== ProductSerialNumber::STATUS_ACTIVE) {
-                                    $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak aktif.");
+                                if (!$snRecord->isSellable()) {
+                                    $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak tersedia untuk dijual (rusak, hilang, dalam proses retur, atau sudah terpakai).");
                                 }
 
                                 // Check for serials in PENDING dispatches
@@ -895,10 +892,21 @@ class SaleController extends Controller
                         $serials = $selectedSerialNumbers[$compositeKey];
                         $serialsByLocation = [];
 
+                        // Authoritative lock and validation before recording dispatch details
+                        $lockedSerialModels = ProductSerialNumber::where('product_id', $productId)
+                            ->whereIn('serial_number', $serials)
+                            ->lockForUpdate()
+                            ->get()
+                            ->keyBy(fn ($model) => (string) $model->serial_number);
+
+                        if ($lockedSerialModels->count() !== count(array_unique($serials))) {
+                            throw new Exception("Beberapa serial number tidak ditemukan untuk produk {$product->product_name}.");
+                        }
+
+                        $isTaxedSaleItem = !empty($taxId) && (int)$taxId > 0;
+
                         foreach ($serials as $sn) {
-                            $serialRecord = ProductSerialNumber::where('product_id', $productId)
-                                ->where('serial_number', $sn)
-                                ->first();
+                            $serialRecord = $lockedSerialModels->get((string) $sn);
 
                             if (!$serialRecord || empty($serialRecord->location_id)) {
                                 throw new Exception("Lokasi serial number {$sn} tidak valid.");
@@ -908,6 +916,22 @@ class SaleController extends Controller
 
                             if (!in_array($locId, $allowedLocationIds, true)) {
                                 throw new Exception("Lokasi serial number {$sn} tidak valid untuk bisnis ini.");
+                            }
+
+                            if (!$serialRecord->isSellable()) {
+                                throw new Exception("Serial number {$sn} tidak tersedia untuk dijual (rusak, hilang, dalam proses retur, atau sudah terpakai).");
+                            }
+
+                            if (PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)) {
+                                throw new Exception("Serial number {$sn} sedang dalam proses pengiriman.");
+                            }
+
+                            if ($isTaxedSaleItem && is_null($serialRecord->tax_id)) {
+                                throw new Exception("Serial number {$sn} tidak memiliki status pajak (non-pajak), sehingga tidak dapat digunakan untuk penjualan berpajak.");
+                            }
+
+                            if (!$isTaxedSaleItem && !is_null($serialRecord->tax_id)) {
+                                throw new Exception("Serial number {$sn} memiliki status pajak, sehingga tidak dapat digunakan untuk penjualan non-pajak.");
                             }
 
                             if (!isset($serialsByLocation[$locId])) {
@@ -966,6 +990,7 @@ class SaleController extends Controller
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Dispatch error', ['message' => $e->getMessage()]);
+            toast('Terjadi kesalahan: ' . $e->getMessage(), 'error');
             return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage())->withInput();
         }
     }
@@ -1055,7 +1080,7 @@ class SaleController extends Controller
             DB::rollBack();
             Log::error('Dispatch approval error', ['message' => $e->getMessage()]);
             toast('Terjadi kesalahan: ' . $e->getMessage(), 'error');
-            return redirect()->back();
+            return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
         }
     }
 
@@ -1112,6 +1137,9 @@ class SaleController extends Controller
         $locationId = $detail->location_id;
         $taxId = $detail->tax_id;
 
+        // Lock ProductStock before ProductSerialNumber to match the lock hierarchy used by
+        // transfer dispatch (TransferMovementService::dispatch/allocateSerialized), avoiding
+        // a deadlock when a sale approval and a transfer dispatch touch the same stock/serials.
         $productStock = ProductStock::where('product_id', $product->id)
             ->where('location_id', $locationId)
             ->lockForUpdate()
@@ -1123,6 +1151,45 @@ class SaleController extends Controller
 
         if ($productStock->quantity < $qty) {
             throw new Exception("Stok tidak cukup untuk produk {$product->product_name} di lokasi selected.");
+        }
+
+        $lockedSerialRecords = collect();
+        if ($detail->serial_numbers) {
+            $serials = json_decode($detail->serial_numbers, true);
+            if (!empty($serials)) {
+                $lockedSerialRecords = ProductSerialNumber::where('product_id', $product->id)
+                    ->whereIn('serial_number', $serials)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy(fn ($model) => (string) $model->serial_number);
+
+                if ($lockedSerialRecords->count() !== count(array_unique($serials))) {
+                    throw new Exception("Beberapa serial number tidak ditemukan untuk produk {$product->product_name}.");
+                }
+
+                $isTaxedSaleItem = !empty($taxId) && (int)$taxId > 0;
+
+                foreach ($serials as $serial) {
+                    $serialRecord = $lockedSerialRecords->get((string) $serial);
+
+                    if (!$serialRecord || (int) $serialRecord->location_id !== (int) $locationId) {
+                        throw new Exception("Lokasi serial number {$serial} tidak sesuai dengan lokasi pengiriman.");
+                    }
+
+                    if (!$serialRecord->isSellable()) {
+                        throw new Exception("Serial number {$serial} sudah tidak tersedia untuk dijual (rusak, hilang, dalam proses retur, atau sudah terpakai).");
+                    }
+
+                    if ($isTaxedSaleItem && is_null($serialRecord->tax_id)) {
+                        throw new Exception("Serial number {$serial} tidak memiliki status pajak (non-pajak), sehingga tidak dapat digunakan untuk pengiriman berpajak.");
+                    }
+
+                    if (!$isTaxedSaleItem && !is_null($serialRecord->tax_id)) {
+                        throw new Exception("Serial number {$serial} memiliki status pajak, sehingga tidak dapat digunakan untuk pengiriman non-pajak.");
+                    }
+                }
+            }
         }
 
         $previousQuantity = $product->product_quantity;
@@ -1162,28 +1229,21 @@ class SaleController extends Controller
             'broken_quantity_tax' => 0,
         ]);
 
-        // Update serial numbers if present
-        if ($detail->serial_numbers) {
-            $serials = json_decode($detail->serial_numbers, true);
-            foreach ($serials as $serial) {
-                $serialRecord = ProductSerialNumber::where('product_id', $product->id)
-                    ->where('serial_number', $serial)
-                    ->first();
+        // Update serial numbers if present using the locked records
+        if ($lockedSerialRecords->isNotEmpty()) {
+            foreach ($lockedSerialRecords as $serialRecord) {
+                $serialRecord->update([
+                    'dispatch_detail_id' => $detail->id,
+                    'status' => ProductSerialNumber::STATUS_SOLD,
+                ]);
 
-                if ($serialRecord) {
-                    $serialRecord->update([
-                        'dispatch_detail_id' => $detail->id,
-                        'status' => ProductSerialNumber::STATUS_SOLD,
-                    ]);
-
-                    // Record SOLD history event
-                    SerialNumberHistoryService::record(
-                        $serialRecord->id,
-                        SerialNumberHistory::EVENT_SOLD,
-                        $detail->location_id,
-                        $detail
-                    );
-                }
+                // Record SOLD history event
+                SerialNumberHistoryService::record(
+                    $serialRecord->id,
+                    SerialNumberHistory::EVENT_SOLD,
+                    $detail->location_id,
+                    $detail
+                );
             }
         }
     }

@@ -19,21 +19,35 @@
                 <button class="nav-link {{ $currentTab === 'sellable' ? 'active' : '' }}" 
                         wire:click="setTab('sellable')" 
                         type="button">
-                    Dapat Dijual
+                    Siap Jual <span class="badge bg-secondary ms-1">{{ $counts['sellable'] ?? 0 }}</span>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link {{ $currentTab === 'broken' ? 'active' : '' }}" 
                         wire:click="setTab('broken')" 
                         type="button">
-                    Rusak
+                    Rusak <span class="badge bg-secondary ms-1">{{ $counts['broken'] ?? 0 }}</span>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link {{ $currentTab === 'returning' ? 'active' : '' }}" 
                         wire:click="setTab('returning')" 
                         type="button">
-                    Dalam Proses Retur
+                    Dalam Proses Retur <span class="badge bg-secondary ms-1">{{ $counts['returning'] ?? 0 }}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $currentTab === 'missing' ? 'active' : '' }}"
+                        wire:click="setTab('missing')"
+                        type="button">
+                    Hilang <span class="badge bg-secondary ms-1">{{ $counts['missing'] ?? 0 }}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $currentTab === 'history' ? 'active' : '' }}"
+                        wire:click="setTab('history')"
+                        type="button">
+                    Riwayat / Tidak Tersedia <span class="badge bg-secondary ms-1">{{ $counts['history'] ?? 0 }}</span>
                 </button>
             </li>
         </ul>
@@ -49,12 +63,16 @@
                 <thead>
                 <tr>
                     <th>Nomor Seri</th>
+                    <th>Status</th>
                     <th>Lokasi</th>
                     <th>Pajak</th>
                 </tr>
                 </thead>
                 <tbody>
                 @forelse($serialNumbers as $serial)
+                    @php
+                        $combinedState = $serial->getCombinedState();
+                    @endphp
                     <tr>
                         <td>
                             @if($editingId === $serial->id)
@@ -83,12 +101,23 @@
                                 </span>
                             @endif
                         </td>
-                        <td>{{ $serial->location->name ?? 'N/A' }}</td>
+                        <td>
+                            <span class="badge {{ $combinedState['badge_class'] }}">
+                                {{ $combinedState['label'] }}
+                            </span>
+                        </td>
+                        <td>
+                            @if($serial->status === \Modules\Product\Entities\ProductSerialNumber::STATUS_MISSING)
+                                <span class="text-muted small">Lokasi Terakhir:</span> {{ $serial->location->name ?? 'N/A' }}
+                            @else
+                                {{ $serial->location->name ?? 'N/A' }}
+                            @endif
+                        </td>
                         <td>{{ $serial->tax->name ?? 'N/A' }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="3" class="text-center">
+                        <td colspan="4" class="text-center">
                             @if($searchQuery)
                                 Tidak ada nomor seri yang cocok dengan pencarian "{{ $searchQuery }}".
                             @else

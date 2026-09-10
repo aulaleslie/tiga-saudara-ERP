@@ -653,6 +653,29 @@ class FinalizePosCheckoutService
                             ]
                         );
                     }
+
+                    $compProductId = (int) ($item['product_id'] ?? 0);
+                    foreach ($compSerials as $sn) {
+                        $normalizedSn = \Modules\Product\Entities\ProductSerialNumber::normalize((string) $sn);
+                        $record = \Modules\Product\Entities\ProductSerialNumber::query()
+                            ->where('product_id', $compProductId)
+                            ->where('serial_number', $normalizedSn)
+                            ->first();
+
+                        if (! $record) {
+                            throw new PosCheckoutValidationException(
+                                'SERIAL_INVALID',
+                                "Nomor seri $sn untuk komponen $compName tidak ditemukan."
+                            );
+                        }
+
+                        if (! $record->isSellable() || $record->dispatch_detail_id !== null) {
+                            throw new PosCheckoutValidationException(
+                                'SERIAL_INVALID',
+                                "Nomor seri $sn untuk komponen $compName sudah tidak tersedia untuk dijual (Status: {$record->status})."
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -2351,9 +2374,10 @@ class FinalizePosCheckoutService
         }
 
         foreach ($assigned as $sn) {
+            $normalizedSn = \Modules\Product\Entities\ProductSerialNumber::normalize((string) $sn);
             $record = \Modules\Product\Entities\ProductSerialNumber::query()
                 ->where('product_id', $productId)
-                ->where('serial_number', $sn)
+                ->where('serial_number', $normalizedSn)
                 ->first();
 
             if (! $record) {
@@ -2372,7 +2396,7 @@ class FinalizePosCheckoutService
                 );
             }
 
-            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+            if (! $record->isSellable() || $record->dispatch_detail_id !== null) {
                 throw new PosCheckoutValidationException(
                     'SERIAL_INVALID',
                     "Serial number $sn for product $productName is no longer available.",

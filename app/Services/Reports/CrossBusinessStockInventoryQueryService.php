@@ -412,16 +412,9 @@ class CrossBusinessStockInventoryQueryService
             ->with(['location']);
 
         if ($condition === 'bad') {
-            $query->where('is_broken', true);
+            $query->availableBroken();
         } else {
-            // Good condition: sellable filter combination
-            $query->where('is_broken', false)
-                ->where('is_in_return_process', false)
-                ->whereNull('dispatch_detail_id')
-                ->where(function ($q) {
-                    $q->whereNull('status')
-                        ->orWhereRaw('LOWER(status) != ?', ['returned']);
-                });
+            $query->sellable();
         }
 
         if (!empty($searchQuery)) {

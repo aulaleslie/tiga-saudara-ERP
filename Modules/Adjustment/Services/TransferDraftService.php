@@ -145,8 +145,14 @@ class TransferDraftService
                     if ((int) $serial->location_id !== (int) $origin->id) {
                         throw new InvalidArgumentException("Serial {$serial->serial_number} is not at the origin location.");
                     }
-                    if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
-                        throw new InvalidArgumentException("Serial {$serial->serial_number} is not active.");
+                    if ($line->isBrokenMode) {
+                        if (!$serial->isAvailableBroken()) {
+                            throw new InvalidArgumentException("Serial {$serial->serial_number} tidak tersedia untuk transfer barang rusak.");
+                        }
+                    } else {
+                        if (!$serial->isSellable()) {
+                            throw new InvalidArgumentException("Serial {$serial->serial_number} tidak aktif atau tidak siap jual.");
+                        }
                     }
                     if ($serial->dispatch_detail_id !== null) {
                         throw new InvalidArgumentException("Serial {$serial->serial_number} is already dispatched.");
@@ -156,9 +162,9 @@ class TransferDraftService
                     }
                 }
 
-                // Verify mode compatibility: normal vs broken
-                $normalSerials = $validSerials->filter(fn($s) => !$s->is_broken);
-                $brokenSerials = $validSerials->filter(fn($s) => $s->is_broken);
+                // Verify mode compatibility using canonical helpers
+                $normalSerials = $validSerials->filter(fn($s) => $s->isSellable());
+                $brokenSerials = $validSerials->filter(fn($s) => $s->isAvailableBroken());
 
                 if ($line->isBrokenMode && $normalSerials->count() > 0) {
                     throw new InvalidArgumentException("Cannot include non-broken serials in broken mode.");
@@ -167,13 +173,11 @@ class TransferDraftService
                     throw new InvalidArgumentException("Cannot include broken serials in normal mode.");
                 }
 
-                // Derive provenance from tax_id and is_broken
-                // Tax = (is_broken=false AND tax_id!=null), NonTax = (is_broken=false AND tax_id=null)
-                // BrokenTax = (is_broken=true AND tax_id!=null), BrokenNonTax = (is_broken=true AND tax_id=null)
-                $quantityTax = $validSerials->filter(fn($s) => !$s->is_broken && $s->tax_id !== null)->count();
-                $quantityNonTax = $validSerials->filter(fn($s) => !$s->is_broken && $s->tax_id === null)->count();
-                $quantityBrokenTax = $validSerials->filter(fn($s) => $s->is_broken && $s->tax_id !== null)->count();
-                $quantityBrokenNonTax = $validSerials->filter(fn($s) => $s->is_broken && $s->tax_id === null)->count();
+                // Derive provenance from tax_id and canonical broken condition
+                $quantityTax = $validSerials->filter(fn($s) => $s->isSellable() && $s->tax_id !== null)->count();
+                $quantityNonTax = $validSerials->filter(fn($s) => $s->isSellable() && $s->tax_id === null)->count();
+                $quantityBrokenTax = $validSerials->filter(fn($s) => $s->isAvailableBroken() && $s->tax_id !== null)->count();
+                $quantityBrokenNonTax = $validSerials->filter(fn($s) => $s->isAvailableBroken() && $s->tax_id === null)->count();
 
                 $taxQuantity = $line->isBrokenMode ? 0 : $quantityTax;
                 $nonTaxQuantity = $line->isBrokenMode ? 0 : $quantityNonTax;
@@ -199,7 +203,7 @@ class TransferDraftService
                     'id' => $s->id,
                     'serial_number' => $s->serial_number,
                     'tax_id' => $s->tax_id,
-                    'is_broken' => $s->is_broken,
+                    'is_broken' => $s->isAvailableBroken(),
                 ])->values()->all();
             }
 

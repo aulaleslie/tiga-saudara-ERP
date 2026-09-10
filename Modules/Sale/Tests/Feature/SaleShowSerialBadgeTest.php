@@ -74,6 +74,7 @@ class SaleShowSerialBadgeTest extends TestCase
 
         Permission::firstOrCreate(['name' => 'sales.show']);
         Permission::firstOrCreate(['name' => 'sales.reporting-date.override']);
+        Permission::firstOrCreate(['name' => 'sales.due-date.override']);
 
         $this->user = User::factory()->create();
         $this->user->givePermissionTo(['sales.show']);
@@ -359,5 +360,347 @@ class SaleShowSerialBadgeTest extends TestCase
         ]);
 
         return [$sale, $dispatchDetail];
+    }
+
+    public function test_sale_dispatch_rejects_broken_serial(): void
+    {
+        Permission::firstOrCreate(['name' => 'sales.dispatch']);
+        $this->user->givePermissionTo(['sales.dispatch']);
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        [$sale] = $this->createSaleWithApprovedDispatch('TEST-DISP-REJECT-BRK', 'SN-EXISTING-001');
+
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-DIRECT-BROKEN',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => true,
+        ]);
+
+        $compositeKey = "{$this->product->id}-0-0";
+
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [
+                $compositeKey => 1,
+            ],
+            'selectedLocations' => [
+                $compositeKey => $this->location->id,
+            ],
+            'selectedSerialNumbers' => [
+                $compositeKey => ['SN-DIRECT-BROKEN'],
+            ],
+            'serialNumberLocations' => [
+                $compositeKey => [
+                    'SN-DIRECT-BROKEN' => $this->location->id,
+                ],
+            ],
+        ];
+
+        $response = $this->post(route('sales.storeDispatch', $sale), $payload);
+        $response->assertSessionHasErrors("selectedSerialNumbers.{$compositeKey}");
+    }
+
+    public function test_sale_dispatch_rejects_missing_serial(): void
+    {
+        Permission::firstOrCreate(['name' => 'sales.dispatch']);
+        $this->user->givePermissionTo(['sales.dispatch']);
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        [$sale] = $this->createSaleWithApprovedDispatch('TEST-DISP-REJECT-MISS', 'SN-EXISTING-002');
+
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-DIRECT-MISSING',
+            'status' => ProductSerialNumber::STATUS_MISSING,
+            'is_broken' => false,
+        ]);
+
+        $compositeKey = "{$this->product->id}-0-0";
+
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [
+                $compositeKey => 1,
+            ],
+            'selectedLocations' => [
+                $compositeKey => $this->location->id,
+            ],
+            'selectedSerialNumbers' => [
+                $compositeKey => ['SN-DIRECT-MISSING'],
+            ],
+            'serialNumberLocations' => [
+                $compositeKey => [
+                    'SN-DIRECT-MISSING' => $this->location->id,
+                ],
+            ],
+        ];
+
+        $response = $this->post(route('sales.storeDispatch', $sale), $payload);
+        $response->assertSessionHasErrors("selectedSerialNumbers.{$compositeKey}");
+    }
+
+    public function test_sale_store_dispatch_rolls_back_if_serial_becomes_broken_or_missing_under_lock(): void
+    {
+        Permission::firstOrCreate(['name' => 'sales.dispatch']);
+        $this->user->givePermissionTo(['sales.dispatch']);
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $this->paymentTerm->id,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+            'reference' => 'TEST-RACE-STORE',
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1,
+            'price' => 1500,
+            'unit_price' => 1500,
+            'sub_total' => 1500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-STALE-LOCK-STORE',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        // SaleDetails above has tax_id = null, so the authoritative composite key built by the
+        // controller (product_id-tax_id-bundle_id) renders the empty tax_id as an empty segment.
+        $compositeKey = "{$this->product->id}--0";
+
+        // Simulate serial becoming broken right as locked transaction begins (after validation passes)
+        Dispatch::creating(function () use ($serial) {
+            ProductSerialNumber::where('id', $serial->id)->update(['is_broken' => true]);
+        });
+
+        $initialDispatchCount = Dispatch::count();
+
+        $payload = [
+            'dispatch_date' => now()->toDateString(),
+            'dispatchedQuantities' => [
+                $compositeKey => 1,
+            ],
+            'selectedLocations' => [
+                $compositeKey => $this->location->id,
+            ],
+            'selectedSerialNumbers' => [
+                $compositeKey => ['SN-STALE-LOCK-STORE'],
+            ],
+            'serialNumberLocations' => [
+                $compositeKey => [
+                    'SN-STALE-LOCK-STORE' => $this->location->id,
+                ],
+            ],
+        ];
+
+        $response = $this->post(route('sales.storeDispatch', $sale), $payload);
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString(
+            'tidak tersedia untuk dijual',
+            session('error'),
+            'Failure must come from the authoritative locked serial sellability guard, not an earlier validation error'
+        );
+        $this->assertEquals($initialDispatchCount, Dispatch::count(), 'Dispatch creation must be rolled back on stale serial');
+    }
+
+    public function test_sale_approve_dispatch_rolls_back_if_serial_becomes_broken_or_missing_before_approval(): void
+    {
+        Permission::firstOrCreate(['name' => 'salesDispatches.approval']);
+        $this->user->givePermissionTo(['salesDispatches.approval']);
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $this->paymentTerm->id,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+            'reference' => 'SO-APPROVE-ROLLBACK',
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-APPROVAL-ROLLBACK',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        $detail = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'is_inventory_managed' => true,
+            'serial_numbers' => json_encode(['SN-APPROVAL-ROLLBACK']),
+        ]);
+
+        // Serial becomes broken or missing after storeDispatch but before approveDispatch
+        $serial->update(['status' => ProductSerialNumber::STATUS_MISSING]);
+
+        $initialProductStock = \Modules\Product\Entities\ProductStock::where('product_id', $this->product->id)
+            ->where('location_id', $this->location->id)
+            ->first()->quantity;
+
+        $response = $this->post(route('dispatches.approve', $dispatch));
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString(
+            'sudah tidak tersedia untuk dijual',
+            session('error'),
+            'Failure must come from the authoritative serial sellability guard, not an earlier unrelated check'
+        );
+
+        $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch->fresh()->status, 'Dispatch must remain pending');
+        $this->assertEquals(ProductSerialNumber::STATUS_MISSING, $serial->fresh()->status, 'Serial status must remain missing and not sold');
+        $this->assertNull($serial->fresh()->dispatch_detail_id, 'Serial must not be bound to dispatch detail');
+        $this->assertEquals($initialProductStock, \Modules\Product\Entities\ProductStock::where('product_id', $this->product->id)
+            ->where('location_id', $this->location->id)->first()->quantity, 'Stock quantity must not be decremented');
+    }
+
+    public function test_approve_dispatch_locks_product_stock_before_product_serial_number_matching_transfer_hierarchy(): void
+    {
+        Permission::firstOrCreate(['name' => 'salesDispatches.approval']);
+        $this->user->givePermissionTo(['salesDispatches.approval']);
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 5,
+            'quantity_non_tax' => 5,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1500,
+            'paid_amount' => 0,
+            'due_amount' => 1500,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'payment_term_id' => $this->paymentTerm->id,
+            'setting_id' => $this->setting->id,
+            'is_tax_included' => false,
+            'reference' => 'SO-LOCK-ORDER',
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-LOCK-ORDER',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'is_inventory_managed' => true,
+            'serial_numbers' => json_encode(['SN-LOCK-ORDER']),
+        ]);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $response = $this->post(route('dispatches.approve', $dispatch));
+        $queries = collect(\Illuminate\Support\Facades\DB::getQueryLog())->pluck('query')->values();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $response->assertSessionDoesntHaveErrors();
+
+        // SQLite's grammar drops the "for update" clause, so lock order here is inferred from
+        // the order the two tables are first selected (both under lockForUpdate() in
+        // adjustStockForDispatchDetail()), which must lock ProductStock before
+        // ProductSerialNumber to match TransferMovementService's hierarchy and avoid deadlock.
+        $stockSelectIndex = $queries->search(fn ($sql) => str_contains($sql, 'select * from "product_stocks"'));
+        $serialSelectIndex = $queries->search(fn ($sql) => str_contains($sql, 'select * from "product_serial_numbers"'));
+
+        $this->assertNotFalse($stockSelectIndex, 'Expected a locking SELECT against product_stocks.');
+        $this->assertNotFalse($serialSelectIndex, 'Expected a locking SELECT against product_serial_numbers.');
+        $this->assertLessThan(
+            $serialSelectIndex,
+            $stockSelectIndex,
+            'ProductStock must be locked before ProductSerialNumber to match the established lock hierarchy and avoid deadlocking with Transfer dispatch.'
+        );
     }
 }

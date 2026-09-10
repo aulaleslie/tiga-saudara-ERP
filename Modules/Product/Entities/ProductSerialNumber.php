@@ -232,4 +232,168 @@ class ProductSerialNumber extends BaseModel
     {
         return $this->hasMany(\Modules\Consignment\Entities\ConsignmentSerializedAllocation::class, 'product_serial_number_id');
     }
+
+    /**
+     * Scope to operationally available serial numbers:
+     * - Undispatched (dispatch_detail_id IS NULL)
+     * - Not in return process (is_in_return_process = false)
+     * - Status is active-compatible (NULL or ACTIVE), OR legacy BROKEN compatible
+     * - Excludes SOLD, RETURNED, RETURN_IN_PROCESS, MISSING.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeAvailable(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereNull('dispatch_detail_id')
+            ->where('is_in_return_process', false)
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereIn('status', [self::STATUS_ACTIVE, self::STATUS_BROKEN]);
+            });
+    }
+
+    /**
+     * Scope to sellable serial numbers:
+     * - Operationally available
+     * - Physical condition is good (is_broken = false)
+     * - Status is active-compatible (NULL or ACTIVE), NEVER legacy BROKEN.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeSellable(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereNull('dispatch_detail_id')
+            ->where('is_in_return_process', false)
+            ->where('is_broken', false)
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', self::STATUS_ACTIVE);
+            });
+    }
+
+    /**
+     * Scope to available broken serial numbers:
+     * - Operationally available
+     * - Either is_broken = true (with active-compatible status) OR legacy status = BROKEN
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeAvailableBroken(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereNull('dispatch_detail_id')
+            ->where('is_in_return_process', false)
+            ->where(function ($q) {
+                $q->where(function ($activeBroken) {
+                    $activeBroken->where('is_broken', true)
+                        ->where(function ($sub) {
+                            $sub->whereNull('status')
+                                ->orWhere('status', self::STATUS_ACTIVE)
+                                ->orWhere('status', self::STATUS_BROKEN);
+                        });
+                })->orWhere('status', self::STATUS_BROKEN);
+            });
+    }
+
+    /**
+     * Determine if this serial instance is sellable.
+     */
+    public function isSellable(): bool
+    {
+        if ($this->dispatch_detail_id !== null) {
+            return false;
+        }
+
+        if ($this->is_in_return_process) {
+            return false;
+        }
+
+        if ($this->is_broken) {
+            return false;
+        }
+
+        $rawStatus = strtoupper($this->attributes['status'] ?? self::STATUS_ACTIVE);
+
+        return $rawStatus === self::STATUS_ACTIVE;
+    }
+
+    /**
+     * Determine if this serial instance is available broken inventory.
+     */
+    public function isAvailableBroken(): bool
+    {
+        if ($this->dispatch_detail_id !== null) {
+            return false;
+        }
+
+        if ($this->is_in_return_process) {
+            return false;
+        }
+
+        $rawStatus = strtoupper($this->attributes['status'] ?? self::STATUS_ACTIVE);
+
+        if ($rawStatus === self::STATUS_BROKEN) {
+            return true;
+        }
+
+        return $this->is_broken && $rawStatus === self::STATUS_ACTIVE;
+    }
+
+    /**
+     * Return the combined serial state in Bahasa Indonesia and associated badge class.
+     *
+     * @return array{key: string, label: string, badge_class: string}
+     */
+    public function getCombinedState(): array
+    {
+        $rawStatus = strtoupper($this->attributes['status'] ?? self::STATUS_ACTIVE);
+
+        if ($rawStatus === self::STATUS_MISSING) {
+            return [
+                'key' => 'missing',
+                'label' => 'Hilang — Tidak Tersedia',
+                'badge_class' => 'badge-danger',
+            ];
+        }
+
+        if ($rawStatus === self::STATUS_RETURNED) {
+            return [
+                'key' => 'returned',
+                'label' => 'Dikembalikan',
+                'badge_class' => 'badge-info',
+            ];
+        }
+
+        if ($this->is_in_return_process || $rawStatus === self::STATUS_RETURN_IN_PROCESS) {
+            return [
+                'key' => 'return_in_process',
+                'label' => 'Dalam Proses Retur',
+                'badge_class' => 'badge-warning',
+            ];
+        }
+
+        if ($this->dispatch_detail_id !== null || $rawStatus === self::STATUS_SOLD) {
+            return [
+                'key' => 'sold',
+                'label' => 'Terjual',
+                'badge_class' => 'badge-secondary',
+            ];
+        }
+
+        if ($this->is_broken || $rawStatus === self::STATUS_BROKEN) {
+            return [
+                'key' => 'available_broken',
+                'label' => 'Tersedia — Rusak',
+                'badge_class' => 'badge-warning',
+            ];
+        }
+
+        return [
+            'key' => 'sellable',
+            'label' => 'Tersedia — Siap Jual',
+            'badge_class' => 'badge-success',
+        ];
+    }
 }

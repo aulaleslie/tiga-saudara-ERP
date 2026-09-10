@@ -1125,4 +1125,52 @@ class TransferUiFeedbackTest extends TestCase
         $this->assertEquals(4, $tp->quantity_broken_tax);
         $this->assertEquals(6, $tp->quantity_broken_non_tax);
     }
+
+    /** @test */
+    public function serial_selection_rejects_missing_serial_in_transfer(): void
+    {
+        $data = $this->createTenantData('Tiga Saudara');
+        $this->actingAs($data['user']);
+        session(['setting_id' => $data['setting']->id]);
+
+        $product = Product::create([
+            'product_name' => 'Serial Product Missing Test',
+            'product_code' => 'SPMISS01',
+            'product_cost' => 10000,
+            'product_price' => 15000,
+            'setting_id' => $data['setting']->id,
+            'serial_number_required' => true,
+        ]);
+
+        $missingSerial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-MISSING-TRANSFER',
+            'location_id' => $data['originLocation']->id,
+            'status' => ProductSerialNumber::STATUS_MISSING,
+            'is_broken' => false,
+            'tax_id' => null,
+        ]);
+
+        $loaderNormal = Livewire::test(\App\Livewire\AutoComplete\SerialNumberLoader::class, [
+            'locationId' => $data['originLocation']->id,
+            'productId' => $product->id,
+            'isBroken' => false,
+            'serialIndex' => 'idx1',
+            'productCompositeKey' => 'key1',
+        ]);
+
+        $loaderNormal->call('selectSerialNumber', $missingSerial->id)
+            ->assertNotDispatched('serialNumberSelected');
+
+        $loaderBroken = Livewire::test(\App\Livewire\AutoComplete\SerialNumberLoader::class, [
+            'locationId' => $data['originLocation']->id,
+            'productId' => $product->id,
+            'isBroken' => true,
+            'serialIndex' => 'idx2',
+            'productCompositeKey' => 'key2',
+        ]);
+
+        $loaderBroken->call('selectSerialNumber', $missingSerial->id)
+            ->assertNotDispatched('serialNumberSelected');
+    }
 }

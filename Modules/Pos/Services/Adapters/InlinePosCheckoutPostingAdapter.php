@@ -790,7 +790,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
      */
     private function assertSerialCurrentlyPostable(ProductSerialNumber $record, int $settingId): void
     {
-        if (strtoupper((string) $record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+        if (! $record->isSellable() || $record->dispatch_detail_id !== null) {
             throw new PosCheckoutValidationException(
                 'SERIAL_INVALID',
                 "Seri {$record->serial_number} tidak lagi tersedia (status: {$record->status})."

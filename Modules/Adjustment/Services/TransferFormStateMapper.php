@@ -51,6 +51,7 @@ class TransferFormStateMapper
                 $normalRow['quantity_tax'] = $transferProduct->quantity_tax;
                 $normalRow['quantity_non_tax'] = $transferProduct->quantity_non_tax;
                 $normalRow['broken_quantity_tax'] = 0;
+                $normalRow['broken_quantity_non_tax'] = 0;
 
                 $normalRow['serial_numbers'] = collect($transferProduct->serial_numbers ?? [])
                     ->filter(fn($s) => empty($s['is_broken']))

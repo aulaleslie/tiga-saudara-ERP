@@ -517,7 +517,7 @@ class PurchasesReturnSettlementController extends Controller
                     if ($isSerial) {
                         $itemSettlement->serialNumber->update([
                             'is_broken' => true, // Ensure marked as broken
-                            'status' => ProductSerialNumber::STATUS_BROKEN,
+                            'status' => ProductSerialNumber::STATUS_ACTIVE,
                             'location_id' => $targetLocationId,
                             'is_in_return_process' => false,
                             'purchase_return_id' => null,

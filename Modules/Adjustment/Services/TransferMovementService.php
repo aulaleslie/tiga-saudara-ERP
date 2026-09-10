@@ -477,10 +477,35 @@ class TransferMovementService
         }
 
         $normalizedSerials = [];
+        $savedSerialsById = collect($serials)->keyBy('id');
 
         foreach ($serialModels as $serial) {
+            if (!$serial->isAvailableBroken() && !$serial->isSellable()) {
+                throw new Exception("Nomor seri {$serial->serial_number} sudah tidak tersedia atau berstatus tidak valid.");
+            }
+
+            $savedSnapshot = $savedSerialsById->get($serial->id);
+            $currentIsBroken = $serial->isAvailableBroken();
+
+            if ($savedSnapshot && array_key_exists('is_broken', $savedSnapshot)) {
+                $savedIsBroken = (bool) $savedSnapshot['is_broken'];
+                if ($savedIsBroken !== $currentIsBroken) {
+                    throw new Exception("Kondisi nomor seri {$serial->serial_number} telah berubah sejak draft dibuat.");
+                }
+            } else {
+                // Fallback check against transfer line quantities if snapshot is missing
+                $lineHasBroken = ((int)$transferProduct->quantity_broken_tax + (int)$transferProduct->quantity_broken_non_tax) > 0;
+                $lineHasNormal = ((int)$transferProduct->quantity_tax + (int)$transferProduct->quantity_non_tax) > 0;
+                if ($lineHasBroken && !$lineHasNormal && !$currentIsBroken) {
+                    throw new Exception("Kondisi nomor seri {$serial->serial_number} telah berubah menjadi normal pada transfer barang rusak.");
+                }
+                if ($lineHasNormal && !$lineHasBroken && $currentIsBroken) {
+                    throw new Exception("Kondisi nomor seri {$serial->serial_number} telah berubah menjadi rusak pada transfer barang normal.");
+                }
+            }
+
             $isTax = (bool) $serial->tax_id;
-            $isBroken = (bool) $serial->is_broken;
+            $isBroken = $currentIsBroken;
 
             if ($isBroken) {
                 if ($isTax) $brokenTax++;
@@ -489,7 +514,7 @@ class TransferMovementService
                 if ($isTax) $tax++;
                 else $nonTax++;
             }
-            
+
             $normalizedSerials[] = [
                 'id' => $serial->id,
                 'serial_number' => $serial->serial_number,

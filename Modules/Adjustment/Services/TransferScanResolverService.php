@@ -14,8 +14,14 @@ class TransferScanResolverService
 {
     /**
      * Resolve scan query to determine the action type.
+     *
+     * @param int $settingId
+     * @param string $query
+     * @param int $originLocationId
+     * @param bool|null $isBrokenMode If specified, validates serial condition compatibility.
+     * @return array
      */
-    public function resolve(int $settingId, string $query, int $originLocationId): array
+    public function resolve(int $settingId, string $query, int $originLocationId, ?bool $isBrokenMode = null): array
     {
         if (! $query || $query === '') {
             return ['type' => 'none'];
@@ -58,10 +64,9 @@ class TransferScanResolverService
         }
 
         // 3. Exact serial number match
+        $normalizedSerial = ProductSerialNumber::normalize($query);
         $serialRecord = ProductSerialNumber::query()
-            ->where('serial_number', $query)
-            ->where('status', 'ACTIVE')
-            ->whereNull('dispatch_detail_id')
+            ->where('serial_number', $normalizedSerial)
             ->whereIn('location_id', $allowedLocationIds)
             ->whereHas('product', fn ($q) => $q->where('setting_id', $settingId))
             ->with('product')
@@ -69,11 +74,45 @@ class TransferScanResolverService
 
         if (
             $serialRecord
-            && ! PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)
             && $serialRecord->product
             && $serialRecord->product->stock_managed
             && (int) $serialRecord->product->setting_id === $settingId
         ) {
+            if (PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)) {
+                return [
+                    'type' => 'serial_rejected',
+                    'message' => 'Nomor seri sedang dalam proses pengiriman.',
+                ];
+            }
+
+            // If condition mode is specified, enforce strict mode compatibility
+            if ($isBrokenMode !== null) {
+                if ($isBrokenMode) {
+                    if (!$serialRecord->isAvailableBroken()) {
+                        return [
+                            'type' => 'serial_rejected',
+                            'message' => 'Nomor Seri tidak berstatus rusak atau tidak tersedia untuk transfer barang rusak.',
+                        ];
+                    }
+                } else {
+                    if (!$serialRecord->isSellable()) {
+                        return [
+                            'type' => 'serial_rejected',
+                            'message' => 'Nomor Seri tidak siap jual atau berstatus rusak/hilang untuk transfer mode normal.',
+                        ];
+                    }
+                }
+            } else {
+                if (!$serialRecord->isSellable() && !$serialRecord->isAvailableBroken()) {
+                    return [
+                        'type' => 'serial_rejected',
+                        'message' => 'Nomor Seri sudah tidak tersedia atau berstatus tidak valid.',
+                    ];
+                }
+            }
+
+            $canonicalBroken = $serialRecord->isAvailableBroken();
+
             return [
                 'type' => 'serial_exact',
                 'serial' => [
@@ -82,7 +121,7 @@ class TransferScanResolverService
                     'product_id' => (int) $serialRecord->product_id,
                     'tax_id' => $serialRecord->tax_id !== null ? (int) $serialRecord->tax_id : null,
                     'location_id' => (int) $serialRecord->location_id,
-                    'is_broken' => (bool) $serialRecord->is_broken,
+                    'is_broken' => $canonicalBroken,
                 ],
                 'product' => [
                     'id' => (int) $serialRecord->product->id,

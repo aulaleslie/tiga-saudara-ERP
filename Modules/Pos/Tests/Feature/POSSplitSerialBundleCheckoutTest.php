@@ -1175,4 +1175,76 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             ->where('serial_numbers', 'like', '%SN-COMP-REPLAY-1%')
             ->count());
     }
+
+    public function test_finalize_rejects_bundle_component_serial_that_became_broken_with_full_rollback(): void
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product'];
+        $parent->update(['serial_number_required' => false]);
+        $bundle = $context['bundle'];
+        $child = $context['child'];
+        $child->update(['serial_number_required' => true]);
+        \App\Support\ProductBundleResolver::clearCache();
+
+        $tax = Tax::query()->where('setting_id', $context['setting']->id)->first() ?? Tax::first();
+
+        $childSerial = ProductSerialNumber::create([
+            'product_id' => $child->id,
+            'location_id' => $context['source_location']->id,
+            'serial_number' => 'SN-COMP-STALE-1',
+            'status' => 'ACTIVE',
+            'tax_id' => $tax?->id,
+        ]);
+
+        $bundleItem = ProductBundleItem::query()
+            ->where('bundle_id', $bundle->id)
+            ->where('product_id', $child->id)
+            ->first();
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-COMP-STALE-1',
+                'bundle_item_id' => $bundleItem->id,
+            ])
+            ->assertOk();
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        // Stale mutation: component serial becomes broken before finalize
+        $childSerial->update(['is_broken' => true]);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-COMP-STALE-BROKEN-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'SERIAL_INVALID');
+
+        // Full rollback: no sales, no sale details, no payments, no dispatches, no dispatch details
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_details', 0);
+        $this->assertDatabaseCount('sale_bundle_items', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+
+        // Component serial remains broken, NOT SOLD, unlinked
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $childSerial->id,
+            'status' => 'ACTIVE',
+            'is_broken' => true,
+            'dispatch_detail_id' => null,
+        ]);
+        $this->assertDatabaseMissing('product_serial_numbers', [
+            'id' => $childSerial->id,
+            'status' => 'SOLD',
+        ]);
+    }
 }
