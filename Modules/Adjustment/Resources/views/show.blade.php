@@ -1,8 +1,11 @@
 @extends('layouts.app')
 
-@php $isNormalVersioned = $isNormalVersioned ?? false; @endphp
+@php
+    $isNormalVersioned = $isNormalVersioned ?? false;
+    $isBreakageDetail = $isBreakageDetail ?? false;
+@endphp
 
-@section('title', $isNormalVersioned ? 'Rincian Stock Opname' : 'Adjustment Details')
+@section('title', $isNormalVersioned ? 'Rincian Stock Opname' : ($isBreakageDetail ? 'Rincian Barang Rusak' : 'Adjustment Details'))
 
 @push('page_css')
     @livewireStyles
@@ -20,6 +23,8 @@
     <div class="container-fluid">
         @if($isNormalVersioned)
             @include('adjustment::partials.stock-opname-show')
+        @elseif($isBreakageDetail)
+            @include('adjustment::partials.breakage-show')
         @else
         <div class="row mb-3">
             <div class="col-12">

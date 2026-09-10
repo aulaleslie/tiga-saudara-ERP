@@ -16,13 +16,6 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <div class="row">
-            <div class="col-12">
-                <!-- Pass the location_id and selection-target to the SearchProduct Livewire component -->
-                <livewire:purchase.search-product :location-id="$adjustment->location_id" :selection-target="\App\Livewire\Adjustment\BreakageProductTable::class" />
-            </div>
-        </div>
-
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -51,12 +44,14 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="location">Lokasi</label>
-                                        <input type="text"
-                                               class="form-control"
-                                               value="{{ $adjustment->location->name ?? 'Lokasi tidak ditemukan' }}"
-                                               readonly>
-                                        <input type="hidden" name="location_id" value="{{ $adjustment->location_id }}">
+                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.location-search-dropdown', [
+                                            'selected' => $adjustment->location_id,
+                                            'consignmentFilter' => 'standard',
+                                            'placeholder' => 'Pilih lokasi barang rusak...',
+                                            'dispatchTo' => \App\Livewire\Adjustment\BreakageProductTable::class,
+                                        ])
+                                        @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
                             </div>

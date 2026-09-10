@@ -10,6 +10,10 @@
     </ol>
 @endsection
 
+@push('page_css')
+    @livewireStyles
+@endpush
+
 @section('content')
     <div class="container-fluid mb-4">
         <div class="row">
@@ -39,23 +43,21 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="location">Lokasi</label>
-                                        <livewire:auto-complete.location-loader :locationId="old('location_id')" />
-                                        @error('location_id') <span class="text-danger">{{ $message }}</span> @enderror
+                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.location-search-dropdown', [
+                                            'selected' => old('location_id'),
+                                            'consignmentFilter' => 'standard',
+                                            'placeholder' => 'Pilih lokasi barang rusak...',
+                                            'dispatchTo' => \App\Livewire\Adjustment\BreakageProductTable::class,
+                                        ])
+                                        @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-lg-12">
-                                    <livewire:purchase.search-product :selection-target="\App\Livewire\Adjustment\BreakageProductTable::class" />
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-lg-12">
                                     <livewire:adjustment.breakage-product-table
-                                        :type="'sub'"
                                         :locationId="old('location_id')"
                                         :serial_numbers="old('serial_numbers')"
                                         :product_ids="old('product_ids')"

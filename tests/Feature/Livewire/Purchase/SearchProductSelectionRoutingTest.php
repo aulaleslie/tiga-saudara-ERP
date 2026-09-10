@@ -212,12 +212,16 @@ class SearchProductSelectionRoutingTest extends TestCase
     }
 
     /**
-     * Task 2.2: Parameterized page-render checks for the configured search recipient
-     * on all four affected forms using isolated fixtures and existing authorization conventions.
+     * Task 2.1: Breakage create/edit no longer embed the Purchase module's
+     * search-product component (design.md "Use a breakage-specific editor
+     * backed by shared entry services") -- entry is the breakage table's own
+     * scan input and internal product search modal. These pages should
+     * render the searchable location dropdown wired to BreakageProductTable
+     * and the breakage table itself instead.
      *
      * @dataProvider pageBindingProvider
      */
-    public function test_page_renders_configured_search_recipient(string $routeGetter, string $expectedTarget): void
+    public function test_page_renders_breakage_table_wired_to_location_dropdown(string $routeGetter): void
     {
         $this->actingAs($this->user);
         session(['setting_id' => $this->setting->id]);
@@ -227,16 +231,15 @@ class SearchProductSelectionRoutingTest extends TestCase
         $response = $this->get($url);
         $response->assertOk();
 
-        // Check that the rendered page contains the search component wired with expected selection-target
-        $escapedTarget = htmlspecialchars($expectedTarget, ENT_QUOTES, 'UTF-8');
-        $response->assertSee('&quot;selectionTarget&quot;:&quot;' . str_replace('\\', '\\\\', $escapedTarget) . '&quot;', false);
+        $response->assertDontSee('livewire:purchase.search-product', false);
+        $response->assertSeeLivewire(BreakageProductTable::class);
     }
 
     public static function pageBindingProvider(): array
     {
         return [
-            'breakage create' => ['getBreakageCreateUrl', BreakageProductTable::class],
-            'breakage edit' => ['getBreakageEditUrl', BreakageProductTable::class],
+            'breakage create' => ['getBreakageCreateUrl'],
+            'breakage edit' => ['getBreakageEditUrl'],
         ];
     }
 
@@ -383,6 +386,7 @@ class SearchProductSelectionRoutingTest extends TestCase
     public function test_breakage_table_selection_flow(): void
     {
         $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
 
         $product2 = Product::create([
             'setting_id' => $this->setting->id,
@@ -432,7 +436,7 @@ class SearchProductSelectionRoutingTest extends TestCase
         $this->assertEquals($this->product->id, $row1['id']);
         $this->assertEquals('Test Laptop', $row1['product_name']);
         $this->assertTrue($row1['serial_number_required']);
-        $this->assertEquals(['tax' => 0, 'non_tax' => 0], $component->get('quantities')[0]);
+        $this->assertEquals(0, $component->get('quantities')[0]);
 
         // 3. Duplicate selection -> no extra row, duplicate flash message
         $component->call('productSelected', [
@@ -442,7 +446,7 @@ class SearchProductSelectionRoutingTest extends TestCase
             'serial_number_required' => true,
         ])
             ->assertCount('products', 1)
-            ->assertSee('Produk sudah dipilih.');
+            ->assertSee('sudah ada di daftar');
 
         // 4. Select product 2 -> adds second row and retains existing row
         $component->call('productSelected', [

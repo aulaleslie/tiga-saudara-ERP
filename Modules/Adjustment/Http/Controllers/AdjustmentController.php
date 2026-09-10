@@ -421,6 +421,15 @@ class AdjustmentController extends Controller
             ));
         }
 
+        if (strtolower(trim((string) $adjustment->type)) === 'breakage') {
+            $adjustment->load(['location', 'approvedBy']);
+
+            return view('adjustment::show', array_merge(
+                ['adjustment' => $adjustment, 'isBreakageDetail' => true],
+                $this->buildBreakageViewModel($adjustment)
+            ));
+        }
+
         $adjustment->load([
             'adjustedProducts.product.baseUnit',
             'location'
@@ -557,6 +566,93 @@ class AdjustmentController extends Controller
             'rejected_at' => optional($adjustment->rejected_at)->toIso8601String(),
             'rejection_reason' => $adjustment->rejection_reason,
         ];
+    }
+
+    /**
+     * Breakage-specific detail view model (tasks 4.1-4.2): a pending document
+     * is shown through the live BreakageMovementPlanner preview (recomputed on
+     * every view, may drift/conflict); an approved document is shown only from
+     * its immutable stored approval_result (design.md "Persist actual approval
+     * evidence in the existing audit field"), never recomputed from current
+     * stock. Stock-visibility permission decides whether current/projected
+     * quantities are included at all.
+     */
+    protected function buildBreakageViewModel(Adjustment $adjustment): array
+    {
+        $user = auth()->user();
+        $status = AdjustmentStatus::normalize($adjustment->status);
+
+        $canViewSystemStock = (bool) $user?->can('adjustments.view-system-stock');
+        $canApprove = (bool) $user?->can('adjustments.breakage.approval') || (bool) $user?->can('adjustments.approval');
+        $canReject = $canApprove || (bool) $user?->can('adjustments.reject');
+        $canEdit = (bool) $user?->can('adjustments.breakage.edit');
+        $canDelete = (bool) $user?->can('adjustments.delete');
+
+        $isPending = $status === AdjustmentStatus::Pending;
+        $isApproved = $status === AdjustmentStatus::Approved;
+
+        $showApprove = $isPending && $canApprove;
+        $showReject = $isPending && $canReject;
+        $showEdit = $isPending && $canEdit;
+        $showDelete = $isPending && $canDelete;
+
+        $plan = null;
+        $approvalResult = null;
+        $isLegacyApproved = false;
+
+        if ($isApproved) {
+            $result = is_array($adjustment->approval_result) ? $adjustment->approval_result : null;
+
+            if (\Modules\Adjustment\DTOs\BreakageApprovalResult::isVersioned($result)) {
+                $approvalResult = $canViewSystemStock ? $result : $this->scrubBreakageApprovalResult($result);
+            } else {
+                $isLegacyApproved = true;
+            }
+        } else {
+            $plan = app(\Modules\Adjustment\Services\BreakageMovementPlanner::class)->plan($adjustment);
+            if (!$canViewSystemStock) {
+                $plan = $this->scrubBreakagePlan($plan);
+            }
+        }
+
+        return [
+            'canViewSystemStock' => $canViewSystemStock,
+            'showApprove' => $showApprove,
+            'showReject' => $showReject,
+            'showEdit' => $showEdit,
+            'showDelete' => $showDelete,
+            'isPending' => $isPending,
+            'isApproved' => $isApproved,
+            'isLegacyApproved' => $isLegacyApproved,
+            'breakagePlan' => $plan,
+            'breakageApprovalResult' => $approvalResult,
+        ];
+    }
+
+    /**
+     * Strip current/projected stock figures for a user without
+     * adjustments.view-system-stock, keeping only movement/conflict facts
+     * needed to explain approvability without disclosing protected stock
+     * levels (mirrors the Stock Opname reviewer/counter split).
+     */
+    protected function scrubBreakagePlan(array $plan): array
+    {
+        $plan['products'] = collect($plan['products'] ?? [])->map(function (array $product) {
+            unset($product['current'], $product['projected'], $product['unexpected_bucket_quantity']);
+            return $product;
+        })->values()->all();
+
+        return $plan;
+    }
+
+    protected function scrubBreakageApprovalResult(array $result): array
+    {
+        $result['products'] = collect($result['products'] ?? [])->map(function (array $product) {
+            unset($product['before'], $product['after']);
+            return $product;
+        })->values()->all();
+
+        return $result;
     }
 
     /**
