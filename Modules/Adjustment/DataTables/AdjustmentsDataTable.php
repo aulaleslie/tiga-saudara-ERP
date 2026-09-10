@@ -74,7 +74,7 @@ class AdjustmentsDataTable extends DataTable
 
             Column::make('reference')
                 ->className('text-center align-middle')
-                ->title('Catatan'),
+                ->title('No. Penyesuaian'),
 
             Column::make('type')
                 ->className('text-center align-middle')
@@ -86,6 +86,10 @@ class AdjustmentsDataTable extends DataTable
             Column::make('adjusted_products_count')
                 ->title('Products')
                 ->className('text-center align-middle'),
+
+            Column::make('note')
+                ->className('text-center align-middle')
+                ->title('Catatan'),
 
             Column::computed('action')
                 ->exportable(false)

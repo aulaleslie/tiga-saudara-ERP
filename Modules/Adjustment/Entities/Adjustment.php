@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Modules\Adjustment\Services\AdjustmentReferenceService;
 use Modules\Setting\Entities\Location;
 
 class Adjustment extends BaseModel
@@ -67,26 +68,13 @@ class Adjustment extends BaseModel
         parent::boot();
 
         static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
+            $prefix = AdjustmentReferenceService::prefixForType($model->type);
 
-            // Fetch the latest reference for the current year and month
-            $latestReference = Adjustment::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
-
-            // Extract the number from the latest reference
-            $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Generate the new reference ID if not provided or default 'ADJ'
-            if (empty($model->reference) || strtoupper($model->reference) === 'ADJ') {
-                $model->reference = make_reference_id('ADJ', $year, $month, $nextNumber);
+            // Generate the new reference ID if not provided, or if the
+            // create form submitted only the placeholder value for this
+            // type's namespace ("ADJ" for normal, "BRK" for breakage).
+            if (AdjustmentReferenceService::needsGeneration($model->reference, $prefix)) {
+                $model->reference = AdjustmentReferenceService::allocate($prefix);
             }
         });
     }
