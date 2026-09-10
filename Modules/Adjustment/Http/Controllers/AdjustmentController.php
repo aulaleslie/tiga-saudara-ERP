@@ -68,11 +68,13 @@ class AdjustmentController extends Controller
     }
 
     /**
-     * Resolve a product for breakage entry, scoped to the destination
-     * location's own setting, active, and stock-managed. A product outside
-     * this scope (wrong setting, inactive, or not stock-managed) is treated
-     * as not found rather than silently accepted -- UI-side filtering alone
-     * does not establish this boundary.
+     * Resolve a product for breakage entry: active and stock-managed only.
+     * The product catalogue is global -- Product::setting_id never gates
+     * eligibility (see StockOpnameApprovalService::approve() for the same
+     * documented rule). Ownership of the operation is enforced entirely
+     * through the destination Location/Setting boundary already asserted by
+     * the caller and through location-scoped ProductStock/serial handling,
+     * never by filtering products to a setting's own catalogue.
      */
     protected function resolveBreakageProduct(int $productId, \Modules\Setting\Entities\Location $location): ?Product
     {
@@ -80,9 +82,6 @@ class AdjustmentController extends Controller
             ->where('id', $productId)
             ->active()
             ->where('stock_managed', true)
-            ->where(function ($q) use ($location) {
-                $q->whereNull('setting_id')->orWhere('setting_id', $location->setting_id);
-            })
             ->first();
     }
 
@@ -286,7 +285,7 @@ class AdjustmentController extends Controller
 
             if (!$product) {
                 return back()
-                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif."])
+                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola."])
                     ->withInput();
             }
 
@@ -329,7 +328,7 @@ class AdjustmentController extends Controller
                 $product = $this->resolveBreakageProduct((int) $id, $location);
                 if (!$product) {
                     throw ValidationException::withMessages([
-                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif.",
+                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola.",
                     ]);
                 }
                 $serialIds = array_map('intval', $request->serial_numbers[$key] ?? []);
@@ -374,8 +373,18 @@ class AdjustmentController extends Controller
                 $requestedMovement = $quantityTax + $quantityNonTax;
 
                 if ($requestedMovement > $availableGood) {
+                    // The exact available figure must never reach a user
+                    // without adjustments.view-system-stock -- unlike the
+                    // Livewire entry table, a validation error here is
+                    // rendered directly in the Blade form for any user who
+                    // can reach this action, regardless of that permission.
+                    $canViewSystemStock = (bool) auth()->user()?->can('adjustments.view-system-stock');
+                    $message = $canViewSystemStock
+                        ? "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood})."
+                        : "Stok baik untuk {$product->product_name} tidak mencukupi.";
+
                     throw ValidationException::withMessages([
-                        "quantities_tax.$key" => "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood}).",
+                        "quantities_tax.$key" => $message,
                     ]);
                 }
 
@@ -639,8 +648,11 @@ class AdjustmentController extends Controller
     {
         $plan['products'] = collect($plan['products'] ?? [])->map(function (array $product) {
             unset($product['current'], $product['projected'], $product['unexpected_bucket_quantity']);
+            $product['conflicts'] = $this->scrubBreakageConflictMessages($product['conflicts'] ?? []);
             return $product;
         })->values()->all();
+
+        $plan['conflicts'] = $this->scrubBreakageConflictMessages($plan['conflicts'] ?? []);
 
         return $plan;
     }
@@ -652,7 +664,32 @@ class AdjustmentController extends Controller
             return $product;
         })->values()->all();
 
+        $result['warnings'] = $this->scrubBreakageConflictMessages($result['warnings'] ?? []);
+
         return $result;
+    }
+
+    /**
+     * BreakageMovementPlanner/BreakageApprovalService conflict and warning
+     * strings can embed the exact available stock figure (e.g. "stok baik
+     * tersedia (5) tidak mencukupi..."), which is exactly the protected
+     * number the current/projected columns were scrubbed for. These
+     * messages are plain text rendered directly in the review view for any
+     * viewer who can open it, so the same permission boundary must apply to
+     * them -- replace the disclosing fragment with a generic equivalent
+     * rather than dropping the conflict (the viewer still needs to know
+     * approval is blocked and why in general terms).
+     */
+    protected function scrubBreakageConflictMessages(array $messages): array
+    {
+        return array_map(
+            fn (string $message) => (string) preg_replace(
+                '/stok baik tersedia \(\d+\) tidak mencukupi untuk[^.]*\./u',
+                'stok baik tersedia tidak mencukupi untuk permintaan ini.',
+                $message
+            ),
+            $messages
+        );
     }
 
     /**
@@ -907,7 +944,7 @@ class AdjustmentController extends Controller
 
             if (!$product) {
                 return back()
-                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif."])
+                    ->withErrors(["product_ids.$key" => "Produk tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola."])
                     ->withInput();
             }
 
@@ -950,7 +987,7 @@ class AdjustmentController extends Controller
                 $product = $this->resolveBreakageProduct((int) $id, $location);
                 if (!$product) {
                     throw ValidationException::withMessages([
-                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif.",
+                        "product_ids.$key" => "Produk tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola.",
                     ]);
                 }
                 $serialIds = array_map('intval', $request->serial_numbers[$key] ?? []);
@@ -994,8 +1031,18 @@ class AdjustmentController extends Controller
                 $requestedMovement = $quantityTax + $quantityNonTax;
 
                 if ($requestedMovement > $availableGood) {
+                    // The exact available figure must never reach a user
+                    // without adjustments.view-system-stock -- unlike the
+                    // Livewire entry table, a validation error here is
+                    // rendered directly in the Blade form for any user who
+                    // can reach this action, regardless of that permission.
+                    $canViewSystemStock = (bool) auth()->user()?->can('adjustments.view-system-stock');
+                    $message = $canViewSystemStock
+                        ? "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood})."
+                        : "Stok baik untuk {$product->product_name} tidak mencukupi.";
+
                     throw ValidationException::withMessages([
-                        "quantities_tax.$key" => "Stok baik untuk {$product->product_name} tidak mencukupi (tersedia {$availableGood}).",
+                        "quantities_tax.$key" => $message,
                     ]);
                 }
 
@@ -1271,7 +1318,20 @@ class AdjustmentController extends Controller
         try {
             app(\Modules\Adjustment\Services\BreakageApprovalService::class)->approve($adjustment, auth()->user());
         } catch (ValidationException $e) {
-            return back()->withErrors(['message' => (string) collect($e->errors())->flatten()->first()]);
+            // BreakageApprovalService's shortage messages embed the exact
+            // locked available-stock figure (the same protected number the
+            // review page's current/projected columns and conflict list are
+            // scrubbed for). A user can hold adjustments.breakage.approval
+            // without adjustments.view-system-stock and reach this path
+            // directly (e.g. re-submitting approval after stock drifted
+            // since the scrubbed review page loaded), so the flashed
+            // message must go through the same redaction here.
+            $messages = collect($e->errors())->flatten()->all();
+            if (!auth()->user()?->can('adjustments.view-system-stock')) {
+                $messages = $this->scrubBreakageConflictMessages($messages);
+            }
+
+            return back()->withErrors(['message' => (string) ($messages[0] ?? '')]);
         }
 
         toast('Penyesuaian Barang Rusak Disetujui!', 'success');

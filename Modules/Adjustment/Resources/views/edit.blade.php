@@ -83,7 +83,6 @@
 @endsection
 
 @push('page_scripts')
-    @livewireScripts
     <script>
         // Initialize form submission lock
         initFormSubmissionLock('adjustment-edit-form', 'adjustment:submit-error');

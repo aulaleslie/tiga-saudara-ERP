@@ -108,7 +108,54 @@ class BreakageProductTable extends Component
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        return view('livewire.adjustment.breakage-product-table');
+        return view('livewire.adjustment.breakage-product-table', [
+            'canViewSystemStock' => $this->canViewSystemStock(),
+            'stockByProductId' => $this->canViewSystemStock() ? $this->buildStockDisplayMap() : [],
+        ]);
+    }
+
+    /**
+     * Whether the current user is authorized to see location stock figures.
+     * Mirrors AdjustmentProductTable::canViewSystemStock().
+     */
+    protected function canViewSystemStock(): bool
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+
+        return $user->hasRole('Super Admin') || $user->can('adjustments.view-system-stock');
+    }
+
+    /**
+     * Stock figures for display, computed fresh on every render and only
+     * for an authorized viewer -- never stored on the public $products
+     * array, which would otherwise disclose them to every viewer regardless
+     * of permission via the Livewire wire payload.
+     */
+    protected function buildStockDisplayMap(): array
+    {
+        $map = [];
+
+        foreach ($this->products as $product) {
+            $productId = (int) ($product['id'] ?? 0);
+            if ($productId === 0 || isset($map[$productId])) {
+                continue;
+            }
+
+            [$availableGood, $goodTax, $goodNonTax, $badTax, $badNonTax] = $this->currentStockBuckets($productId);
+
+            $map[$productId] = [
+                'available_good' => $availableGood,
+                'quantity_tax' => $goodTax,
+                'quantity_non_tax' => $goodNonTax,
+                'broken_quantity_tax' => $badTax,
+                'broken_quantity_non_tax' => $badNonTax,
+            ];
+        }
+
+        return $map;
     }
 
     protected function refreshIsPkp(): void
@@ -226,11 +273,18 @@ class BreakageProductTable extends Component
     }
 
     /**
-     * Main scan input handler.
+     * Main scan input handler. Accepts an explicit $code so the client-side
+     * scan queue (breakage-product-table.blade.php's breakageScanQueue()
+     * Alpine component) can drive each queued scan by value rather than by
+     * reading $this->scanInput, which is synced from a wire:model binding
+     * and can otherwise go stale between when a scan was queued and when
+     * its turn to run arrives. Falling back to $this->scanInput keeps this
+     * callable directly (as every existing test does) for a single,
+     * non-queued scan.
      */
-    public function processScan(): void
+    public function processScan(?string $code = null): void
     {
-        $code = trim($this->scanInput);
+        $code = trim($code ?? $this->scanInput);
         $this->feedbackMessage = null;
 
         if ($code === '') {
@@ -274,18 +328,27 @@ class BreakageProductTable extends Component
     /**
      * AdjustmentProductResolver::resolveScan() is shared with Stock Opname
      * and matches barcodes/serials globally by design; breakage must narrow
-     * the result to products actually eligible under resolveBreakageProduct()
-     * for the active session setting (active, stock-managed, no-setting or
-     * matching setting_id) before ever exposing candidate data or applying a
-     * match, so a crafted scan cannot read or select another setting's
-     * product/stock.
+     * the result to products actually eligible for entry before ever
+     * exposing candidate data or applying a match. The product catalogue is
+     * global -- Product::setting_id never gates eligibility (see
+     * StockOpnameApprovalService::approve() for the same documented rule; a
+     * product's legacy setting_id can differ from every location that
+     * legitimately stocks it). Eligibility here mirrors
+     * resolveBreakageProduct() exactly (active + stock-managed only): the
+     * location-ownership boundary is already enforced separately by
+     * locationId being #[Locked] + resolveOwnedLocation(), and a missing
+     * ProductStock row at the selected location is not an eligibility
+     * failure -- it is handled the same way an existing zero-stock row is,
+     * by addProductRow()/currentStockBuckets() defaulting available good
+     * stock to 0 (so an ordinary scan simply reports "tidak mencukupi"
+     * rather than "tidak ditemukan").
      */
     protected function scopeScanResultToActiveSetting(array $result): array
     {
         if ($result['status'] === 'ambiguous') {
             $filtered = array_values(array_filter(
                 $result['candidates'] ?? [],
-                fn (array $candidate) => $this->isProductEligibleForActiveSetting((int) $candidate['product']['id'])
+                fn (array $candidate) => $this->isEligibleBreakageProduct((int) $candidate['product']['id'])
             ));
 
             if (empty($filtered)) {
@@ -301,7 +364,7 @@ class BreakageProductTable extends Component
 
         if ($result['status'] === 'resolved') {
             $productId = (int) ($result['candidate']['product']['id'] ?? 0);
-            if (!$this->isProductEligibleForActiveSetting($productId)) {
+            if (!$this->isEligibleBreakageProduct($productId)) {
                 return ['status' => 'not_found'];
             }
         }
@@ -309,17 +372,12 @@ class BreakageProductTable extends Component
         return $result;
     }
 
-    protected function isProductEligibleForActiveSetting(int $productId): bool
+    protected function isEligibleBreakageProduct(int $productId): bool
     {
-        $activeSettingId = (int) session('setting_id');
-
         return Product::query()
             ->where('id', $productId)
             ->active()
             ->where('stock_managed', true)
-            ->where(function ($q) use ($activeSettingId) {
-                $q->whereNull('setting_id')->orWhere('setting_id', $activeSettingId);
-            })
             ->exists();
     }
 
@@ -424,11 +482,25 @@ class BreakageProductTable extends Component
 
     protected function incrementQuantity(int $index, int $amount, ?string $unitName = null): bool
     {
-        $available = (int) ($this->products[$index]['available_good'] ?? 0);
+        // available_good is never cached on the public $products row (it
+        // would be disclosed to every viewer regardless of
+        // adjustments.view-system-stock through the Livewire wire payload) --
+        // it is recomputed fresh, server-side, at the moment it gates a
+        // mutation.
+        [$available] = $this->currentStockBuckets((int) $this->products[$index]['id']);
         $current = (int) ($this->quantities[$index] ?? 0);
 
         if ($current + $amount > $available) {
-            $this->feedbackMessage = "Stok baik tersedia untuk '{$this->products[$index]['product_name']}' (tersedia {$available}) tidak mencukupi.";
+            // The exact available figure must never reach feedbackMessage
+            // for a user without adjustments.view-system-stock:
+            // feedbackMessage is public Livewire state, serialized to every
+            // viewer on every response regardless of what the Blade
+            // template renders, exactly like the stock columns it was
+            // scrubbed from.
+            $productName = $this->products[$index]['product_name'];
+            $this->feedbackMessage = $this->canViewSystemStock()
+                ? "Stok baik tersedia untuk '{$productName}' (tersedia {$available}) tidak mencukupi."
+                : "Stok baik untuk '{$productName}' tidak mencukupi.";
             $this->feedbackType = 'warning';
             return false;
         }
@@ -488,15 +560,20 @@ class BreakageProductTable extends Component
     }
 
     /**
-     * Add a product row initialized at zero quantity, with current available
-     * good stock captured for entry-time limiting (approval always revalidates).
+     * Add a product row initialized at zero quantity. Stock figures
+     * (available good, tax/non-tax/broken buckets) are deliberately NOT
+     * stored on the row: $products is public Livewire state and is
+     * serialized to every viewer on every response regardless of the
+     * adjustments.view-system-stock permission, so caching them here would
+     * disclose location stock to any user who can open this form. They are
+     * instead recomputed on demand, server-side, wherever they gate a
+     * mutation (incrementQuantity()) or are rendered to an authorized viewer
+     * (the stockFor() computed accessor).
      */
     protected function addProductRow(array $productData): int
     {
         $productId = (int) $productData['id'];
         $isSerialized = (bool) ($productData['serial_number_required'] ?? false);
-
-        [$availableGood, $goodTax, $goodNonTax, $badTax, $badNonTax] = $this->currentStockBuckets($productId);
 
         $row = [
             'id' => $productId,
@@ -505,11 +582,6 @@ class BreakageProductTable extends Component
             'serial_number_required' => $isSerialized,
             'serial_numbers' => [],
             'unit' => $productData['base_unit'] ?? '',
-            'available_good' => $availableGood,
-            'quantity_tax' => $goodTax,
-            'quantity_non_tax' => $goodNonTax,
-            'broken_quantity_tax' => $badTax,
-            'broken_quantity_non_tax' => $badNonTax,
         ];
 
         $newIndex = count($this->products);
@@ -614,7 +686,7 @@ class BreakageProductTable extends Component
         // results to the active setting's eligible products before they are
         // ever returned to the client.
         $this->searchResults = collect($resolver->searchProducts($term, 30))
-            ->filter(fn (array $result) => $this->isProductEligibleForActiveSetting((int) $result['id']))
+            ->filter(fn (array $result) => $this->isEligibleBreakageProduct((int) $result['id']))
             ->values()
             ->take(10)
             ->all();
@@ -643,8 +715,8 @@ class BreakageProductTable extends Component
             return;
         }
 
-        if (!$this->isProductEligibleForActiveSetting($productId)) {
-            $this->feedbackMessage = 'Produk tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan aktif.';
+        if (!$this->isEligibleBreakageProduct($productId)) {
+            $this->feedbackMessage = 'Produk tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola.';
             $this->feedbackType = 'danger';
             $this->closeSearchModal();
             return;
@@ -747,8 +819,6 @@ class BreakageProductTable extends Component
                 continue;
             }
 
-            [$availableGood, $goodTax, $goodNonTax, $badTax, $badNonTax] = $this->currentStockBuckets($productId);
-
             $isSerialized = (bool) $product->serial_number_required;
             $serialIds = $adjustedProduct['serial_number_ids'] ?? [];
             $serials = $this->getSerialNumberByIds($serialIds);
@@ -767,11 +837,6 @@ class BreakageProductTable extends Component
                 'serial_number_required' => $isSerialized,
                 'serial_numbers' => $serials,
                 'unit' => $baseUnit->unit_name ?? $baseUnit->name ?? $baseUnit->short_name ?? '',
-                'available_good' => $availableGood,
-                'quantity_tax' => $goodTax,
-                'quantity_non_tax' => $goodNonTax,
-                'broken_quantity_tax' => $badTax,
-                'broken_quantity_non_tax' => $badNonTax,
             ];
 
             $this->quantities[$index] = $quantity;
@@ -786,8 +851,6 @@ class BreakageProductTable extends Component
             if (!$product) {
                 continue;
             }
-
-            [$availableGood, $goodTax, $goodNonTax, $badTax, $badNonTax] = $this->currentStockBuckets($productId);
 
             $isSerialized = (bool) $product->serial_number_required;
             $serialIds = $serialNumbers[$key] ?? [];
@@ -807,11 +870,6 @@ class BreakageProductTable extends Component
                 'serial_number_required' => $isSerialized,
                 'serial_numbers' => $serials,
                 'unit' => $baseUnit->unit_name ?? $baseUnit->name ?? $baseUnit->short_name ?? '',
-                'available_good' => $availableGood,
-                'quantity_tax' => $goodTax,
-                'quantity_non_tax' => $goodNonTax,
-                'broken_quantity_tax' => $badTax,
-                'broken_quantity_non_tax' => $badNonTax,
             ];
 
             $this->quantities[$index] = $quantity;

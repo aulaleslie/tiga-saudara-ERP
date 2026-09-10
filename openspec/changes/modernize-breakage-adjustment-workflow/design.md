@@ -46,7 +46,7 @@ Alternative: keep separate tax/non-tax inputs and infer serial allocation from `
 
 The main scan input resolves primary product barcodes, conversion barcodes, and existing serial numbers, with an ambiguity dialog when necessary. A non-serialized product barcode increments breakage by one; an integer-compatible conversion barcode increments by its base-unit factor. A serialized product/conversion barcode only adds or focuses its row. A serial scan adds one unit only if the serial belongs to that product and selected location and satisfies the canonical sellable scope. Unknown serials are never created.
 
-Search returns active, stock-managed products within the active setting. Duplicate product selection focuses or reports the existing row without resetting it. Duplicate serial selection changes nothing and shows feedback.
+Search returns active, stock-managed products; the product catalogue is global, so `Product.setting_id` never filters or gates results. Availability is expressed entirely through the selected, active-setting-owned location's stock: a matched product with no stock row (or zero good stock) at that location is still selectable, but reports zero available good and rejects any increment as insufficient. Duplicate product selection focuses or reports the existing row without resetting it. Duplicate serial selection changes nothing and shows feedback.
 
 ### Preview current consequences but revalidate under approval locks
 

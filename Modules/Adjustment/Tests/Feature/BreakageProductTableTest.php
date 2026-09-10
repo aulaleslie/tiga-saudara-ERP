@@ -17,6 +17,7 @@ use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -77,6 +78,19 @@ class BreakageProductTableTest extends TestCase
     private function actingAsUser(Setting $setting): void
     {
         $this->actingAs($this->makeUser($setting));
+        session(['setting_id' => $setting->id]);
+    }
+
+    private function actingAsUserWithSystemStockPermission(Setting $setting): void
+    {
+        $user = User::factory()->create(['is_active' => 1]);
+        Permission::firstOrCreate(['name' => 'adjustments.view-system-stock', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'stock-viewer-' . uniqid(), 'guard_name' => 'web']);
+        $role->givePermissionTo('adjustments.view-system-stock');
+        $user->assignRole($role);
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
+
+        $this->actingAs($user);
         session(['setting_id' => $setting->id]);
     }
 
@@ -416,39 +430,91 @@ class BreakageProductTableTest extends TestCase
             ->assertSee('bukan milik pengaturan aktif');
     }
 
-    public function test_search_and_scan_never_expose_a_product_from_another_setting(): void
+    /**
+     * The product catalogue is global -- Product::setting_id is a legacy
+     * column and never gates eligibility (see
+     * StockOpnameApprovalService::approve()'s documented rule). A product
+     * whose legacy setting_id belongs to a different setting than the
+     * currently active one must still be scannable, searchable, and
+     * selectable for breakage as long as it is active and stock-managed and
+     * the selected location (which does belong to the active setting) is
+     * used to evaluate its available good stock.
+     */
+    public function test_globally_shared_product_with_a_different_legacy_setting_id_is_still_eligible(): void
     {
         $setting = $this->makeSetting();
         $otherSetting = $this->makeSetting();
         $location = $this->makeLocation($setting);
 
-        $foreignProduct = $this->makeProduct($otherSetting, [
-            'product_name' => 'Produk Setting Lain',
-            'product_code' => 'SKU-FOREIGN',
-            'barcode' => 'BC-FOREIGN',
+        $sharedProduct = $this->makeProduct($otherSetting, [
+            'product_name' => 'Produk Bersama',
+            'product_code' => 'SKU-SHARED',
+            'barcode' => 'BC-SHARED',
+        ]);
+
+        $this->makeStock($sharedProduct, $location, [
+            'quantity' => 5, 'quantity_tax' => 0, 'quantity_non_tax' => 5,
         ]);
 
         $this->actingAsUser($setting);
 
-        // Direct scan of a foreign-setting product's barcode must behave as not-found.
+        // Scanning its barcode at the owned location resolves and increments as usual.
+        // (Available good stock is no longer part of public component state --
+        // see currentStockBuckets()/buildStockDisplayMap() -- so eligibility
+        // is asserted through the actual increment outcome instead.)
         Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
-            ->set('scanInput', 'BC-FOREIGN')
+            ->set('scanInput', 'BC-SHARED')
             ->call('processScan')
-            ->assertCount('products', 0)
-            ->assertSee('tidak ditemukan');
+            ->assertCount('products', 1)
+            ->assertSet('quantities.0', 1);
 
-        // Search modal must never return it either.
+        // Search modal returns it too.
         $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
             ->call('openSearchModal')
-            ->set('searchTerm', 'Produk Setting Lain')
+            ->set('searchTerm', 'Produk Bersama')
             ->call('searchProducts');
 
-        $this->assertCount(0, $component->get('searchResults'));
+        $this->assertCount(1, $component->get('searchResults'));
 
-        // A crafted direct productSelected() call for the foreign product ID must also be rejected.
-        $component->call('productSelected', ['id' => $foreignProduct->id])
-            ->assertCount('products', 0)
-            ->assertSee('bukan milik pengaturan aktif');
+        $component->call('productSelected', ['id' => $sharedProduct->id])
+            ->assertCount('products', 1);
+    }
+
+    /**
+     * The location-ownership boundary is still enforced independently of
+     * product eligibility: a product that only has stock at a location
+     * belonging to a DIFFERENT setting must not be reachable through the
+     * active setting's editor, because its stock can only ever be queried
+     * against the currently selected (owned) location -- there is simply no
+     * ProductStock row to move there, regardless of the product's own
+     * eligibility.
+     */
+    public function test_product_with_stock_only_at_another_settings_location_shows_no_available_stock_here(): void
+    {
+        $setting = $this->makeSetting();
+        $otherSetting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $otherLocation = $this->makeLocation($otherSetting);
+
+        $product = $this->makeProduct($setting, [
+            'product_name' => 'Produk Lokasi Lain', 'product_code' => 'SKU-OTHERLOC', 'barcode' => 'BC-OTHERLOC',
+        ]);
+
+        $this->makeStock($product, $otherLocation, [
+            'quantity' => 5, 'quantity_tax' => 0, 'quantity_non_tax' => 5,
+        ]);
+
+        $this->actingAsUser($setting);
+
+        // The scan still resolves the product (it is globally eligible), but
+        // the owned location has no stock row for it, so available good is 0
+        // and any increment attempt is rejected for insufficient stock.
+        Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->set('scanInput', 'BC-OTHERLOC')
+            ->call('processScan')
+            ->assertCount('products', 1)
+            ->assertSet('quantities.0', 0)
+            ->assertSee('tidak mencukupi');
     }
 
     public function test_locationId_property_cannot_be_set_directly_by_a_crafted_request(): void
@@ -514,5 +580,196 @@ class BreakageProductTableTest extends TestCase
         $this->assertNull($instance->locationId);
         $this->assertNull($instance->isPkp);
         $this->assertStringContainsString('bukan milik pengaturan aktif', (string) $instance->feedbackMessage);
+    }
+
+    /**
+     * Location stock figures (available good, tax/non-tax/broken buckets)
+     * must never reach a viewer without adjustments.view-system-stock --
+     * not in the rendered table (columns hidden), and not anywhere in the
+     * public Livewire component state, since the ENTIRE public state is
+     * serialized to the client on every response regardless of what the
+     * Blade template happens to render.
+     */
+    public function test_stock_figures_are_never_exposed_without_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting, [
+            'product_name' => 'Rahasia Stok', 'product_code' => 'SKU-SECRET-STOCK', 'barcode' => 'BC-SECRETSTOCK',
+        ]);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 42, 'quantity_tax' => 0, 'quantity_non_tax' => 42,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 7, 'broken_quantity' => 7,
+        ]);
+
+        $this->actingAsUser($setting);
+
+        $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->set('scanInput', 'BC-SECRETSTOCK')
+            ->call('processScan')
+            ->assertCount('products', 1);
+
+        // Neither raw stock quantities nor the "42"/"7" figures ever appear
+        // in the rendered HTML for an unauthorized viewer.
+        $component->assertDontSee('Stok Baik Tersedia');
+        $component->assertDontSee('Stok Rusak Saat Ini');
+        $component->assertDontSee('42');
+        $component->assertDontSee(', 7 ', false);
+
+        // The public component state itself must not carry stock figures,
+        // since Livewire serializes all public properties to the client on
+        // every response irrespective of what the Blade template renders.
+        // stockByProductId is deliberately a render()-time view variable
+        // (never a public property), so it is not part of the wire payload
+        // at all for this component -- confirmed by inspecting $products.
+        $productRow = $component->get('products')[0];
+        $this->assertArrayNotHasKey('available_good', $productRow);
+        $this->assertArrayNotHasKey('quantity_tax', $productRow);
+        $this->assertArrayNotHasKey('quantity_non_tax', $productRow);
+        $this->assertArrayNotHasKey('broken_quantity_tax', $productRow);
+        $this->assertArrayNotHasKey('broken_quantity_non_tax', $productRow);
+    }
+
+    public function test_stock_figures_are_shown_to_a_user_with_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting, [
+            'product_name' => 'Stok Terlihat', 'product_code' => 'SKU-VISIBLE-STOCK', 'barcode' => 'BC-VISIBLESTOCK',
+        ]);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 42, 'quantity_tax' => 0, 'quantity_non_tax' => 42,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 7, 'broken_quantity' => 7,
+        ]);
+
+        $this->actingAsUserWithSystemStockPermission($setting);
+
+        $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->set('scanInput', 'BC-VISIBLESTOCK')
+            ->call('processScan')
+            ->assertCount('products', 1);
+
+        $component->assertSee('Stok Baik Tersedia');
+        $component->assertSee('Stok Rusak Saat Ini');
+        $component->assertSee('42');
+        $component->assertSee('7');
+    }
+
+    /**
+     * Every scan (server-side) round-trip mutates $this->quantities directly
+     * and is dehydrated/rehydrated by Livewire between calls, so two
+     * server-side calls in sequence always see each other's effect --
+     * scanning the same barcode twice increments 0 -> 1 -> 2. The client-side
+     * scan queue in breakage-product-table.blade.php (breakageScanQueue())
+     * exists to guarantee two BROWSER-level rapid Enter presses are also
+     * always sent to the server as two such sequential round trips (rather
+     * than two overlapping requests racing against the same snapshot) --
+     * that ordering guarantee is a JS concern the PHP test suite cannot
+     * exercise directly, but this proves the server-side contract the queue
+     * relies on: each completed processScan() call is idempotent-free and
+     * additive against whatever state the previous completed call left.
+     */
+    public function test_repeated_sequential_scans_of_the_same_barcode_each_increment_exactly_once(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 10, 'quantity_tax' => 0, 'quantity_non_tax' => 10,
+        ]);
+
+        $this->actingAsUser($setting);
+
+        $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id]);
+
+        $component->call('processScan', 'BC-HDMI-1')->assertSet('quantities.0', 1);
+        $component->call('processScan', 'BC-HDMI-1')->assertSet('quantities.0', 2);
+        $component->call('processScan', 'BC-HDMI-1')->assertSet('quantities.0', 3);
+
+        $this->assertCount(1, $component->get('products'));
+    }
+
+    /**
+     * processScan(code) must use the explicit code argument rather than the
+     * synced $this->scanInput property, so the client-side queue can drive
+     * a call by value even if scanInput has already been reset/changed by
+     * the time a queued call's turn arrives.
+     */
+    public function test_processScan_uses_the_explicit_code_argument_over_stale_scan_input_property(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 5, 'quantity_tax' => 0, 'quantity_non_tax' => 5,
+        ]);
+
+        $this->actingAsUser($setting);
+
+        Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->set('scanInput', 'SOME-STALE-VALUE-NOT-A-REAL-BARCODE')
+            ->call('processScan', 'BC-HDMI-1')
+            ->assertCount('products', 1)
+            ->assertSet('quantities.0', 1);
+    }
+
+    /**
+     * The exact available-stock figure must never leak into the public
+     * feedbackMessage property for a user without
+     * adjustments.view-system-stock: feedbackMessage is serialized to every
+     * viewer on every response exactly like the removed stock columns, so
+     * the shortage warning shown on an over-scan must be generic for such a
+     * user and precise only for an authorized one.
+     */
+    public function test_shortage_feedback_hides_exact_stock_figure_without_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 3, 'quantity_tax' => 0, 'quantity_non_tax' => 3,
+        ]);
+
+        $this->actingAsUser($setting);
+
+        $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->call('processScan', 'BC-HDMI-1')
+            ->call('processScan', 'BC-HDMI-1')
+            ->call('processScan', 'BC-HDMI-1')
+            // 4th scan exceeds the 3 available -- must reject with a
+            // generic message, never disclosing "(tersedia 3)".
+            ->call('processScan', 'BC-HDMI-1');
+
+        $component->assertSet('quantities.0', 3);
+        $component->assertSee('tidak mencukupi');
+        $component->assertDontSee('tersedia 3');
+        $component->assertDontSee('(tersedia');
+    }
+
+    public function test_shortage_feedback_shows_exact_stock_figure_with_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting();
+        $location = $this->makeLocation($setting);
+        $product = $this->makeProduct($setting);
+
+        $this->makeStock($product, $location, [
+            'quantity' => 3, 'quantity_tax' => 0, 'quantity_non_tax' => 3,
+        ]);
+
+        $this->actingAsUserWithSystemStockPermission($setting);
+
+        $component = Livewire::test(BreakageProductTable::class, ['locationId' => $location->id])
+            ->call('processScan', 'BC-HDMI-1')
+            ->call('processScan', 'BC-HDMI-1')
+            ->call('processScan', 'BC-HDMI-1')
+            ->call('processScan', 'BC-HDMI-1');
+
+        $component->assertSet('quantities.0', 3);
+        $component->assertSee('tersedia 3');
     }
 }

@@ -263,4 +263,172 @@ class BreakageShowViewTest extends TestCase
         $response->assertSee('sebelum pencatatan bukti persetujuan');
         $response->assertSee('Fallback Lama');
     }
+
+    /**
+     * BreakageMovementPlanner's shortage conflict message embeds the exact
+     * available-stock figure (e.g. "stok baik tersedia (3) tidak
+     * mencukupi..."), which is exactly the number the current/projected
+     * columns are scrubbed for. A user without adjustments.view-system-stock
+     * must still see that the document is blocked and why in general terms,
+     * but never the precise quantity.
+     */
+    public function test_shortage_conflict_message_hides_exact_stock_figure_without_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        // Requests 99 but only 3 are available -- shortage conflict.
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
+            'quantity' => 99, 'quantity_tax' => 99, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        $user = $this->makeUserWithPermissions($setting, [
+            'adjustments.access', 'adjustments.show',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('adjustments.show', $adjustment));
+
+        $response->assertOk();
+        $response->assertSee('tidak mencukupi');
+        $response->assertDontSee('tersedia (3)');
+        $response->assertDontSee('(99)');
+    }
+
+    public function test_shortage_conflict_message_shows_exact_stock_figure_with_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
+            'quantity' => 99, 'quantity_tax' => 99, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        $user = $this->makeUserWithPermissions($setting, [
+            'adjustments.access', 'adjustments.show', 'adjustments.breakage.approval', 'adjustments.view-system-stock',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('adjustments.show', $adjustment));
+
+        $response->assertOk();
+        $response->assertSee('tersedia (3)');
+    }
+
+    /**
+     * adjustments.breakage.approval does not imply
+     * adjustments.view-system-stock: an approval-only user can reach
+     * approveBreakage() directly (e.g. re-submitting approval after the
+     * scrubbed review page loaded but stock drifted below the requested
+     * amount before the click landed), and BreakageApprovalService's
+     * shortage ValidationException embeds the exact locked available-stock
+     * figure. The flashed error on that path must be redacted the same way
+     * the review page and entry-time messages are.
+     */
+    public function test_direct_approval_shortage_error_hides_exact_stock_figure_without_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        // Requests 99 but only 3 are available at approval time.
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
+            'quantity' => 99, 'quantity_tax' => 99, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        // Approval permission WITHOUT view-system-stock.
+        $approver = $this->makeUserWithPermissions($setting, [
+            'adjustments.access', 'adjustments.breakage.approval',
+        ]);
+
+        $response = $this->actingAs($approver)
+            ->withSession(['setting_id' => $setting->id])
+            ->patch(route('adjustments.approve', $adjustment));
+
+        $response->assertSessionHasErrors('message');
+        $errorMessage = (string) session('errors')->first('message');
+
+        $this->assertStringContainsString('tidak mencukupi', $errorMessage);
+        $this->assertStringNotContainsString('tersedia (3)', $errorMessage);
+        $this->assertStringNotContainsString('(99)', $errorMessage);
+
+        $adjustment->refresh();
+        $this->assertSame('PENDING', \Modules\Adjustment\Entities\AdjustmentStatus::normalize($adjustment->status)->value);
+    }
+
+    public function test_direct_approval_shortage_error_shows_exact_stock_figure_with_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
+            'quantity' => 99, 'quantity_tax' => 99, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        $approver = $this->makeUserWithPermissions($setting, [
+            'adjustments.access', 'adjustments.breakage.approval', 'adjustments.view-system-stock',
+        ]);
+
+        $response = $this->actingAs($approver)
+            ->withSession(['setting_id' => $setting->id])
+            ->patch(route('adjustments.approve', $adjustment));
+
+        $response->assertSessionHasErrors('message');
+        $errorMessage = (string) session('errors')->first('message');
+
+        $this->assertStringContainsString('tersedia (3)', $errorMessage);
+    }
 }

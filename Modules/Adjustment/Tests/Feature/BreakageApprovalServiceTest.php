@@ -369,21 +369,29 @@ class BreakageApprovalServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_rejects_a_product_outside_the_destination_locations_setting(): void
+    public function it_approves_a_globally_shared_product_whose_legacy_setting_id_differs_from_the_destination(): void
     {
+        // The product catalogue is global: Product::setting_id is a legacy
+        // column and must never gate approval eligibility (see
+        // StockOpnameApprovalService::approve()'s documented rule). A
+        // product created under a different setting must still approve
+        // normally as long as it is active, stock-managed, and has real
+        // stock at the destination location -- ownership of the operation
+        // is enforced entirely through the destination Location/Setting,
+        // never by filtering products to that setting's own catalogue.
         $setting = $this->makeSetting(true);
         $otherSetting = $this->makeSetting(true);
         $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
         $user = $this->makeApprover($setting);
 
-        $foreignProduct = Product::create([
-            'setting_id' => $otherSetting->id, 'product_name' => 'Produk Asing', 'product_code' => 'SKU-8',
+        $sharedProduct = Product::create([
+            'setting_id' => $otherSetting->id, 'product_name' => 'Produk Bersama', 'product_code' => 'SKU-8',
             'product_quantity' => 10, 'serial_number_required' => false,
             'product_cost' => 1000, 'product_price' => 1500, 'product_stock_alert' => 1, 'stock_managed' => true,
         ]);
 
         ProductStock::create([
-            'product_id' => $foreignProduct->id, 'location_id' => $location->id,
+            'product_id' => $sharedProduct->id, 'location_id' => $location->id,
             'quantity' => 10, 'quantity_tax' => 10, 'quantity_non_tax' => 0,
             'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
         ]);
@@ -393,7 +401,44 @@ class BreakageApprovalServiceTest extends TestCase
         ]);
 
         AdjustedProduct::create([
-            'adjustment_id' => $adjustment->id, 'product_id' => $foreignProduct->id,
+            'adjustment_id' => $adjustment->id, 'product_id' => $sharedProduct->id,
+            'quantity' => 1, 'quantity_tax' => 1, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        $approved = app(BreakageApprovalService::class)->approve($adjustment->fresh(), $user, $setting->id);
+
+        $this->assertSame(AdjustmentStatus::Approved, $approved->status);
+
+        $stock = ProductStock::where('product_id', $sharedProduct->id)->where('location_id', $location->id)->first();
+        $this->assertSame(9, (int) $stock->quantity_tax);
+        $this->assertSame(1, (int) $stock->broken_quantity_tax);
+    }
+
+    /** @test */
+    public function it_rejects_a_product_with_no_stock_row_at_the_destination_location(): void
+    {
+        // Ownership of the approval operation is enforced through the
+        // destination location, not the product's legacy setting_id: a
+        // product that is otherwise eligible but has never had a
+        // ProductStock row created at THIS location still blocks approval,
+        // because there is simply nothing to move.
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $user = $this->makeApprover($setting);
+
+        $product = Product::create([
+            'setting_id' => $setting->id, 'product_name' => 'Tanpa Stok', 'product_code' => 'SKU-NOSTOCK',
+            'product_quantity' => 0, 'serial_number_required' => false,
+            'product_cost' => 1000, 'product_price' => 1500, 'product_stock_alert' => 1, 'stock_managed' => true,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
             'quantity' => 1, 'quantity_tax' => 1, 'quantity_non_tax' => 0,
             'serial_numbers' => json_encode([]), 'type' => 'sub',
         ]);

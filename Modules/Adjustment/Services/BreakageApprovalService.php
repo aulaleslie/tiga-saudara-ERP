@@ -139,16 +139,17 @@ class BreakageApprovalService
                 ]);
             }
 
-            // ---- Lock Product rows, scoped to this destination location's
-            // own setting (or global), active, and stock-managed -- the same
-            // boundary enforced at entry time, re-asserted here under lock
-            // rather than trusted from the earlier unlocked write. ----
+            // ---- Lock Product rows: active and stock-managed only. The
+            // product catalogue is global -- Product::setting_id never gates
+            // approval eligibility (see StockOpnameApprovalService::approve()
+            // for the same documented rule). Ownership of this operation is
+            // enforced entirely through the already-locked destination
+            // Location/Setting above and the location-scoped stock/serial
+            // handling below, never by filtering products to the
+            // destination setting's own catalogue. ----
             $products = Product::whereIn('id', $productIds)
                 ->active()
                 ->where('stock_managed', true)
-                ->where(function ($q) use ($location) {
-                    $q->whereNull('setting_id')->orWhere('setting_id', $location->setting_id);
-                })
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get()
@@ -157,7 +158,7 @@ class BreakageApprovalService
             foreach ($productIds as $productId) {
                 if (!$products->has($productId)) {
                     throw ValidationException::withMessages([
-                        'adjusted_products' => ["Produk dengan ID {$productId} tidak ditemukan, tidak aktif, bukan produk yang stoknya dikelola, atau bukan milik pengaturan lokasi ini."],
+                        'adjusted_products' => ["Produk dengan ID {$productId} tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola."],
                     ]);
                 }
             }

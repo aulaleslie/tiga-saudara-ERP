@@ -38,6 +38,17 @@ di akhir dokumen ini.
 3. [ ] Pilih lokasi. Pindai barcode utama produk non-serial: baris baru
    ditambahkan dengan kuantitas 1; memindai barcode yang sama lagi menambah
    kuantitas +1 (bukan baris baru).
+3a. [ ] Sebagai pengguna TANPA `adjustments.view-system-stock` di form
+    buat/ubah: kolom "Stok Baik Tersedia" dan "Stok Rusak Saat Ini" TIDAK
+    tampil sama sekali pada tabel produk (baik secara visual maupun di
+    "Lihat Sumber Halaman"/devtools -- periksa juga payload Livewire pada
+    tab Network browser untuk memastikan angka stok tidak terselip di
+    sana). Baris produk, satuan, dan kuantitas yang dimasukkan tetap
+    tampil normal, dan batas kuantitas tetap ditegakkan di server (coba
+    pindai/isi kuantitas berlebih -- tetap ditolak dengan pesan "tidak
+    mencukupi" meskipun angka stoknya sendiri tidak terlihat).
+3b. [ ] Sebagai pengguna DENGAN `adjustments.view-system-stock`: kedua
+    kolom stok tersebut tampil dengan angka yang benar.
 4. [ ] Pindai barcode konversi produk yang sama: kuantitas bertambah sesuai
    faktor konversi (mis. barcode dus x12 menambah 12), bukan +1.
 5. [ ] Pindai barcode/nomor seri yang cocok dengan lebih dari satu
@@ -50,6 +61,13 @@ di akhir dokumen ini.
 7. [ ] Coba pindai/tambah kuantitas melebihi stok baik yang tersedia di
    lokasi terpilih: permintaan ditolak dengan pesan "tidak mencukupi" dan
    kuantitas tidak berubah.
+7a. [ ] Pindai barcode yang sama berulang kali dengan sangat cepat (mis.
+    tekan Enter/klik "Pindai" 5-10 kali berturut-turut secepat mungkin,
+    atau gunakan pemindai fisik untuk memindai barcode yang sama berulang
+    dalam waktu singkat): kuantitas akhir harus SAMA PERSIS dengan jumlah
+    pemindaian yang benar-benar berhasil (tidak ada pemindaian yang hilang
+    akibat dua permintaan tumpang tindih, dan tidak ada permintaan yang
+    diam-diam diabaikan hanya karena kolom pindai sedang sibuk).
 8. [ ] Klik "Cari Produk": modal pencarian tampil, hasil pencarian muncul
    saat mengetik, memilih produk menambah baris baru dan menutup modal;
    memilih produk yang sudah ada di daftar TIDAK menambah baris kedua dan

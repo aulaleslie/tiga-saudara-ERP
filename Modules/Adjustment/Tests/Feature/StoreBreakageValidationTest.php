@@ -60,6 +60,19 @@ class StoreBreakageValidationTest extends TestCase
         return $user;
     }
 
+    private function makeCreatorWithSystemStockPermission(Setting $setting): User
+    {
+        $user = User::factory()->create(['is_active' => 1]);
+        Permission::firstOrCreate(['name' => 'adjustments.breakage.create', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'adjustments.view-system-stock', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'breakage-creator-stock-' . uniqid(), 'guard_name' => 'web']);
+        $role->givePermissionTo(['adjustments.breakage.create', 'adjustments.view-system-stock']);
+        $user->assignRole($role);
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
+
+        return $user;
+    }
+
     private function makeProduct(Setting $setting, array $overrides = []): Product
     {
         return Product::create(array_merge([
@@ -335,5 +348,78 @@ class StoreBreakageValidationTest extends TestCase
         $stock = ProductStock::where('product_id', $product->id)->where('location_id', $location->id)->first();
         $this->assertSame(10, (int) $stock->quantity_tax);
         $this->assertSame(0, (int) $stock->broken_quantity_tax);
+    }
+
+    /**
+     * The exact available-stock figure embedded in the shortage validation
+     * message must never reach a user without adjustments.view-system-stock
+     * -- this is a plain Blade validation error rendered on the create/edit
+     * form for any user who can reach storeBreakage, independent of that
+     * permission.
+     */
+    /** @test */
+    public function shortage_error_message_hides_exact_stock_figure_without_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang PKP']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $user = $this->makeCreator($setting);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('adjustments.storeBreakage'), [
+                'reference' => 'BRK',
+                'date' => now()->format('Y-m-d'),
+                'location_id' => $location->id,
+                'product_ids' => [$product->id],
+                'quantities_tax' => [99],
+                'quantities_non_tax' => [0],
+            ]);
+
+        $response->assertSessionHasErrors();
+        $errorMessage = (string) session('errors')->first('quantities_tax.0');
+        $this->assertStringContainsString('tidak mencukupi', $errorMessage);
+        $this->assertStringNotContainsString('tersedia 3', $errorMessage);
+        $this->assertStringNotContainsString('(tersedia', $errorMessage);
+    }
+
+    /** @test */
+    public function shortage_error_message_shows_exact_stock_figure_with_view_system_stock_permission(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang PKP']);
+        $product = $this->makeProduct($setting);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $user = $this->makeCreatorWithSystemStockPermission($setting);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('adjustments.storeBreakage'), [
+                'reference' => 'BRK',
+                'date' => now()->format('Y-m-d'),
+                'location_id' => $location->id,
+                'product_ids' => [$product->id],
+                'quantities_tax' => [99],
+                'quantities_non_tax' => [0],
+            ]);
+
+        $response->assertSessionHasErrors();
+        $errorMessage = (string) session('errors')->first('quantities_tax.0');
+        $this->assertStringContainsString('tersedia 3', $errorMessage);
     }
 }
