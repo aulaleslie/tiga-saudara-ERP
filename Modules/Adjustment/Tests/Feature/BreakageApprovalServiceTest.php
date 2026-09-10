@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Adjustment\Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Modules\Adjustment\Entities\AdjustedProduct;
@@ -18,6 +19,7 @@ use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -568,5 +570,50 @@ class BreakageApprovalServiceTest extends TestCase
 
         $this->expectException(ValidationException::class);
         app(BreakageApprovalService::class)->approve($adjustment->fresh(), $user, $setting->id);
+    }
+
+    /** @test */
+    public function it_eager_loads_base_unit_and_records_its_label_with_lazy_loading_disabled(): void
+    {
+        $setting = $this->makeSetting(true);
+        $location = Location::create(['setting_id' => $setting->id, 'name' => 'Gudang']);
+        $user = $this->makeApprover($setting);
+
+        $unit = Unit::create(['name' => 'Pcs', 'short_name' => 'Pcs']);
+
+        $product = Product::create([
+            'setting_id' => $setting->id, 'product_name' => 'Kabel', 'product_code' => 'SKU-BASEUNIT',
+            'product_quantity' => 10, 'serial_number_required' => false,
+            'product_cost' => 1000, 'product_price' => 1500, 'product_stock_alert' => 1, 'stock_managed' => true,
+            'base_unit_id' => $unit->id,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id, 'location_id' => $location->id,
+            'quantity' => 10, 'quantity_tax' => 10, 'quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0, 'broken_quantity' => 0,
+        ]);
+
+        $adjustment = Adjustment::create([
+            'date' => now(), 'type' => 'breakage', 'status' => 'pending', 'location_id' => $location->id,
+        ]);
+
+        AdjustedProduct::create([
+            'adjustment_id' => $adjustment->id, 'product_id' => $product->id,
+            'quantity' => 3, 'quantity_tax' => 3, 'quantity_non_tax' => 0,
+            'serial_numbers' => json_encode([]), 'type' => 'sub',
+        ]);
+
+        $wasPreventingLazyLoading = Model::preventsLazyLoading();
+        Model::preventLazyLoading();
+
+        try {
+            $approved = app(BreakageApprovalService::class)->approve($adjustment->fresh(), $user, $setting->id);
+        } finally {
+            Model::preventLazyLoading($wasPreventingLazyLoading);
+        }
+
+        $result = $approved->approval_result;
+        $this->assertSame($unit->fresh()->name, $result['products'][0]['base_unit']);
     }
 }

@@ -1099,8 +1099,14 @@ class AdjustmentController extends Controller
     public function approve(Adjustment $adjustment): RedirectResponse
     {
         abort_unless(Gate::any(['adjustments.approval', 'adjustments.breakage.approval']), 403);
-        Log::info('[Adjustment] Approving adjustment (full)', $adjustment->toArray());
-        Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
+        Log::info('[Adjustment] Approving adjustment', [
+            'adjustment_id' => $adjustment->id,
+            'type' => $adjustment->type,
+            'status' => $adjustment->status,
+            'location_id' => $adjustment->location_id,
+            'product_ids' => $adjustment->adjustedProducts->pluck('product_id')->all(),
+            'detail_count' => $adjustment->adjustedProducts->count(),
+        ]);
 
         if ($adjustment->isVersionedCountDraft()) {
             return $this->approveVersionedStockOpname($adjustment);

@@ -148,6 +148,7 @@ class BreakageApprovalService
             // handling below, never by filtering products to the
             // destination setting's own catalogue. ----
             $products = Product::whereIn('id', $productIds)
+                ->with('baseUnit')
                 ->active()
                 ->where('stock_managed', true)
                 ->orderBy('id')
