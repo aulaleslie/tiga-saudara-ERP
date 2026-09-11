@@ -412,7 +412,7 @@ Design principles:
 
 Each numbered item should be an independent OpenSpec change unless proposal work finds a hard schema dependency requiring two adjacent items to be combined.
 
-[~]
+[x]
 ### Delivery 1 — Entry-form polish and editable-state correction
 
 - Style the **Kondisi Stok** toggle.
@@ -423,6 +423,7 @@ Each numbered item should be an independent OpenSpec change unless proposal work
 
 This delivery has no inventory movement changes.
 
+[~]
 ### Delivery 2 — Transfer stock-visibility boundary
 
 - Add `stockTransfers.view-system-stock`.

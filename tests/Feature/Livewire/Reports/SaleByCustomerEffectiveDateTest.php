@@ -174,8 +174,8 @@ class SaleByCustomerEffectiveDateTest extends TestCase
         $this->assertCount(1, $data);
 
         $mappedRows = \App\Services\Reports\SaleByCustomerReportQueryService::mapRowsForExport($data[0], 0);
-        
-        $this->assertEquals('2026-02-15 00:00:00', $mappedRows[0]['Tanggal']);
+
+        $this->assertEquals('2026-02-15', $mappedRows[0]['Tanggal']);
     }
 
     public function test_sale_by_customer_cleared_override_falls_back_to_original_date()
@@ -200,5 +200,92 @@ class SaleByCustomerEffectiveDateTest extends TestCase
             scopeSettingId: $this->setting->id
         );
         $this->assertCount(1, $service->build($filterJan)->get());
+    }
+
+    public function test_sale_by_customer_excludes_archived_sales()
+    {
+        $sale = $this->createSale('2026-02-10', null);
+
+        $filter = new SaleByCustomerReportFilterData(
+            startDate: '2026-02-01',
+            endDate: '2026-02-28',
+            scopeSettingId: $this->setting->id
+        );
+        $service = new SaleByCustomerReportQueryService();
+
+        $this->assertCount(1, $service->build($filter)->get());
+
+        $sale->update(['archived_at' => now()]);
+
+        $this->assertCount(0, $service->build($filter)->get());
+    }
+
+    public function test_export_row_mapping_handles_missing_effective_date_without_crashing()
+    {
+        $sale = $this->createSale('2026-02-10', null);
+
+        $filter = new SaleByCustomerReportFilterData(
+            startDate: '2026-02-01',
+            endDate: '2026-02-28',
+            scopeSettingId: $this->setting->id
+        );
+        $service = new SaleByCustomerReportQueryService();
+        $detail = $service->build($filter)->get()->first();
+
+        // Simulate a manually constructed mapper caller input with no effective date available.
+        $detail->sale_date = null;
+        $detail->setRelation('sale', null);
+
+        $mappedRows = SaleByCustomerReportQueryService::mapRowsForExport($detail, 0);
+
+        $export = new \App\Exports\SaleByCustomerReportExport(
+            $service->build($filter),
+            $filter
+        );
+
+        $formatter = new \ReflectionMethod($export, 'formatExportDate');
+        $formatter->setAccessible(true);
+
+        $this->assertEquals('-', $formatter->invoke($export, $mappedRows[0]['Tanggal']));
+        // Reproduces the original defect: an unparseable placeholder must not throw.
+        $this->assertEquals('-', $formatter->invoke($export, '-'));
+    }
+
+    public function test_export_array_does_not_throw_when_matching_detail_has_archived_sale()
+    {
+        // Reproduces the original production failure at the full export boundary: a detail
+        // row surviving a manual join that does not apply the `Sale` model's archive scope,
+        // while its eager-loaded `sale` relation resolves to null because that relation does
+        // apply the scope. Build the query the same way the pre-fix code did (no archive
+        // constraint) so the archived row still reaches SaleByCustomerReportExport::array().
+        $sale = $this->createSale('2026-02-10', null);
+        $sale->update(['archived_at' => now()]);
+
+        $filter = new SaleByCustomerReportFilterData(
+            startDate: '2026-02-01',
+            endDate: '2026-02-28',
+            scopeSettingId: $this->setting->id
+        );
+
+        $query = SaleDetails::withoutGlobalScopes()
+            ->with(['sale.customer', 'product.unit', 'product.baseUnit', 'product.category'])
+            ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
+            ->join('customers', 'sales.customer_id', '=', 'customers.id')
+            ->select(
+                'sale_details.*',
+                'customers.customer_name',
+                \Illuminate\Support\Facades\DB::raw(
+                    \App\Services\Reports\Concerns\EffectiveSaleReportingDate::sqlExpression() . ' as sale_date'
+                )
+            )
+            ->where('sales.setting_id', $this->setting->id)
+            ->where('sales.id', $sale->id);
+
+        $export = new \App\Exports\SaleByCustomerReportExport($query, $filter);
+
+        // Must not raise a Carbon\Exceptions\InvalidFormatException while building export rows.
+        $rows = $export->array();
+
+        $this->assertNotEmpty($rows);
     }
 }

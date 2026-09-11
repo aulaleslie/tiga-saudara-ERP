@@ -75,7 +75,7 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
             foreach ($mappedRows as $mapped) {
                 $rows[] = [
                     $mapped['Customer'],
-                    Carbon::parse($mapped['Tanggal'])->format('d/m/Y'),
+                    $this->formatExportDate($mapped['Tanggal']),
                     $mapped['Tipe transaksi'],
                     $mapped['No. transaksi'],
                     $mapped['Nama produk'],
@@ -107,6 +107,19 @@ class SaleByCustomerReportExport implements FromArray, WithHeadings, WithEvents,
         }
         
         return $rows;
+    }
+
+    private function formatExportDate($value): string
+    {
+        if (empty($value)) {
+            return '-';
+        }
+
+        try {
+            return Carbon::parse($value)->format('d/m/Y');
+        } catch (\Throwable $e) {
+            return '-';
+        }
     }
 
     public function headings(): array

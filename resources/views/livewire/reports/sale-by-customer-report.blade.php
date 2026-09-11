@@ -29,27 +29,36 @@
             <input type="date" wire:model.live="endDate" value="{{ $endDate }}" class="form-control">
         </div>
         <div class="ms-auto d-flex gap-2">
-            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
-                <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Filter
+            <button wire:click="applyFilters" wire:loading.attr="disabled" wire:target="applyFilters" class="btn btn-primary">
+                <span class="d-inline-flex justify-content-center align-items-center mr-1" style="width: 1rem;">
+                    <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i>
+                </span>
+                Filter
+                <span wire:loading wire:target="applyFilters" class="sr-only">Memuat...</span>
             </button>
             <button type="button" @click="showDrawer = true" class="btn btn-outline-secondary">
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
                 <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false" wire:loading.attr="disabled" wire:target="exportExcel,exportCsv">
-                    <i class="bi bi-download"></i> Ekspor
+                    <span class="d-inline-flex justify-content-center align-items-center mr-1" style="width: 1rem;">
+                        <span wire:loading wire:target="exportExcel,exportCsv" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <i wire:loading.remove wire:target="exportExcel,exportCsv" class="bi bi-download"></i>
+                    </span>
+                    Ekspor
+                    <span wire:loading wire:target="exportExcel,exportCsv" class="sr-only">Mengekspor...</span>
                 </button>
                 <ul class="dropdown-menu">
                     <li>
-                        <button class="dropdown-item" wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel">
-                            <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <button class="dropdown-item" wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel,exportCsv">
+                            <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
                             Excel
                         </button>
                     </li>
                     <li>
-                        <button class="dropdown-item" wire:click="exportCsv" wire:loading.attr="disabled" wire:target="exportCsv">
-                            <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <button class="dropdown-item" wire:click="exportCsv" wire:loading.attr="disabled" wire:target="exportExcel,exportCsv">
+                            <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
                             CSV
                         </button>
                     </li>
@@ -235,14 +244,28 @@
             <button type="button" wire:click="resetFilters" class="btn btn-link text-decoration-none px-0">Reset filter</button>
             <div>
                 <button type="button" @click="showDrawer = false" class="btn btn-outline-secondary">Batalkan</button>
-                <button type="button" wire:click="applyFilters" @click="isApplying = true; showDrawer = false" class="btn btn-primary">Filter</button>
+                <button type="button" wire:click="applyFilters" @click="isApplying = true; showDrawer = false" wire:loading.attr="disabled" wire:target="applyFilters" class="btn btn-primary">
+                    <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Filter
+                    <span wire:loading wire:target="applyFilters" class="sr-only">Memuat...</span>
+                </button>
             </div>
         </div>
     </div>
 
     <div class="offcanvas-backdrop fade show" style="z-index: 1040;" x-show="showDrawer" @click="showDrawer = false" x-cloak></div>
 
-    <div class="table-responsive shadow-sm rounded mt-3">
+    <div class="position-relative mt-3"
+         wire:loading.style="pointer-events: none;"
+         wire:target="applyFilters">
+        <div wire:loading.delay.flex wire:target="applyFilters" wire:cloak
+             class="position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center"
+             style="z-index: 5; display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Memuat laporan...</span>
+            </div>
+        </div>
+        <div class="table-responsive shadow-sm rounded" wire:loading.class="opacity-50" wire:target="applyFilters">
         <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1200px;">
             <thead class="table-light">
             <tr>
@@ -340,6 +363,7 @@
             @endif
             </tbody>
         </table>
+        </div>
     </div>
 
     @if($filterTriggered && $sales instanceof \Illuminate\Pagination\LengthAwarePaginator)

@@ -390,6 +390,60 @@ class SaleByCustomerReportTest extends TestCase
     }
 
     /** @test */
+    public function it_renders_loading_state_markup_scoped_to_apply_filters_and_export()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.sale-by-customer.index'));
+
+        $response->assertSee('wire:target="applyFilters"', false);
+        $response->assertSee('wire:target="exportExcel,exportCsv"', false);
+        $response->assertSee('wire:loading.delay', false);
+    }
+
+    /** @test */
+    public function it_uses_loading_delay_flex_instead_of_bootstrap_d_flex_on_the_table_overlay()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.sale-by-customer.index'));
+        $content = $response->getContent();
+
+        // Bootstrap 4's `d-flex` uses `display: flex !important`, which would override
+        // Livewire's `display: none` and keep the overlay visible before any request runs.
+        $response->assertSee('wire:loading.delay.flex', false);
+        $this->assertDoesNotMatchRegularExpression(
+            '/wire:loading\.delay(?!\.flex)[^>]*class="[^"]*\bd-flex\b/',
+            $content,
+            'The wire:loading.delay overlay must not combine plain wire:loading.delay with Bootstrap\'s d-flex class.'
+        );
+    }
+
+    /** @test */
+    public function it_uses_bootstrap4_compatible_hidden_loading_text_and_stable_icon_slots()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $response = $this->get(route('reports.sale-by-customer.index'));
+        $content = $response->getContent();
+
+        // This project uses Bootstrap 4 (sr-only), not Bootstrap 5 (visually-hidden).
+        $response->assertSee('sr-only', false);
+        $this->assertStringNotContainsString('visually-hidden', $content);
+
+        // Filter and Ekspor buttons must reserve a fixed-width slot so the icon/spinner swap
+        // does not shift the button's rendered width.
+        $this->assertSame(
+            2,
+            substr_count($content, 'd-inline-flex justify-content-center align-items-center mr-1'),
+            'Expected a fixed-width icon slot on both the Filter and Ekspor buttons.'
+        );
+    }
+
+    /** @test */
     public function it_blocks_export_excel_before_filter_is_applied()
     {
         \Livewire\Livewire::actingAs($this->user)

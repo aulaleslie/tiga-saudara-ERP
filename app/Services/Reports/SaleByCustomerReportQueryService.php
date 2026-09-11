@@ -28,6 +28,7 @@ class SaleByCustomerReportQueryService
                 DB::raw(EffectiveSaleReportingDate::sqlExpression() . ' as sale_date')
             )
             ->where('sales.setting_id', $scopeSettingId)
+            ->whereNull('sales.archived_at')
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 
@@ -191,10 +192,12 @@ class SaleByCustomerReportQueryService
             }
         }
 
+        $effectiveDate = $detail->sale_date ?? $sale?->effective_date ?? null;
+
         $productTotal = $previousRunningTotal + $subTotal;
         $rows[] = [
             'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-            'Tanggal'               => $sale?->effective_date ?? '-',
+            'Tanggal'               => $effectiveDate,
             'Tipe transaksi'        => 'Faktur Penjualan',
             'No. transaksi'         => $sale?->reference ?? '-',
             'Nama produk'           => $detail->display_product_name ?? '-',
@@ -211,7 +214,7 @@ class SaleByCustomerReportQueryService
             $productTotal -= $discountAmount;
             $rows[] = [
                 'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-                'Tanggal'               => $sale?->effective_date ?? '-',
+                'Tanggal'               => $effectiveDate,
                 'Tipe transaksi'        => 'Faktur Penjualan',
                 'No. transaksi'         => $sale?->reference ?? '-',
                 'Nama produk'           => 'Diskon',
@@ -228,7 +231,7 @@ class SaleByCustomerReportQueryService
             $taxTotal = $productTotal + $taxAmount;
             $rows[] = [
                 'Customer'              => $detail->customer_name ?: ($sale?->customer?->customer_name ?? '-'),
-                'Tanggal'               => $sale?->effective_date ?? '-',
+                'Tanggal'               => $effectiveDate,
                 'Tipe transaksi'        => 'Faktur Penjualan',
                 'No. transaksi'         => $sale?->reference ?? '-',
                 'Nama produk'           => 'Pajak',
