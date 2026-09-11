@@ -10,4 +10,4 @@
 
 ## 3. Human Browser Verification
 
-- [ ] 3.1 Have a human verify that filtering Penjualan Per Customer shows only fully dispatched invoices and that visible totals, sorting, pagination, XLSX export, and CSV export omit otherwise matching non-dispatched and returned invoices.
+- [x] 3.1 Have a human verify that filtering Penjualan Per Customer shows only fully dispatched invoices and that visible totals, sorting, pagination, XLSX export, and CSV export omit otherwise matching non-dispatched and returned invoices.
