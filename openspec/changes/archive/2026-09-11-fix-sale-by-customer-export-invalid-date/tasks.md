@@ -11,4 +11,4 @@
 
 - [x] 3.1 Add focused regression coverage proving archived matching sales are excluded and active original/override dates remain correctly mapped for export.
 - [x] 3.2 Add focused coverage proving an absent or invalid mapped date does not raise a Carbon parsing exception, then run only the relevant report tests.
-- [ ] 3.3 Record the human browser check for successful XLSX and CSV downloads as the remaining manual acceptance step.
+- [x] 3.3 Record the human browser check for successful XLSX and CSV downloads as the remaining manual acceptance step.

@@ -13,4 +13,4 @@
 
 - [x] 3.1 Run `php artisan test --filter=SaleByCustomer`.
 - [x] 3.2 Add focused Livewire rendering assertions only if needed to confirm the new markup/attributes render; no browser test suite.
-- [ ] 3.3 Record human verification of the visual spinner/dim/disable behavior and XLSX/CSV download completion as the remaining manual acceptance step.
+- [x] 3.3 Record human verification of the visual spinner/dim/disable behavior and XLSX/CSV download completion as the remaining manual acceptance step.

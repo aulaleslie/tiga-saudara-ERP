@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sales-by-customer-report Specification
+
+## Purpose
+
+Provide a "Penjualan Per Customer" report that lists sale detail lines grouped by customer, with filtering, running subtotals, tax/discount row expansion, and snapshot-validated Excel/CSV export, scoped to the active setting.
+
+## Requirements
 
 ### Requirement: Per-customer sales report
 
@@ -68,7 +74,7 @@ The sales reports navigation SHALL present a "Penjualan" dropdown containing Daf
 
 - **WHEN** a user with `saleReports.access` opens the reports menu
 - **THEN** a "Penjualan Per Customer" link to `reports.sale-by-customer.index` appears under the Penjualan dropdown
-## Requirements
+
 ### Requirement: Sales by customer tax row expansion
 The system SHALL render and export a separate `Pajak` row immediately after a sale detail's product row when the persisted sale detail has `product_tax_amount > 0`.
 
@@ -145,4 +151,74 @@ The report SHALL emit exactly one document `Diskon` row per invoice whose `Sale.
 
 - **WHEN** a discounted invoice is exported
 - **THEN** the exported rows contain the same `Diskon` row, in the same position, as the on-screen report
+
+### Requirement: Archived sales are excluded from sales by customer reporting
+
+The system SHALL exclude archived sales and their detail rows from Penjualan Per Customer screen results, customer totals, pagination, XLSX exports, and CSV exports, even when the report query joins the sales table directly.
+
+#### Scenario: Archived matching sale is omitted
+
+- **WHEN** a sale matches the active setting, date range, and selected report filters but has a non-null `archived_at`
+- **THEN** its detail rows MUST NOT appear in the Penjualan Per Customer screen results
+- **AND** its amounts MUST NOT contribute to customer totals or the grand total
+- **AND** its detail rows MUST NOT appear in XLSX or CSV exports
+
+#### Scenario: Active matching sale remains included
+
+- **WHEN** a non-archived sale matches the active setting, date range, and selected report filters
+- **THEN** its detail rows SHALL remain available to the Penjualan Per Customer screen and exports
+
+### Requirement: Sales by customer exports handle effective dates safely
+
+The system SHALL export each included sale row using the same effective sale reporting date used by report filtering and ordering. XLSX and CSV generation MUST NOT fail with a date parsing exception when an export row has no parseable date value.
+
+#### Scenario: Reporting-date override is exported
+
+- **WHEN** an included active sale has a reporting-date override
+- **THEN** each exported row for that sale SHALL contain the override formatted as `d/m/Y`
+
+#### Scenario: Original date is exported without an override
+
+- **WHEN** an included active sale has no reporting-date override
+- **THEN** each exported row for that sale SHALL contain its original sale date formatted as `d/m/Y`
+
+#### Scenario: Missing mapped date does not abort export generation
+
+- **WHEN** an export row reaches date formatting without a parseable date value
+- **THEN** the exporter MUST emit a neutral date placeholder for that row
+- **AND** XLSX or CSV generation MUST continue without a Carbon date parsing exception
+
+### Requirement: Penjualan Per Customer shows loading feedback while filtering
+
+The system SHALL show visible loading feedback and block duplicate submission while the Penjualan Per Customer filter apply action is in progress, without affecting unrelated Livewire requests.
+
+#### Scenario: Filter apply shows spinner and blocks the table
+
+- **WHEN** the user triggers `applyFilters` (from the inline Filter button or the drawer's Filter button)
+- **THEN** both Filter buttons SHALL show a spinner and be disabled for the duration of the request
+- **AND** the report table SHALL be visually dimmed and non-interactive (pointer events blocked) after a short delay, to avoid flicker on fast responses
+- **AND** a centered loading indicator SHALL appear above the table while the request is in progress
+
+#### Scenario: Unrelated requests do not trigger filter loading state
+
+- **WHEN** the user paginates, sorts, or performs a customer/category/tag autocomplete search
+- **THEN** the table SHALL NOT be dimmed or blocked
+- **AND** the Filter buttons SHALL NOT show a spinner
+
+### Requirement: Penjualan Per Customer shows loading feedback while exporting
+
+The system SHALL show visible loading feedback on the Ekspor dropdown trigger while an export action is in progress and SHALL prevent duplicate export submissions, without dimming the report table.
+
+#### Scenario: Export shows spinner on the dropdown trigger
+
+- **WHEN** the user triggers `exportExcel` or `exportCsv`
+- **THEN** the Ekspor dropdown trigger button SHALL show a spinner in place of its normal icon and SHALL be disabled
+- **AND** both export actions (Excel and CSV) SHALL be disabled for the duration of the request
+- **AND** the report table SHALL NOT be dimmed or blocked during export
+
+#### Scenario: Export loading state clears after completion
+
+- **WHEN** an export request finishes (success or failure)
+- **THEN** the Ekspor dropdown trigger SHALL return to its normal icon and enabled state
+- **AND** both export actions SHALL become enabled again
 
