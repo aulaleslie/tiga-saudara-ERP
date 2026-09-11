@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sales-list-report Specification
+
+## Purpose
+
+Provide the `Daftar Penjualan` sales list report with detail/header modes, multi-select searchable filters, status and period filtering restricted to report-eligible statuses, sortable columns, snapshot-validated exports, and setting-scoped/global variants.
+
+## Requirements
 
 ### Requirement: Detail and header report modes
 
@@ -32,7 +38,7 @@ The sales report SHALL allow filtering by multiple customers and multiple tags v
 
 ### Requirement: Status and period filters
 
-The sales report SHALL allow filtering by multiple document statuses (dispatched family) and multiple payment statuses, plus a date range with period presets and a date-basis selector.
+The sales report SHALL allow filtering by multiple report-eligible document statuses (`DISPATCHED` and `RETURNED PARTIALLY`) and multiple payment statuses, plus a date range with period presets and a date-basis selector. Ineligible statuses SHALL NOT be offered or accepted and the default report population SHALL be restricted to eligible documents.
 
 #### Scenario: Applying a period preset
 
@@ -41,8 +47,13 @@ The sales report SHALL allow filtering by multiple document statuses (dispatched
 
 #### Scenario: Multi-status filtering
 
-- **WHEN** one or more document or payment statuses are selected and filters are applied
+- **WHEN** one or more eligible document or payment statuses are selected and filters are applied
 - **THEN** results include only sales matching any selected document status and any selected payment status
+
+#### Scenario: Ineligible status is unavailable
+
+- **WHEN** the user opens or submits the document-status filter
+- **THEN** pre-dispatch and partially dispatched statuses are not accepted as report filters
 
 ### Requirement: Sortable columns
 
@@ -79,3 +90,8 @@ The sales report SHALL run scoped to the current setting by default and SHALL su
 ### Requirement: Document discount column
 
 The sales report SHALL present the document-level discount (`Sale.discount_amount`) in a clearly labeled `Diskon` column and SHALL retain the derived `Diskon %` column (the discount as a percentage of the document total). The report SHALL NOT display the per-line discount columns backed by `SaleDetails.product_discount_amount` (`Diskon` per-line and `Diskon Per Baris %`), because the importer never populates them. This applies to detail mode, header mode, and the global variant, and the on-screen columns SHALL match the exported columns.
+
+#### Scenario: Per-line discount columns are not shown
+- **WHEN** a user views or exports the sales report in any mode
+- **THEN** the report shows the document-level `Diskon` and `Diskon %` columns
+- **AND** the report does not show per-line `Diskon` or `Diskon Per Baris %` columns

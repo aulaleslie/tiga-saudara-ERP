@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class AgedPayablesReportQueryService
 {
@@ -44,10 +45,11 @@ class AgedPayablesReportQueryService
             ->selectRaw("SUM(CASE WHEN {$diffSql} > 90 THEN ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_4", [$filter->asOfDate])
             ->where('purchases.setting_id', $scopeSettingId)
             ->where('purchases.date', '<=', $filter->asOfDate)
-            ->whereIn('purchases.status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])
             ->whereRaw('ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0])
             ->groupBy('purchases.supplier_id', 'suppliers.supplier_name')
             ->havingRaw('SUM(ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2)) > ?', [0]);
+
+        FulfilledTransactionEligibility::applyToPurchaseQuery($query, 'purchases');
 
         // Supplier filter
         if (!empty($filter->supplierIds)) {

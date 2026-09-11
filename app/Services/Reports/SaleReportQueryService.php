@@ -9,6 +9,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Entities\Dispatch;
 use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class SaleReportQueryService
 {
@@ -110,6 +111,8 @@ SQL;
     ): Builder {
         $query
             ->when(!$filter->isGlobal, fn($builder) => $builder->where('sales.setting_id', $scopeSettingId));
+
+        FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 
         $query->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
               ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);

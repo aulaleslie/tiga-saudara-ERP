@@ -11,13 +11,7 @@ class SaleReportValidator
     public function validate(array $data): array
     {
         $allowedDocumentStatuses = [
-            Sale::STATUS_DRAFTED,
-            Sale::STATUS_WAITING_APPROVAL,
-            Sale::STATUS_APPROVED,
-            Sale::STATUS_REJECTED,
-            Sale::STATUS_DISPATCHED_PARTIALLY,
             Sale::STATUS_DISPATCHED,
-            Sale::STATUS_RETURNED,
             Sale::STATUS_RETURNED_PARTIALLY,
         ];
 

@@ -108,7 +108,7 @@ class PurchaseByProductReportTest extends TestCase
             'setting_id' => $this->setting->id,
             'reference' => 'PR-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'supplier_id' => $supplier->id,
-            'status' => Purchase::STATUS_APPROVED,
+            'status' => Purchase::STATUS_RECEIVED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
@@ -226,22 +226,16 @@ class PurchaseByProductReportTest extends TestCase
     }
 
     /** @test */
-    public function it_filters_by_purchase_and_return_dates_and_setting()
+    public function it_filters_by_purchase_date_and_setting()
     {
         $supplier = $this->makeSupplier();
         $product = $this->makeProduct($this->makeCategory());
-        
+
         $purchaseOut = $this->makePurchase($supplier, ['date' => '2020-01-01']);
         $this->makePurchaseDetail($purchaseOut, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
         $purchaseIn = $this->makePurchase($supplier, ['date' => now()->format('Y-m-d')]);
         $this->makePurchaseDetail($purchaseIn, ['product_id' => $product->id, 'quantity' => 5, 'sub_total' => 5000]);
-
-        $returnOut = $this->makePurchaseReturn($supplier, ['date' => '2020-01-01']);
-        $this->makePurchaseReturnDetail($returnOut, ['product_id' => $product->id, 'quantity' => 1, 'sub_total' => 1000]);
-
-        $returnIn = $this->makePurchaseReturn($supplier, ['date' => now()->format('Y-m-d')]);
-        $this->makePurchaseReturnDetail($returnIn, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
         $filter = new \App\Services\Reports\PurchaseByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
@@ -255,27 +249,18 @@ class PurchaseByProductReportTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertEquals(5, $results[0]->purchase_quantity);
         $this->assertEquals(5000, $results[0]->purchase_value);
-        $this->assertEquals(2, $results[0]->return_quantity);
-        $this->assertEquals(2000, $results[0]->return_value);
     }
 
     /** @test */
-    public function it_filters_dispatched_return_status()
+    public function it_uses_persisted_settlement_reduced_value_for_partially_returned_purchase()
     {
         $supplier = $this->makeSupplier();
         $product = $this->makeProduct($this->makeCategory());
 
-        $purchase = $this->makePurchase($supplier);
-        $this->makePurchaseDetail($purchase, ['product_id' => $product->id]);
-
-        $returnPending = $this->makePurchaseReturn($supplier, ['approval_status' => 'pending']);
-        $this->makePurchaseReturnDetail($returnPending, ['product_id' => $product->id, 'quantity' => 1]);
-
-        $returnApprovedNotDispatched = $this->makePurchaseReturn($supplier, ['approval_status' => 'approved', 'return_dispatch_status' => '']);
-        $this->makePurchaseReturnDetail($returnApprovedNotDispatched, ['product_id' => $product->id, 'quantity' => 1]);
-
-        $returnDispatched = $this->makePurchaseReturn($supplier, ['approval_status' => 'approved', 'return_dispatch_status' => 'dispatched']);
-        $this->makePurchaseReturnDetail($returnDispatched, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
+        // Simulates a purchase whose persisted quantity/sub_total already reflect an
+        // approved partial-return settlement (1 unit returned, 2 remaining).
+        $purchase = $this->makePurchase($supplier, ['status' => Purchase::STATUS_RETURNED_PARTIALLY]);
+        $this->makePurchaseDetail($purchase, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
         $filter = new \App\Services\Reports\PurchaseByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
@@ -287,7 +272,29 @@ class PurchaseByProductReportTest extends TestCase
         $results = $queryService->build($filter)->get();
 
         $this->assertCount(1, $results);
-        $this->assertEquals(2, $results[0]->return_quantity);
+        $this->assertEquals(2, $results[0]->purchase_quantity);
+        $this->assertEquals(2000, $results[0]->purchase_value);
+    }
+
+    /** @test */
+    public function it_excludes_partial_receipt_purchases()
+    {
+        $supplier = $this->makeSupplier();
+        $product = $this->makeProduct($this->makeCategory());
+
+        $purchase = $this->makePurchase($supplier, ['status' => Purchase::STATUS_RECEIVED_PARTIALLY]);
+        $this->makePurchaseDetail($purchase, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
+
+        $filter = new \App\Services\Reports\PurchaseByProductReportFilterData(
+            startDate: now()->format('Y-m-d'),
+            endDate: now()->format('Y-m-d'),
+            scopeSettingId: $this->setting->id
+        );
+
+        $queryService = new \App\Services\Reports\PurchaseByProductReportQueryService();
+        $results = $queryService->build($filter)->get();
+
+        $this->assertCount(0, $results);
     }
 
     /** @test */

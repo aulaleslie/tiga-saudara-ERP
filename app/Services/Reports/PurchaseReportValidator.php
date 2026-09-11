@@ -11,13 +11,7 @@ class PurchaseReportValidator
     public function validate(array $data): array
     {
         $allowedDocumentStatuses = [
-            Purchase::STATUS_DRAFTED,
-            Purchase::STATUS_WAITING_APPROVAL,
-            Purchase::STATUS_APPROVED,
-            Purchase::STATUS_REJECTED,
-            Purchase::STATUS_RECEIVED_PARTIALLY,
             Purchase::STATUS_RECEIVED,
-            Purchase::STATUS_RETURNED,
             Purchase::STATUS_RETURNED_PARTIALLY,
         ];
 

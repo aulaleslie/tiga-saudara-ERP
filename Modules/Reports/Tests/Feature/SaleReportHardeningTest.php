@@ -85,7 +85,7 @@ class SaleReportHardeningTest extends TestCase
             'reference' => 'SO-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'customer_id' => $customer->id,
             'customer_name' => $customer->customer_name,
-            'status' => Sale::STATUS_APPROVED,
+            'status' => Sale::STATUS_DISPATCHED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
@@ -421,21 +421,24 @@ class SaleReportHardeningTest extends TestCase
     /** @test */
     public function it_filters_by_multiple_document_statuses_with_or_semantics()
     {
+        // Only report-eligible statuses (DISPATCHED, RETURNED_PARTIALLY) are accepted
+        // by the documentStatuses filter; STATUS_APPROVED/STATUS_DRAFTED are no longer
+        // filterable values, so this exercises OR-semantics across the eligible set instead.
         $customer = $this->makeCustomer();
-        $sApproved = $this->makeSale($customer, [
-            'date' => now()->startOfMonth()->format('Y-m-d'),
-            'status' => Sale::STATUS_APPROVED,
-        ]);
         $sDispatched = $this->makeSale($customer, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
             'status' => Sale::STATUS_DISPATCHED,
+        ]);
+        $sReturnedPartially = $this->makeSale($customer, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Sale::STATUS_RETURNED_PARTIALLY,
         ]);
         $sDrafted = $this->makeSale($customer, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
             'status' => Sale::STATUS_DRAFTED,
         ]);
-        $this->makeSaleDetail($sApproved);
         $this->makeSaleDetail($sDispatched);
+        $this->makeSaleDetail($sReturnedPartially);
         $this->makeSaleDetail($sDrafted);
 
         \Livewire\Livewire::actingAs($this->user)
@@ -443,12 +446,12 @@ class SaleReportHardeningTest extends TestCase
             ->set('settingId', $this->setting->id)
             ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
-            ->set('documentStatuses', [Sale::STATUS_APPROVED, Sale::STATUS_DISPATCHED])
+            ->set('documentStatuses', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY])
             ->call('applyFilters')
-            ->assertViewHas('sales', function ($sales) use ($sApproved, $sDispatched, $sDrafted) {
+            ->assertViewHas('sales', function ($sales) use ($sDispatched, $sReturnedPartially, $sDrafted) {
                 $ids = $sales->pluck('sale_id')->toArray();
-                return in_array($sApproved->id, $ids)
-                    && in_array($sDispatched->id, $ids)
+                return in_array($sDispatched->id, $ids)
+                    && in_array($sReturnedPartially->id, $ids)
                     && !in_array($sDrafted->id, $ids);
             });
     }

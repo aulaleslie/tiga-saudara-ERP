@@ -45,22 +45,22 @@ The report SHALL support `Tanggal Mulai`, `Tanggal Selesai`, and period presets 
 
 ### Requirement: Sales tax report row inclusion
 
-The report SHALL include taxable Sales and Purchase detail rows dated within the inclusive selected date range, scoped to the active `setting_id`, and tied to approved or later operational documents. Drafted, waiting-approval, rejected, and archived documents SHALL be excluded.
+The report SHALL include taxable detail rows within the inclusive selected date range and active `setting_id` only when the related sale or purchase meets fulfilled-transaction report eligibility. It SHALL use current persisted detail tax values after settlement modification. Archived completed full returns and unfulfilled or partially fulfilled documents SHALL be excluded.
 
-#### Scenario: Approved sale detail is included as Penjualan
+#### Scenario: Fully dispatched sale detail is included as Penjualan
 
-- **WHEN** an approved-or-later Sale has a taxable sale detail dated within the selected range and active setting
-- **THEN** the report includes the detail's tax contribution under transaction type `Penjualan`
+- **WHEN** an eligible sale has a taxable persisted detail inside the selected range and active setting
+- **THEN** the report includes the detail's current tax contribution under `Penjualan`
 
-#### Scenario: Approved purchase detail is included as Pembelian
+#### Scenario: Fully received purchase detail is included as Pembelian
 
-- **WHEN** an approved-or-later Purchase has a taxable purchase detail dated within the selected range and active setting
-- **THEN** the report includes the detail's tax contribution under transaction type `Pembelian`
+- **WHEN** an eligible purchase has a taxable persisted detail inside the selected range and active setting
+- **THEN** the report includes the detail's current tax contribution under `Pembelian`
 
-#### Scenario: Unapproved document is excluded
+#### Scenario: Partial fulfillment is excluded
 
-- **WHEN** a Sale or Purchase is drafted, waiting approval, rejected, or archived
-- **THEN** its detail rows are not included in the report totals
+- **WHEN** a sale is partially dispatched or a purchase is partially received
+- **THEN** its detail rows are excluded from tax totals
 
 #### Scenario: Other setting data is excluded
 

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sale-by-product-report Specification
+
+## Purpose
+
+Provide a "Penjualan per produk" report under the Reports module that aggregates sold and returned quantities/values by product from report-eligible sales, using current persisted, settlement-modified values without separately subtracting return aggregates.
+
+## Requirements
 
 ### Requirement: Sales by product report entry point
 The system SHALL provide a "Penjualan per produk" report reachable from the Reports module and gated by `saleReports.access`.
@@ -12,15 +18,15 @@ The system SHALL provide a "Penjualan per produk" report reachable from the Repo
 - **THEN** the system returns 403
 
 ### Requirement: Invoice sales are aggregated by product
-The report SHALL calculate sold quantity and sold value from existing `sales` and `sale_details` records, scoped to the selected company scope via `sales.setting_id`, and filtered by `sales.date`. When no company scope is selected, the scope SHALL default to the current setting.
+The report SHALL aggregate current persisted sale-detail quantities and values by product only from report-eligible sales, scoped to the selected settings and effective sale reporting date. These persisted values SHALL already represent any approved settlement modification.
 
-#### Scenario: Sale inside selected period is included
-- **WHEN** a sale invoice has a sale date inside the selected report period
-- **THEN** its sale detail quantities and sales values are included in the product aggregate
+#### Scenario: Eligible sale contributes current detail values
+- **WHEN** a `DISPATCHED` or `RETURNED PARTIALLY` sale is inside the selected scope and period
+- **THEN** its current persisted detail quantities and values are included
 
-#### Scenario: Sale outside selected period is excluded
-- **WHEN** a sale invoice has a sale date outside the selected report period
-- **THEN** its sale detail quantities and sales values are not included in the product aggregate
+#### Scenario: Partial dispatch is excluded
+- **WHEN** a sale is only `DISPATCHED PARTIALLY`
+- **THEN** none of its details contribute to the product aggregate
 
 #### Scenario: Sales are scoped to the selected settings
 - **WHEN** a setting outside the selected company scope has sale details in the selected period
@@ -31,21 +37,12 @@ The report SHALL calculate sold quantity and sold value from existing `sales` an
 - **THEN** those sale details are combined into a single product aggregate row
 
 ### Requirement: Received sales returns are aggregated by product
-The report SHALL calculate return quantity and return value from existing `sale_returns` and `sale_return_details` records, scoped to the selected company scope via `sale_returns.setting_id`, filtered by `sale_returns.date`, and limited to received return statuses `Awaiting Settlement` and `Completed` using case-insensitive comparison.
+The report SHALL NOT independently aggregate or subtract sales-return details because approved settlement modifications are represented by the persisted target sale details.
 
-#### Scenario: Received return inside selected period is included
-- **WHEN** a sales return has status `Awaiting Settlement` or `Completed`
-- **AND** its return date is inside the selected report period
-- **THEN** its return detail quantities and return values are included in the product aggregate
-
-#### Scenario: Unreceived return is excluded
-- **WHEN** a sales return is pending approval, rejected, deleted, archived before receiving, or awaiting receiving
-- **THEN** its return detail quantities and return values are not included in the product aggregate
-
-#### Scenario: Return date controls return inclusion
-- **WHEN** the source sale date is outside the selected period
-- **AND** the received return date is inside the selected period
-- **THEN** the return detail quantities and return values are included in the report
+#### Scenario: Settled return is not deducted twice
+- **WHEN** a settlement has reduced a target sale detail
+- **THEN** the report uses that reduced detail value
+- **AND** does not subtract the associated sale-return detail
 
 ### Requirement: Tax-exclusive value calculation
 The report SHALL calculate `Total Nilai terjual` and `Total Nilai Retur` as tax-exclusive line commercial values. For tax-included sale lines, the report MUST subtract the line tax amount from the line subtotal before aggregation.

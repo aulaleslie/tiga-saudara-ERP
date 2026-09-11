@@ -334,18 +334,17 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
 
         $this->assertNotNull($apRow);
         $this->assertNotNull($cashRow);
-        $this->assertNotNull($returnRow);
+        // Purchase returns have no GL impact (the origin purchase's persisted total_amount
+        // is already reduced by settlement and is authoritative), and there is no origin
+        // purchase here, so the Inventory row has no activity/balance and is absent.
+        $this->assertNull($returnRow);
 
-        // PR: AP Dr 600, Inventory Cr 600
-        // PRP: Cash Dr 200, AP Cr 200
-        $this->assertEquals(400, $apRow->endingDebit);
-        $this->assertEquals(0, $apRow->endingCredit);
+        // PRP only: Cash Dr 20000, AP Cr 20000 (amounts stored/aggregated as-is, no cents scaling)
+        $this->assertEquals(0, $apRow->endingDebit);
+        $this->assertEquals(20000, $apRow->endingCredit);
 
-        $this->assertEquals(200, $cashRow->endingDebit);
+        $this->assertEquals(20000, $cashRow->endingDebit);
         $this->assertEquals(0, $cashRow->endingCredit);
-
-        $this->assertEquals(0, $returnRow->endingDebit);
-        $this->assertEquals(600, $returnRow->endingCredit);
     }
 
     public function test_it_generates_livewire_purchase_returns_correctly()
@@ -402,16 +401,16 @@ class OperationalTrialBalanceReportServiceTest extends TestCase
         $cashRow = collect($assetCat->rows)->firstWhere('code', 'OP-100');
         $returnRow = collect($assetCat->rows)->firstWhere('code', 'OP-120');
 
-        // PR: AP Dr 600, Inventory Cr 600 (not scaled because it has location_id)
-        // PRP: Cash Dr 200, AP Cr 200
-        $this->assertEquals(400, $apRow->endingDebit);
-        $this->assertEquals(0, $apRow->endingCredit);
+        // Purchase returns have no GL impact; there is no origin purchase here, so the
+        // return itself contributes no AP/Inventory activity. Only the payment (PRP) does:
+        // Cash Dr 200, AP Cr 200.
+        $this->assertEquals(0, $apRow->endingDebit);
+        $this->assertEquals(200, $apRow->endingCredit);
 
         $this->assertEquals(200, $cashRow->endingDebit);
         $this->assertEquals(0, $cashRow->endingCredit);
 
-        $this->assertEquals(0, $returnRow->endingDebit);
-        $this->assertEquals(600, $returnRow->endingCredit);
+        $this->assertNull($returnRow);
     }
 
     public function test_inactive_and_ineligible_records_are_ignored()

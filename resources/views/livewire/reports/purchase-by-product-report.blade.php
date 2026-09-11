@@ -279,7 +279,6 @@
                     <option value="product_code">Kode Produk / SKU</option>
                     <option value="product_name">Nama Produk</option>
                     <option value="purchase_quantity">Qty Pembelian</option>
-                    <option value="return_quantity">Qty Retur</option>
                     <option value="purchase_value">Nilai Pembelian</option>
                     <option value="average_purchase_value">Nilai Pembelian Rata-rata</option>
                 </select>
@@ -308,10 +307,8 @@
                 <th style="white-space:nowrap">Kode Produk / SKU</th>
                 <th style="white-space:nowrap">Nama Produk</th>
                 <th class="text-end" style="white-space:nowrap">Qty Pembelian</th>
-                <th class="text-end" style="white-space:nowrap">Qty Retur</th>
                 <th style="white-space:nowrap">Satuan</th>
                 <th class="text-end" style="white-space:nowrap">Nilai Pembelian</th>
-                <th class="text-end" style="white-space:nowrap">Nilai Retur</th>
                 <th class="text-end" style="white-space:nowrap">Nilai Pembelian Rata-rata</th>
             </tr>
             </thead>
@@ -322,15 +319,13 @@
                         <td>{{ $row->product_code }}</td>
                         <td>{{ $row->product_name }}</td>
                         <td class="text-end">{{ number_format((float)$row->purchase_quantity, 2, ',', '.') }}</td>
-                        <td class="text-end">{{ number_format((float)$row->return_quantity, 2, ',', '.') }}</td>
                         <td>{{ $row->unit_name }}</td>
                         <td class="text-end">{{ number_format((float)$row->purchase_value, 0, ',', '.') }}</td>
-                        <td class="text-end text-danger">{{ number_format((float)$row->return_value, 0, ',', '.') }}</td>
                         <td class="text-end">{{ number_format((float)$row->average_purchase_value, 0, ',', '.') }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">
+                        <td colspan="6" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2"></i>
                             Tidak ada data pembelian per produk yang sesuai dengan filter ini.
                         </td>
@@ -338,15 +333,14 @@
                 @endforelse
                 @if($products->count() > 0)
                     <tr class="table-secondary fw-bold fs-6">
-                        <td colspan="5" class="text-end">Total Keseluruhan</td>
+                        <td colspan="4" class="text-end">Total Keseluruhan</td>
                         <td class="text-end text-primary">{{ number_format((float)$grandTotalPurchase, 0, ',', '.') }}</td>
-                        <td class="text-end text-danger">{{ number_format((float)$grandTotalReturn, 0, ',', '.') }}</td>
                         <td></td>
                     </tr>
                 @endif
             @else
                 <tr>
-                    <td colspan="8" class="text-center py-5 text-muted">
+                    <td colspan="6" class="text-center py-5 text-muted">
                         <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
                         Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
                     </td>

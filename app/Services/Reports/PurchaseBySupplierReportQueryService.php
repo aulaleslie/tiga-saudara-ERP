@@ -5,8 +5,8 @@ namespace App\Services\Reports;
 use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class PurchaseBySupplierReportQueryService
 {
@@ -28,9 +28,10 @@ class PurchaseBySupplierReportQueryService
                 DB::raw(EffectivePurchaseReportingDate::sqlExpression() . ' as purchase_date')
             )
             ->where('purchases.setting_id', $scopeSettingId)
-            ->whereNull('purchases.archived_at')
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
+
+        FulfilledTransactionEligibility::applyToPurchaseQuery($query, 'purchases');
 
         // Supplier filter (OR semantics)
         if (!empty($filter->supplierIds)) {

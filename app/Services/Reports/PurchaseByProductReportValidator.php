@@ -26,7 +26,7 @@ class PurchaseByProductReportValidator
             'categoryLogic' => ['required', Rule::in(['Salah satu', 'Mencakup semua'])],
             'productIds'    => 'nullable|array',
             'productIds.*'  => 'integer|exists:products,id',
-            'sortField'     => ['required', Rule::in(['product_name', 'product_code', 'purchase_quantity', 'return_quantity', 'purchase_value', 'average_purchase_value'])],
+            'sortField'     => ['required', Rule::in(['product_name', 'product_code', 'purchase_quantity', 'purchase_value', 'average_purchase_value'])],
             'sortDirection' => ['required', Rule::in(['asc', 'desc'])],
             'scopeSettingId'=> 'required|integer|exists:settings,id',
         ];

@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
@@ -113,6 +114,8 @@ SQL;
     ): Builder {
         $query
             ->when(!$filter->isGlobal, fn($builder) => $builder->where('purchases.setting_id', $scopeSettingId));
+
+        FulfilledTransactionEligibility::applyToPurchaseQuery($query, 'purchases');
 
         if ($dateColumn === EffectivePurchaseReportingDate::sqlExpression()) {
             $query

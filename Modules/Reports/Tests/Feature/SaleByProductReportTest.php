@@ -118,7 +118,7 @@ class SaleByProductReportTest extends TestCase
             'reference' => 'SL-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'customer_id' => $customer->id,
             'customer_name' => $customer->customer_name,
-            'status' => 'Completed',
+            'status' => Sale::STATUS_DISPATCHED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
@@ -221,22 +221,16 @@ class SaleByProductReportTest extends TestCase
     }
 
     /** @test */
-    public function it_filters_by_sale_and_return_dates_and_setting()
+    public function it_filters_by_sale_date_and_setting()
     {
         $customer = $this->makeCustomer();
         $product = $this->makeProduct();
-        
+
         $saleOut = $this->makeSale($customer, ['date' => '2020-01-01']);
         $this->makeSaleDetail($saleOut, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
         $saleIn = $this->makeSale($customer, ['date' => now()->format('Y-m-d')]);
         $this->makeSaleDetail($saleIn, ['product_id' => $product->id, 'quantity' => 5, 'sub_total' => 5000]);
-
-        $returnOut = $this->makeSaleReturn($customer, ['date' => '2020-01-01', 'sale_id' => $saleOut->id]);
-        $this->makeSaleReturnDetail($returnOut, ['product_id' => $product->id, 'quantity' => 1, 'sub_total' => 1000]);
-
-        $returnIn = $this->makeSaleReturn($customer, ['date' => now()->format('Y-m-d'), 'sale_id' => $saleIn->id]);
-        $this->makeSaleReturnDetail($returnIn, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
@@ -250,24 +244,18 @@ class SaleByProductReportTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertEquals(5, $results[0]->sold_quantity);
         $this->assertEquals(5000, $results[0]->sold_value);
-        $this->assertEquals(2, $results[0]->return_quantity);
-        $this->assertEquals(2000, $results[0]->return_value);
     }
 
     /** @test */
-    public function it_filters_received_return_status()
+    public function it_uses_persisted_settlement_reduced_value_for_partially_returned_sale()
     {
         $customer = $this->makeCustomer();
         $product = $this->makeProduct();
 
-        $sale = $this->makeSale($customer);
-        $this->makeSaleDetail($sale, ['product_id' => $product->id]);
-
-        $returnPending = $this->makeSaleReturn($customer, ['status' => 'Pending', 'sale_id' => $sale->id]);
-        $this->makeSaleReturnDetail($returnPending, ['product_id' => $product->id, 'quantity' => 1]);
-
-        $returnAwaiting = $this->makeSaleReturn($customer, ['status' => 'Awaiting Settlement', 'sale_id' => $sale->id]);
-        $this->makeSaleReturnDetail($returnAwaiting, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
+        // Simulates a sale whose persisted quantity/sub_total already reflect an
+        // approved partial-return settlement (2 units returned, 3 remaining).
+        $sale = $this->makeSale($customer, ['status' => Sale::STATUS_RETURNED_PARTIALLY]);
+        $this->makeSaleDetail($sale, ['product_id' => $product->id, 'quantity' => 3, 'sub_total' => 3000]);
 
         $filter = new SaleByProductReportFilterData(
             startDate: now()->format('Y-m-d'),
@@ -279,7 +267,8 @@ class SaleByProductReportTest extends TestCase
         $results = $queryService->build($filter)->get();
 
         $this->assertCount(1, $results);
-        $this->assertEquals(2, $results[0]->return_quantity);
+        $this->assertEquals(3, $results[0]->sold_quantity);
+        $this->assertEquals(3000, $results[0]->sold_value);
     }
 
     /** @test */
@@ -422,10 +411,8 @@ class SaleByProductReportTest extends TestCase
             'Kode Produk',
             'Nama Produk',
             'Kuantitas Terjual',
-            'Kuantitas Retur',
             'Satuan',
             'Total Nilai terjual',
-            'Total Nilai Retur',
             'Harga Penjualan Rata-rata',
         ], $export->headings());
 
@@ -435,15 +422,13 @@ class SaleByProductReportTest extends TestCase
         $this->assertEquals('P-001', $mapped[0]);
         $this->assertEquals($product->product_name, $mapped[1]);
         $this->assertEquals(10.0, $mapped[2]);
-        $this->assertEquals(0.0, $mapped[3]);
-        $this->assertEquals(10000.0, $mapped[5]);
-        $this->assertEquals(1000.0, $mapped[7]);
-        
+        $this->assertEquals(10000.0, $mapped[4]);
+        $this->assertEquals(1000.0, $mapped[5]);
+
         // Assert grand total is in last row
         $totalRow = $arrayData[1];
         $this->assertEquals('Total Keseluruhan', $totalRow[0]);
-        $this->assertEquals(10000.0, $totalRow[5]);
-        $this->assertEquals(0.0, $totalRow[6]);
+        $this->assertEquals(10000.0, $totalRow[4]);
     }
 
     /** @test */
@@ -472,12 +457,14 @@ class SaleByProductReportTest extends TestCase
     }
 
     /** @test */
-    public function it_includes_unlinked_sale_returns()
+    public function it_does_not_independently_aggregate_unlinked_sale_returns()
     {
         $customer = $this->makeCustomer();
         $product = $this->makeProduct();
 
-        // sale_id is nullable for unlinked returns
+        // sale_id is nullable for unlinked returns; with the return-union removed,
+        // a standalone sale_return_details row (with no eligible originating sale)
+        // no longer contributes any row to this report.
         $return = $this->makeSaleReturn($customer, ['date' => now()->format('Y-m-d'), 'sale_id' => null, 'status' => 'Completed']);
         $this->makeSaleReturnDetail($return, ['product_id' => $product->id, 'quantity' => 2, 'sub_total' => 2000]);
 
@@ -490,8 +477,7 @@ class SaleByProductReportTest extends TestCase
         $queryService = new SaleByProductReportQueryService();
         $results = $queryService->build($filter)->get();
 
-        $this->assertCount(1, $results);
-        $this->assertEquals(2, $results[0]->return_quantity);
+        $this->assertCount(0, $results);
     }
 
     /** @test */
@@ -857,9 +843,11 @@ class SaleByProductReportTest extends TestCase
     }
 
     /** @test */
-    public function it_asserts_returns_are_scoped_by_sale_returns_setting_id()
+    public function it_asserts_eligible_sales_are_scoped_by_sales_setting_id()
     {
-        // 7.3 Returns scoped by sale_returns.setting_id
+        // 7.3 Eligible sales scoped by sales.setting_id (return tables are no longer
+        // independently queried, so this now exercises the same setting-scoping
+        // behaviour via eligible sale rows instead of standalone returns).
         $setting2 = Setting::create([
             'company_name' => 'Company 2',
             'company_email' => 'comp2@example.com',
@@ -875,11 +863,11 @@ class SaleByProductReportTest extends TestCase
         $c2 = $this->makeCustomer('Cust 2', $setting2->id);
         $p = $this->makeProduct(['product_name' => 'Shared Product']);
 
-        $ret1 = $this->makeSaleReturn($c1, ['setting_id' => $this->setting->id, 'status' => 'Completed']);
-        $this->makeSaleReturnDetail($ret1, ['product_id' => $p->id, 'quantity' => 2, 'sub_total' => 2000]);
+        $s1 = $this->makeSale($c1, ['setting_id' => $this->setting->id]);
+        $this->makeSaleDetail($s1, ['product_id' => $p->id, 'quantity' => 2, 'sub_total' => 2000]);
 
-        $ret2 = $this->makeSaleReturn($c2, ['setting_id' => $setting2->id, 'status' => 'Completed']);
-        $this->makeSaleReturnDetail($ret2, ['product_id' => $p->id, 'quantity' => 3, 'sub_total' => 3000]);
+        $s2 = $this->makeSale($c2, ['setting_id' => $setting2->id]);
+        $this->makeSaleDetail($s2, ['product_id' => $p->id, 'quantity' => 3, 'sub_total' => 3000]);
 
         // Filter only setting 1
         $filter1 = new SaleByProductReportFilterData(
@@ -891,7 +879,7 @@ class SaleByProductReportTest extends TestCase
         $queryService = new SaleByProductReportQueryService();
         $results1 = $queryService->build($filter1)->get();
         $this->assertCount(1, $results1);
-        $this->assertEquals(2, $results1[0]->return_quantity);
+        $this->assertEquals(2, $results1[0]->sold_quantity);
 
         // Filter both setting 1 and setting 2
         $filterBoth = new SaleByProductReportFilterData(
@@ -901,7 +889,7 @@ class SaleByProductReportTest extends TestCase
         );
         $resultsBoth = $queryService->build($filterBoth)->get();
         $this->assertCount(1, $resultsBoth);
-        $this->assertEquals(5, $resultsBoth[0]->return_quantity);
+        $this->assertEquals(5, $resultsBoth[0]->sold_quantity);
     }
 
     /** @test */

@@ -4,9 +4,9 @@ namespace App\Services\Reports;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class SaleByCustomerReportQueryService
 {
@@ -28,10 +28,10 @@ class SaleByCustomerReportQueryService
                 DB::raw(EffectiveSaleReportingDate::sqlExpression() . ' as sale_date')
             )
             ->where('sales.setting_id', $scopeSettingId)
-            ->whereNull('sales.archived_at')
-            ->where('sales.status', Sale::STATUS_DISPATCHED)
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
+
+        FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 
         // Customer filter (OR semantics)
         if (!empty($filter->customerIds)) {

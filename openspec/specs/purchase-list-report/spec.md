@@ -1,7 +1,7 @@
 ## Purpose
 Display purchase detail and header results in the Daftar Pembelian (Purchase List) report with comprehensive filtering, sorting, export capabilities, and configurable report modes.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Purchase report mode selection
 The system SHALL provide a `Mode Laporan` control on `Daftar Pembelian` with `Detail` and `Header` options.
@@ -74,9 +74,6 @@ The system SHALL remember the selected `Mode Laporan` through query string and/o
 #### Scenario: Mode persists after page reload
 - **WHEN** a user has selected a valid report mode and reloads the report page
 - **THEN** the system restores that selected mode from query string or session state
-
-### Requirement: Purchase detail result rows
-The system SHALL render one result row per purchase detail/product line for `Faktur Pembelian`, repeating the related purchase header fields on each line.
 
 ### Requirement: Purchase detail result rows
 The system SHALL render one result row per purchase detail/product line for `Faktur Pembelian`, repeating the related purchase header fields on each line.
@@ -166,23 +163,17 @@ The system SHALL provide a searchable multi-select `Grup dengan tag` filter that
 - **AND** the report excludes purchase detail rows whose purchase has none of the selected tags
 
 ### Requirement: Document status multi-select filter
-The system SHALL provide a multi-select `Status Dokumen` filter using canonical purchase lifecycle statuses with Bahasa Indonesia labels.
+The system SHALL provide a multi-select `Status Dokumen` filter containing only report-eligible purchase lifecycle statuses with Bahasa Indonesia labels: `RECEIVED` (`Diterima`) and `RETURNED PARTIALLY` (`Diretur Sebagian`). The default report population SHALL use the same eligibility set.
 
-#### Scenario: Document status options are canonical purchase statuses
+#### Scenario: Document status options are restricted to eligible statuses
 - **WHEN** a user opens the `Status Dokumen` filter
-- **THEN** the available options include `Draf`
-- **AND** the available options include `Menunggu Persetujuan`
-- **AND** the available options include `Ditolak`
-- **AND** the available options include `Disetujui`
-- **AND** the available options include `Diterima Sebagian`
-- **AND** the available options include `Diterima`
-- **AND** the available options include `Diretur Sebagian`
-- **AND** the available options include `Diretur`
+- **THEN** the available options include `Diterima` and `Diretur Sebagian`
+- **AND** drafted, approval, rejected, partially received, and fully returned options are unavailable
 
 #### Scenario: Document status filter applies OR matching
-- **WHEN** a user selects multiple document statuses and clicks `Filter`
-- **THEN** the report includes purchase detail rows whose purchase document status matches any selected document status
-- **AND** the report excludes purchase detail rows whose purchase document status matches none of the selected document statuses
+- **WHEN** a user selects multiple eligible document statuses and clicks `Filter`
+- **THEN** the report includes purchase detail rows whose purchase document status matches any selected status
+- **AND** the report excludes rows that do not meet purchase report eligibility
 
 ### Requirement: Receiving location display column
 The system SHALL populate the `Gudang` column from approved receiving-note locations related to the purchase detail when available, without providing a `Gudang` filter.
@@ -214,8 +205,6 @@ The system SHALL derive report payment status from active purchase payment trans
 #### Scenario: Active payments cover total means paid
 - **WHEN** a purchase has active payment amount greater than or equal to the purchase total
 - **THEN** its report payment status is `Lunas`
-
-## MODIFIED Requirements
 
 ### Requirement: Purchase list Excel and CSV export
 The system SHALL allow authorized users to export the `Daftar Pembelian` report to Excel and CSV from the existing report export control, using the currently applied report mode.
@@ -378,50 +367,6 @@ The system SHALL provide a multi-select `Status Pembayaran` filter using derived
 - **THEN** the report results include purchase detail rows whose derived payment status matches any selected payment status
 - **AND** the report results exclude purchase detail rows whose derived payment status matches none of the selected payment statuses
 
-## REMOVED Requirements
-
-### Requirement: Transaction type filter
-**Reason**: The refined report is fixed to `Faktur Pembelian`, and a one-option transaction type selector adds noise while implying unsupported report modes.
-
-**Migration**: Treat transaction type as an internal fixed report contract value if needed; do not render a user-facing `Tipe transaksi` filter.
-
-### Requirement: Delivery status filter
-**Reason**: The report must separate document lifecycle status from payment status using clearer Bahasa Indonesia terminology. `Status Pengiriman` is replaced by `Status Dokumen`.
-
-**Migration**: Use the new `Status Dokumen` multi-select filter with canonical purchase lifecycle statuses.
-
-### Requirement: Purchase header result rows
-**Reason**: The imported purchase report sample is detail-line oriented and requires product-level columns that cannot be represented correctly by one header row per purchase.
-
-**Migration**: Use the new purchase detail row requirement. Existing header-level filter rules should be adapted to filter the parent purchase while returning matching purchase detail rows.
-
-## EXISTING Requirements
-
-### Requirement: Purchase list Excel and CSV export
-The system SHALL allow authorized users to export the `Daftar Pembelian` report to Excel and CSV from the existing report export control.
-
-#### Scenario: User exports Excel after filtering
-- **WHEN** a user applies valid `Daftar Pembelian` filters and selects the Excel export action
-- **THEN** the system downloads an `.xlsx` file
-- **AND** the file contains the purchase detail rows matching the last successfully applied filters
-- **AND** the file is not limited to the current paginated page
-
-#### Scenario: User exports CSV after filtering
-- **WHEN** a user applies valid `Daftar Pembelian` filters and selects the CSV export action
-- **THEN** the system downloads a `.csv` file
-- **AND** the file contains the purchase detail rows matching the last successfully applied filters
-- **AND** the file is not limited to the current paginated page
-
-#### Scenario: Export is blocked before a report is applied
-- **WHEN** a user opens `Daftar Pembelian` and selects an export action before successfully applying filters
-- **THEN** the system does not generate a file
-- **AND** the user is notified that the report must be filtered before export
-
-#### Scenario: Pending filter changes are not exported
-- **WHEN** a user has applied filters and then changes filter inputs without clicking `Filter`
-- **THEN** an export uses the last successfully applied filters
-- **AND** the export does not include rows based on the unapplied filter inputs
-
 ### Requirement: Purchase list export sorting
 The system SHALL export rows using the current `Daftar Pembelian` table sort field and direction.
 
@@ -459,4 +404,9 @@ The system SHALL keep PDF export unavailable for `Daftar Pembelian`.
 ### Requirement: Document discount column
 
 The purchase report SHALL present the document-level discount (`Purchase.discount_amount`) in a clearly labeled `Diskon` column and SHALL retain the derived `Diskon %` column (the discount as a percentage of the document total). The report SHALL NOT display the per-line discount columns backed by `PurchaseDetail.product_discount_amount` (`Diskon` per-line and `Diskon Per Baris %`), because the importer never populates them. This applies to detail mode, header mode, and the global variant, and the on-screen columns SHALL match the exported columns.
+
+#### Scenario: Per-line discount columns are not shown
+- **WHEN** a user views or exports the purchase report in any mode
+- **THEN** the report shows the document-level `Diskon` and `Diskon %` columns
+- **AND** the report does not show per-line `Diskon` or `Diskon Per Baris %` columns
 

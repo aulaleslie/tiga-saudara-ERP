@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class AgedReceivablesReportQueryService
 {
@@ -40,6 +41,8 @@ class AgedReceivablesReportQueryService
             ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0])
             ->groupBy('sales.customer_id', 'customers.customer_name')
             ->havingRaw('SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2)) > ?', [0]);
+
+        FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 
         // Customer filter
         if (!empty($filter->customerIds)) {

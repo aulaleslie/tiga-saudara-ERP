@@ -366,14 +366,8 @@ class SaleReport extends Component
         }
 
         $documentStatusLabels = [
-            Sale::STATUS_DRAFTED            => 'Draf',
-            Sale::STATUS_WAITING_APPROVAL   => 'Menunggu Persetujuan',
-            Sale::STATUS_APPROVED           => 'Disetujui',
-            Sale::STATUS_REJECTED           => 'Ditolak',
-            Sale::STATUS_DISPATCHED_PARTIALLY => 'Dikirim Sebagian',
             Sale::STATUS_DISPATCHED         => 'Terkirim',
             Sale::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
-            Sale::STATUS_RETURNED           => 'Diretur',
         ];
 
         $paymentStatusLabels = [

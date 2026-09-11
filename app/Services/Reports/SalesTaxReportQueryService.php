@@ -4,10 +4,9 @@ namespace App\Services\Reports;
 
 use App\Services\Reports\Concerns\EffectivePurchaseReportingDate;
 use App\Services\Reports\Concerns\EffectiveSaleReportingDate;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Modules\Sale\Entities\Sale;
-use Modules\Purchase\Entities\Purchase;
 
 class SalesTaxReportQueryService
 {
@@ -33,21 +32,17 @@ class SalesTaxReportQueryService
 
     private function getSalesTaxRows(SalesTaxReportFilterData $filter, int $scopeSettingId): Collection
     {
-        return DB::table('sale_details')
+        $query = DB::table('sale_details')
             ->join('sales', 'sales.id', '=', 'sale_details.sale_id')
             ->join('taxes', 'taxes.id', '=', 'sale_details.tax_id')
             ->where('sales.setting_id', $scopeSettingId)
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate])
-            ->whereIn('sales.status', [
-                Sale::STATUS_APPROVED,
-                Sale::STATUS_DISPATCHED_PARTIALLY,
-                Sale::STATUS_DISPATCHED,
-                Sale::STATUS_RETURNED_PARTIALLY,
-                Sale::STATUS_RETURNED,
-            ])
-            ->whereNull('sales.archived_at')
-            ->whereNotNull('sale_details.tax_id')
+            ->whereNotNull('sale_details.tax_id');
+
+        FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
+
+        return $query
             ->where('sale_details.product_tax_amount', '!=', 0)
             ->select(
                 'taxes.id as tax_id',
@@ -63,21 +58,17 @@ class SalesTaxReportQueryService
 
     private function getPurchaseTaxRows(SalesTaxReportFilterData $filter, int $scopeSettingId): Collection
     {
-        return DB::table('purchase_details')
+        $query = DB::table('purchase_details')
             ->join('purchases', 'purchases.id', '=', 'purchase_details.purchase_id')
             ->join('taxes', 'taxes.id', '=', 'purchase_details.tax_id')
             ->where('purchases.setting_id', $scopeSettingId)
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectivePurchaseReportingDate::sqlExpression() . ' <= ?', [$filter->endDate])
-            ->whereIn('purchases.status', [
-                Purchase::STATUS_APPROVED,
-                Purchase::STATUS_RECEIVED_PARTIALLY,
-                Purchase::STATUS_RECEIVED,
-                Purchase::STATUS_RETURNED_PARTIALLY,
-                Purchase::STATUS_RETURNED,
-            ])
-            ->whereNull('purchases.archived_at')
-            ->whereNotNull('purchase_details.tax_id')
+            ->whereNotNull('purchase_details.tax_id');
+
+        FulfilledTransactionEligibility::applyToPurchaseQuery($query, 'purchases');
+
+        return $query
             ->where('purchase_details.product_tax_amount', '!=', 0)
             ->select(
                 'taxes.id as tax_id',

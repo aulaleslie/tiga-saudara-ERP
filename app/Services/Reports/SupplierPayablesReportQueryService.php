@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Entities\Purchase;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class SupplierPayablesReportQueryService
 {
@@ -27,9 +28,10 @@ class SupplierPayablesReportQueryService
                 DB::raw('ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) as saldo')
             )
             ->where('purchases.setting_id', $scopeSettingId)
-            ->whereIn('purchases.status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])
             ->where('purchases.date', '<=', $filter->endDate)
             ->whereRaw('ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0]);
+
+        FulfilledTransactionEligibility::applyToPurchaseQuery($query, 'purchases');
 
         // Optional filter: dueDateUntil
         if (!empty($filter->dueDateUntil)) {

@@ -27,7 +27,7 @@ class SaleByProductReportValidator
             'categoryLogic' => 'required|string|in:Mencakup semua,Salah satu',
             'productIds' => 'nullable|array',
             'productIds.*' => 'integer|exists:products,id',
-            'sortField' => 'required|string|in:product_name,product_code,sold_quantity,return_quantity,sold_value,average_sales_value',
+            'sortField' => 'required|string|in:product_name,product_code,sold_quantity,sold_value,average_sales_value',
             'sortDirection' => 'required|string|in:asc,desc',
         ]);
 

@@ -2,8 +2,8 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 use Illuminate\Support\Facades\DB;
-use Modules\Sale\Entities\Sale;
 
 /**
  * Shared net Sale HPP aggregate used by profit/loss and operational movement
@@ -77,15 +77,14 @@ class SaleHppAggregateService
      */
     protected function perSaleSubquery(array $settingIds, ?string $startDate, ?string $endDate, string $dateComparator): \Illuminate\Database\Query\Builder
     {
-        $statuses = [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED];
-
         $salesScope = DB::table('sales')
             ->whereIn('setting_id', $settingIds)
-            ->whereIn('status', $statuses)
             ->when($startDate && $dateComparator === 'between', fn ($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate && $dateComparator === 'between', fn ($q) => $q->whereDate('date', '<=', $endDate))
             ->when($startDate && $dateComparator === 'before', fn ($q) => $q->whereDate('date', '<', $startDate))
             ->select('id');
+
+        FulfilledTransactionEligibility::applyToSaleQuery($salesScope, 'sales');
 
         $parentAgg = DB::table('sale_details')
             ->selectRaw('sale_id, SUM(sub_total - COALESCE(product_tax_amount, 0)) as dpp, SUM(COALESCE(cost_unit_snapshot, 0) * quantity) as parent_hpp')

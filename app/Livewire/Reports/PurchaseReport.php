@@ -366,14 +366,8 @@ class PurchaseReport extends Component
         }
 
         $documentStatusLabels = [
-            Purchase::STATUS_DRAFTED            => 'Draf',
-            Purchase::STATUS_WAITING_APPROVAL   => 'Menunggu Persetujuan',
-            Purchase::STATUS_APPROVED           => 'Disetujui',
-            Purchase::STATUS_REJECTED           => 'Ditolak',
-            Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
             Purchase::STATUS_RECEIVED           => 'Diterima',
             Purchase::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
-            Purchase::STATUS_RETURNED           => 'Diretur',
         ];
 
         $paymentStatusLabels = [

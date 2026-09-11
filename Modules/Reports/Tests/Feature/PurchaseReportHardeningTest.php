@@ -85,7 +85,7 @@ class PurchaseReportHardeningTest extends TestCase
             'setting_id' => $this->setting->id,
             'reference' => 'PR-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'supplier_id' => $supplier->id,
-            'status' => Purchase::STATUS_APPROVED,
+            'status' => Purchase::STATUS_RECEIVED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
@@ -405,21 +405,24 @@ class PurchaseReportHardeningTest extends TestCase
     /** @test */
     public function it_filters_by_multiple_document_statuses_with_or_semantics()
     {
+        // Only report-eligible statuses (RECEIVED, RETURNED_PARTIALLY) are accepted
+        // by the documentStatuses filter; STATUS_APPROVED/STATUS_DRAFTED are no longer
+        // filterable values, so this exercises OR-semantics across the eligible set instead.
         $supplier = $this->makeSupplier();
-        $pApproved = $this->makePurchase($supplier, [
-            'date' => now()->startOfMonth()->format('Y-m-d'),
-            'status' => Purchase::STATUS_APPROVED,
-        ]);
         $pReceived = $this->makePurchase($supplier, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
             'status' => Purchase::STATUS_RECEIVED,
+        ]);
+        $pReturnedPartially = $this->makePurchase($supplier, [
+            'date' => now()->startOfMonth()->format('Y-m-d'),
+            'status' => Purchase::STATUS_RETURNED_PARTIALLY,
         ]);
         $pDrafted = $this->makePurchase($supplier, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
             'status' => Purchase::STATUS_DRAFTED,
         ]);
-        $this->makePurchaseDetail($pApproved);
         $this->makePurchaseDetail($pReceived);
+        $this->makePurchaseDetail($pReturnedPartially);
         $this->makePurchaseDetail($pDrafted);
 
         \Livewire\Livewire::actingAs($this->user)
@@ -427,12 +430,12 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('settingId', $this->setting->id)
             ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
-            ->set('documentStatuses', [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED])
+            ->set('documentStatuses', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY])
             ->call('applyFilters')
-            ->assertViewHas('purchases', function ($purchases) use ($pApproved, $pReceived, $pDrafted) {
+            ->assertViewHas('purchases', function ($purchases) use ($pReceived, $pReturnedPartially, $pDrafted) {
                 $ids = $purchases->pluck('purchase_id')->toArray();
-                return in_array($pApproved->id, $ids)
-                    && in_array($pReceived->id, $ids)
+                return in_array($pReceived->id, $ids)
+                    && in_array($pReturnedPartially->id, $ids)
                     && !in_array($pDrafted->id, $ids);
             });
     }
@@ -982,16 +985,19 @@ class PurchaseReportHardeningTest extends TestCase
     /** @test */
     public function it_filters_document_status()
     {
+        // STATUS_APPROVED is no longer an accepted documentStatuses filter value;
+        // use the eligible STATUS_RECEIVED instead, preserving the "matches selected
+        // status, excludes drafted" intent of this test.
         $supplier = $this->makeSupplier();
-        $pApproved = $this->makePurchase($supplier, [
+        $pReceived = $this->makePurchase($supplier, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
-            'status' => Purchase::STATUS_APPROVED,
+            'status' => Purchase::STATUS_RECEIVED,
         ]);
         $pDrafted = $this->makePurchase($supplier, [
             'date' => now()->startOfMonth()->format('Y-m-d'),
             'status' => Purchase::STATUS_DRAFTED,
         ]);
-        $this->makePurchaseDetail($pApproved);
+        $this->makePurchaseDetail($pReceived);
         $this->makePurchaseDetail($pDrafted);
 
         \Livewire\Livewire::actingAs($this->user)
@@ -999,11 +1005,11 @@ class PurchaseReportHardeningTest extends TestCase
             ->set('settingId', $this->setting->id)
             ->set('startDate', now()->startOfMonth()->format('Y-m-d'))
             ->set('endDate', now()->endOfMonth()->format('Y-m-d'))
-            ->set('documentStatuses', [Purchase::STATUS_APPROVED])
+            ->set('documentStatuses', [Purchase::STATUS_RECEIVED])
             ->call('applyFilters')
-            ->assertViewHas('purchases', function ($purchases) use ($pApproved, $pDrafted) {
+            ->assertViewHas('purchases', function ($purchases) use ($pReceived, $pDrafted) {
                 $ids = $purchases->pluck('purchase_id')->toArray();
-                return in_array($pApproved->id, $ids) && !in_array($pDrafted->id, $ids);
+                return in_array($pReceived->id, $ids) && !in_array($pDrafted->id, $ids);
             });
     }
 

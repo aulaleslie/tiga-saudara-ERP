@@ -374,7 +374,6 @@ class PurchaseByProductReport extends Component
     {
         $products = collect();
         $grandTotalPurchase = 0;
-        $grandTotalReturn = 0;
 
         if ($this->filterTriggered) {
             $filter = PurchaseByProductReportFilterData::fromArray($this->appliedFilters);
@@ -385,15 +384,13 @@ class PurchaseByProductReport extends Component
 
             $products = $query->paginate(15);
             $totals = $queryService->calculateGrandTotal($filter);
-            
+
             $grandTotalPurchase = $totals['purchase_value'];
-            $grandTotalReturn = $totals['return_value'];
         }
 
         return view('livewire.reports.purchase-by-product-report', [
             'products' => $products,
             'grandTotalPurchase' => $grandTotalPurchase,
-            'grandTotalReturn' => $grandTotalReturn,
         ]);
     }
 }

@@ -613,14 +613,20 @@ class SaleByCustomerReportTest extends TestCase
         ]);
         $this->makeSaleDetail($dispatchedSale, ['product_name' => 'Dispatched Product', 'sub_total' => 1000]);
 
+        // RETURNED_PARTIALLY is also eligible under the fulfilled-transaction gate,
+        // so it is asserted separately below rather than excluded here.
+        $returnedPartiallySale = $this->makeSale($customer, [
+            'date' => '2026-05-01',
+            'status' => Sale::STATUS_RETURNED_PARTIALLY,
+        ]);
+        $this->makeSaleDetail($returnedPartiallySale, ['product_name' => 'Returned Partially Product', 'sub_total' => 500]);
+
         $excludedStatuses = [
             Sale::STATUS_DRAFTED,
             Sale::STATUS_WAITING_APPROVAL,
             Sale::STATUS_APPROVED,
             Sale::STATUS_REJECTED,
             Sale::STATUS_DISPATCHED_PARTIALLY,
-            Sale::STATUS_RETURNED,
-            Sale::STATUS_RETURNED_PARTIALLY,
         ];
 
         foreach ($excludedStatuses as $status) {
@@ -632,6 +638,15 @@ class SaleByCustomerReportTest extends TestCase
             $this->makeSaleDetail($sale, ['product_name' => 'Excluded ' . $status, 'sub_total' => 9000]);
         }
 
+        // An unarchived RETURNED sale remains reportable until its full-return settlement
+        // is archived, so it must be archived here to be excluded.
+        $archivedReturnedSale = $this->makeSale($customer, [
+            'date' => '2026-05-01',
+            'status' => Sale::STATUS_RETURNED,
+            'archived_at' => now(),
+        ]);
+        $this->makeSaleDetail($archivedReturnedSale, ['product_name' => 'Excluded ' . Sale::STATUS_RETURNED, 'sub_total' => 9000]);
+
         \Livewire\Livewire::actingAs($this->user)
             ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
             ->set('settingId', $this->setting->id)
@@ -639,13 +654,14 @@ class SaleByCustomerReportTest extends TestCase
             ->set('endDate', '2026-05-31')
             ->call('applyFilters')
             ->assertViewHas('sales', function ($sales) {
-                \PHPUnit\Framework\Assert::assertEquals(1, $sales->count());
-                \PHPUnit\Framework\Assert::assertEquals('DISPATCHED PRODUCT', strtoupper($sales->first()->product_name));
-                \PHPUnit\Framework\Assert::assertEquals(1000, (float) $sales->first()->sub_total);
-                \PHPUnit\Framework\Assert::assertEquals(0, (float) $sales->first()->previous_running_total);
+                \PHPUnit\Framework\Assert::assertEquals(2, $sales->count());
+                $productNames = $sales->pluck('product_name')->map(fn($name) => strtoupper($name));
+                \PHPUnit\Framework\Assert::assertTrue($productNames->contains('DISPATCHED PRODUCT'));
+                \PHPUnit\Framework\Assert::assertTrue($productNames->contains('RETURNED PARTIALLY PRODUCT'));
                 return true;
             })
             ->assertSeeHtml('1.000')
+            ->assertSeeHtml('500')
             ->assertDontSeeHtml('9.000')
             ->assertDontSeeHtml('10.000');
     }
@@ -662,9 +678,12 @@ class SaleByCustomerReportTest extends TestCase
         ]);
         $this->makeSaleDetail($dispatchedSale, ['product_name' => 'Dispatched Product', 'sub_total' => 1000]);
 
+        // A fully RETURNED sale is only excluded once its return settlement is archived;
+        // an unarchived RETURNED sale remains reportable.
         $returnedSale = $this->makeSale($customer, [
             'date' => '2026-05-02',
             'status' => Sale::STATUS_RETURNED,
+            'archived_at' => now(),
         ]);
         $this->makeSaleDetail($returnedSale, ['product_name' => 'Returned Product', 'sub_total' => 2000]);
 

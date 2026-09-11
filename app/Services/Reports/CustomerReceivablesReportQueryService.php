@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 
 class CustomerReceivablesReportQueryService
 {
@@ -34,6 +35,8 @@ class CustomerReceivablesReportQueryService
             ->where('sales.setting_id', $scopeSettingId)
             ->where('sales.date', '<=', $filter->endDate)
             ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0]);
+
+        FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 
         // Optional filter: dueDateUntil
         if (!empty($filter->dueDateUntil)) {

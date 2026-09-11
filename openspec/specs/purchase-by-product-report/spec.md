@@ -1,4 +1,10 @@
-## ADDED Requirements
+# purchase-by-product-report Specification
+
+## Purpose
+
+Provide a "Pembelian per produk" report under the Reports module that aggregates purchased and returned quantities/values by product from report-eligible purchases, using current persisted, settlement-modified values without separately subtracting return aggregates.
+
+## Requirements
 
 ### Requirement: Purchase by product report entry point
 The system SHALL provide a `Pembelian per produk` report reachable from the Reports module and gated by `purchaseReports.access`.
@@ -17,15 +23,15 @@ The system SHALL provide a `Pembelian per produk` report reachable from the Repo
 - **AND** the card does not show placeholder or unavailable-state treatment
 
 ### Requirement: Purchase invoice details are aggregated by product
-The report SHALL calculate purchase quantity and purchase value from existing `purchases` and `purchase_details` records, scoped to the active setting and filtered by `purchases.date`.
+The report SHALL aggregate current persisted purchase-detail quantities and values by product only from report-eligible purchases, scoped to the active setting and effective purchase reporting date. These persisted values SHALL already represent any approved settlement modification.
 
-#### Scenario: Purchase inside selected period is included
-- **WHEN** a purchase invoice has a purchase date inside the selected report period
-- **THEN** its purchase detail quantities and purchase values are included in the product aggregate
+#### Scenario: Eligible purchase contributes current detail values
+- **WHEN** a `RECEIVED` or `RETURNED PARTIALLY` purchase is inside the selected scope and period
+- **THEN** its current persisted detail quantities and values are included
 
-#### Scenario: Purchase outside selected period is excluded
-- **WHEN** a purchase invoice has a purchase date outside the selected report period
-- **THEN** its purchase detail quantities and purchase values are not included in the product aggregate
+#### Scenario: Partial receipt is excluded
+- **WHEN** a purchase is only `RECEIVED PARTIALLY`
+- **THEN** none of its details contribute to the product aggregate
 
 #### Scenario: Purchases are scoped to active setting
 - **WHEN** another setting has purchase details in the selected period
@@ -36,25 +42,12 @@ The report SHALL calculate purchase quantity and purchase value from existing `p
 - **THEN** the purchase by product report does not include those rows in first scope
 
 ### Requirement: Lifecycle-valid purchase returns are aggregated by product
-The report SHALL calculate return quantity and return value from existing `purchase_returns` and `purchase_return_details` records, scoped to the active setting, filtered by `purchase_returns.date`, and limited to purchase returns that have progressed into actual return execution or settlement after approval.
+The report SHALL NOT independently aggregate or subtract purchase-return details because approved settlement modifications are represented by the persisted target purchase details.
 
-#### Scenario: Executed return inside selected period is included
-- **WHEN** a purchase return is approved and has progressed into return execution or settlement
-- **AND** its return date is inside the selected report period
-- **THEN** its return detail quantities and return values are included in the product aggregate
-
-#### Scenario: Draft pending or rejected return is excluded
-- **WHEN** a purchase return is draft, pending approval, or rejected
-- **THEN** its return detail quantities and return values are not included in the product aggregate
-
-#### Scenario: Approved but not dispatched return is excluded
-- **WHEN** a purchase return is approved but has not progressed into return execution or settlement
-- **THEN** its return detail quantities and return values are not included in the product aggregate
-
-#### Scenario: Return date controls return inclusion
-- **WHEN** the source purchase date is outside the selected period
-- **AND** a lifecycle-valid purchase return date is inside the selected period
-- **THEN** the return detail quantities and return values are included in the report
+#### Scenario: Settled return is not deducted twice
+- **WHEN** a settlement has reduced a target purchase detail
+- **THEN** the report uses that reduced detail value
+- **AND** does not subtract the associated purchase-return detail
 
 ### Requirement: Tax-exclusive purchase value calculation
 The report SHALL calculate `Nilai pembelian` and `Nilai retur` as tax-exclusive line commercial values. For tax-included purchase lines, the report MUST subtract the persisted line tax amount from the line subtotal before aggregation.

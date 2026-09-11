@@ -241,6 +241,10 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
     
     public function test_it_generates_purchase_returns_correctly()
     {
+        // Purchase returns now have "no GL impact": the origin purchase's persisted
+        // total_amount is already reduced by settlement and is the authoritative value,
+        // so a separate PurchaseReturn-driven AP/Inventory GL event would double-count it.
+        // Only the purchase-return payment (a real cash movement) still produces events.
         $purchaseReturn = PurchaseReturn::create([
             'setting_id' => $this->setting->id,
             'supplier_id' => 1,
@@ -270,7 +274,7 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
 
         $service = new OperationalGeneralLedgerReportService();
         $filter = new OperationalGeneralLedgerReportFilterData(now()->format('Y-m-d'), now()->format('Y-m-d'));
-        
+
         $report = $service->generate($this->setting->id, $filter);
 
         $apBucket = collect($report->buckets)->firstWhere('key', OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE);
@@ -279,14 +283,14 @@ class OperationalGeneralLedgerReportServiceTest extends TestCase
 
         $this->assertNotNull($apBucket);
         $this->assertNotNull($cashBucket);
-        $this->assertNotNull($inventoryBucket);
+        // No origin purchase exists and the return itself no longer emits Inventory events,
+        // so the Inventory bucket has no activity/balance and is omitted from the report.
+        $this->assertNull($inventoryBucket);
 
-        // PR: AP Dr 600, Inventory Cr 600
-        // PRP: Cash Dr 200, AP Cr 200
-        // Net AP = Dr 600 - Cr 200 = Dr 400 = -400 balance (AP is Credit Normal)
-        $this->assertEquals(-400, $apBucket->endingBalance);
-        $this->assertEquals(200, $cashBucket->endingBalance); // Cash Debit 200
-        $this->assertEquals(-600, $inventoryBucket->endingBalance); // Inventory Credit 600 = -600 balance (Inventory is Debit Normal)
+        // PRP only: Cash Dr 20000, AP Cr 20000 (amounts are stored/aggregated as-is, no cents scaling)
+        // Net AP = Cr 20000 = +20000 balance (AP is Credit Normal)
+        $this->assertEquals(20000, $apBucket->endingBalance);
+        $this->assertEquals(20000, $cashBucket->endingBalance); // Cash Debit 20000
     }
 
     public function test_it_filters_buckets_correctly()

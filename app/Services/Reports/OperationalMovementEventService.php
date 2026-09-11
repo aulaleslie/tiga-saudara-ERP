@@ -2,11 +2,11 @@
 
 namespace App\Services\Reports;
 
+use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 use Illuminate\Support\Facades\DB;
 use Modules\Expense\Entities\Expense;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchasePayment;
-use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
@@ -37,10 +37,11 @@ class OperationalMovementEventService
         };
 
         // 1. Sales
-        $salesTotals = DB::table('sales')
+        $salesTotalsQuery = DB::table('sales')
             ->whereIn('setting_id', $settingIds)
-            ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->whereDate('date', '<', $startDate)
+            ->whereDate('date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToSaleQuery($salesTotalsQuery, 'sales');
+        $salesTotals = $salesTotalsQuery
             ->selectRaw('SUM(total_amount) as amount, SUM(discount_amount) as discount, SUM(tax_amount) as tax, SUM(shipping_amount) as shipping')
             ->first();
 
@@ -67,13 +68,13 @@ class OperationalMovementEventService
         }
 
         // 2. Sale Payments
-        $salePayments = DB::table('sale_payments')
+        $salePaymentsQuery = DB::table('sale_payments')
             ->join('sales', 'sales.id', '=', 'sale_payments.sale_id')
             ->where('sale_payments.status', 'ACTIVE')
             ->whereIn('sales.setting_id', $settingIds)
-            ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->whereDate('sale_payments.date', '<', $startDate)
-            ->sum('sale_payments.amount');
+            ->whereDate('sale_payments.date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToSaleQuery($salePaymentsQuery, 'sales');
+        $salePayments = $salePaymentsQuery->sum('sale_payments.amount');
 
         if ($salePayments > 0) {
             $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, (float)$salePayments, 0);
@@ -96,11 +97,11 @@ class OperationalMovementEventService
         }
 
         // 5. Purchases
-        $purchases = DB::table('purchases')
+        $purchasesQuery = DB::table('purchases')
             ->whereIn('setting_id', $settingIds)
-            ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
-            ->whereDate('date', '<', $startDate)
-            ->sum('total_amount');
+            ->whereDate('date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToPurchaseQuery($purchasesQuery, 'purchases');
+        $purchases = $purchasesQuery->sum('total_amount');
 
         if ($purchases > 0) {
             $add(OperationalGeneralLedgerBucketConfig::INVENTORY, (float)$purchases, 0);
@@ -108,32 +109,22 @@ class OperationalMovementEventService
         }
 
         // 6. Purchase Payments
-        $purchasePayments = DB::table('purchase_payments')
+        $purchasePaymentsQuery = DB::table('purchase_payments')
             ->join('purchases', 'purchases.id', '=', 'purchase_payments.purchase_id')
             ->where('purchase_payments.status', 'ACTIVE')
             ->whereIn('purchases.setting_id', $settingIds)
-            ->whereIn('purchases.status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
-            ->whereDate('purchase_payments.date', '<', $startDate)
-            ->sum('purchase_payments.amount');
+            ->whereDate('purchase_payments.date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToPurchaseQuery($purchasePaymentsQuery, 'purchases');
+        $purchasePayments = $purchasePaymentsQuery->sum('purchase_payments.amount');
 
         if ($purchasePayments > 0) {
             $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, (float)$purchasePayments);
             $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, (float)$purchasePayments, 0);
         }
 
-        // 7. Purchase Returns
-        $purchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
-            ->whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereDate('date', '<', $startDate)
-            ->get(['id', 'total_amount']);
-
-        foreach ($purchaseReturns as $pr) {
-            $amount = (float) $pr->total_amount;
-            if ($amount > 0) {
-                $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $amount, 0);
-                $add(OperationalGeneralLedgerBucketConfig::INVENTORY, 0, $amount);
-            }
-        }
+        // 7. Purchase Returns (No GL impact: the origin purchase's persisted total_amount
+        // is already reduced by settlement and is the authoritative value counted in
+        // section 5 above; a separate reduction here would double-count it.)
 
         // 8. Purchase Return Payments
         $purchaseReturnPayments = PurchaseReturnPayment::whereHas('purchaseReturn', function ($q) use ($settingIds) {
@@ -174,9 +165,10 @@ class OperationalMovementEventService
         $endDateEndOfDay = $endDate . ' 23:59:59';
 
         // 1. Sales
-        $sales = Sale::whereIn('sales.setting_id', $settingIds)
-            ->whereIn('sales.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
-            ->whereBetween('sales.date', [$startDate, $endDateEndOfDay])
+        $salesQuery = Sale::whereIn('sales.setting_id', $settingIds)
+            ->whereBetween('sales.date', [$startDate, $endDateEndOfDay]);
+        FulfilledTransactionEligibility::applyToSaleQuery($salesQuery, 'sales');
+        $sales = $salesQuery
             ->with('customer:id,customer_name')
             ->select('sales.id', 'sales.date', 'sales.reference', 'sales.total_amount', 'sales.tax_amount', 'sales.discount_amount', 'sales.shipping_amount', 'sales.customer_id', 'sales.created_at')
             ->get();
@@ -219,8 +211,8 @@ class OperationalMovementEventService
         $salePayments = SalePayment::active()
             ->whereBetween('date', [$startDate, $endDateEndOfDay])
             ->whereHas('sale', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED]);
+                $q->whereIn('setting_id', $settingIds);
+                FulfilledTransactionEligibility::applyToSaleQuery($q, 'sales');
             })
             ->with(['sale:id,customer_id', 'sale.customer:id,customer_name'])
             ->get(['date', 'reference', 'amount', 'sale_id', 'created_at', 'payment_method']);
@@ -261,9 +253,10 @@ class OperationalMovementEventService
         }
 
         // 5. Purchases
-        $purchases = Purchase::whereIn('setting_id', $settingIds)
-            ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED])
-            ->whereBetween('date', [$startDate, $endDateEndOfDay])
+        $purchasesQuery = Purchase::whereIn('setting_id', $settingIds)
+            ->whereBetween('date', [$startDate, $endDateEndOfDay]);
+        FulfilledTransactionEligibility::applyToPurchaseQuery($purchasesQuery, 'purchases');
+        $purchases = $purchasesQuery
             ->with('supplier:id,supplier_name')
             ->get(['date', 'reference', 'total_amount', 'supplier_id', 'created_at']);
 
@@ -282,8 +275,8 @@ class OperationalMovementEventService
         $purchasePayments = PurchasePayment::active()
             ->whereBetween('date', [$startDate, $endDateEndOfDay])
             ->whereHas('purchase', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RETURNED_PARTIALLY, Purchase::STATUS_RETURNED]);
+                $q->whereIn('setting_id', $settingIds);
+                FulfilledTransactionEligibility::applyToPurchaseQuery($q, 'purchases');
             })
             ->with(['purchase:id,supplier_id', 'purchase.supplier:id,supplier_name'])
             ->get(['date', 'reference', 'amount', 'purchase_id', 'created_at', 'payment_method']);
@@ -300,21 +293,9 @@ class OperationalMovementEventService
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Pembayaran Pembelian', $pp->reference, 'Pembayaran Hutang', $amount, 0, $tag);
         }
 
-        // 7. Purchase Returns
-        $purchaseReturns = PurchaseReturn::whereIn('setting_id', $settingIds)
-            ->whereIn('status', ['Completed', 'COMPLETED'])
-            ->whereBetween('date', [$startDate, $endDateEndOfDay])
-            ->get(['id', 'date', 'reference', 'total_amount', 'supplier_name', 'created_at']);
-
-        foreach ($purchaseReturns as $pr) {
-            $amount = (float) $pr->total_amount;
-            $date = Carbon::parse($pr->getRawOriginal('date'))->format('Y-m-d');
-            $time = $pr->created_at->format('H:i:s');
-            $dt = $date . ' ' . $time;
-
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_PAYABLE, $dt, 'Retur Pembelian', $pr->reference, 'Pengurangan Hutang', $amount, 0, $pr->supplier_name);
-            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::INVENTORY, $dt, 'Retur Pembelian', $pr->reference, 'Retur Pembelian', 0, $amount, $pr->supplier_name);
-        }
+        // 7. Purchase Returns (No GL impact: the origin purchase's persisted total_amount
+        // is already reduced by settlement and is the authoritative value counted in
+        // section 5 above; a separate reduction here would double-count it.)
 
         // 8. Purchase Return Payments
         $purchaseReturnPayments = PurchaseReturnPayment::with('purchaseReturn:id,supplier_name,created_at')

@@ -425,7 +425,6 @@ class SaleByProductReport extends Component
 
         $products = collect();
         $grandTotalSold = 0;
-        $grandTotalReturn = 0;
 
         if ($this->filterTriggered) {
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
@@ -435,9 +434,8 @@ class SaleByProductReport extends Component
 
             $products = $query->paginate(15);
             $totals = $queryService->calculateGrandTotal($filter);
-            
+
             $grandTotalSold = $totals['sold_value'];
-            $grandTotalReturn = $totals['return_value'];
         }
 
         return view('livewire.reports.sale-by-product-report', [
@@ -446,7 +444,6 @@ class SaleByProductReport extends Component
             'scopeLabel' => $scopeLabel,
             'products' => $products,
             'grandTotalSold' => $grandTotalSold,
-            'grandTotalReturn' => $grandTotalReturn,
         ]);
     }
 }

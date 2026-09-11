@@ -83,7 +83,7 @@ class PurchaseBySupplierReportTest extends TestCase
             'setting_id' => $this->setting->id,
             'reference' => 'PR-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'supplier_id' => $supplier->id,
-            'status' => Purchase::STATUS_APPROVED,
+            'status' => Purchase::STATUS_RECEIVED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,

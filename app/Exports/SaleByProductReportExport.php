@@ -29,39 +29,33 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
     {
         $rows = [];
         $queryResults = $this->query->get();
-        
+
         $grandTotalSold = 0.0;
-        $grandTotalReturn = 0.0;
-        
+
         foreach ($queryResults as $row) {
             $rows[] = [
                 $row->product_code,
                 $row->product_name,
                 (float) $row->sold_quantity,
-                (float) $row->return_quantity,
                 $row->unit_name,
                 (float) $row->sold_value,
-                (float) $row->return_value,
                 (float) $row->average_sales_value,
             ];
-            
+
             $grandTotalSold += (float) $row->sold_value;
-            $grandTotalReturn += (float) $row->return_value;
         }
-        
+
         if (!empty($rows)) {
             $rows[] = [
                 'Total Keseluruhan',
                 '',
                 '',
                 '',
-                '',
                 $grandTotalSold,
-                $grandTotalReturn,
                 '',
             ];
         }
-        
+
         return $rows;
     }
 
@@ -71,10 +65,8 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
             'Kode Produk',
             'Nama Produk',
             'Kuantitas Terjual',
-            'Kuantitas Retur',
             'Satuan',
             'Total Nilai terjual',
-            'Total Nilai Retur',
             'Harga Penjualan Rata-rata',
         ];
     }
@@ -83,10 +75,8 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
     {
         return [
             'C' => '#,##0.00',
-            'D' => '#,##0.00',
+            'E' => '#,##0.00',
             'F' => '#,##0.00',
-            'G' => '#,##0.00',
-            'H' => '#,##0.00',
         ];
     }
 
@@ -122,28 +112,28 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
                 
                 // Row 1
                 $sheet->setCellValue('A1', $companyName);
-                $sheet->mergeCells('A1:H1');
+                $sheet->mergeCells('A1:F1');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
-                
+
                 // Row 2
                 $sheet->setCellValue('A2', 'Penjualan dengan Produk');
-                $sheet->mergeCells('A2:H2');
+                $sheet->mergeCells('A2:F2');
                 $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(12);
-                
+
                 // Row 3
                 $sheet->setCellValue('A3', $dateRange);
-                $sheet->mergeCells('A3:H3');
-                
+                $sheet->mergeCells('A3:F3');
+
                 // Row 4
                 $sheet->setCellValue('A4', '(dalam IDR)');
-                $sheet->mergeCells('A4:H4');
-                
+                $sheet->mergeCells('A4:F4');
+
                 // Bold headers (now row 6)
-                $sheet->getStyle('A6:H6')->getFont()->setBold(true);
-                
+                $sheet->getStyle('A6:F6')->getFont()->setBold(true);
+
                 // Bold subtotal row (the last row)
                 $highestRow = $sheet->getHighestRow();
-                $sheet->getStyle("A{$highestRow}:H{$highestRow}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$highestRow}:F{$highestRow}")->getFont()->setBold(true);
             },
         ];
     }
