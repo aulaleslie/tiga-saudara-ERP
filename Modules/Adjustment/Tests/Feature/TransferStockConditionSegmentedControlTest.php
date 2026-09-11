@@ -15,16 +15,16 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
-class TransferFormOriginGatingTest extends TestCase
+class TransferStockConditionSegmentedControlTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Setting $setting;
     private User $user;
+    private Setting $setting;
     private Location $origin;
-    private Location $destination;
     private Product $product;
 
     protected function setUp(): void
@@ -34,7 +34,6 @@ class TransferFormOriginGatingTest extends TestCase
         $this->user = User::factory()->create();
         $this->setting = Setting::factory()->create();
         $this->origin = Location::factory()->create(['setting_id' => $this->setting->id]);
-        $this->destination = Location::factory()->create(['setting_id' => $this->setting->id]);
 
         $category = Category::create([
             'setting_id' => $this->setting->id,
@@ -66,6 +65,10 @@ class TransferFormOriginGatingTest extends TestCase
         ]);
 
         session(['setting_id' => $this->setting->id]);
+
+        Permission::firstOrCreate(['name' => 'stockTransfers.create', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'stockTransfers.edit', 'guard_name' => 'web']);
+        $this->user->givePermissionTo(['stockTransfers.create', 'stockTransfers.edit']);
     }
 
     private function sampleRow(): array
@@ -88,100 +91,75 @@ class TransferFormOriginGatingTest extends TestCase
     }
 
     /** @test */
-    public function search_product_is_disabled_without_a_valid_origin()
+    public function a_new_transfer_defaults_to_good_condition()
     {
         Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Transfer\SearchProduct::class, ['locationId' => null])
-            ->set('query', 'Product')
-            ->assertSet('search_results', collect());
-    }
-
-    /** @test */
-    public function search_product_rejects_selection_without_a_valid_origin()
-    {
-        Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Transfer\SearchProduct::class, ['locationId' => null])
-            ->call('selectProduct', $this->product->toArray())
-            ->assertDispatched('scanFailed');
-    }
-
-    /** @test */
-    public function search_product_rejects_scan_without_a_valid_origin()
-    {
-        Livewire::actingAs($this->user)
-            ->test(\App\Livewire\Transfer\SearchProduct::class, ['locationId' => null])
-            ->call('scanBarcode', 'anything')
-            ->assertDispatched('scanFailed');
-    }
-
-    /** @test */
-    public function origin_change_clears_destination_and_rows()
-    {
-        $otherOrigin = Location::factory()->create(['setting_id' => $this->setting->id]);
-
-        $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
-            ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
-            ->set('rows', [$this->sampleRow()]);
-
-        $livewire->assertSet('destinationLocation', $this->destination->id);
-        $this->assertCount(1, $livewire->get('rows'));
-
-        $livewire->call('onOriginLocationSelected', ['id' => $otherOrigin->id]);
-
-        $livewire->assertSet('originLocation', $otherOrigin->id);
-        $livewire->assertSet('destinationLocation', null);
-        $this->assertCount(0, $livewire->get('rows'));
+            ->assertSet('stockCondition', Transfer::CONDITION_GOOD);
     }
 
     /** @test */
-    public function reselecting_the_same_origin_does_not_clear_rows()
+    public function the_create_form_renders_button_controls_not_native_radio_inputs()
+    {
+        $html = Livewire::actingAs($this->user)
+            ->test(TransferStockForm::class)
+            ->html();
+
+        $this->assertStringContainsString('id="stock-condition-good"', $html);
+        $this->assertStringContainsString('id="stock-condition-breakage"', $html);
+        $this->assertStringNotContainsString('type="radio"', $html);
+        $this->assertStringNotContainsString('btn-check', $html);
+    }
+
+    /** @test */
+    public function the_selected_condition_button_is_highlighted_with_correct_aria_pressed()
+    {
+        $html = Livewire::actingAs($this->user)
+            ->test(TransferStockForm::class)
+            ->html();
+
+        // GOOD is selected by default: its button is filled/active with
+        // aria-pressed="true"; the unselected button is outlined with
+        // aria-pressed="false".
+        $this->assertMatchesRegularExpression(
+            '/id="stock-condition-good"[^>]*class="btn btn-success active"[^>]*aria-pressed="true"/s',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '/id="stock-condition-breakage"[^>]*class="btn btn-outline-warning"[^>]*aria-pressed="false"/s',
+            $html
+        );
+    }
+
+    /** @test */
+    public function selecting_breakage_updates_the_highlighted_state()
     {
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
-            ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
-            ->set('rows', [$this->sampleRow()]);
+            ->call('selectStockCondition', Transfer::CONDITION_BREAKAGE);
 
-        $livewire->call('onOriginLocationSelected', ['id' => $this->origin->id]);
+        $livewire->assertSet('stockCondition', Transfer::CONDITION_BREAKAGE);
 
-        $this->assertCount(1, $livewire->get('rows'));
+        $html = $livewire->html();
+
+        $this->assertMatchesRegularExpression(
+            '/id="stock-condition-breakage"[^>]*class="btn btn-warning active"[^>]*aria-pressed="true"/s',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '/id="stock-condition-good"[^>]*class="btn btn-outline-success"[^>]*aria-pressed="false"/s',
+            $html
+        );
     }
 
     /** @test */
-    public function destination_change_preserves_rows()
-    {
-        $otherDestination = Location::factory()->create(['setting_id' => $this->setting->id]);
-
-        $livewire = Livewire::actingAs($this->user)
-            ->test(TransferStockForm::class)
-            ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
-            ->set('rows', [$this->sampleRow()]);
-
-        $livewire->call('onDestinationLocationSelected', ['id' => $otherDestination->id]);
-
-        $livewire->assertSet('destinationLocation', $otherDestination->id);
-        $this->assertCount(1, $livewire->get('rows'));
-    }
-
-    /** @test */
-    public function mode_change_with_entered_rows_requires_confirmation_before_clearing_rows()
+    public function selecting_a_different_condition_with_entered_rows_requires_confirmation()
     {
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
-        // Switching mode while rows exist must not clear them immediately;
-        // it must require explicit confirmation first. The segmented
-        // control's buttons call selectStockCondition() directly (not
-        // wire:model), so the test drives it the same way.
         $livewire->call('selectStockCondition', Transfer::CONDITION_BREAKAGE);
 
         $livewire->assertSet('showConditionConfirmModal', true);
@@ -190,20 +168,17 @@ class TransferFormOriginGatingTest extends TestCase
 
         $livewire->call('confirmConditionChange');
 
-        $livewire->assertSet('originLocation', $this->origin->id);
-        $livewire->assertSet('destinationLocation', $this->destination->id);
         $livewire->assertSet('stockCondition', Transfer::CONDITION_BREAKAGE);
+        $livewire->assertSet('showConditionConfirmModal', false);
         $this->assertCount(0, $livewire->get('rows'));
     }
 
     /** @test */
-    public function cancelling_a_mode_change_preserves_prior_condition_and_rows()
+    public function cancelling_a_condition_change_preserves_the_prior_selection_and_rows()
     {
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         $livewire->call('selectStockCondition', Transfer::CONDITION_BREAKAGE);
@@ -215,11 +190,11 @@ class TransferFormOriginGatingTest extends TestCase
     }
 
     /** @test */
-    public function editable_draft_hydrates_destination_mode_and_rows()
+    public function an_existing_transfer_renders_a_read_only_badge_with_no_buttons()
     {
         $transfer = Transfer::create([
             'origin_location_id' => $this->origin->id,
-            'destination_location_id' => $this->destination->id,
+            'destination_location_id' => null,
             'stock_condition' => Transfer::CONDITION_GOOD,
             'status' => Transfer::STATUS_DRAFT,
             'created_by' => $this->user->id,
@@ -233,14 +208,13 @@ class TransferFormOriginGatingTest extends TestCase
             'quantity_non_tax' => 1,
         ]);
 
-        $livewire = Livewire::actingAs($this->user)
-            ->test(TransferStockForm::class, ['transfer' => $transfer]);
+        $html = Livewire::actingAs($this->user)
+            ->test(TransferStockForm::class, ['transfer' => $transfer])
+            ->html();
 
-        $livewire->assertSet('originLocation', $this->origin->id)
-            ->assertSet('destinationLocation', $this->destination->id)
-            ->assertSet('stockCondition', Transfer::CONDITION_GOOD)
-            ->assertSet('isMixedConditionHistory', false);
-
-        $this->assertCount(1, $livewire->get('rows'));
+        $this->assertStringContainsString('Barang Baik', $html);
+        $this->assertStringNotContainsString('id="stock-condition-good"', $html);
+        $this->assertStringNotContainsString('id="stock-condition-breakage"', $html);
+        $this->assertStringNotContainsString('selectStockCondition', $html);
     }
 }

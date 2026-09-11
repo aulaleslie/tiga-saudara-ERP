@@ -24,6 +24,7 @@ use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Adjustment\Http\Requests\StockTransferRequest;
 use Modules\Adjustment\Http\Requests\UpdateStockTransferRequest;
 use Modules\Adjustment\Services\TransferDraftService;
+use Modules\Adjustment\Services\TransferFormStateMapper;
 use Modules\Adjustment\Services\TransferLifecycleService;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
@@ -429,6 +430,14 @@ class TransferStockController extends Controller
             abort(403, 'This transfer cannot be edited in its current status.');
         }
 
+        // Historical transfers whose lines mix good and broken stock (no
+        // explicit persisted condition) predate the single-condition
+        // constraint and cannot be safely rewritten through ordinary
+        // editing: their contents are preserved as view-only.
+        if (app(TransferFormStateMapper::class)->isMixedConditionHistory($transfer)) {
+            abort(403, 'This transfer contains a historical mix of good and broken stock and cannot be edited.');
+        }
+
         $currentSetting       = $transfer->originLocation->setting;
         $settings             = Setting::all();
         $locations            = Location::where('setting_id', $currentSetting->id)->get();
@@ -462,6 +471,13 @@ class TransferStockController extends Controller
         // Only PENDING and acknowledged DRAFT transfers can be edited
         if (!in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT])) {
             toast('This transfer cannot be edited in its current status.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
+        // Historical mixed-condition transfers remain view-only; ordinary
+        // editing must never rewrite their contents or assign a condition.
+        if (app(TransferFormStateMapper::class)->isMixedConditionHistory($transfer)) {
+            toast('This transfer contains a historical mix of good and broken stock and cannot be edited.', 'error');
             return redirect()->route('transfers.show', $transfer->id);
         }
 
@@ -511,9 +527,16 @@ class TransferStockController extends Controller
 
             // Use the same draft-save command the Livewire form uses; editing
             // never auto-submits, matching the explicit save/submit split.
+            $wasPending = $transfer->status === Transfer::STATUS_PENDING;
+
             $transfer = $draftService->saveDraft($formState, $user, $currentSettingId, $transfer);
 
-            toast('Transfer Stok Diperbarui! No. Dokumen: ' . $transfer->document_number, 'success');
+            if ($wasPending && $transfer->status === Transfer::STATUS_DRAFT) {
+                toast('Transfer diperbarui dan dikembalikan ke Draf karena perubahan material. Ajukan kembali untuk persetujuan. No. Dokumen: ' . $transfer->document_number, 'info');
+            } else {
+                toast('Transfer Stok Diperbarui! No. Dokumen: ' . $transfer->document_number, 'success');
+            }
+
             return redirect()->route('transfers.show', $transfer->id);
         } catch (Throwable $e) {
             Log::error('Failed to update transfer', [

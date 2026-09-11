@@ -87,8 +87,13 @@ class TransferLifecycleService
     }
 
     /**
-     * Update a DRAFT or PENDING transfer, including its destination and
-     * stock condition (only meaningful while still in DRAFT).
+     * Update a DRAFT or PENDING transfer, including its destination (only
+     * meaningful while still in DRAFT; stock condition is always immutable
+     * once a transfer is persisted). A no-op save (submitted state is
+     * canonically identical to the persisted state) leaves status, revision,
+     * lines, and history unchanged. A material edit to a PENDING transfer
+     * atomically returns it to DRAFT so it must be explicitly resubmitted
+     * before it can be approved.
      */
     public function updateTransfer(Transfer $transfer, ?int $destinationLocationId, ?string $stockCondition, array $productsData, int $userId): Transfer
     {
@@ -99,6 +104,14 @@ class TransferLifecycleService
                 throw new RuntimeException('Transfers can only be edited when in DRAFT or PENDING status.');
             }
 
+            $isMaterial = $this->isMaterialChange($transfer, $destinationLocationId, $productsData);
+
+            if (! $isMaterial) {
+                return $transfer;
+            }
+
+            $fromStatus = $transfer->status;
+
             $this->syncProducts($transfer, $productsData);
 
             $attributes = ['revision' => $transfer->revision + 1];
@@ -106,14 +119,93 @@ class TransferLifecycleService
             if ($transfer->status === Transfer::STATUS_DRAFT) {
                 $attributes['destination_location_id'] = $destinationLocationId;
                 $attributes['stock_condition'] = $stockCondition;
+            } elseif ($transfer->status === Transfer::STATUS_PENDING) {
+                $attributes['status'] = Transfer::STATUS_DRAFT;
             }
 
             $transfer->update($attributes);
 
-            $this->recordHistory($transfer, TransferActionHistory::ACTION_EDITED, $transfer->status, $transfer->status, $userId, 'Transfer products updated');
+            $this->recordHistory($transfer, TransferActionHistory::ACTION_EDITED, $fromStatus, $transfer->status, $userId, 'Transfer products updated');
 
             return $transfer;
         });
+    }
+
+    /**
+     * Canonically compare the submitted destination/product state against
+     * the persisted transfer, ignoring presentation-only ordering. Serial
+     * selections and product rows are sorted before comparison so harmless
+     * reordering is never mistaken for a material change.
+     */
+    private function isMaterialChange(Transfer $transfer, ?int $destinationLocationId, array $productsData): bool
+    {
+        if ((int) $transfer->destination_location_id !== (int) $destinationLocationId) {
+            return true;
+        }
+
+        return $this->normalizeProductsData($productsData) !== $this->normalizePersistedProducts($transfer);
+    }
+
+    /**
+     * @return array<int, array>
+     */
+    private function normalizeProductsData(array $productsData): array
+    {
+        $normalized = [];
+
+        foreach ($productsData as $productData) {
+            $quantity = (int) ($productData['quantity'] ?? ($productData['total'] ?? 0));
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $quantities = $productData['quantities'] ?? [];
+            $serialIds = collect($productData['serial_numbers'] ?? [])
+                ->map(fn ($serial) => (int) ($serial['id'] ?? $serial))
+                ->sort()
+                ->values()
+                ->all();
+
+            $normalized[(int) ($productData['product_id'] ?? $productData['id'])] = [
+                'quantity_tax'            => (int) ($quantities['quantity_tax'] ?? 0),
+                'quantity_non_tax'        => (int) ($quantities['quantity_non_tax'] ?? 0),
+                'quantity_broken_tax'     => (int) ($quantities['quantity_broken_tax'] ?? 0),
+                'quantity_broken_non_tax' => (int) ($quantities['quantity_broken_non_tax'] ?? 0),
+                'serial_numbers'          => $serialIds,
+            ];
+        }
+
+        ksort($normalized);
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, array>
+     */
+    private function normalizePersistedProducts(Transfer $transfer): array
+    {
+        $normalized = [];
+
+        foreach ($transfer->products()->get() as $product) {
+            $serialIds = collect($product->serial_numbers ?? [])
+                ->map(fn ($serial) => (int) ($serial['id'] ?? $serial))
+                ->sort()
+                ->values()
+                ->all();
+
+            $normalized[(int) $product->product_id] = [
+                'quantity_tax'            => (int) $product->quantity_tax,
+                'quantity_non_tax'        => (int) $product->quantity_non_tax,
+                'quantity_broken_tax'     => (int) $product->quantity_broken_tax,
+                'quantity_broken_non_tax' => (int) $product->quantity_broken_non_tax,
+                'serial_numbers'          => $serialIds,
+            ];
+        }
+
+        ksort($normalized);
+
+        return $normalized;
     }
 
     /**

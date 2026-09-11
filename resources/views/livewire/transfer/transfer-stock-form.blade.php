@@ -6,16 +6,66 @@
 
         <div class="row mt-3">
             <div class="col-md-6">
-                <label class="form-label">Kondisi Stok</label>
-                <select wire:model.live="stockCondition" class="form-select">
-                    <option value="">-- Pilih Kondisi Stok --</option>
-                    <option value="{{ \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD }}">Barang Baik</option>
-                    <option value="{{ \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE }}">Barang Rusak</option>
-                </select>
+                <label class="form-label" id="stock-condition-label">Kondisi Stok</label>
+                @if(isset($transfer) && $transfer->exists)
+                    {{-- Condition is immutable once a transfer is persisted: it
+                         determines stock/serial eligibility for every row, so it
+                         is rendered as read-only context here rather than a
+                         writable control. A historical mixed-condition record
+                         has no single persisted condition to show and never
+                         reaches ordinary editing (blocked server-side), but the
+                         badge still degrades to a neutral label defensively. --}}
+                    <div>
+                        @if($isMixedConditionHistory)
+                            <span class="badge bg-secondary">Campuran (Riwayat)</span>
+                        @elseif($stockCondition === \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE)
+                            <span class="badge bg-warning text-dark">Barang Rusak</span>
+                        @else
+                            <span class="badge bg-success">Barang Baik</span>
+                        @endif
+                    </div>
+                @else
+                    @php
+                        $isGoodSelected = $stockCondition === \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD;
+                        $isBreakageSelected = $stockCondition === \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE;
+                    @endphp
+                    {{-- Plain Bootstrap 4/CoreUI 3 buttons driven entirely by
+                         Livewire click handlers: no wire:model / btn-check
+                         (a Bootstrap 5 component) and no data-toggle="buttons"
+                         JS, so component state is always the single source
+                         of truth for which condition is highlighted. --}}
+                    <div class="btn-group segmented-control" role="group" aria-labelledby="stock-condition-label">
+                        <button type="button"
+                                id="stock-condition-good"
+                                wire:click="selectStockCondition('{{ \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD }}')"
+                                wire:loading.attr="disabled"
+                                wire:target="selectStockCondition,saveDraft,submitForApproval"
+                                class="btn {{ $isGoodSelected ? 'btn-success active' : 'btn-outline-success' }}"
+                                aria-pressed="{{ $isGoodSelected ? 'true' : 'false' }}">
+                            <i class="bi bi-check-circle"></i> Barang Baik
+                            @if($isGoodSelected)
+                                <span class="sr-only">(dipilih)</span>
+                            @endif
+                        </button>
+
+                        <button type="button"
+                                id="stock-condition-breakage"
+                                wire:click="selectStockCondition('{{ \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE }}')"
+                                wire:loading.attr="disabled"
+                                wire:target="selectStockCondition,saveDraft,submitForApproval"
+                                class="btn {{ $isBreakageSelected ? 'btn-warning active' : 'btn-outline-warning' }}"
+                                aria-pressed="{{ $isBreakageSelected ? 'true' : 'false' }}">
+                            <i class="bi bi-exclamation-triangle"></i> Barang Rusak
+                            @if($isBreakageSelected)
+                                <span class="sr-only">(dipilih)</span>
+                            @endif
+                        </button>
+                    </div>
+                @endif
                 @if(!empty($selfManagedValidationErrors['stock_condition']))
-                    <span class="text-danger">
+                    <div class="text-danger mt-1" role="alert">
                         {{ $selfManagedValidationErrors['stock_condition'] }}
-                    </span>
+                    </div>
                 @endif
                 @if($isMixedConditionHistory)
                     <div class="alert alert-warning mt-2">
@@ -24,6 +74,25 @@
                 @endif
             </div>
         </div>
+
+        @if($showConditionConfirmModal)
+            <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;" role="dialog" aria-modal="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header bg-warning">
+                            <h5 class="modal-title">Konfirmasi Perubahan Kondisi Stok</h5>
+                        </div>
+                        <div class="modal-body">
+                            <p>Mengubah kondisi stok akan menghapus seluruh baris produk yang telah dimasukkan. Lanjutkan?</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" wire:click="cancelConditionChange" class="btn btn-secondary">Batal</button>
+                            <button type="button" wire:click="confirmConditionChange" class="btn btn-warning">Ya, Ganti &amp; Hapus Baris</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <div class="row mt-3">
             <div class="col-md-6">

@@ -43,6 +43,13 @@ class TransferStockForm extends Component
     #[Locked]
     public ?string $lastAppliedStockCondition = null;
 
+    // when true, a confirmation modal is shown before applying a
+    // creation-time condition switch that would clear entered rows
+    public bool $showConditionConfirmModal = false;
+
+    // the condition value awaiting confirmation, applied only if confirmed
+    public ?string $pendingStockCondition = null;
+
     // holds the table rows data
     public $rows = [];
 
@@ -76,6 +83,10 @@ class TransferStockForm extends Component
             $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
             $this->isMixedConditionHistory = $mapper->isMixedConditionHistory($transfer);
             $this->rows = $this->isMixedConditionHistory ? [] : $mapper->mapToLivewireRows($transfer);
+        } else {
+            // New transfers default to good-stock mode; the operator can
+            // still switch to breakage mode via selectStockCondition().
+            $this->stockCondition = Transfer::CONDITION_GOOD;
         }
 
         $this->lastAppliedStockCondition = $this->stockCondition;
@@ -143,17 +154,66 @@ class TransferStockForm extends Component
     /**
      * Changing the transfer-wide stock condition invalidates every row's
      * stock interpretation, so rows/serials/errors are cleared. Origin and
-     * destination selections are preserved across this reset. Uses
-     * wire:model.live so this fires as its own request the moment the user
-     * changes the dropdown, rather than being deferred and silently batched
-     * together with the next save/submit request.
+     * destination selections are preserved across this reset. Called
+     * directly by the segmented control's buttons (wire:click), not via
+     * wire:model, so Livewire component state is always the source of
+     * truth for which condition is selected/highlighted.
      */
-    public function updatedStockCondition($value): void
+    public function selectStockCondition(?string $value): void
     {
+        if (! in_array($value, Transfer::CONDITIONS, true)) {
+            return;
+        }
+
         if ($this->lastAppliedStockCondition === $value) {
             return;
         }
 
+        // Condition is only writable before initial persistence. If rows
+        // have already been entered, require confirmation before clearing
+        // them; otherwise apply the change immediately.
+        if (!empty($this->rows)) {
+            $this->pendingStockCondition = $value;
+            $this->showConditionConfirmModal = true;
+
+            // Revert the visible control to the last applied value until
+            // the user confirms; confirming re-applies $value explicitly.
+            $this->stockCondition = $this->lastAppliedStockCondition;
+
+            return;
+        }
+
+        $this->applyStockConditionChange($value);
+    }
+
+    /**
+     * Apply a confirmed creation-time condition switch: clears every row
+     * and reloads product entry for the newly selected condition.
+     */
+    public function confirmConditionChange(): void
+    {
+        $value = $this->pendingStockCondition;
+
+        $this->showConditionConfirmModal = false;
+        $this->pendingStockCondition = null;
+
+        $this->applyStockConditionChange($value);
+    }
+
+    /**
+     * Cancel a pending creation-time condition switch: preserves the prior
+     * condition and every existing row.
+     */
+    public function cancelConditionChange(): void
+    {
+        $this->showConditionConfirmModal = false;
+        $this->pendingStockCondition = null;
+        $this->stockCondition = $this->lastAppliedStockCondition;
+    }
+
+    private function applyStockConditionChange(?string $value): void
+    {
+        $this->stockCondition = $value;
         $this->lastAppliedStockCondition = $value;
 
         $this->rows = [];
@@ -199,6 +259,9 @@ class TransferStockForm extends Component
             $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
             $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
 
+            $wasPending = $this->transfer && $this->transfer->exists
+                && $this->transfer->status === Transfer::STATUS_PENDING;
+
             $formState = $mapper->mapToTransferFormState(
                 $preparedRows,
                 (int) $this->originLocation,
@@ -213,7 +276,11 @@ class TransferStockForm extends Component
                 $this->transfer
             );
 
-            toast('Draft Transfer Stok disimpan. No. Dokumen: ' . $transfer->document_number, 'success');
+            if ($wasPending && $transfer->status === Transfer::STATUS_DRAFT) {
+                toast('Transfer diperbarui dan dikembalikan ke Draf karena perubahan material. Ajukan kembali untuk persetujuan. No. Dokumen: ' . $transfer->document_number, 'info');
+            } else {
+                toast('Draft Transfer Stok disimpan. No. Dokumen: ' . $transfer->document_number, 'success');
+            }
 
             return redirect()->route('transfers.index');
         } catch (Exception $e) {

@@ -16,13 +16,21 @@ class TransferDraftService
 {
     private TransferAllocationPreviewService $allocationPreviewService;
     private TransferLifecycleService $lifecycleService;
+    private TransferFormStateMapper $formStateMapper;
 
     public function __construct(
         TransferAllocationPreviewService $allocationPreviewService,
-        TransferLifecycleService $lifecycleService
+        TransferLifecycleService $lifecycleService,
+        TransferFormStateMapper $formStateMapper
     ) {
         $this->allocationPreviewService = $allocationPreviewService;
         $this->lifecycleService = $lifecycleService;
+        $this->formStateMapper = $formStateMapper;
+    }
+
+    private function isMixedConditionHistory(Transfer $transfer): bool
+    {
+        return $this->formStateMapper->isMixedConditionHistory($transfer);
     }
 
     /**
@@ -71,24 +79,40 @@ class TransferDraftService
             );
         }
 
-        // Destination and stock condition are immutable once a transfer is
-        // PENDING: only DRAFT edits may change them (via this same method or
-        // authoritatively at submission). A PENDING edit must submit the
-        // header's existing values, or be rejected outright, so product rows
-        // can never be saved under a mode/destination that disagrees with
-        // the persisted header. Checked before building product rows so this
-        // fast, clear rejection is never masked by an unrelated stock error
+        // Historical transfers whose lines mix good and broken stock (no
+        // explicit persisted condition) predate the single-condition
+        // constraint and can never be rewritten through ordinary editing:
+        // their contents are preserved as view-only, and no condition may be
+        // assigned or changed through this boundary.
+        if ($this->isMixedConditionHistory($transfer)) {
+            throw new InvalidArgumentException(
+                "This transfer contains a historical mix of good and broken stock and cannot be edited."
+            );
+        }
+
+        // Stock condition is immutable once a transfer is first persisted,
+        // regardless of its current DRAFT or PENDING status: condition
+        // determines stock/serial eligibility for every row, and an existing
+        // transfer's rows are always validated against its persisted
+        // condition. Checked before building product rows so this fast,
+        // clear rejection is never masked by an unrelated stock error
         // produced while validating rows against the wrong mode.
+        if ($transfer->stock_condition !== null && $transfer->stock_condition !== $state->stockCondition) {
+            throw new InvalidArgumentException(
+                "Stock condition cannot be changed on an existing transfer."
+            );
+        }
+
+        // Destination is immutable once a transfer is PENDING: only DRAFT
+        // edits may change it (via this same method or authoritatively at
+        // submission). A PENDING edit must submit the header's existing
+        // destination, or be rejected outright, so product rows can never be
+        // saved under a destination that disagrees with the persisted
+        // header.
         if ($transfer->status === Transfer::STATUS_PENDING) {
             if ((int) $transfer->destination_location_id !== (int) $destination?->id) {
                 throw new InvalidArgumentException(
                     "Destination cannot be changed on a PENDING transfer."
-                );
-            }
-
-            if ($transfer->stock_condition !== $state->stockCondition) {
-                throw new InvalidArgumentException(
-                    "Stock condition cannot be changed on a PENDING transfer."
                 );
             }
         }

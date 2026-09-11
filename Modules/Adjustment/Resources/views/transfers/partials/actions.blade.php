@@ -4,13 +4,15 @@
     </a>
 @endcan
 
-@if ($data->status === 'PENDING')
+@if (in_array($data->status, ['DRAFT', 'PENDING'], true))
     @can('stockTransfers.edit')
         <a href="{{ route('transfers.edit', $data->id) }}" class="btn btn-info btn-sm">
             <i class="bi bi-pencil"></i>
         </a>
     @endcan
+@endif
 
+@if ($data->status === 'PENDING')
     @can('stockTransfers.delete')
         <button id="delete" class="btn btn-danger btn-sm" onclick="
             event.preventDefault();

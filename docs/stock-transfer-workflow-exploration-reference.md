@@ -412,6 +412,7 @@ Design principles:
 
 Each numbered item should be an independent OpenSpec change unless proposal work finds a hard schema dependency requiring two adjacent items to be combined.
 
+[~]
 ### Delivery 1 — Entry-form polish and editable-state correction
 
 - Style the **Kondisi Stok** toggle.

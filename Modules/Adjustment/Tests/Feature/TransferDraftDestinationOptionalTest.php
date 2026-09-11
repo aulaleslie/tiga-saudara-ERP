@@ -296,6 +296,7 @@ class TransferDraftDestinationOptionalTest extends TestCase
         $draftService = \Mockery::mock(TransferDraftService::class, [
             app(\Modules\Adjustment\Services\TransferAllocationPreviewService::class),
             app(\Modules\Adjustment\Services\TransferLifecycleService::class),
+            app(\Modules\Adjustment\Services\TransferFormStateMapper::class),
         ])->makePartial();
 
         $draftService->shouldReceive('submitForApproval')
@@ -426,8 +427,11 @@ class TransferDraftDestinationOptionalTest extends TestCase
     }
 
     /** @test */
-    public function saving_a_pending_transfer_with_the_same_mode_and_destination_succeeds()
+    public function saving_a_pending_transfer_with_the_same_mode_and_destination_but_different_quantity_returns_to_draft()
     {
+        // A material line-quantity change on a PENDING transfer must
+        // atomically return it to DRAFT and require explicit resubmission,
+        // even though destination and mode are unchanged.
         $draftService = app(TransferDraftService::class);
 
         $state = new TransferFormState($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD);
@@ -440,9 +444,29 @@ class TransferDraftDestinationOptionalTest extends TestCase
 
         $updated = $draftService->saveDraft($sameHeaderState, $this->user, $this->setting->id, $transfer);
 
-        $this->assertEquals(Transfer::STATUS_PENDING, $updated->status);
+        $this->assertEquals(Transfer::STATUS_DRAFT, $updated->status);
         $this->assertEquals($this->destination->id, $updated->destination_location_id);
         $this->assertEquals(Transfer::CONDITION_GOOD, $updated->stock_condition);
+    }
+
+    /** @test */
+    public function saving_a_pending_transfer_with_no_material_change_leaves_it_pending()
+    {
+        $draftService = app(TransferDraftService::class);
+
+        $state = new TransferFormState($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD);
+        $state->addLine($this->makeLine(3));
+        $transfer = $draftService->saveDraft($state, $this->user, $this->setting->id);
+        $transfer = $draftService->submitForApproval($state, $this->user, $this->setting->id, $transfer);
+        $revisionBefore = $transfer->revision;
+
+        $sameState = new TransferFormState($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD);
+        $sameState->addLine($this->makeLine(3));
+
+        $updated = $draftService->saveDraft($sameState, $this->user, $this->setting->id, $transfer);
+
+        $this->assertEquals(Transfer::STATUS_PENDING, $updated->status);
+        $this->assertEquals($revisionBefore, $updated->revision);
     }
 
     /** @test */
