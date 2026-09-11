@@ -52,9 +52,14 @@
                 <div class="card-body shadow">
                     <ul class="list-group list-group-flush">
                         @foreach($search_results as $result)
+                            @php
+                                $resultName = is_array($result) ? $result['product_name'] : $result->product_name;
+                                $resultCode = is_array($result) ? $result['product_code'] : $result->product_code;
+                                $resultJson = is_array($result) ? json_encode($result) : $result;
+                            @endphp
                             <li class="list-group-item list-group-item-action">
-                                <a wire:click="resetQuery" wire:click.prevent="selectProduct({{ $result }})" href="#">
-                                    {{ $result->product_name }} | {{ $result->product_code }}
+                                <a wire:click="resetQuery" wire:click.prevent="selectProduct({{ $resultJson }})" href="#">
+                                    {{ $resultName }} | {{ $resultCode }}
                                 </a>
                             </li>
                         @endforeach

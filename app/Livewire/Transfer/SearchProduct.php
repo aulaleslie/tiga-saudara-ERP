@@ -13,6 +13,7 @@ use Modules\Adjustment\Entities\Transfer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Adjustment\Services\TransferScanResolverService;
+use Modules\Adjustment\Services\TransferStockVisibility;
 
 class SearchProduct extends Component
 {
@@ -69,6 +70,27 @@ class SearchProduct extends Component
         return view('livewire.transfer.search-product');
     }
 
+    /**
+     * Minimal explicit product projection dispatched to the product table.
+     * Privileged users keep the full product attribute set (existing
+     * behavior); blind users receive only what is needed to render and
+     * select the row: identity fields and no stock/pricing/cost data.
+     */
+    private function projectProduct(Product $product): array
+    {
+        if (TransferStockVisibility::canView()) {
+            return $product->toArray();
+        }
+
+        return [
+            'id'                      => $product->id,
+            'product_name'            => $product->product_name,
+            'product_code'            => $product->product_code,
+            'barcode'                 => $product->barcode,
+            'serial_number_required'  => (bool) $product->serial_number_required,
+        ];
+    }
+
     public function updatedQuery(): void
     {
         if (!$this->hasValidOrigin()) {
@@ -118,15 +140,40 @@ class SearchProduct extends Component
             });
         }
 
+        $canViewSystemStock = TransferStockVisibility::canView();
+
         $this->search_results = $query
             ->limit($this->how_many)
             ->get()
-            ->map(function ($product) {
+            ->map(function ($product) use ($canViewSystemStock) {
                 $product->product_quantity = $this->calculateStockQuantity($product);
                 return $product;
             })
             ->filter(function ($product) {
                 return $product->product_quantity > 0;
+            })
+            ->map(function ($product) use ($canViewSystemStock) {
+                // Livewire serializes every public property into wire state,
+                // so a raw Eloquent Product (with its eager-loaded
+                // productStocks relation carrying exact bucket quantities)
+                // must never be stored here for a blind user. Privileged
+                // users keep the existing full-model behavior; blind users
+                // get a minimal identity-only projection.
+                if ($canViewSystemStock) {
+                    return $product;
+                }
+
+                // Plain array (not the raw Eloquent Product, which would
+                // still carry the eager-loaded productStocks relation with
+                // exact bucket quantities into Livewire's public wire
+                // state): identity fields only, safe for a blind user.
+                return [
+                    'id'                      => $product->id,
+                    'product_name'            => $product->product_name,
+                    'product_code'            => $product->product_code,
+                    'barcode'                 => $product->barcode,
+                    'serial_number_required'  => (bool) $product->serial_number_required,
+                ];
             });
     }
 
@@ -296,14 +343,25 @@ class SearchProduct extends Component
 
             $this->dispatch('productSelected', $payload);
 
-            // Need to notify the table to add this serial
-            $this->dispatch('serialScanned', [
+            // Need to notify the table to add this serial. tax_id and
+            // is_broken are protected provenance: only included in this
+            // dispatched browser event for a privileged user. TransferProductTable
+            // reloads provenance authoritatively by serial id regardless
+            // (see serialProvenance()), so omitting these fields here does
+            // not weaken validation -- it only stops them appearing in a
+            // blind user's dispatched component event payload.
+            $serialScannedPayload = [
                 'id' => $serialData['id'],
                 'product_id' => $serialData['product_id'],
                 'serial_number' => $serialData['serial_number'],
-                'tax_id' => $serialData['tax_id'],
-                'is_broken' => $isSerialBroken
-            ]);
+            ];
+
+            if (TransferStockVisibility::canView()) {
+                $serialScannedPayload['tax_id'] = $serialData['tax_id'];
+                $serialScannedPayload['is_broken'] = $isSerialBroken;
+            }
+
+            $this->dispatch('serialScanned', $serialScannedPayload);
 
             $this->resetQuery();
             $this->dispatch('restore-scanner-focus');

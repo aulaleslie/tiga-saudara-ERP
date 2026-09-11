@@ -9,6 +9,7 @@ use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Sale\Support\PendingDispatchSerialGuard;
 use Modules\Setting\Entities\Location;
 use InvalidArgumentException;
+use Modules\Adjustment\Services\TransferStockVisibility;
 
 class TransferScanResolverService
 {
@@ -78,27 +79,39 @@ class TransferScanResolverService
             && $serialRecord->product->stock_managed
             && (int) $serialRecord->product->setting_id === $settingId
         ) {
+            $canViewSystemStock = TransferStockVisibility::canView();
+
             if (PendingDispatchSerialGuard::isReserved((string) $serialRecord->serial_number)) {
                 return [
                     'type' => 'serial_rejected',
-                    'message' => 'Nomor seri sedang dalam proses pengiriman.',
+                    'message' => $canViewSystemStock
+                        ? 'Nomor seri sedang dalam proses pengiriman.'
+                        : 'Nomor seri tidak dapat digunakan.',
                 ];
             }
 
-            // If condition mode is specified, enforce strict mode compatibility
+            // If condition mode is specified, enforce strict mode compatibility.
+            // Detailed condition feedback (sellable/broken/missing) is only
+            // returned to a user with stock visibility; a blind operator
+            // receives neutral, non-quantitative, non-provenance-revealing
+            // guidance instead (spec: "Blind serial is ineligible").
             if ($isBrokenMode !== null) {
                 if ($isBrokenMode) {
                     if (!$serialRecord->isAvailableBroken()) {
                         return [
                             'type' => 'serial_rejected',
-                            'message' => 'Nomor Seri tidak berstatus rusak atau tidak tersedia untuk transfer barang rusak.',
+                            'message' => $canViewSystemStock
+                                ? 'Nomor Seri tidak berstatus rusak atau tidak tersedia untuk transfer barang rusak.'
+                                : 'Nomor seri tidak dapat digunakan untuk transfer ini.',
                         ];
                     }
                 } else {
                     if (!$serialRecord->isSellable()) {
                         return [
                             'type' => 'serial_rejected',
-                            'message' => 'Nomor Seri tidak siap jual atau berstatus rusak/hilang untuk transfer mode normal.',
+                            'message' => $canViewSystemStock
+                                ? 'Nomor Seri tidak siap jual atau berstatus rusak/hilang untuk transfer mode normal.'
+                                : 'Nomor seri tidak dapat digunakan untuk transfer ini.',
                         ];
                     }
                 }
@@ -106,7 +119,9 @@ class TransferScanResolverService
                 if (!$serialRecord->isSellable() && !$serialRecord->isAvailableBroken()) {
                     return [
                         'type' => 'serial_rejected',
-                        'message' => 'Nomor Seri sudah tidak tersedia atau berstatus tidak valid.',
+                        'message' => $canViewSystemStock
+                            ? 'Nomor Seri sudah tidak tersedia atau berstatus tidak valid.'
+                            : 'Nomor seri tidak dapat digunakan.',
                     ];
                 }
             }

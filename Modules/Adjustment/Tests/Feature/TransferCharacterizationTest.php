@@ -232,11 +232,20 @@ class TransferCharacterizationTest extends TestCase
             $row = $rows[0];
             $this->assertEquals($product->id, $row['id']);
             $this->assertEquals($product->product_name, $row['product_name']);
-            $this->assertEquals(5, $row['quantity_non_tax']);
+            $this->assertEquals(5, $row['requested_quantity']);
             $this->assertIsArray($row['serial_numbers']);
-            $this->assertArrayHasKey('quantity_tax', $row);
-            $this->assertArrayHasKey('broken_quantity_tax', $row);
-            $this->assertArrayHasKey('broken_quantity_non_tax', $row);
+
+            // This user holds stockTransfers.edit but not
+            // stockTransfers.view-system-stock, so per the
+            // transfer-stock-visibility-boundary change the hydrated row
+            // omits the protected allocation-bucket breakdown entirely
+            // (shared operator intent -- product identity and requested
+            // quantity -- remains visible).
+            $this->assertArrayNotHasKey('quantity_tax', $row);
+            $this->assertArrayNotHasKey('quantity_non_tax', $row);
+            $this->assertArrayNotHasKey('broken_quantity_tax', $row);
+            $this->assertArrayNotHasKey('broken_quantity_non_tax', $row);
+            $this->assertArrayNotHasKey('stock', $row);
 
             return true;
         });

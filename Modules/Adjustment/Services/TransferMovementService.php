@@ -17,9 +17,24 @@ use Modules\Product\Entities\SerialNumberHistory;
 class TransferMovementService
 {
     /**
+     * Neutral acknowledgment token accepted in place of the real allocation
+     * hash for a blind retry after a drift rejection. The real hash is
+     * protected system information and is never flashed to a blind user's
+     * session/browser state (see TransferStockController::dispatchShipment),
+     * so a blind operator cannot possess it to round-trip. This sentinel
+     * lets TransferStockController explicitly authorize "acknowledge and
+     * retry with whatever the current authoritative allocation is" for that
+     * caller only -- it is NEVER accepted as a match against a real
+     * `$currentHash` value, and callers of this service must independently
+     * confirm the acting user lacks stock visibility before ever passing it
+     * (never derived from arbitrary client input).
+     */
+    public const BLIND_ACKNOWLEDGE_TOKEN = '__blind_neutral_acknowledge__';
+
+    /**
      * Dispatch the transfer, allocating stock authoritatively, checking for drift,
      * deducting inventory, and setting up return obligations.
-     * 
+     *
      * @return array Dispatch info: ['drift_detected' => bool, 'current_hash' => string, 'actual_allocations' => array]
      */
     public function dispatch(Transfer $transfer, ?string $acknowledgedHash = null): array
@@ -70,7 +85,8 @@ class TransferMovementService
         }
         
         $currentHash = $this->computeAllocationHash($transfer->id, $transfer->revision, $actualAllocations);
-        if ($hasDrift && $acknowledgedHash !== $currentHash) {
+        $blindAcknowledged = $acknowledgedHash === self::BLIND_ACKNOWLEDGE_TOKEN;
+        if ($hasDrift && $acknowledgedHash !== $currentHash && ! $blindAcknowledged) {
             throw new \Modules\Adjustment\Exceptions\AllocationDriftException(
                 "Alokasi stok berubah sejak persetujuan. Eksposur pajak atau pengembalian wajib meningkat.",
                 $currentHash,

@@ -36,6 +36,11 @@ class TransferUiFeedbackTest extends TestCase
         'stockTransfers.dispatch',
         'stockTransfers.receive',
         'stockTransfers.archive',
+        // This suite asserts privileged stock/allocation display (bucket
+        // breakdowns, stock snapshots): it exercises the privileged
+        // projection introduced by transfer-stock-visibility-boundary, so
+        // its acting users are granted this permission below.
+        \Modules\Adjustment\Services\TransferStockVisibility::PERMISSION,
     ];
 
     protected function setUp(): void

@@ -38,6 +38,8 @@ class TransferStockGuardTest extends TestCase
         ]);
 
         Gate::shouldReceive('denies')->andReturnFalse()->zeroOrMoreTimes();
+        Gate::shouldReceive('allows')->andReturnFalse()->zeroOrMoreTimes();
+        Gate::shouldReceive('forUser')->andReturnSelf()->zeroOrMoreTimes();
 
         $this->currency = Currency::create([
             'currency_name'       => 'Rupiah',

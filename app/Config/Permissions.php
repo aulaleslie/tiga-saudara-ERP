@@ -382,6 +382,7 @@ return [
         'stockTransfers.receive' => 'Terima',
         'stockTransfers.approval' => 'Persetujuan',
         'stockTransfers.archive' => 'Arsip',
+        'stockTransfers.view-system-stock' => 'Lihat Stok Sistem pada Transfer Stok',
     ],
 
     'Pemasok' => [

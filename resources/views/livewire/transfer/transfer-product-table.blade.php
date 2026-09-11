@@ -16,9 +16,13 @@
             <tr class="align-middle">
                 <th>#</th>
                 <th>Nama Produk</th>
-                <th>Stok</th>
+                @can('stockTransfers.view-system-stock')
+                    <th>Stok</th>
+                @endcan
                 <th>Jumlah</th>
-                <th>Alokasi</th>
+                @can('stockTransfers.view-system-stock')
+                    <th>Alokasi</th>
+                @endcan
                 <th>Action</th>
             </tr>
             </thead>
@@ -44,32 +48,38 @@
                         $isBrokenMode = $p['is_broken_mode'] ?? false;
                     @endphp
 
-                    <!-- Stock Column: Show tax/non-tax buckets based on mode -->
-                    <td class="text-center">
-                        <div class="small">
-                            @if($isBrokenMode)
-                                <div>
-                                    <strong>Rusak Non Pajak:</strong> {{ $p['stock']['broken_quantity_non_tax'] ?? 0 }}
-                                </div>
-                                <div>
-                                    <strong>Rusak Pajak:</strong> {{ $p['stock']['broken_quantity_tax'] ?? 0 }}
-                                </div>
-                                <div class="mt-1 font-weight-bold text-primary">
-                                    Total: {{ ($p['stock']['broken_quantity_non_tax'] ?? 0) + ($p['stock']['broken_quantity_tax'] ?? 0) }}
-                                </div>
-                            @else
-                                <div>
-                                    <strong>Non Pajak:</strong> {{ $p['stock']['quantity_non_tax'] ?? 0 }}
-                                </div>
-                                <div>
-                                    <strong>Pajak:</strong> {{ $p['stock']['quantity_tax'] ?? 0 }}
-                                </div>
-                                <div class="mt-1 font-weight-bold text-primary">
-                                    Total: {{ ($p['stock']['quantity_non_tax'] ?? 0) + ($p['stock']['quantity_tax'] ?? 0) }}
-                                </div>
-                            @endif
-                        </div>
-                    </td>
+                    <!-- Stock Column: Show tax/non-tax buckets based on mode.
+                         Privileged only -- a blind row's $p array never
+                         carries a 'stock' key at all (task 3.2), so this
+                         column is not rendered for a blind user rather than
+                         degrading to a misleading zero. -->
+                    @can('stockTransfers.view-system-stock')
+                        <td class="text-center">
+                            <div class="small">
+                                @if($isBrokenMode)
+                                    <div>
+                                        <strong>Rusak Non Pajak:</strong> {{ $p['stock']['broken_quantity_non_tax'] ?? 0 }}
+                                    </div>
+                                    <div>
+                                        <strong>Rusak Pajak:</strong> {{ $p['stock']['broken_quantity_tax'] ?? 0 }}
+                                    </div>
+                                    <div class="mt-1 font-weight-bold text-primary">
+                                        Total: {{ ($p['stock']['broken_quantity_non_tax'] ?? 0) + ($p['stock']['broken_quantity_tax'] ?? 0) }}
+                                    </div>
+                                @else
+                                    <div>
+                                        <strong>Non Pajak:</strong> {{ $p['stock']['quantity_non_tax'] ?? 0 }}
+                                    </div>
+                                    <div>
+                                        <strong>Pajak:</strong> {{ $p['stock']['quantity_tax'] ?? 0 }}
+                                    </div>
+                                    <div class="mt-1 font-weight-bold text-primary">
+                                        Total: {{ ($p['stock']['quantity_non_tax'] ?? 0) + ($p['stock']['quantity_tax'] ?? 0) }}
+                                    </div>
+                                @endif
+                            </div>
+                        </td>
+                    @endcan
 
                     <!-- Single Quantity Input Column -->
                     <td>
@@ -145,58 +155,64 @@
                         @endif
                     </td>
 
-                    <!-- Allocation Display Column -->
-                    <td class="text-center">
-                        <div class="small">
-                            @if($serialRequired)
-                                <!-- Serial: Show breakdown of selected serials -->
-                                @php
-                                    $taxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
-                                    $nonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
-                                    $brokenTaxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
-                                    $brokenNonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
-                                @endphp
-                                @if($isBrokenMode)
-                                    @if($brokenNonTaxCount > 0)
-                                        <div>Rusak Non Pajak: {{ $brokenNonTaxCount }}</div>
-                                    @endif
-                                    @if($brokenTaxCount > 0)
-                                        <div class="text-warning">Rusak Pajak: {{ $brokenTaxCount }} <i class="bi bi-exclamation-circle"></i></div>
+                    <!-- Allocation Display Column: privileged only -- a blind
+                         row's serial entries never carry taxable/is_broken
+                         and its $p array never carries the bucket keys
+                         (tasks 3.2/3.4), so this whole column is omitted
+                         rather than rendering a misleading breakdown. -->
+                    @can('stockTransfers.view-system-stock')
+                        <td class="text-center">
+                            <div class="small">
+                                @if($serialRequired)
+                                    <!-- Serial: Show breakdown of selected serials -->
+                                    @php
+                                        $taxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
+                                        $nonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && !(bool)($s['is_broken'] ?? false))->count();
+                                        $brokenTaxCount = $serials->filter(fn($s) => (bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
+                                        $brokenNonTaxCount = $serials->filter(fn($s) => !(bool)($s['taxable'] ?? false) && (bool)($s['is_broken'] ?? false))->count();
+                                    @endphp
+                                    @if($isBrokenMode)
+                                        @if($brokenNonTaxCount > 0)
+                                            <div>Rusak Non Pajak: {{ $brokenNonTaxCount }}</div>
+                                        @endif
+                                        @if($brokenTaxCount > 0)
+                                            <div class="text-warning">Rusak Pajak: {{ $brokenTaxCount }} <i class="bi bi-exclamation-circle"></i></div>
+                                        @endif
+                                    @else
+                                        @if($nonTaxCount > 0)
+                                            <div>Non Pajak: {{ $nonTaxCount }}</div>
+                                        @endif
+                                        @if($taxCount > 0)
+                                            <div class="text-warning">Pajak: {{ $taxCount }} <i class="bi bi-exclamation-circle"></i></div>
+                                        @endif
                                     @endif
                                 @else
-                                    @if($nonTaxCount > 0)
-                                        <div>Non Pajak: {{ $nonTaxCount }}</div>
-                                    @endif
-                                    @if($taxCount > 0)
-                                        <div class="text-warning">Pajak: {{ $taxCount }} <i class="bi bi-exclamation-circle"></i></div>
-                                    @endif
-                                @endif
-                            @else
-                                <!-- Non-Serial: Show calculated allocation -->
-                                @php
-                                    if ($isBrokenMode) {
-                                        $nonTaxAlloc = $p['broken_quantity_non_tax'] ?? 0;
-                                        $taxAlloc = $p['broken_quantity_tax'] ?? 0;
-                                        $label = 'Rusak';
-                                    } else {
-                                        $nonTaxAlloc = $p['quantity_non_tax'] ?? 0;
-                                        $taxAlloc = $p['quantity_tax'] ?? 0;
-                                        $label = '';
-                                    }
-                                @endphp
+                                    <!-- Non-Serial: Show calculated allocation -->
+                                    @php
+                                        if ($isBrokenMode) {
+                                            $nonTaxAlloc = $p['broken_quantity_non_tax'] ?? 0;
+                                            $taxAlloc = $p['broken_quantity_tax'] ?? 0;
+                                            $label = 'Rusak';
+                                        } else {
+                                            $nonTaxAlloc = $p['quantity_non_tax'] ?? 0;
+                                            $taxAlloc = $p['quantity_tax'] ?? 0;
+                                            $label = '';
+                                        }
+                                    @endphp
 
-                                @if($nonTaxAlloc > 0)
-                                    <div>{{ $isBrokenMode ? 'R' : '' }}Non Pajak: {{ $nonTaxAlloc }}</div>
+                                    @if($nonTaxAlloc > 0)
+                                        <div>{{ $isBrokenMode ? 'R' : '' }}Non Pajak: {{ $nonTaxAlloc }}</div>
+                                    @endif
+                                    @if($taxAlloc > 0)
+                                        <div class="text-warning">{{ $isBrokenMode ? 'R' : '' }}Pajak: {{ $taxAlloc }} <i class="bi bi-exclamation-circle" title="Stok pajak harus dikembalikan lintas lokasi"></i></div>
+                                    @endif
+                                    @if($nonTaxAlloc === 0 && $taxAlloc === 0)
+                                        <span class="text-muted">-</span>
+                                    @endif
                                 @endif
-                                @if($taxAlloc > 0)
-                                    <div class="text-warning">{{ $isBrokenMode ? 'R' : '' }}Pajak: {{ $taxAlloc }} <i class="bi bi-exclamation-circle" title="Stok pajak harus dikembalikan lintas lokasi"></i></div>
-                                @endif
-                                @if($nonTaxAlloc === 0 && $taxAlloc === 0)
-                                    <span class="text-muted">-</span>
-                                @endif
-                            @endif
-                        </div>
-                    </td>
+                            </div>
+                        </td>
+                    @endcan
 
                     <td class="text-center">
                         <button

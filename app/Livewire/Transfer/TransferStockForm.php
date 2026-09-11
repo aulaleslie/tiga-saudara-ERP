@@ -387,7 +387,47 @@ class TransferStockForm extends Component
         if (empty($this->rows)) {
             $this->selfManagedValidationErrors['rows'] = 'Silakan pilih minimal satu produk.';
         } else {
+            $canViewSystemStock = \Illuminate\Support\Facades\Gate::allows(\Modules\Adjustment\Services\TransferStockVisibility::PERMISSION);
+
             foreach ($this->rows as $i => $row) {
+                $requestedQuantity = max(0, (int) ($row['requested_quantity'] ?? 0));
+                $serials       = $this->normalizeSerialPayload($row['serial_numbers'] ?? []);
+                $serialDetails = $this->calculateSerialBreakdown($serials);
+
+                $requiresSerial = ! empty($row['serial_number_required']);
+
+                // A blind row's public state carries no bucket breakdown at
+                // all (task 3.2): the row-level pre-check below is therefore
+                // skipped for it and the operator's single requested_quantity
+                // is trusted as pre-check input. Authoritative allocation and
+                // stock-sufficiency validation always happens server-side in
+                // TransferDraftService::buildProductsData regardless of this
+                // pre-check, so this relaxation never bypasses real
+                // enforcement -- it only changes which layer reports the
+                // (neutral, for a blind user) error.
+                $hasBucketState = array_key_exists('quantity_tax', $row)
+                    || array_key_exists('quantity_non_tax', $row)
+                    || array_key_exists('broken_quantity_tax', $row)
+                    || array_key_exists('broken_quantity_non_tax', $row);
+
+                if (! $hasBucketState && empty($serials)) {
+                    if ($requiresSerial && empty($serials)) {
+                        $tableErrors["products.{$i}.serial_numbers"] = 'Produk ini memerlukan nomor seri.';
+                    }
+
+                    if ($requestedQuantity <= 0) {
+                        $tableErrors["products.{$i}"] = "Jumlah keseluruhan produk harus lebih besar dari 0.";
+                    }
+
+                    $preparedRows[] = array_merge($row, [
+                        'serial_numbers'           => $serials,
+                        'requested_quantity'       => $requestedQuantity,
+                        'total'                    => $requestedQuantity,
+                    ]);
+
+                    continue;
+                }
+
                 $allocatedQuantities = [
                     'quantity_tax'            => max(0, (int) ($row['quantity_tax']            ?? 0)),
                     'quantity_non_tax'        => max(0, (int) ($row['quantity_non_tax']        ?? 0)),
@@ -395,12 +435,7 @@ class TransferStockForm extends Component
                     'quantity_broken_non_tax' => max(0, (int) ($row['broken_quantity_non_tax'] ?? 0)),
                 ];
 
-                $requestedQuantity = max(0, (int) ($row['requested_quantity'] ?? 0));
-                $serials       = $this->normalizeSerialPayload($row['serial_numbers'] ?? []);
-                $serialDetails = $this->calculateSerialBreakdown($serials);
-
                 $finalQuantities = $allocatedQuantities;
-                $requiresSerial  = ! empty($row['serial_number_required']);
 
                 if (! empty($serials)) {
                     if ($allocatedQuantities !== $serialDetails['quantities']) {
@@ -422,35 +457,40 @@ class TransferStockForm extends Component
                 }
 
                 if ($requestedQuantity > 0 && $total !== $requestedQuantity) {
-                    $tableErrors["products.{$i}.requested_quantity"] =
-                        "Jumlah yang diminta ({$requestedQuantity}) tidak sesuai dengan alokasi stok ({$total}).";
+                    $tableErrors["products.{$i}.requested_quantity"] = $canViewSystemStock
+                        ? "Jumlah yang diminta ({$requestedQuantity}) tidak sesuai dengan alokasi stok ({$total})."
+                        : "Jumlah yang dimasukkan untuk item ini tidak sesuai.";
                 }
 
                 $stock = $row['stock'] ?? [];
 
                 if ($finalQuantities['quantity_tax'] > ($stock['quantity_tax'] ?? 0)) {
                     $available = $stock['quantity_tax'] ?? 0;
-                    $tableErrors["products.{$i}.quantity_tax"] =
-                        "Jumlah Pajak tidak boleh lebih dari stok ({$available}).";
+                    $tableErrors["products.{$i}.quantity_tax"] = $canViewSystemStock
+                        ? "Jumlah Pajak tidak boleh lebih dari stok ({$available})."
+                        : "Stok tidak mencukupi untuk item ini.";
                 }
                 if ($finalQuantities['quantity_non_tax'] > ($stock['quantity_non_tax'] ?? 0)) {
                     $available = $stock['quantity_non_tax'] ?? 0;
-                    $tableErrors["products.{$i}.quantity_non_tax"] =
-                        "Jumlah Non Pajak tidak boleh lebih dari stok ({$available}).";
+                    $tableErrors["products.{$i}.quantity_non_tax"] = $canViewSystemStock
+                        ? "Jumlah Non Pajak tidak boleh lebih dari stok ({$available})."
+                        : "Stok tidak mencukupi untuk item ini.";
                 }
                 if ($finalQuantities['quantity_broken_tax'] > ($stock['broken_quantity_tax'] ?? 0)) {
                     $available = $stock['broken_quantity_tax'] ?? 0;
-                    $tableErrors["products.{$i}.broken_quantity_tax"] =
-                        "Rusak Pajak tidak boleh lebih dari stok rusak ({$available}).";
+                    $tableErrors["products.{$i}.broken_quantity_tax"] = $canViewSystemStock
+                        ? "Rusak Pajak tidak boleh lebih dari stok rusak ({$available})."
+                        : "Stok tidak mencukupi untuk item ini.";
                 }
                 if ($finalQuantities['quantity_broken_non_tax'] > ($stock['broken_quantity_non_tax'] ?? 0)) {
                     $available = $stock['broken_quantity_non_tax'] ?? 0;
-                    $tableErrors["products.{$i}.broken_quantity_non_tax"] =
-                        "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$available}).";
+                    $tableErrors["products.{$i}.broken_quantity_non_tax"] = $canViewSystemStock
+                        ? "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$available})."
+                        : "Stok tidak mencukupi untuk item ini.";
                 }
 
-                // Show warning if tax stock is being used (requires return)
-                if ($finalQuantities['quantity_tax'] > 0 || $finalQuantities['quantity_broken_tax'] > 0) {
+                // Show warning if tax stock is being used (requires return) -- privileged only
+                if ($canViewSystemStock && ($finalQuantities['quantity_tax'] > 0 || $finalQuantities['quantity_broken_tax'] > 0)) {
                     $row['tax_warning'] = 'Stok pajak akan digunakan dan harus dikembalikan lintas lokasi.';
                 }
 

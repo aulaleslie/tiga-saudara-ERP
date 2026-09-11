@@ -26,6 +26,7 @@ use Modules\Adjustment\Http\Requests\UpdateStockTransferRequest;
 use Modules\Adjustment\Services\TransferDraftService;
 use Modules\Adjustment\Services\TransferFormStateMapper;
 use Modules\Adjustment\Services\TransferLifecycleService;
+use Modules\Adjustment\Services\TransferStockVisibility;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
@@ -41,6 +42,25 @@ class TransferStockController extends Controller
     public function __construct()
     {
         $this->middleware('idempotency')->only('store');
+    }
+
+    /**
+     * Permission-aware browser-facing error message. Privileged users keep
+     * the existing exact operational exception detail (which may include
+     * quantities, product ids, or stock-derived context). A user without
+     * stockTransfers.view-system-stock receives a stable, neutral,
+     * non-quantitative Bahasa Indonesia message instead -- authoritative
+     * validation still ran and failed identically; only the browser-facing
+     * text differs, preventing repeated attempts from being used as a
+     * stock-enumeration channel.
+     */
+    private function neutralizedErrorMessage(Throwable $e): string
+    {
+        if (Gate::allows(TransferStockVisibility::PERMISSION)) {
+            return $e->getMessage();
+        }
+
+        return 'Terjadi kesalahan saat memproses transfer stok. Silakan periksa kembali data yang dimasukkan atau hubungi petugas yang berwenang.';
     }
     /**
      * Display a listing of the resource.
@@ -144,7 +164,7 @@ class TransferStockController extends Controller
                 'trace' => $e->getTraceAsString(),
                 'user_id' => auth()->id(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
             return redirect()->back()->withInput();
         }
     }
@@ -203,7 +223,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error' => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -232,7 +252,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error' => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -255,7 +275,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error' => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -278,7 +298,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error' => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -292,24 +312,51 @@ class TransferStockController extends Controller
         abort_if(Gate::denies('stockTransfers.dispatch'), 403);
 
         $currentSettingId = (int) session('setting_id');
-        $acknowledgedHash = $request->input('acknowledged_hash');
+        $canViewSystemStock = Gate::allows(TransferStockVisibility::PERMISSION);
+
+        // A privileged retry submits the real hash it was shown. A blind
+        // retry can never possess that hash (it is never sent to a blind
+        // browser), so any client-submitted acknowledgment for a blind user
+        // is ignored and replaced with the neutral server-side sentinel
+        // instead -- the acting user's own permission decides which
+        // acknowledgment semantics apply, never a client-supplied flag.
+        if ($canViewSystemStock) {
+            $acknowledgedHash = $request->input('acknowledged_hash');
+        } else {
+            $acknowledgedHash = $request->boolean('retry_after_drift')
+                ? \Modules\Adjustment\Services\TransferMovementService::BLIND_ACKNOWLEDGE_TOKEN
+                : null;
+        }
 
         try {
             $service->dispatch($transfer, auth()->id(), $currentSettingId, $acknowledgedHash);
             toast('Transfer Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (\Modules\Adjustment\Exceptions\AllocationDriftException $e) {
-            session()->flash('drift_exception', [
-                'message' => $e->getMessage(),
-                'hash' => $e->hash,
-                'allocations' => $e->allocations,
-            ]);
-            toast('Alokasi stok berubah. Harap tinjau dan konfirmasi.', 'warning');
+            // Exact allocations, differences, and a hash derived from a
+            // visible comparison are protected system information: they are
+            // only flashed to session/browser state for a user with stock
+            // visibility (spec: "Blind user encounters allocation drift").
+            // A blind user still needs a way to retry: they get a neutral
+            // acknowledgment flag with no hash and no allocation payload,
+            // and dispatchShipment() below accepts it as authorization to
+            // retry without re-deriving a client-supplied hash.
+            if (Gate::allows(TransferStockVisibility::PERMISSION)) {
+                session()->flash('drift_exception', [
+                    'message' => $e->getMessage(),
+                    'hash' => $e->hash,
+                    'allocations' => $e->allocations,
+                ]);
+                toast('Alokasi stok berubah. Harap tinjau dan konfirmasi.', 'warning');
+            } else {
+                session()->flash('drift_exception_blind', true);
+                toast('Data alokasi telah berubah sejak persetujuan. Silakan coba kirim ulang.', 'warning');
+            }
         } catch (Throwable $e) {
             Log::error('Failed to dispatch transfer', [
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -332,7 +379,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -355,7 +402,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -378,7 +425,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -402,7 +449,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error'       => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
         return redirect()->route('transfers.show', $transfer->id);
@@ -543,7 +590,7 @@ class TransferStockController extends Controller
                 'transfer_id' => $transfer->id,
                 'error' => $e->getMessage(),
             ]);
-            toast($e->getMessage(), 'error');
+            toast($this->neutralizedErrorMessage($e), 'error');
             return redirect()->back()->withInput();
         }
     }

@@ -35,6 +35,16 @@ class TransferProductEntryModeFilterTest extends TestCase
 
         $this->user = User::factory()->create();
 
+        // TransferProductTable enforces stockTransfers.create/edit surface
+        // authorization on its own (it is an independently callable
+        // Livewire endpoint), so a user driving it directly in tests needs
+        // this permission regardless of route-level gating.
+        \Spatie\Permission\Models\Permission::firstOrCreate([
+            'name' => 'stockTransfers.create',
+            'guard_name' => 'web',
+        ]);
+        $this->user->givePermissionTo('stockTransfers.create');
+
         $currency = Currency::create([
             'currency_name' => 'Rupiah Test',
             'code' => 'IDR',

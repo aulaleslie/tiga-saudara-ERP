@@ -117,31 +117,35 @@
                                 <th rowspan="2" class="align-middle text-center">#</th>
                                 <th rowspan="2" class="align-middle">Nama</th>
                                 <th rowspan="2" class="align-middle">Kode</th>
-                                <th colspan="4" class="text-center bg-light">Rencana (Diajukan)</th>
-                                <th colspan="4" class="text-center bg-info text-white">Aktual Dikirim</th>
-                                <th colspan="2" class="text-center bg-warning">Wajib Retur (Pajak)</th>
-                                <th colspan="2" class="text-center bg-secondary text-white">Retur Dikirim</th>
-                                <th colspan="2" class="text-center bg-success text-white">Retur Diterima</th>
+                                @can('stockTransfers.view-system-stock')
+                                    <th colspan="4" class="text-center bg-light">Rencana (Diajukan)</th>
+                                    <th colspan="4" class="text-center bg-info text-white">Aktual Dikirim</th>
+                                    <th colspan="2" class="text-center bg-warning">Wajib Retur (Pajak)</th>
+                                    <th colspan="2" class="text-center bg-secondary text-white">Retur Dikirim</th>
+                                    <th colspan="2" class="text-center bg-success text-white">Retur Diterima</th>
+                                @endcan
                             </tr>
                             <tr>
-                                <th class="text-center bg-light" title="Pajak">P</th>
-                                <th class="text-center bg-light" title="Non Pajak">NP</th>
-                                <th class="text-center bg-light" title="Rusak Pajak">RP</th>
-                                <th class="text-center bg-light" title="Rusak Non Pajak">RNP</th>
-                                
-                                <th class="text-center bg-info text-white" title="Pajak">P</th>
-                                <th class="text-center bg-info text-white" title="Non Pajak">NP</th>
-                                <th class="text-center bg-info text-white" title="Rusak Pajak">RP</th>
-                                <th class="text-center bg-info text-white" title="Rusak Non Pajak">RNP</th>
-                                
-                                <th class="text-center bg-warning" title="Pajak">P</th>
-                                <th class="text-center bg-warning" title="Rusak Pajak">RP</th>
+                                @can('stockTransfers.view-system-stock')
+                                    <th class="text-center bg-light" title="Pajak">P</th>
+                                    <th class="text-center bg-light" title="Non Pajak">NP</th>
+                                    <th class="text-center bg-light" title="Rusak Pajak">RP</th>
+                                    <th class="text-center bg-light" title="Rusak Non Pajak">RNP</th>
 
-                                <th class="text-center bg-secondary text-white" title="Pajak">P</th>
-                                <th class="text-center bg-secondary text-white" title="Rusak Pajak">RP</th>
+                                    <th class="text-center bg-info text-white" title="Pajak">P</th>
+                                    <th class="text-center bg-info text-white" title="Non Pajak">NP</th>
+                                    <th class="text-center bg-info text-white" title="Rusak Pajak">RP</th>
+                                    <th class="text-center bg-info text-white" title="Rusak Non Pajak">RNP</th>
 
-                                <th class="text-center bg-success text-white" title="Pajak">P</th>
-                                <th class="text-center bg-success text-white" title="Rusak Pajak">RP</th>
+                                    <th class="text-center bg-warning" title="Pajak">P</th>
+                                    <th class="text-center bg-warning" title="Rusak Pajak">RP</th>
+
+                                    <th class="text-center bg-secondary text-white" title="Pajak">P</th>
+                                    <th class="text-center bg-secondary text-white" title="Rusak Pajak">RP</th>
+
+                                    <th class="text-center bg-success text-white" title="Pajak">P</th>
+                                    <th class="text-center bg-success text-white" title="Rusak Pajak">RP</th>
+                                @endcan
                             </tr>
                             </thead>
                             <tbody>
@@ -153,116 +157,139 @@
                                     <td class="text-center">{{ $i + 1 }}</td>
                                     <td>{{ $item->product->product_name }}</td>
                                     <td>{{ $item->product->product_code }}</td>
-                                    
-                                    <td class="text-center bg-light">{{ $item->quantity_tax }}</td>
-                                    <td class="text-center bg-light">{{ $item->quantity_non_tax }}</td>
-                                    <td class="text-center bg-light">{{ $item->quantity_broken_tax }}</td>
-                                    <td class="text-center bg-light">{{ $item->quantity_broken_non_tax }}</td>
-                                    
-                                    <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_tax ?? '-' }}</td>
-                                    <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_non_tax ?? '-' }}</td>
-                                    <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_broken_tax ?? '-' }}</td>
-                                    <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_broken_non_tax ?? '-' }}</td>
-                                    
-                                    <td class="text-center bg-warning">{{ $ob ? $ob->required_quantity_tax : '-' }}</td>
-                                    <td class="text-center bg-warning">{{ $ob ? $ob->required_quantity_broken_tax : '-' }}</td>
 
-                                    <td class="text-center bg-secondary text-white">{{ $ob ? $ob->return_dispatched_quantity_tax : '-' }}</td>
-                                    <td class="text-center bg-secondary text-white">{{ $ob ? $ob->return_dispatched_quantity_broken_tax : '-' }}</td>
+                                    @can('stockTransfers.view-system-stock')
+                                        <td class="text-center bg-light">{{ $item->quantity_tax }}</td>
+                                        <td class="text-center bg-light">{{ $item->quantity_non_tax }}</td>
+                                        <td class="text-center bg-light">{{ $item->quantity_broken_tax }}</td>
+                                        <td class="text-center bg-light">{{ $item->quantity_broken_non_tax }}</td>
 
-                                    <td class="text-center bg-success text-white">{{ $ob ? $ob->return_received_quantity_tax : '-' }}</td>
-                                    <td class="text-center bg-success text-white">{{ $ob ? $ob->return_received_quantity_broken_tax : '-' }}</td>
+                                        <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_tax ?? '-' }}</td>
+                                        <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_non_tax ?? '-' }}</td>
+                                        <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_broken_tax ?? '-' }}</td>
+                                        <td class="text-center bg-info text-white">{{ $item->dispatched_quantity_broken_non_tax ?? '-' }}</td>
+
+                                        <td class="text-center bg-warning">{{ $ob ? $ob->required_quantity_tax : '-' }}</td>
+                                        <td class="text-center bg-warning">{{ $ob ? $ob->required_quantity_broken_tax : '-' }}</td>
+
+                                        <td class="text-center bg-secondary text-white">{{ $ob ? $ob->return_dispatched_quantity_tax : '-' }}</td>
+                                        <td class="text-center bg-secondary text-white">{{ $ob ? $ob->return_dispatched_quantity_broken_tax : '-' }}</td>
+
+                                        <td class="text-center bg-success text-white">{{ $ob ? $ob->return_received_quantity_tax : '-' }}</td>
+                                        <td class="text-center bg-success text-white">{{ $ob ? $ob->return_received_quantity_broken_tax : '-' }}</td>
+                                    @endcan
                                 </tr>
-                                @if(!empty($item->dispatched_serial_numbers))
-                                    <tr>
-                                        <td colspan="3" class="text-right text-muted small"><em>Seri Aktual:</em></td>
-                                        <td colspan="14" class="small">
-                                            @foreach($item->dispatched_serial_numbers as $sn)
-                                                <span class="badge badge-{{ !empty($sn['taxable']) || !empty($sn['tax_id']) ? 'warning' : 'secondary' }} {{ !empty($sn['is_broken']) ? 'border border-danger' : '' }} mr-1">{{ $sn['serial_number'] }}</span>
-                                            @endforeach
-                                        </td>
-                                    </tr>
-                                @elseif(!empty($item->serial_numbers))
-                                    <tr>
-                                        <td colspan="3" class="text-right text-muted small"><em>Seri Direncanakan:</em></td>
-                                        <td colspan="14" class="small">
-                                            @foreach($item->serial_numbers as $sn)
-                                                <span class="badge badge-light border mr-1">{{ $sn['serial_number'] }}</span>
-                                            @endforeach
-                                        </td>
-                                    </tr>
-                                @endif
+                                {{-- Dispatched/planned serial manifests are protected system
+                                     information (movement expectations and provenance), not
+                                     shared operator-entered draft intent -- they are shown only
+                                     to a viewer with stock-visibility, never to a blind
+                                     stockTransfers.show viewer, per the spec's "Blind protection
+                                     SHALL cover every existing transfer browser surface"
+                                     requirement. --}}
+                                @can('stockTransfers.view-system-stock')
+                                    @if(!empty($item->dispatched_serial_numbers))
+                                        <tr>
+                                            <td colspan="3" class="text-right text-muted small"><em>Seri Aktual:</em></td>
+                                            <td colspan="14" class="small">
+                                                @foreach($item->dispatched_serial_numbers as $sn)
+                                                    <span class="badge badge-{{ !empty($sn['taxable']) || !empty($sn['tax_id']) ? 'warning' : 'secondary' }} {{ !empty($sn['is_broken']) ? 'border border-danger' : '' }} mr-1">{{ $sn['serial_number'] }}</span>
+                                                @endforeach
+                                            </td>
+                                        </tr>
+                                    @elseif(!empty($item->serial_numbers))
+                                        <tr>
+                                            <td colspan="3" class="text-right text-muted small"><em>Seri Direncanakan:</em></td>
+                                            <td colspan="14" class="small">
+                                                @foreach($item->serial_numbers as $sn)
+                                                    <span class="badge badge-light border mr-1">{{ $sn['serial_number'] }}</span>
+                                                @endforeach
+                                            </td>
+                                        </tr>
+                                    @endif
+                                @endcan
                             @endforeach
                             </tbody>
                         </table>
 
-                        {{-- Drift confirmation panel: show when drift exception is in session --}}
-                        @if(session()->has('drift_exception'))
-                            @php
-                                $drift = session('drift_exception');
-                                $allocations = $drift['allocations'] ?? [];
-                            @endphp
-                            <div class="alert alert-warning mt-4" role="alert">
-                                <h5 class="alert-heading">⚠️ Perubahan Alokasi Stok Terdeteksi</h5>
-                                <p class="mb-0">{{ $drift['message'] ?? 'Alokasi stok berubah sejak persetujuan.' }}</p>
-                                <small class="text-muted d-block mt-2">Harap tinjau perbedaan di bawah dan konfirmasi jika sudah sesuai.</small>
-                            </div>
+                        {{-- Drift confirmation panel (privileged): show when drift exception is in session --}}
+                        @can('stockTransfers.view-system-stock')
+                            @if(session()->has('drift_exception'))
+                                @php
+                                    $drift = session('drift_exception');
+                                    $allocations = $drift['allocations'] ?? [];
+                                @endphp
+                                <div class="alert alert-warning mt-4" role="alert">
+                                    <h5 class="alert-heading">⚠️ Perubahan Alokasi Stok Terdeteksi</h5>
+                                    <p class="mb-0">{{ $drift['message'] ?? 'Alokasi stok berubah sejak persetujuan.' }}</p>
+                                    <small class="text-muted d-block mt-2">Harap tinjau perbedaan di bawah dan konfirmasi jika sudah sesuai.</small>
+                                </div>
 
-                            <table class="table table-sm table-bordered mt-3">
-                                <thead class="bg-light">
-                                    <tr>
-                                        <th>Produk</th>
-                                        <th class="text-center">Rencana (Pajak)</th>
-                                        <th class="text-center">Aktual (Pajak)</th>
-                                        <th class="text-center">Selisih</th>
-                                        <th class="text-center">Rencana (Rusak Pajak)</th>
-                                        <th class="text-center">Aktual (Rusak Pajak)</th>
-                                        <th class="text-center">Selisih</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                @foreach($transfer->products as $product)
-                                    @php
-                                        $productAllocation = $allocations[$product->id] ?? null;
-                                        if (!$productAllocation) continue;
-                                        
-                                        $alloc = $productAllocation['allocation'] ?? [];
-                                        $plannedTax = (int) $product->quantity_tax;
-                                        $actualTax = $alloc['tax'] ?? 0;
-                                        $diffTax = $actualTax - $plannedTax;
-                                        
-                                        $plannedBrokenTax = (int) $product->quantity_broken_tax;
-                                        $actualBrokenTax = $alloc['broken_tax'] ?? 0;
-                                        $diffBrokenTax = $actualBrokenTax - $plannedBrokenTax;
-                                    @endphp
-                                    <tr>
-                                        <td>
-                                            <strong>{{ $product->product->product_name }}</strong><br>
-                                            <small class="text-muted">{{ $product->product->product_code }}</small>
-                                        </td>
-                                        <td class="text-center">{{ $plannedTax }}</td>
-                                        <td class="text-center font-weight-bold">{{ $actualTax }}</td>
-                                        <td class="text-center {{ $diffTax > 0 ? 'bg-danger text-white' : '' }}">
-                                            {{ $diffTax > 0 ? '+' : '' }}{{ $diffTax }}
-                                        </td>
-                                        <td class="text-center">{{ $plannedBrokenTax }}</td>
-                                        <td class="text-center font-weight-bold">{{ $actualBrokenTax }}</td>
-                                        <td class="text-center {{ $diffBrokenTax > 0 ? 'bg-danger text-white' : '' }}">
-                                            {{ $diffBrokenTax > 0 ? '+' : '' }}{{ $diffBrokenTax }}
-                                        </td>
-                                    </tr>
-                                @endforeach
-                                </tbody>
-                            </table>
+                                <table class="table table-sm table-bordered mt-3">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th>Produk</th>
+                                            <th class="text-center">Rencana (Pajak)</th>
+                                            <th class="text-center">Aktual (Pajak)</th>
+                                            <th class="text-center">Selisih</th>
+                                            <th class="text-center">Rencana (Rusak Pajak)</th>
+                                            <th class="text-center">Aktual (Rusak Pajak)</th>
+                                            <th class="text-center">Selisih</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach($transfer->products as $product)
+                                        @php
+                                            $productAllocation = $allocations[$product->id] ?? null;
+                                            if (!$productAllocation) continue;
 
-                            <div class="alert alert-info mt-3">
-                                <p class="mb-0">
-                                    <strong>Implikasi:</strong>
-                                    Peningkatan eksposur pajak atau pengembalian wajib terdeteksi.
-                                    Konfirmasi di bawah untuk melanjutkan pengiriman dengan alokasi aktual.
-                                </p>
-                            </div>
-                        @endif
+                                            $alloc = $productAllocation['allocation'] ?? [];
+                                            $plannedTax = (int) $product->quantity_tax;
+                                            $actualTax = $alloc['tax'] ?? 0;
+                                            $diffTax = $actualTax - $plannedTax;
+
+                                            $plannedBrokenTax = (int) $product->quantity_broken_tax;
+                                            $actualBrokenTax = $alloc['broken_tax'] ?? 0;
+                                            $diffBrokenTax = $actualBrokenTax - $plannedBrokenTax;
+                                        @endphp
+                                        <tr>
+                                            <td>
+                                                <strong>{{ $product->product->product_name }}</strong><br>
+                                                <small class="text-muted">{{ $product->product->product_code }}</small>
+                                            </td>
+                                            <td class="text-center">{{ $plannedTax }}</td>
+                                            <td class="text-center font-weight-bold">{{ $actualTax }}</td>
+                                            <td class="text-center {{ $diffTax > 0 ? 'bg-danger text-white' : '' }}">
+                                                {{ $diffTax > 0 ? '+' : '' }}{{ $diffTax }}
+                                            </td>
+                                            <td class="text-center">{{ $plannedBrokenTax }}</td>
+                                            <td class="text-center font-weight-bold">{{ $actualBrokenTax }}</td>
+                                            <td class="text-center {{ $diffBrokenTax > 0 ? 'bg-danger text-white' : '' }}">
+                                                {{ $diffBrokenTax > 0 ? '+' : '' }}{{ $diffBrokenTax }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+
+                                <div class="alert alert-info mt-3">
+                                    <p class="mb-0">
+                                        <strong>Implikasi:</strong>
+                                        Peningkatan eksposur pajak atau pengembalian wajib terdeteksi.
+                                        Konfirmasi di bawah untuk melanjutkan pengiriman dengan alokasi aktual.
+                                    </p>
+                                </div>
+                            @endif
+                        @else
+                            {{-- Blind neutral retry path: no hash, no allocation payload,
+                                 no difference figures -- only a generic notice and a
+                                 retry action. --}}
+                            @if(session()->has('drift_exception_blind'))
+                                <div class="alert alert-warning mt-4" role="alert">
+                                    <h5 class="alert-heading">Data Transfer Berubah</h5>
+                                    <p class="mb-0">Data alokasi telah berubah sejak persetujuan. Silakan coba kirim ulang.</p>
+                                </div>
+                            @endif
+                        @endcan
 
                         <div class="mt-4">
                             {{-- Approve/Reject: only ORIGIN on PENDING --}}
@@ -284,21 +311,42 @@
                                 {{-- Dispatch: only ORIGIN on APPROVED --}}
                             @elseif($transfer->status === Transfer::STATUS_APPROVED && $isOrigin)
                                 @can('stockTransfers.dispatch')
-                                    @if(session()->has('drift_exception'))
-                                        {{-- Drift detected: show confirmation form --}}
-                                        <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            <input type="hidden" name="acknowledged_hash" value="{{ session('drift_exception.hash') }}">
-                                            <button class="btn btn-danger">Konfirmasi Pengiriman (dengan perubahan alokasi)</button>
-                                        </form>
-                                        <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
+                                    @can('stockTransfers.view-system-stock')
+                                        @if(session()->has('drift_exception'))
+                                            {{-- Drift detected: show confirmation form --}}
+                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                <input type="hidden" name="acknowledged_hash" value="{{ session('drift_exception.hash') }}">
+                                                <button class="btn btn-danger">Konfirmasi Pengiriman (dengan perubahan alokasi)</button>
+                                            </form>
+                                            <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
+                                        @else
+                                            {{-- Normal dispatch --}}
+                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                <button class="btn btn-primary">Keluarkan</button>
+                                            </form>
+                                        @endif
                                     @else
-                                        {{-- Normal dispatch --}}
-                                        <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            <button class="btn btn-primary">Keluarkan</button>
-                                        </form>
-                                    @endif
+                                        @if(session()->has('drift_exception_blind'))
+                                            {{-- Blind neutral retry: no hash, no allocation
+                                                 payload -- just a signal to acknowledge and
+                                                 retry with the authoritative server-side
+                                                 allocation. --}}
+                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                <input type="hidden" name="retry_after_drift" value="1">
+                                                <button class="btn btn-danger">Coba Kirim Ulang</button>
+                                            </form>
+                                            <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
+                                        @else
+                                            {{-- Normal dispatch --}}
+                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                <button class="btn btn-primary">Keluarkan</button>
+                                            </form>
+                                        @endif
+                                    @endcan
                                 @endcan
 
                                 {{-- Receive: only DESTINATION on DISPATCHED --}}
