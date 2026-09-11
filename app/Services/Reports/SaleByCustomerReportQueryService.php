@@ -29,6 +29,7 @@ class SaleByCustomerReportQueryService
             )
             ->where('sales.setting_id', $scopeSettingId)
             ->whereNull('sales.archived_at')
+            ->where('sales.status', Sale::STATUS_DISPATCHED)
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' >= ?', [$filter->startDate])
             ->whereRaw(EffectiveSaleReportingDate::sqlExpression() . ' <= ?', [$filter->endDate]);
 

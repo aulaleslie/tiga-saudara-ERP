@@ -83,7 +83,7 @@ class SaleByCustomerReportTest extends TestCase
             'reference' => 'SL-' . str_pad($ref, 4, '0', STR_PAD_LEFT),
             'customer_id' => $customer->id,
             'customer_name' => $customer->customer_name,
-            'status' => 'Completed',
+            'status' => Sale::STATUS_DISPATCHED,
             'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'total_amount' => 1000,
@@ -599,6 +599,91 @@ class SaleByCustomerReportTest extends TestCase
         \Maatwebsite\Excel\Facades\Excel::assertDownloaded('sales_by_customer_2026-05-01_2026-05-31.xlsx', function ($export) use ($customer1) {
             $rows = $export->array();
             return count($rows) === 4 && $rows[0][0] === $customer1->customer_name;
+        });
+    }
+
+    /** @test */
+    public function it_includes_only_dispatched_sales_and_excludes_other_lifecycle_statuses()
+    {
+        $customer = $this->makeCustomer('Customer A');
+
+        $dispatchedSale = $this->makeSale($customer, [
+            'date' => '2026-05-01',
+            'status' => Sale::STATUS_DISPATCHED,
+        ]);
+        $this->makeSaleDetail($dispatchedSale, ['product_name' => 'Dispatched Product', 'sub_total' => 1000]);
+
+        $excludedStatuses = [
+            Sale::STATUS_DRAFTED,
+            Sale::STATUS_WAITING_APPROVAL,
+            Sale::STATUS_APPROVED,
+            Sale::STATUS_REJECTED,
+            Sale::STATUS_DISPATCHED_PARTIALLY,
+            Sale::STATUS_RETURNED,
+            Sale::STATUS_RETURNED_PARTIALLY,
+        ];
+
+        foreach ($excludedStatuses as $status) {
+            $sale = $this->makeSale($customer, [
+                'date' => '2026-05-01',
+                'status' => $status,
+            ]);
+            // Distinct large sub_total per excluded sale: if any leaked into totals, the grand total would inflate.
+            $this->makeSaleDetail($sale, ['product_name' => 'Excluded ' . $status, 'sub_total' => 9000]);
+        }
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->assertViewHas('sales', function ($sales) {
+                \PHPUnit\Framework\Assert::assertEquals(1, $sales->count());
+                \PHPUnit\Framework\Assert::assertEquals('DISPATCHED PRODUCT', strtoupper($sales->first()->product_name));
+                \PHPUnit\Framework\Assert::assertEquals(1000, (float) $sales->first()->sub_total);
+                \PHPUnit\Framework\Assert::assertEquals(0, (float) $sales->first()->previous_running_total);
+                return true;
+            })
+            ->assertSeeHtml('1.000')
+            ->assertDontSeeHtml('9.000')
+            ->assertDontSeeHtml('10.000');
+    }
+
+    /** @test */
+    public function it_excludes_non_dispatched_sale_details_from_export()
+    {
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        $customer = $this->makeCustomer('Customer A');
+
+        $dispatchedSale = $this->makeSale($customer, [
+            'date' => '2026-05-01',
+            'status' => Sale::STATUS_DISPATCHED,
+        ]);
+        $this->makeSaleDetail($dispatchedSale, ['product_name' => 'Dispatched Product', 'sub_total' => 1000]);
+
+        $returnedSale = $this->makeSale($customer, [
+            'date' => '2026-05-02',
+            'status' => Sale::STATUS_RETURNED,
+        ]);
+        $this->makeSaleDetail($returnedSale, ['product_name' => 'Returned Product', 'sub_total' => 2000]);
+
+        \Livewire\Livewire::actingAs($this->user)
+            ->test(\App\Livewire\Reports\SaleByCustomerReport::class)
+            ->set('settingId', $this->setting->id)
+            ->set('startDate', '2026-05-01')
+            ->set('endDate', '2026-05-31')
+            ->call('applyFilters')
+            ->call('exportExcel');
+
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('sales_by_customer_2026-05-01_2026-05-31.xlsx', function ($export) {
+            $rows = $export->array();
+            $productNames = collect($rows)->pluck(4);
+
+            \PHPUnit\Framework\Assert::assertTrue($productNames->contains('DISPATCHED PRODUCT'));
+            \PHPUnit\Framework\Assert::assertFalse($productNames->contains('RETURNED PRODUCT'));
+
+            return true;
         });
     }
 
