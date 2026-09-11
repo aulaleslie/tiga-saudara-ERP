@@ -22,6 +22,32 @@ class LocationSearchDropdown extends Component
     public ?int $selectedSettingId = null;
     public ?string $consignmentFilter = null; // null | 'consignment' | 'standard'
 
+    /**
+     * When true (the default), search/selection is scoped to
+     * $selectedSettingId (or the current session tenant) only. This matches
+     * the component's original behavior, so existing callers (stock opname,
+     * breakage, adjustment) are unaffected unless they opt out.
+     */
+    public bool $tenantScoped = true;
+
+    /**
+     * Explicit opt-out of tenant scoping: when true, results are not
+     * restricted to the active/current tenant and may span multiple
+     * businesses; labels then include the business name to disambiguate
+     * duplicate location names. Setting this to true also sets
+     * $tenantScoped to false during mount, since the two are mutually
+     * exclusive scopes; a caller must not pass both as true.
+     */
+    public bool $crossBusiness = false;
+
+    /**
+     * Location IDs to exclude from search results and from accepting a
+     * selection (e.g. the already-selected origin, for a destination field).
+     *
+     * @var array<int, int>
+     */
+    public array $excludedLocationIds = [];
+
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
     public ?string $selectedLabel = null;
@@ -45,7 +71,10 @@ class LocationSearchDropdown extends Component
         ?string $formName = null,
         int $zIndex = 1050,
         ?int $selectedSettingId = null,
-        ?string $consignmentFilter = null
+        ?string $consignmentFilter = null,
+        bool $tenantScoped = true,
+        bool $crossBusiness = false,
+        array $excludedLocationIds = []
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -56,13 +85,19 @@ class LocationSearchDropdown extends Component
         $this->zIndex = $zIndex;
         $this->selectedSettingId = $selectedSettingId;
         $this->consignmentFilter = $consignmentFilter;
+        // crossBusiness is an explicit opt-out of tenant scoping; a caller
+        // that asks for cross-business search never stays tenant-scoped,
+        // regardless of what it passed for tenantScoped.
+        $this->crossBusiness = $crossBusiness;
+        $this->tenantScoped = $crossBusiness ? false : $tenantScoped;
+        $this->excludedLocationIds = array_values(array_filter(array_map('intval', $excludedLocationIds)));
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
             $this->options = $this->fetchLocations();
         }
 
-        $this->selected = $selected ?: null;
+        $this->selected = $this->isSelectionInScope($selected) ? $selected : null;
         $this->selectedLabel = $this->resolveLabel($this->selected);
     }
 
@@ -86,6 +121,10 @@ class LocationSearchDropdown extends Component
 
     public function select(int|string $id): void
     {
+        if (!$this->isSelectionInScope($id)) {
+            return;
+        }
+
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
         $this->open = false;
@@ -96,7 +135,50 @@ class LocationSearchDropdown extends Component
 
     public function updatedSelected($value): void
     {
+        if (!$this->isSelectionInScope($value)) {
+            $this->selected = null;
+            $this->selectedLabel = null;
+
+            return;
+        }
+
         $this->selectedLabel = $this->resolveLabel($value);
+    }
+
+    /**
+     * A selected ID must belong to the component's configured query scope
+     * (active, tenant/business filters, consignment filter, exclusions) even
+     * if the client attempts to set it directly; this is the authoritative
+     * guard against crafted out-of-scope selections. Server-side services
+     * remain the final authorization boundary.
+     */
+    private function isSelectionInScope(int|string|null $id): bool
+    {
+        if (!$id) {
+            return true;
+        }
+
+        if (in_array((int) $id, $this->excludedLocationIds, true)) {
+            return false;
+        }
+
+        $settingId = $this->selectedSettingId ?? session('setting_id');
+
+        $query = Location::query()
+            ->whereKey($id)
+            ->active();
+
+        if ($this->tenantScoped) {
+            $query->when($settingId, fn ($q) => $q->where('setting_id', $settingId));
+        }
+
+        if ($this->consignmentFilter === 'consignment') {
+            $query->where('is_consignment', true);
+        } elseif ($this->consignmentFilter === 'standard') {
+            $query->where('is_consignment', false);
+        }
+
+        return $query->exists();
     }
 
     /**
@@ -134,6 +216,15 @@ class LocationSearchDropdown extends Component
             return;
         }
 
+        if (!$this->isSelectionInScope($locationId)) {
+            $this->selected = null;
+            $this->selectedLabel = null;
+            $this->open = false;
+            $this->search = '';
+
+            return;
+        }
+
         $this->selected = $locationId ?: null;
         $this->selectedLabel = $this->resolveLabel($this->selected);
         $this->open = false;
@@ -152,9 +243,12 @@ class LocationSearchDropdown extends Component
             }
         }
 
-        $settingId = $this->selectedSettingId ?? session('setting_id');
+        if (!$this->isSelectionInScope($id)) {
+            return null;
+        }
+
         $location = Location::query()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
+            ->with($this->crossBusiness ? ['setting'] : [])
             ->find($id);
 
         if (!$location) {
@@ -163,12 +257,25 @@ class LocationSearchDropdown extends Component
 
         $option = [
             'id' => $location->id,
-            'name' => $location->name,
+            'name' => $this->formatLabel($location),
         ];
 
         $this->upsertOption($option);
 
         return $option['name'];
+    }
+
+    /**
+     * Cross-business labels include the company/business name to disambiguate
+     * duplicate location names across tenants.
+     */
+    private function formatLabel(Location $location): string
+    {
+        if ($this->crossBusiness && $location->setting?->company_name) {
+            return "{$location->name} ({$location->setting->company_name})";
+        }
+
+        return $location->name;
     }
 
     /**
@@ -190,14 +297,16 @@ class LocationSearchDropdown extends Component
 
         return Location::query()
             ->active()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
+            ->when($this->tenantScoped, fn ($q) => $q->when($settingId, fn ($q2) => $q2->where('setting_id', $settingId)))
+            ->when(!empty($this->excludedLocationIds), fn ($q) => $q->whereNotIn('id', $this->excludedLocationIds))
             ->when($this->consignmentFilter === 'consignment', fn ($q) => $q->where('is_consignment', true))
             ->when($this->consignmentFilter === 'standard', fn ($q) => $q->where('is_consignment', false))
+            ->when($this->crossBusiness, fn ($q) => $q->with('setting'))
             ->orderBy('name')
             ->get()
             ->map(fn (Location $location) => [
                 'id' => $location->id,
-                'name' => $location->name,
+                'name' => $this->formatLabel($location),
             ])
             ->all();
     }

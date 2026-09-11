@@ -11,6 +11,36 @@ use Modules\Product\Entities\ProductStock;
 class TransferFormStateMapper
 {
     /**
+     * A historical transfer is mixed-condition (unreadable as one explicit
+     * mode) when it has no stock_condition and its product rows mix good and
+     * broken buckets, whether within one line or across lines. Such records
+     * remain viewable but are not treated as valid new/editable drafts until
+     * an operator explicitly picks a mode, which clears the incompatible rows.
+     */
+    public function isMixedConditionHistory(Transfer $transfer): bool
+    {
+        if ($transfer->hasExplicitCondition()) {
+            return false;
+        }
+
+        $transfer->loadMissing('products');
+
+        $hasGood = false;
+        $hasBroken = false;
+
+        foreach ($transfer->products as $transferProduct) {
+            if ($transferProduct->quantity_tax > 0 || $transferProduct->quantity_non_tax > 0) {
+                $hasGood = true;
+            }
+            if ($transferProduct->quantity_broken_tax > 0 || $transferProduct->quantity_broken_non_tax > 0) {
+                $hasBroken = true;
+            }
+        }
+
+        return $hasGood && $hasBroken;
+    }
+
+    /**
      * Maps an existing Transfer into the array structure expected by the Livewire form.
      */
     public function mapToLivewireRows(Transfer $transfer): array
@@ -106,9 +136,9 @@ class TransferFormStateMapper
      * @param int $destinationLocationId
      * @return TransferFormState
      */
-    public function mapToTransferFormState(array $rows, int $originLocationId, int $destinationLocationId): TransferFormState
+    public function mapToTransferFormState(array $rows, int $originLocationId, ?int $destinationLocationId, ?string $stockCondition = null): TransferFormState
     {
-        $state = new TransferFormState($originLocationId, $destinationLocationId);
+        $state = new TransferFormState($originLocationId, $destinationLocationId, $stockCondition);
         
         foreach ($rows as $row) {
             $productId = $row['id'] ?? $row['product_id'] ?? null;

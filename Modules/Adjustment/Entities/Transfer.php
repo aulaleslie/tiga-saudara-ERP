@@ -25,10 +25,19 @@ class Transfer extends BaseModel
     public const STATUS_AWAITING_RETURN   = 'AWAITING_RETURN';
     public const STATUS_ARCHIVED          = 'ARCHIVED';
 
+    public const CONDITION_GOOD     = 'GOOD';
+    public const CONDITION_BREAKAGE = 'BREAKAGE';
+
+    public const CONDITIONS = [
+        self::CONDITION_GOOD,
+        self::CONDITION_BREAKAGE,
+    ];
+
     protected $fillable = [
         'document_number',
         'origin_location_id',
         'destination_location_id',
+        'stock_condition',
         'created_by',
         'approved_by',
         'rejected_by',
@@ -52,6 +61,7 @@ class Transfer extends BaseModel
 
     protected $casts = [
         'document_number'       => 'string',
+        'stock_condition'       => 'string',
         'approved_at'          => 'datetime',
         'rejected_at'          => 'datetime',
         'dispatched_at'        => 'datetime',
@@ -240,6 +250,10 @@ class Transfer extends BaseModel
             return false;
         }
 
+        if (! $this->hasDestination()) {
+            return false;
+        }
+
         $origin      = $this->relationLoaded('originLocation') ? $this->originLocation : $this->originLocation()->first();
         $destination = $this->relationLoaded('destinationLocation') ? $this->destinationLocation : $this->destinationLocation()->first();
 
@@ -248,5 +262,29 @@ class Transfer extends BaseModel
         }
 
         return (int) $origin->setting_id !== (int) $destination->setting_id;
+    }
+
+    /**
+     * Stock condition helpers
+     */
+
+    public function hasDestination(): bool
+    {
+        return $this->destination_location_id !== null;
+    }
+
+    public function isGoodCondition(): bool
+    {
+        return $this->stock_condition === self::CONDITION_GOOD;
+    }
+
+    public function isBreakageCondition(): bool
+    {
+        return $this->stock_condition === self::CONDITION_BREAKAGE;
+    }
+
+    public function hasExplicitCondition(): bool
+    {
+        return in_array($this->stock_condition, self::CONDITIONS, true);
     }
 }

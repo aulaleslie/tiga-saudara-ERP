@@ -755,6 +755,7 @@ class TransferUiFeedbackTest extends TestCase
         $formComponent = Livewire::test(\App\Livewire\Transfer\TransferStockForm::class)
             ->set('originLocation', $data['originLocation']->id)
             ->set('destinationLocation', $data['destinationLocation']->id)
+            ->set('stockCondition', \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $product->id,
@@ -771,7 +772,7 @@ class TransferUiFeedbackTest extends TestCase
                     ],
                 ],
             ])
-            ->call('submit');
+            ->call('saveDraft');
 
         // Verify form component dispatches table validation errors
         $dispatches = $formComponent->effects['dispatches'] ?? [];
@@ -960,7 +961,7 @@ class TransferUiFeedbackTest extends TestCase
     }
 
     /** @test */
-    public function parent_form_submission_merges_normal_and_broken_modes_for_same_product(): void
+    public function parent_form_submission_rejects_rows_that_do_not_match_selected_condition(): void
     {
         $data = $this->createTenantData('Tiga Saudara');
         $this->actingAs($data['user']);
@@ -987,9 +988,14 @@ class TransferUiFeedbackTest extends TestCase
             'broken_quantity_non_tax' => 5,
         ]);
 
+        // A new transfer has a single explicit stock condition (GOOD or
+        // BREAKAGE); mixed good/broken rows are no longer permitted on new
+        // or editable drafts, so submitting one row of each mode is rejected
+        // rather than merged.
         $formComponent = Livewire::test(\App\Livewire\Transfer\TransferStockForm::class)
             ->set('originLocation', $data['originLocation']->id)
             ->set('destinationLocation', $data['destinationLocation']->id)
+            ->set('stockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $product->id,
@@ -1022,34 +1028,15 @@ class TransferUiFeedbackTest extends TestCase
                     ],
                 ],
             ])
-            ->call('submit');
+            ->call('saveDraft');
 
-        if ($formComponent->effects['dispatches'] ?? false) {
-            foreach ($formComponent->effects['dispatches'] as $dispatch) {
-                if ($dispatch['name'] === 'tableValidationErrors') {
-                    if (!empty($dispatch['params'][0])) {
-                        dd($dispatch['params'][0]);
-                    }
-                }
-            }
-        }
-
-        // Verify transfer was created successfully
-        $transfer = Transfer::latest()->first();
-        $this->assertNotNull($transfer);
-
-        // Verify it merged the modes into a single transfer product record
-        $this->assertCount(1, $transfer->products);
-        $tp = $transfer->products->first();
-        
-        $this->assertEquals($product->id, $tp->product_id);
-        $this->assertEquals(5, $tp->quantity_non_tax);
-        $this->assertEquals(5, $tp->quantity_broken_non_tax);
-        $this->assertEquals(10, $tp->quantity);
+        // Since the transfer's condition is GOOD, the broken row is rejected
+        // by TransferDraftService and no transfer is persisted.
+        $this->assertNull(Transfer::latest()->first());
     }
 
     /** @test */
-    public function mixed_transfer_edit_hydration_preserves_both_modes(): void
+    public function mixed_condition_history_is_read_only_until_a_mode_is_chosen(): void
     {
         $data = $this->createTenantData('Tiga Saudara Mixed');
         $this->actingAs($data['user']);
@@ -1076,6 +1063,8 @@ class TransferUiFeedbackTest extends TestCase
             'broken_quantity_non_tax' => 6,
         ]);
 
+        // A historical transfer with no explicit stock_condition and buckets
+        // mixing good and broken quantities on the same line.
         $transfer = Transfer::create([
             'origin_location_id' => $data['originLocation']->id,
             'destination_location_id' => $data['destinationLocation']->id,
@@ -1099,26 +1088,20 @@ class TransferUiFeedbackTest extends TestCase
             'transfer' => $transfer,
         ]);
 
-        // It should have two rows (normal and broken)
-        $rows = $formComponent->get('rows');
-        $this->assertCount(2, $rows);
+        // Rows are not presented as editable; the form flags the record as
+        // mixed-condition history requiring an explicit mode choice first.
+        $this->assertTrue($formComponent->get('isMixedConditionHistory'));
+        $this->assertCount(0, $formComponent->get('rows'));
 
-        $normalRow = collect($rows)->firstWhere('is_broken_mode', false);
-        $this->assertNotNull($normalRow);
-        $this->assertEquals(5, $normalRow['requested_quantity']); // 2 tax + 3 non_tax
-
-        $brokenRow = collect($rows)->firstWhere('is_broken_mode', true);
-        $this->assertNotNull($brokenRow);
-        $this->assertEquals(10, $brokenRow['requested_quantity']); // 4 broken_tax + 6 broken_non_tax
-
-        // Save again without changes
-        $formComponent->call('submit');
+        // Attempting to save without picking a mode is rejected.
+        $formComponent->call('saveDraft');
+        $this->assertArrayHasKey('stock_condition', $formComponent->get('selfManagedValidationErrors'));
 
         $transfer->refresh();
         $this->assertCount(1, $transfer->products);
         $tp = $transfer->products->first();
 
-        // Verify buckets remained unchanged
+        // The original mixed buckets remain untouched.
         $this->assertEquals(15, $tp->quantity);
         $this->assertEquals(2, $tp->quantity_tax);
         $this->assertEquals(3, $tp->quantity_non_tax);

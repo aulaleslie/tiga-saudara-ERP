@@ -93,11 +93,12 @@ class TransferStockTransactionTest extends TestCase
             'name' => 'Same Setting Destination',
         ]);
 
-        // Create transfer with draft service
+        // Create transfer with draft service, then submit it for approval
         $lifecycleService = app(\Modules\Adjustment\Services\TransferLifecycleService::class);
-        $transfer = $lifecycleService->createPending(
+        $transfer = $lifecycleService->createDraft(
             $this->originLocation->id,
             $sameSettingDest->id,
+            \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
             [
                 [
                     'product_id' => $this->product->id,
@@ -113,6 +114,7 @@ class TransferStockTransactionTest extends TestCase
             ],
             $user->id
         );
+        $transfer = $lifecycleService->submitDraft($transfer, $user->id);
 
         // Approve the transfer from origin setting
         $transfer = $lifecycleService->approve($transfer, $user->id, $this->setting->id);
@@ -204,7 +206,16 @@ class TransferStockTransactionTest extends TestCase
         $formState = new \Modules\Adjustment\DTOs\TransferFormState();
         $formState->originLocationId = $this->originLocation->id;
         $formState->destinationLocationId = $this->destinationLocation->id;
-        $formState->lines = [];
+        $formState->stockCondition = \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD;
+        $formState->lines = [
+            (object) [
+                'productId' => $this->product->id,
+                'requestedBaseQuantity' => 3,
+                'isBrokenMode' => false,
+                'isSerialNumberRequired' => false,
+                'selectedSerials' => [],
+            ]
+        ];
 
         $transfer = $draftService->saveDraft($formState, $user, $this->setting->id);
 
@@ -222,7 +233,7 @@ class TransferStockTransactionTest extends TestCase
         ];
 
         $updatedTransfer = $draftService->saveDraft($formState, $user, $this->setting->id, $transfer);
-        
+
         // Revision should increment
         $this->assertGreaterThan(1, $updatedTransfer->revision);
     }

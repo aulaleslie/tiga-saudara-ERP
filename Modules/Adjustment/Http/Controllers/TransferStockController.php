@@ -71,7 +71,11 @@ class TransferStockController extends Controller
 
     /**
      * Store a newly created resource in storage.
-     * Routes through TransferDraftService for authoritative validation and atomic creation+submission.
+     * Uses TransferDraftService::createAndSubmitForApproval() to create a
+     * DRAFT and immediately submit it for approval as one atomic operation:
+     * this legacy HTTP contract always requires a destination and never
+     * supports broken-mode or serialized rows, and if submission fails no
+     * draft is left behind.
      */
     public function store(StockTransferRequest $request): RedirectResponse
     {
@@ -82,25 +86,24 @@ class TransferStockController extends Controller
         $user = auth()->user();
 
         try {
-            // Build TransferFormState from request data
             $draftService = app(TransferDraftService::class);
-            $lifecycleService = app(TransferLifecycleService::class);
-            
+
             $formState = new TransferFormState(
                 (int) $validated['origin_location'],
-                (int) $validated['destination_location']
+                (int) $validated['destination_location'],
+                Transfer::CONDITION_GOOD
             );
-            
+
             // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
             foreach ($validated['product_ids'] as $index => $productId) {
                 $quantity = (int) ($validated['quantities'][$index] ?? 0);
                 if ($quantity <= 0) continue;
-                
+
                 $product = Product::find($productId);
                 if (!$product) {
                     throw new InvalidArgumentException("Product {$productId} not found.");
                 }
-                
+
                 // HTTP contract does not support serialized products or broken mode
                 if ($product->serial_number_required) {
                     throw new InvalidArgumentException(
@@ -108,7 +111,7 @@ class TransferStockController extends Controller
                         "Use the web interface to allocate serials for this product."
                     );
                 }
-                
+
                 $line = new TransferFormLineState(
                     $productId,
                     $product->product_name,
@@ -118,24 +121,19 @@ class TransferStockController extends Controller
                     false, // normal mode
                     $quantity
                 );
-                
+
                 $formState->addLine($line);
             }
-            
+
             if (empty($formState->lines)) {
                 throw new InvalidArgumentException("At least one product with quantity > 0 is required.");
             }
-            
-            // Use draft service for authoritative persistence
-            // atomicSubmit=true ensures initial creation is atomic: create + submit PENDING in one transaction
-            $transfer = $draftService->saveDraft(
-                $formState,
-                $user,
-                $currentSettingId,
-                null, // no existing transfer
-                null, // no idempotency key
-                true  // atomicSubmit: create and submit PENDING in one transaction
-            );
+
+            // Create and submit for approval atomically: this legacy
+            // contract always supplies a destination and expects an atomic
+            // create-and-submit outcome, so if submission fails no draft is
+            // left behind.
+            $transfer = $draftService->createAndSubmitForApproval($formState, $user, $currentSettingId);
 
             toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
             return redirect()->route('transfers.show', $transfer->id);
@@ -473,22 +471,23 @@ class TransferStockController extends Controller
         try {
             // Build TransferFormState from request data
             $draftService = app(TransferDraftService::class);
-            
+
             $formState = new TransferFormState(
                 (int) $transfer->origin_location_id,
-                (int) $transfer->destination_location_id
+                (int) $transfer->destination_location_id,
+                $transfer->stock_condition ?? Transfer::CONDITION_GOOD
             );
-            
+
             // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
             foreach ($validated['product_ids'] as $index => $productId) {
                 $quantity = (int) ($validated['quantities'][$index] ?? 0);
                 if ($quantity <= 0) continue;
-                
+
                 $product = Product::find($productId);
                 if (!$product) {
                     throw new InvalidArgumentException("Product {$productId} not found.");
                 }
-                
+
                 // HTTP contract does not support serialized products or broken mode
                 if ($product->serial_number_required) {
                     throw new InvalidArgumentException(
@@ -496,7 +495,7 @@ class TransferStockController extends Controller
                         "Use the web interface to allocate serials for this product."
                     );
                 }
-                
+
                 $line = new TransferFormLineState(
                     $productId,
                     $product->product_name,
@@ -506,19 +505,13 @@ class TransferStockController extends Controller
                     false, // normal mode
                     $quantity
                 );
-                
+
                 $formState->addLine($line);
             }
-            
-            // Use draft service for authoritative persistence with stock validation enabled
-            $transfer = $draftService->saveDraft(
-                $formState,
-                $user,
-                $currentSettingId,
-                $transfer, // existing transfer
-                null, // no idempotency key
-                true // enable authoritative stock validation for all write paths
-            );
+
+            // Use the same draft-save command the Livewire form uses; editing
+            // never auto-submits, matching the explicit save/submit split.
+            $transfer = $draftService->saveDraft($formState, $user, $currentSettingId, $transfer);
 
             toast('Transfer Stok Diperbarui! No. Dokumen: ' . $transfer->document_number, 'success');
             return redirect()->route('transfers.show', $transfer->id);

@@ -26,25 +26,187 @@ class TransferDraftService
     }
 
     /**
-     * Create, update, or resubmit a transfer from a draft state.
-     *
-     * @param bool $atomicSubmit If true and creating a new transfer, atomically submit to PENDING; otherwise create as DRAFT
+     * Save a transfer as a DRAFT. Destination is optional: it may be left
+     * empty while origin, mode, and product rows are prepared, and supplied
+     * later. Any destination that is supplied is authoritatively validated.
      */
     public function saveDraft(
         TransferFormState $state,
         User $actor,
         int $tenantSettingId,
         ?Transfer $transfer = null,
-        ?string $idempotencyKey = null,
-        bool $atomicSubmit = false
+        ?string $idempotencyKey = null
     ): Transfer {
-        // Authoritatively validate locations
+        $origin = $this->validateOrigin($state, $tenantSettingId, $transfer);
+        $destination = $this->validateOptionalDestination($state, $origin, $transfer);
+
+        if (!in_array($state->stockCondition, Transfer::CONDITIONS, true)) {
+            throw new InvalidArgumentException("A valid stock condition (GOOD or BREAKAGE) must be selected.");
+        }
+
+        if (empty($state->lines)) {
+            throw new InvalidArgumentException("At least one product row is required to save a draft.");
+        }
+
+        if ($transfer) {
+            $this->assertSameTenant($transfer, $origin);
+        }
+
+        if (!$transfer) {
+            $productsData = $this->buildProductsData($state, $origin, $tenantSettingId, $transfer);
+
+            return $this->lifecycleService->createDraft(
+                $origin->id,
+                $destination?->id,
+                $state->stockCondition,
+                $productsData,
+                $actor->id,
+                $idempotencyKey
+            );
+        }
+
+        if (!in_array($transfer->status, [Transfer::STATUS_DRAFT, Transfer::STATUS_PENDING], true)) {
+            throw new InvalidArgumentException(
+                "Transfer is in an uneditable state. REJECTED transfers must be acknowledged back to DRAFT first."
+            );
+        }
+
+        // Destination and stock condition are immutable once a transfer is
+        // PENDING: only DRAFT edits may change them (via this same method or
+        // authoritatively at submission). A PENDING edit must submit the
+        // header's existing values, or be rejected outright, so product rows
+        // can never be saved under a mode/destination that disagrees with
+        // the persisted header. Checked before building product rows so this
+        // fast, clear rejection is never masked by an unrelated stock error
+        // produced while validating rows against the wrong mode.
+        if ($transfer->status === Transfer::STATUS_PENDING) {
+            if ((int) $transfer->destination_location_id !== (int) $destination?->id) {
+                throw new InvalidArgumentException(
+                    "Destination cannot be changed on a PENDING transfer."
+                );
+            }
+
+            if ($transfer->stock_condition !== $state->stockCondition) {
+                throw new InvalidArgumentException(
+                    "Stock condition cannot be changed on a PENDING transfer."
+                );
+            }
+        }
+
+        $productsData = $this->buildProductsData($state, $origin, $tenantSettingId, $transfer);
+
+        return $this->lifecycleService->updateTransfer($transfer, $destination?->id, $state->stockCondition, $productsData, $actor->id);
+    }
+
+    /**
+     * Create a new transfer and immediately submit it for approval, as one
+     * atomic operation. Used by legacy HTTP callers whose contract has
+     * always required a destination and expects an atomic create-and-submit
+     * outcome: if submission fails, no draft is left behind.
+     */
+    public function createAndSubmitForApproval(
+        TransferFormState $state,
+        User $actor,
+        int $tenantSettingId,
+        ?string $idempotencyKey = null
+    ): Transfer {
+        return DB::transaction(function () use ($state, $actor, $tenantSettingId, $idempotencyKey) {
+            $transfer = $this->saveDraft($state, $actor, $tenantSettingId, null, $idempotencyKey);
+
+            return $this->submitForApproval($state, $actor, $tenantSettingId, $transfer);
+        });
+    }
+
+    /**
+     * Submit an existing DRAFT for approval. Locks the transfer first, then
+     * revalidates everything (destination, origin, mode, products, stock,
+     * conversions, serials) against that locked row inside a single
+     * transaction, and atomically transitions it to PENDING. No other
+     * process can observe or act on the transfer between validation and the
+     * PENDING transition.
+     */
+    public function submitForApproval(
+        TransferFormState $state,
+        User $actor,
+        int $tenantSettingId,
+        Transfer $transfer
+    ): Transfer {
+        if ($transfer->status !== Transfer::STATUS_DRAFT) {
+            throw new InvalidArgumentException("Only DRAFT transfers can be submitted for approval.");
+        }
+
+        if (!$state->destinationLocationId) {
+            throw new InvalidArgumentException("A destination location is required to submit for approval.");
+        }
+
+        if (!in_array($state->stockCondition, Transfer::CONDITIONS, true)) {
+            throw new InvalidArgumentException("A valid stock condition (GOOD or BREAKAGE) must be selected.");
+        }
+
+        if (empty($state->lines)) {
+            throw new InvalidArgumentException("At least one product row is required to submit for approval.");
+        }
+
+        // Pre-flight checks above give fast, clear errors for missing input.
+        // The authoritative revalidation happens again below against the
+        // locked row, since origin/destination/product/stock/serial state
+        // could have changed since the form was rendered.
+        $origin = $this->validateOriginForSubmission($state, $tenantSettingId, $transfer);
+        $destination = $this->validateDestinationForSubmission($state->destinationLocationId, $origin, $transfer);
+
+        return $this->lifecycleService->submitTransfer(
+            $transfer,
+            $actor->id,
+            function (Transfer $lockedTransfer) use ($state, $tenantSettingId) {
+                $this->assertSameTenant($lockedTransfer, null, $tenantSettingId);
+
+                $origin = $this->validateOriginForSubmission($state, $tenantSettingId, $lockedTransfer);
+                $destination = $this->validateDestinationForSubmission($state->destinationLocationId, $origin, $lockedTransfer);
+
+                return $this->buildProductsData($state, $origin, $tenantSettingId, $lockedTransfer);
+            },
+            $destination->id,
+            $state->stockCondition
+        );
+    }
+
+    private function validateOrigin(TransferFormState $state, int $tenantSettingId, ?Transfer $transfer): Location
+    {
         $origin = Location::where('id', $state->originLocationId)->first();
         if (!$origin || (int) $origin->setting_id !== $tenantSettingId) {
             throw new InvalidArgumentException("Invalid origin location for current tenant.");
         }
 
-        $destination = Location::where('id', $state->destinationLocationId)->first();
+        if (!$origin->is_active && (!$transfer || (int) $transfer->origin_location_id !== $origin->id)) {
+            throw new InvalidArgumentException("Origin location is inactive.");
+        }
+
+        // Origin is immutable once a transfer exists: document numbering is
+        // sequenced per origin, and stock/serial validation is scoped to the
+        // transfer's persisted origin. Reject any state whose origin differs
+        // from the existing transfer rather than silently validating rows
+        // against a different origin while never persisting the change.
+        if ($transfer && (int) $transfer->origin_location_id !== $origin->id) {
+            throw new InvalidArgumentException(
+                "Origin location cannot be changed on an existing transfer. Create a new transfer instead."
+            );
+        }
+
+        return $origin;
+    }
+
+    private function validateOptionalDestination(TransferFormState $state, Location $origin, ?Transfer $transfer): ?Location
+    {
+        if (!$state->destinationLocationId) {
+            return null;
+        }
+
+        return $this->validateDestination($state->destinationLocationId, $origin, $transfer);
+    }
+
+    private function validateDestination(int $destinationLocationId, Location $origin, ?Transfer $transfer): Location
+    {
+        $destination = Location::where('id', $destinationLocationId)->first();
         if (!$destination) {
             throw new InvalidArgumentException("Invalid destination location.");
         }
@@ -53,11 +215,6 @@ class TransferDraftService
             throw new InvalidArgumentException("Origin and destination cannot be the same.");
         }
 
-        // Inactive locations may only be retained if they are already the transfer's current
-        // origin/destination; any newly selected location must be active.
-        if (!$origin->is_active && (!$transfer || (int) $transfer->origin_location_id !== $origin->id)) {
-            throw new InvalidArgumentException("Origin location is inactive.");
-        }
         if (!$destination->is_active && (!$transfer || (int) $transfer->destination_location_id !== $destination->id)) {
             throw new InvalidArgumentException("Destination location is inactive.");
         }
@@ -66,19 +223,90 @@ class TransferDraftService
             throw new InvalidArgumentException("Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.");
         }
 
-        if ($transfer) {
-            $transferOriginSettingId = $transfer->relationLoaded('originLocation')
-                ? $transfer->originLocation?->setting_id
-                : Location::where('id', $transfer->origin_location_id)->value('setting_id');
+        return $destination;
+    }
 
-            if ((int) $transferOriginSettingId !== $origin->setting_id) {
-                throw new InvalidArgumentException("Cannot modify transfer from another tenant.");
-            }
+    /**
+     * Origin validation for the DRAFT->PENDING submission boundary. Unlike
+     * draft retention, submission requires the origin to be active right
+     * now with no "already selected" exception: a location deactivated
+     * after the draft was saved must block submission rather than silently
+     * passing through because it is already on the transfer.
+     */
+    private function validateOriginForSubmission(TransferFormState $state, int $tenantSettingId, Transfer $transfer): Location
+    {
+        $origin = Location::where('id', $state->originLocationId)->first();
+        if (!$origin || (int) $origin->setting_id !== $tenantSettingId) {
+            throw new InvalidArgumentException("Invalid origin location for current tenant.");
         }
 
+        if (!$origin->is_active) {
+            throw new InvalidArgumentException("Origin location is inactive and cannot be submitted for approval.");
+        }
+
+        if ((int) $transfer->origin_location_id !== $origin->id) {
+            throw new InvalidArgumentException(
+                "Origin location cannot be changed on an existing transfer. Create a new transfer instead."
+            );
+        }
+
+        return $origin;
+    }
+
+    /**
+     * Destination validation for the DRAFT->PENDING submission boundary.
+     * Unlike draft retention, submission requires the destination to be
+     * active right now with no "already selected" exception.
+     */
+    private function validateDestinationForSubmission(int $destinationLocationId, Location $origin, Transfer $transfer): Location
+    {
+        $destination = Location::where('id', $destinationLocationId)->first();
+        if (!$destination) {
+            throw new InvalidArgumentException("Invalid destination location.");
+        }
+
+        if ($origin->id === $destination->id) {
+            throw new InvalidArgumentException("Origin and destination cannot be the same.");
+        }
+
+        if (!$destination->is_active) {
+            throw new InvalidArgumentException("Destination location is inactive and cannot be submitted for approval.");
+        }
+
+        if ((bool) $origin->is_consignment !== (bool) $destination->is_consignment) {
+            throw new InvalidArgumentException("Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.");
+        }
+
+        return $destination;
+    }
+
+    private function assertSameTenant(Transfer $transfer, ?Location $origin = null, ?int $tenantSettingId = null): void
+    {
+        $transferOriginSettingId = $transfer->relationLoaded('originLocation')
+            ? $transfer->originLocation?->setting_id
+            : Location::where('id', $transfer->origin_location_id)->value('setting_id');
+
+        $expectedSettingId = $origin?->setting_id ?? $tenantSettingId;
+
+        if ((int) $transferOriginSettingId !== (int) $expectedSettingId) {
+            throw new InvalidArgumentException("Cannot modify transfer from another tenant.");
+        }
+    }
+
+    /**
+     * @return array<int, array>
+     */
+    private function buildProductsData(TransferFormState $state, Location $origin, int $tenantSettingId, ?Transfer $transfer): array
+    {
         $productsData = [];
 
+        $expectedBrokenMode = $state->stockCondition === Transfer::CONDITION_BREAKAGE;
+
         foreach ($state->lines as $line) {
+            if ($line->isBrokenMode !== $expectedBrokenMode) {
+                throw new InvalidArgumentException("Product row stock condition does not match the transfer's selected condition.");
+            }
+
             $product = Product::find($line->productId);
             if (!$product) {
                 throw new InvalidArgumentException("Product {$line->productId} not found.");
@@ -234,40 +462,6 @@ class TransferDraftService
             }
         }
 
-        $productsData = array_values($productsData);
-
-        if (!$transfer) {
-            if ($atomicSubmit) {
-                return $this->lifecycleService->createPending(
-                    $origin->id,
-                    $destination->id,
-                    $productsData,
-                    $actor->id,
-                    $idempotencyKey
-                );
-            }
-
-            return $this->lifecycleService->createDraft(
-                $origin->id,
-                $destination->id,
-                $productsData,
-                $actor->id,
-                $idempotencyKey
-            );
-        }
-
-        // It's an update or resubmit
-        if ($transfer->status === Transfer::STATUS_DRAFT) {
-            // Is it a normal draft or a rejected draft being resubmitted?
-            // Actually, TransferLifecycleService distinguishes resubmit by calling `resubmit()`.
-            // Wait, resubmit moves it to PENDING. If we just want to save it as DRAFT, we use updateTransfer.
-            return $this->lifecycleService->updateTransfer($transfer, $productsData, $actor->id);
-        } elseif ($transfer->status === Transfer::STATUS_PENDING) {
-            return $this->lifecycleService->updateTransfer($transfer, $productsData, $actor->id);
-        } elseif ($transfer->status === Transfer::STATUS_REJECTED) {
-            return $this->lifecycleService->resubmit($transfer, $actor->id, $tenantSettingId, $productsData);
-        }
-
-        throw new InvalidArgumentException("Transfer is in an uneditable state.");
+        return array_values($productsData);
     }
 }

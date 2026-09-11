@@ -5,6 +5,7 @@ namespace App\Livewire\Transfer;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
@@ -19,6 +20,29 @@ class TransferStockForm extends Component
     public $originLocation      = null;
     public $destinationLocation = null;
 
+    // the transfer's single explicit stock condition (Transfer::CONDITION_*)
+    public ?string $stockCondition = null;
+
+    // true when hydrating a legacy transfer whose history mixes good and
+    // broken buckets; such a record cannot be saved until an explicit mode
+    // is chosen, which clears the incompatible rows
+    public bool $isMixedConditionHistory = false;
+
+    /**
+     * Tracks the stock condition value as of the last time rows were reset
+     * against it, so updatedStockCondition can tell an actual change from
+     * Livewire re-applying the same value (e.g. a stale/duplicate request).
+     * Must be public: Livewire only persists public properties across
+     * requests in its component snapshot: a private property is
+     * reconstructed to its class default on every request and would never
+     * retain the previous value, silently defeating this guard. #[Locked]
+     * blocks a crafted `wire:model`/`$set` request from writing to it
+     * directly, since it must only ever change via updatedStockCondition's
+     * own assignment.
+     */
+    #[Locked]
+    public ?string $lastAppliedStockCondition = null;
+
     // holds the table rows data
     public $rows = [];
 
@@ -29,6 +53,7 @@ class TransferStockForm extends Component
     public $tableValidationErrors = [];
 
     protected $listeners = [
+        'locationDropdownSelected'    => 'onLocationDropdownSelected',
         'originLocationSelected'      => 'onOriginLocationSelected',
         'destinationLocationSelected' => 'onDestinationLocationSelected',
         'rowsUpdated'                 => 'onRowsUpdated',
@@ -41,43 +66,100 @@ class TransferStockForm extends Component
     {
         $this->currentSetting = Setting::find(session('setting_id'));
         $this->settings       = Setting::all();
-        
+
         if ($transfer && $transfer->exists) {
             $this->transfer = $transfer;
             $this->originLocation = $transfer->origin_location_id;
             $this->destinationLocation = $transfer->destination_location_id;
-            
+            $this->stockCondition = $transfer->stock_condition;
+
             $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
-            $this->rows = $mapper->mapToLivewireRows($transfer);
+            $this->isMixedConditionHistory = $mapper->isMixedConditionHistory($transfer);
+            $this->rows = $this->isMixedConditionHistory ? [] : $mapper->mapToLivewireRows($transfer);
+        }
+
+        $this->lastAppliedStockCondition = $this->stockCondition;
+    }
+
+    /**
+     * Routes the shared LocationSearchDropdown's targeted selection event to
+     * the origin or destination handler based on the field name.
+     */
+    public function onLocationDropdownSelected($name, $value): void
+    {
+        if ($name === 'origin_location') {
+            $this->onOriginLocationSelected($value ? ['id' => (int) $value] : null);
+        } elseif ($name === 'destination_location') {
+            $this->onDestinationLocationSelected($value ? ['id' => (int) $value] : null);
         }
     }
 
+    /**
+     * Changing origin invalidates destination exclusion, stock snapshots,
+     * and serial eligibility, so destination and all rows are cleared.
+     * Destination selection/change never takes this destructive path.
+     */
     public function onOriginLocationSelected($payload)
     {
         Log::info('onOriginLocationSelected', ['payload' => $payload]);
 
-        if ($payload) {
-            $this->originLocation = $payload['id'];
+        $newOriginId = $payload['id'] ?? null;
+        $originActuallyChanged = $newOriginId !== $this->originLocation;
+
+        $this->originLocation = $newOriginId;
+
+        if ($newOriginId) {
             unset($this->selfManagedValidationErrors['origin_location']);
+        }
+
+        if ($originActuallyChanged) {
             $this->destinationLocation = null;
-        } else {
-            $this->originLocation = null;
+            $this->rows = [];
+            $this->tableValidationErrors = [];
+            $this->isMixedConditionHistory = false;
+            $this->dispatch('transfer:rows-reset');
         }
 
         $this->notifyLocationChange();
     }
 
+    /**
+     * Destination selection/change/clear never affects rows: it does not
+     * change source stock availability.
+     */
     public function onDestinationLocationSelected($payload)
     {
         Log::info('onDestinationLocationSelected', ['payload' => $payload]);
-        if ($payload) {
-            $this->destinationLocation = $payload['id'];
+
+        $this->destinationLocation = $payload['id'] ?? null;
+
+        if ($this->destinationLocation) {
             unset($this->selfManagedValidationErrors['destination_location']);
-        } else {
-            $this->destinationLocation = null;
         }
 
         $this->notifyLocationChange();
+    }
+
+    /**
+     * Changing the transfer-wide stock condition invalidates every row's
+     * stock interpretation, so rows/serials/errors are cleared. Origin and
+     * destination selections are preserved across this reset. Uses
+     * wire:model.live so this fires as its own request the moment the user
+     * changes the dropdown, rather than being deferred and silently batched
+     * together with the next save/submit request.
+     */
+    public function updatedStockCondition($value): void
+    {
+        if ($this->lastAppliedStockCondition === $value) {
+            return;
+        }
+
+        $this->lastAppliedStockCondition = $value;
+
+        $this->rows = [];
+        $this->tableValidationErrors = [];
+        $this->isMixedConditionHistory = false;
+        $this->dispatch('transfer:rows-reset');
     }
 
     public function onRowsUpdated(array $rows)
@@ -91,12 +173,115 @@ class TransferStockForm extends Component
         $this->tableValidationErrors = $errors;
     }
 
-    public $submitAction = null;
-
-    public function submit($action = null)
+    /**
+     * Save the current origin/mode/rows as a DRAFT. Destination is optional.
+     * A visible @can in the Blade view only hides the button; it does not
+     * authorize a crafted Livewire request, so the permission is rechecked
+     * here at the mutation boundary.
+     */
+    public function saveDraft()
     {
-        $this->submitAction = $action;
+        $requiredPermission = ($this->transfer && $this->transfer->exists)
+            ? 'stockTransfers.edit'
+            : 'stockTransfers.create';
 
+        if (\Illuminate\Support\Facades\Gate::denies($requiredPermission)) {
+            abort(403);
+        }
+
+        $preparedRows = $this->validateAndPrepareRows(requireDestination: false);
+
+        if ($preparedRows === null) {
+            return;
+        }
+
+        try {
+            $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
+            $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
+
+            $formState = $mapper->mapToTransferFormState(
+                $preparedRows,
+                (int) $this->originLocation,
+                $this->destinationLocation ? (int) $this->destinationLocation : null,
+                $this->stockCondition
+            );
+
+            $transfer = $draftService->saveDraft(
+                $formState,
+                auth()->user(),
+                $this->currentSetting->id,
+                $this->transfer
+            );
+
+            toast('Draft Transfer Stok disimpan. No. Dokumen: ' . $transfer->document_number, 'success');
+
+            return redirect()->route('transfers.index');
+        } catch (Exception $e) {
+            Log::error('Transfer saveDraft error', ['error' => $e->getMessage()]);
+            session()->flash('message', 'Terjadi kesalahan saat menyimpan draft transfer.');
+        } finally {
+            $this->dispatch('transfer:submit-finish');
+        }
+    }
+
+    /**
+     * Submit a complete DRAFT for approval. Requires a valid destination.
+     * Rechecks stockTransfers.edit here since the Blade @can only hides the
+     * button and cannot stop a crafted Livewire request.
+     */
+    public function submitForApproval()
+    {
+        if (! $this->transfer || ! $this->transfer->exists) {
+            $this->selfManagedValidationErrors['rows'] = 'Simpan draft terlebih dahulu sebelum mengajukan persetujuan.';
+            return;
+        }
+
+        if (\Illuminate\Support\Facades\Gate::denies('stockTransfers.edit')) {
+            abort(403);
+        }
+
+        $preparedRows = $this->validateAndPrepareRows(requireDestination: true);
+
+        if ($preparedRows === null) {
+            return;
+        }
+
+        try {
+            $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
+            $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
+
+            $formState = $mapper->mapToTransferFormState(
+                $preparedRows,
+                (int) $this->originLocation,
+                (int) $this->destinationLocation,
+                $this->stockCondition
+            );
+
+            $transfer = $draftService->submitForApproval(
+                $formState,
+                auth()->user(),
+                $this->currentSetting->id,
+                $this->transfer
+            );
+
+            toast('Transfer Stok diajukan untuk persetujuan! No. Dokumen: ' . $transfer->document_number, 'success');
+
+            return redirect()->route('transfers.index');
+        } catch (Exception $e) {
+            Log::error('Transfer submitForApproval error', ['error' => $e->getMessage()]);
+            session()->flash('message', 'Terjadi kesalahan saat mengajukan transfer untuk persetujuan.');
+        } finally {
+            $this->dispatch('transfer:submit-finish');
+        }
+    }
+
+    /**
+     * Shared origin/mode/row validation for both saveDraft and
+     * submitForApproval. Returns null (after dispatching errors) when
+     * validation fails, or the prepared row array when it passes.
+     */
+    private function validateAndPrepareRows(bool $requireDestination): ?array
+    {
         $this->dispatch('transfer:submit-start');
 
         // reset location errors
@@ -113,12 +298,20 @@ class TransferStockForm extends Component
         if (! $this->originLocation) {
             $this->selfManagedValidationErrors['origin_location'] = 'Silakan pilih Lokasi Asal.';
         }
-        if (! $this->destinationLocation) {
-            $this->selfManagedValidationErrors['destination_location'] = 'Silakan pilih Lokasi Tujuan.';
+        if ($requireDestination && ! $this->destinationLocation) {
+            $this->selfManagedValidationErrors['destination_location'] = 'Silakan pilih Lokasi Tujuan untuk mengajukan persetujuan.';
         }
 
         if ($this->originLocation && $this->destinationLocation && $this->originLocation === $this->destinationLocation) {
             $this->selfManagedValidationErrors['destination_location'] = 'Lokasi tujuan harus berbeda dari lokasi asal.';
+        }
+
+        if (! $this->stockCondition || ! in_array($this->stockCondition, Transfer::CONDITIONS, true)) {
+            $this->selfManagedValidationErrors['stock_condition'] = 'Silakan pilih kondisi stok (Baik atau Rusak).';
+        }
+
+        if ($this->isMixedConditionHistory) {
+            $this->selfManagedValidationErrors['stock_condition'] = 'Pilih satu kondisi stok untuk melanjutkan; baris yang tidak sesuai akan dihapus.';
         }
 
         // validate rows
@@ -215,57 +408,11 @@ class TransferStockForm extends Component
             if (! empty($tableErrors)) {
                 $this->dispatch('tableValidationErrors', $tableErrors);
             }
-            return;
+
+            return null;
         }
 
-        // all validations passed → persist data through TransferDraftService
-        try {
-            $draftService = app(\Modules\Adjustment\Services\TransferDraftService::class);
-            $mapper = app(\Modules\Adjustment\Services\TransferFormStateMapper::class);
-            
-            // Convert Livewire rows to authoritative TransferFormState
-            // The service will reload all data from database rather than trusting client state
-            $formState = $mapper->mapToTransferFormState(
-                $preparedRows,
-                (int) $this->originLocation,
-                (int) $this->destinationLocation
-            );
-            
-            // Use draft service for create/update/resubmit
-            if ($this->transfer && $this->transfer->exists) {
-                // Update or resubmit existing transfer - keep as DRAFT on save
-                $transfer = $draftService->saveDraft(
-                    $formState,
-                    auth()->user(),
-                    $this->currentSetting->id,
-                    $this->transfer,
-                    null, // no idempotency key
-                    false // do NOT auto-submit - editing remains DRAFT
-                );
-                // Explicit resubmission must be a separate action
-            } else {
-                // Create new transfer - atomic: create and submit to PENDING in one transaction
-                $transfer = $draftService->saveDraft(
-                    $formState,
-                    auth()->user(),
-                    $this->currentSetting->id,
-                    null, // no existing transfer
-                    null, // no idempotency key
-                    true  // atomicSubmit: create and submit PENDING in one transaction
-                );
-            }
-
-            // 3) reset form and show success
-            toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
-            //
-            return redirect()->route('transfers.index');
-        }
-        catch (Exception $e) {
-            Log::error('Transfer submit error', ['error' => $e->getMessage()]);
-            session()->flash('message', 'Terjadi kesalahan saat mengajukan transfer.');
-        } finally {
-            $this->dispatch('transfer:submit-finish');
-        }
+        return $preparedRows;
     }
 
     public function render()

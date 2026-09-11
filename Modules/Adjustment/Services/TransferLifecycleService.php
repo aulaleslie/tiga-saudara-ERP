@@ -13,14 +13,16 @@ use Throwable;
 class TransferLifecycleService
 {
     /**
-     * Create a new transfer in DRAFT status.
+     * Create a new transfer in DRAFT status. Destination and stock condition
+     * may be supplied later; a draft can be saved with only an origin, mode,
+     * and product rows.
      * Uses DB transactions to handle idempotency safely.
      */
-    public function createDraft(int $originLocationId, int $destinationLocationId, array $productsData, int $userId, ?string $idempotencyKey = null): Transfer
+    public function createDraft(int $originLocationId, ?int $destinationLocationId, ?string $stockCondition, array $productsData, int $userId, ?string $idempotencyKey = null): Transfer
     {
         $idempotencyKey = $idempotencyKey ? strtoupper($idempotencyKey) : null;
 
-        return DB::transaction(function () use ($originLocationId, $destinationLocationId, $productsData, $userId, $idempotencyKey) {
+        return DB::transaction(function () use ($originLocationId, $destinationLocationId, $stockCondition, $productsData, $userId, $idempotencyKey) {
             // First check idempotency at the database level using a locked read or unique constraint if applicable.
             if ($idempotencyKey) {
                 // If we already have an action history for this key and ACTION_CREATED, return the existing transfer.
@@ -38,6 +40,7 @@ class TransferLifecycleService
             $transfer = Transfer::create([
                 'origin_location_id'      => $originLocationId,
                 'destination_location_id' => $destinationLocationId,
+                'stock_condition'         => $stockCondition,
                 'created_by'              => $userId,
                 'status'                  => Transfer::STATUS_DRAFT,
                 'revision'                => 1,
@@ -54,7 +57,10 @@ class TransferLifecycleService
     }
 
     /**
-     * Submit a draft transfer to PENDING status.
+     * Submit a DRAFT transfer to PENDING status. Requires a valid destination
+     * to already be persisted on the transfer; the caller (TransferDraftService)
+     * is responsible for authoritatively revalidating destination, products,
+     * stock, conversions, and serials before invoking this boundary.
      */
     public function submitDraft(Transfer $transfer, int $userId): Transfer
     {
@@ -63,6 +69,10 @@ class TransferLifecycleService
 
             if ($transfer->status !== Transfer::STATUS_DRAFT) {
                 throw new RuntimeException('Only DRAFT transfers can be submitted.');
+            }
+
+            if ($transfer->destination_location_id === null) {
+                throw new RuntimeException('A destination location is required to submit a transfer for approval.');
             }
 
             $transfer->update([
@@ -77,61 +87,12 @@ class TransferLifecycleService
     }
 
     /**
-     * Create a transfer and immediately submit it to PENDING status in one atomic transaction.
-     * Used for initial creation via HTTP or Livewire to ensure atomicity:
-     * if submission fails, no draft remains.
+     * Update a DRAFT or PENDING transfer, including its destination and
+     * stock condition (only meaningful while still in DRAFT).
      */
-    public function createPending(int $originLocationId, int $destinationLocationId, array $productsData, int $userId, ?string $idempotencyKey = null): Transfer
+    public function updateTransfer(Transfer $transfer, ?int $destinationLocationId, ?string $stockCondition, array $productsData, int $userId): Transfer
     {
-        $idempotencyKey = $idempotencyKey ? strtoupper($idempotencyKey) : null;
-
-        return DB::transaction(function () use ($originLocationId, $destinationLocationId, $productsData, $userId, $idempotencyKey) {
-            // Check idempotency at the database level
-            if ($idempotencyKey) {
-                $existingAction = TransferActionHistory::where('idempotency_key', $idempotencyKey)
-                    ->where('action', TransferActionHistory::ACTION_SUBMITTED)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($existingAction) {
-                    return $existingAction->transfer;
-                }
-            }
-
-            // Create transfer
-            $transfer = Transfer::create([
-                'origin_location_id'      => $originLocationId,
-                'destination_location_id' => $destinationLocationId,
-                'created_by'              => $userId,
-                'status'                  => Transfer::STATUS_DRAFT,
-                'revision'                => 1,
-            ]);
-
-            // Add products
-            $this->syncProducts($transfer, $productsData);
-
-            // Record creation
-            $this->recordHistory($transfer, TransferActionHistory::ACTION_CREATED, null, Transfer::STATUS_DRAFT, $userId, 'Transfer created and submitted', null, $idempotencyKey);
-
-            // Immediately submit to PENDING
-            $transfer->update([
-                'status'   => Transfer::STATUS_PENDING,
-                'revision' => $transfer->revision + 1,
-            ]);
-
-            // Record submission
-            $this->recordHistory($transfer, TransferActionHistory::ACTION_SUBMITTED, Transfer::STATUS_DRAFT, Transfer::STATUS_PENDING, $userId, 'Atomically submitted on creation');
-
-            return $transfer;
-        });
-    }
-
-    /**
-     * Update a DRAFT or PENDING transfer.
-     */
-    public function updateTransfer(Transfer $transfer, array $productsData, int $userId): Transfer
-    {
-        return DB::transaction(function () use ($transfer, $productsData, $userId) {
+        return DB::transaction(function () use ($transfer, $destinationLocationId, $stockCondition, $productsData, $userId) {
             $transfer = $this->lockTransfer($transfer->id, $transfer->revision);
 
             if (! in_array($transfer->status, [Transfer::STATUS_DRAFT, Transfer::STATUS_PENDING])) {
@@ -140,13 +101,57 @@ class TransferLifecycleService
 
             $this->syncProducts($transfer, $productsData);
 
-            $transfer->update([
-                'revision' => $transfer->revision + 1,
-            ]);
+            $attributes = ['revision' => $transfer->revision + 1];
+
+            if ($transfer->status === Transfer::STATUS_DRAFT) {
+                $attributes['destination_location_id'] = $destinationLocationId;
+                $attributes['stock_condition'] = $stockCondition;
+            }
+
+            $transfer->update($attributes);
 
             $this->recordHistory($transfer, TransferActionHistory::ACTION_EDITED, $transfer->status, $transfer->status, $userId, 'Transfer products updated');
 
             return $transfer;
+        });
+    }
+
+    /**
+     * Lock a DRAFT transfer and hand it to the given callback for
+     * authoritative revalidation and mutation, all inside one transaction.
+     * The callback receives the locked transfer and must return the
+     * synchronized products data; this method then persists destination/mode/
+     * products and transitions the transfer to PENDING atomically, so no
+     * other process can observe or act on the transfer between validation
+     * and the PENDING transition.
+     *
+     * @param callable(Transfer): array $revalidateAndBuildProducts
+     */
+    public function submitTransfer(Transfer $transfer, int $userId, callable $revalidateAndBuildProducts, int $destinationLocationId, ?string $stockCondition): Transfer
+    {
+        return DB::transaction(function () use ($transfer, $userId, $revalidateAndBuildProducts, $destinationLocationId, $stockCondition) {
+            $locked = $this->lockTransfer($transfer->id, $transfer->revision);
+
+            if ($locked->status !== Transfer::STATUS_DRAFT) {
+                throw new RuntimeException('Only DRAFT transfers can be submitted for approval.');
+            }
+
+            // Revalidate against the locked, authoritative row (not the
+            // caller's possibly-stale copy) before mutating anything.
+            $productsData = $revalidateAndBuildProducts($locked);
+
+            $this->syncProducts($locked, $productsData);
+
+            $locked->update([
+                'destination_location_id' => $destinationLocationId,
+                'stock_condition'         => $stockCondition,
+                'status'                  => Transfer::STATUS_PENDING,
+                'revision'                => $locked->revision + 1,
+            ]);
+
+            $this->recordHistory($locked, TransferActionHistory::ACTION_SUBMITTED, Transfer::STATUS_DRAFT, Transfer::STATUS_PENDING, $userId, 'Draft submitted for approval');
+
+            return $locked;
         });
     }
 
@@ -241,9 +246,9 @@ class TransferLifecycleService
     /**
      * Resubmit a DRAFT or REJECTED transfer to PENDING.
      */
-    public function resubmit(Transfer $transfer, int $userId, int $currentSettingId, ?array $productsData = null): Transfer
+    public function resubmit(Transfer $transfer, int $userId, int $currentSettingId, ?array $productsData = null, bool $destinationProvided = false, ?int $destinationLocationId = null, ?string $stockCondition = null): Transfer
     {
-        return DB::transaction(function () use ($transfer, $productsData, $userId, $currentSettingId) {
+        return DB::transaction(function () use ($transfer, $productsData, $userId, $currentSettingId, $destinationProvided, $destinationLocationId, $stockCondition) {
             $transfer = $this->lockTransfer($transfer->id, $transfer->revision);
 
             $transfer->loadMissing('originLocation.setting');
@@ -256,16 +261,29 @@ class TransferLifecycleService
             }
 
             $fromStatus = $transfer->status;
-            
+
             // Only sync products if new data provided
             if ($productsData !== null) {
                 $this->syncProducts($transfer, $productsData);
             }
 
-            $transfer->update([
+            $effectiveDestinationId = $destinationProvided ? $destinationLocationId : $transfer->destination_location_id;
+
+            if ($effectiveDestinationId === null) {
+                throw new RuntimeException('A destination location is required to submit a transfer for approval.');
+            }
+
+            $attributes = [
                 'status'   => Transfer::STATUS_PENDING,
                 'revision' => $transfer->revision + 1,
-            ]);
+            ];
+
+            if ($destinationProvided) {
+                $attributes['destination_location_id'] = $destinationLocationId;
+                $attributes['stock_condition'] = $stockCondition;
+            }
+
+            $transfer->update($attributes);
 
             $this->recordHistory($transfer, TransferActionHistory::ACTION_RESUBMITTED, $fromStatus, Transfer::STATUS_PENDING, $userId, 'Transfer resubmitted');
 

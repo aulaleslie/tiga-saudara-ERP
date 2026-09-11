@@ -11,6 +11,7 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Location;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class TransferStockFormTest extends TestCase
@@ -70,9 +71,10 @@ class TransferStockFormTest extends TestCase
             'product_order_tax' => 0,
             'product_tax_type' => 1,
             'product_note' => '',
-            'serial_number_required' => false
+            'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
-        
+
         ProductStock::create([
             'location_id' => $this->origin->id,
             'product_id' => $this->product->id,
@@ -85,14 +87,20 @@ class TransferStockFormTest extends TestCase
         ]);
         
         session(['setting_id' => $this->setting->id]);
+
+        Permission::firstOrCreate(['name' => 'stockTransfers.create', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'stockTransfers.edit', 'guard_name' => 'web']);
     }
 
     public function test_can_create_transfer_draft()
     {
+        $this->user->givePermissionTo('stockTransfers.create');
+
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
+            ->set('stockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $this->product->id,
@@ -108,15 +116,15 @@ class TransferStockFormTest extends TestCase
                     ]
                 ]
             ])
-            ->call('submit');
-            
+            ->call('saveDraft');
+
         $livewire->assertHasNoErrors();
         $livewire->assertRedirect(route('transfers.index'));
-            
+
         $this->assertDatabaseHas('transfers', [
             'origin_location_id' => $this->origin->id,
             'destination_location_id' => $this->destination->id,
-            'status' => Transfer::STATUS_PENDING,
+            'status' => Transfer::STATUS_DRAFT,
         ]);
     }
 
@@ -157,11 +165,12 @@ class TransferStockFormTest extends TestCase
         $transfer = Transfer::create([
             'origin_location_id' => $this->origin->id,
             'destination_location_id' => $this->destination->id,
+            'stock_condition' => Transfer::CONDITION_GOOD,
             'status' => Transfer::STATUS_DRAFT,
             'created_by' => $this->user->id,
             'revision' => 1,
         ]);
-        
+
         \Modules\Adjustment\Entities\TransferProduct::create([
             'transfer_id' => $transfer->id,
             'product_id' => $this->product->id,
@@ -171,12 +180,12 @@ class TransferStockFormTest extends TestCase
             'broken_quantity_tax' => 0,
             'broken_quantity_non_tax' => 0,
         ]);
-        
-        // User saves changes without explicit resubmit - should remain DRAFT
+
+        $this->user->givePermissionTo('stockTransfers.edit');
+
+        // User saves changes without explicit submit for approval - should remain DRAFT
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class, ['transfer' => $transfer])
-            ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
             ->set('rows', [
                 [
                     'id' => $this->product->id,
@@ -192,8 +201,8 @@ class TransferStockFormTest extends TestCase
                     ]
                 ]
             ])
-            ->call('submit');
-            
+            ->call('saveDraft');
+
         $livewire->assertHasNoErrors();
         
         // Verify transfer remains in DRAFT status after save

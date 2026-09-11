@@ -7,7 +7,9 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Reactive;
 use Livewire\Component;
+use Modules\Adjustment\Entities\Transfer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Adjustment\Services\TransferScanResolverService;
@@ -19,16 +21,47 @@ class SearchProduct extends Component
     public int $how_many = 5;
 
     public $locationId;  // Add locationId as a public property
-    public bool $is_broken_mode = false; // Add explicit broken mode toggle
 
-    public function mount($locationId = null): void
+    /**
+     * Transfer mode is owned by the parent TransferStockForm and passed down
+     * reactively; this component cannot independently change it.
+     */
+    #[Reactive]
+    public ?string $stockCondition = null;
+
+    public function mount($locationId = null, ?string $stockCondition = null): void
     {
         $this->search_results = Collection::empty();
         Log::info("locationSelectedMounted: " . $locationId);
         $this->locationId = $locationId;
-        $this->is_broken_mode = false;
+        $this->stockCondition = $stockCondition;
 
         $this->search_results = Collection::empty();
+    }
+
+    private function isBrokenMode(): bool
+    {
+        return $this->stockCondition === Transfer::CONDITION_BREAKAGE;
+    }
+
+    /**
+     * A valid tenant-owned origin location must be selected before any
+     * search, scan, or selection is permitted; this rejects direct Livewire
+     * calls that bypass the disabled UI state.
+     */
+    private function hasValidOrigin(): bool
+    {
+        if (!$this->locationId) {
+            return false;
+        }
+
+        $settingId = session('setting_id');
+
+        return \Modules\Setting\Entities\Location::query()
+            ->whereKey($this->locationId)
+            ->active()
+            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
+            ->exists();
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -38,6 +71,12 @@ class SearchProduct extends Component
 
     public function updatedQuery(): void
     {
+        if (!$this->hasValidOrigin()) {
+            $this->search_results = Collection::empty();
+            $this->dispatch('scanFailed', 'Silakan pilih Lokasi Asal terlebih dahulu.');
+            return;
+        }
+
         if (empty($this->query) || strlen($this->query) < 2) {
             $this->search_results = Collection::empty();
             return;
@@ -67,7 +106,7 @@ class SearchProduct extends Component
                         $q2->where('setting_id', $settingId);
                     });
                 }
-                if ($this->is_broken_mode) {
+                if ($this->isBrokenMode()) {
                     $q->whereRaw('(COALESCE(broken_quantity_tax, 0) + COALESCE(broken_quantity_non_tax, 0)) > 0');
                 } else {
                     // Support legacy stock structure fallback
@@ -109,7 +148,7 @@ class SearchProduct extends Component
             return 0;
         }
 
-        if ($this->is_broken_mode) {
+        if ($this->isBrokenMode()) {
             return (int) ($stock->broken_quantity_tax ?? 0) + (int) ($stock->broken_quantity_non_tax ?? 0);
         }
 
@@ -152,30 +191,47 @@ class SearchProduct extends Component
 
     public function selectProduct($product): void
     {
+        if (!$this->hasValidOrigin()) {
+            $this->dispatch('scanFailed', 'Silakan pilih Lokasi Asal terlebih dahulu.');
+            $this->dispatch('select-scan-input');
+            return;
+        }
+
         $payload = is_array($product) ? $product : $product->toArray();
-        $payload['is_broken_mode'] = $this->is_broken_mode;
+        $payload['is_broken_mode'] = $this->isBrokenMode();
         $this->dispatch('productSelected', $payload);
         $this->resetQuery();
+        $this->dispatch('restore-scanner-focus');
     }
 
     public function scanBarcode(string $query, TransferScanResolverService $scanService)
     {
         $query = trim($query);
-        if (empty($query) || empty($this->locationId)) {
+
+        if (!$this->hasValidOrigin()) {
             $this->dispatch('scanFailed', 'Silakan masukkan barcode dan pilih lokasi asal.');
+            $this->dispatch('select-scan-input');
+            return;
+        }
+
+        if (empty($query)) {
+            $this->dispatch('scanFailed', 'Silakan masukkan barcode dan pilih lokasi asal.');
+            $this->dispatch('select-scan-input');
             return;
         }
 
         $settingId = session('setting_id');
         if (!$settingId) {
             $this->dispatch('scanFailed', 'Pengaturan (Setting) belum dipilih.');
+            $this->dispatch('select-scan-input');
             return;
         }
 
-        $result = $scanService->resolve($settingId, $query, $this->locationId, $this->is_broken_mode);
+        $result = $scanService->resolve($settingId, $query, $this->locationId, $this->isBrokenMode());
 
         if ($result['type'] === 'serial_rejected') {
             $this->dispatch('scanFailed', $result['message']);
+            $this->dispatch('select-scan-input');
             return;
         }
 
@@ -187,6 +243,7 @@ class SearchProduct extends Component
                 $this->selectProduct($this->search_results->first());
             } else if ($this->search_results->isEmpty()) {
                 $this->dispatch('scanFailed', 'Produk/Serial tidak ditemukan atau stok kosong di lokasi asal.');
+                $this->dispatch('select-scan-input');
             }
             return;
         }
@@ -194,47 +251,51 @@ class SearchProduct extends Component
         if ($result['type'] === 'product_exact') {
             $productData = $result['product'];
             $quantity = $this->getProductQuantityAtLocation($productData['id'], $this->locationId);
-            
+
             if ($quantity > 0) {
                 // Fetch the eloquent model to dispatch
                 $product = Product::find($productData['id'])->toArray();
-                
+
                 // Apply base-unit normalization if scanned via a conversion barcode
                 $scanQuantity = 1;
                 if (($productData['resolved_via'] ?? '') === 'conversion_barcode' && !empty($productData['conversion'])) {
                     $scanQuantity = (int) $productData['conversion']['conversion_factor'];
                 }
-                
+
                 $product['scan_quantity_multiplier'] = $scanQuantity;
-                $product['is_broken_mode'] = $this->is_broken_mode;
-                
+                $product['is_broken_mode'] = $this->isBrokenMode();
+
                 $this->dispatch('productSelected', $product);
                 $this->resetQuery();
+                $this->dispatch('restore-scanner-focus');
             } else {
                 $this->dispatch('scanFailed', 'Stok kosong di lokasi asal.');
+                $this->dispatch('select-scan-input');
             }
         } elseif ($result['type'] === 'serial_exact') {
             $serialData = $result['serial'];
-            
+
             // Check if serial is at the selected origin location
             if ($serialData['location_id'] != $this->locationId) {
                 $this->dispatch('scanFailed', 'Nomor Seri tidak berada di lokasi asal terpilih.');
+                $this->dispatch('select-scan-input');
                 return;
             }
 
             $product = Product::find($serialData['product_id']);
             $payload = $product->toArray();
-            $payload['is_broken_mode'] = $this->is_broken_mode;
+            $payload['is_broken_mode'] = $this->isBrokenMode();
             
             $isSerialBroken = (bool) ($serialData['is_broken'] ?? false);
-            if ($isSerialBroken !== $this->is_broken_mode) {
-                $modeStr = $this->is_broken_mode ? 'Rusak' : 'Normal';
+            if ($isSerialBroken !== $this->isBrokenMode()) {
+                $modeStr = $this->isBrokenMode() ? 'Rusak' : 'Normal';
                 $this->dispatch('scanFailed', "Nomor Seri status rusak tidak cocok dengan mode $modeStr.");
+                $this->dispatch('select-scan-input');
                 return;
             }
 
             $this->dispatch('productSelected', $payload);
-            
+
             // Need to notify the table to add this serial
             $this->dispatch('serialScanned', [
                 'id' => $serialData['id'],
@@ -243,8 +304,9 @@ class SearchProduct extends Component
                 'tax_id' => $serialData['tax_id'],
                 'is_broken' => $isSerialBroken
             ]);
-            
+
             $this->resetQuery();
+            $this->dispatch('restore-scanner-focus');
         }
     }
 }

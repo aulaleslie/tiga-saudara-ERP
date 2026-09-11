@@ -15,7 +15,8 @@ class TransferProductTable extends Component
         'serialNumberSelected',
         'serialScanned',
         'removeSerialNumber',
-        'locationsConfirmed'      => 'resetOnNewLocations',
+        'locationsConfirmed'      => 'syncLocationIds',
+        'transfer:rows-reset'     => 'resetRows',
         'tableValidationErrors'   => 'onTableValidationErrors',
         'collectTableErrors'      => 'onCollectTableErrors',
     ];
@@ -40,12 +41,22 @@ class TransferProductTable extends Component
     }
 
     /**
-     * Clear the table whenever parent confirms new locations
+     * Keep the table's location IDs in sync with the parent form on any
+     * origin/destination change, without clearing rows. Row clearing is
+     * driven separately by the parent's explicit `transfer:rows-reset` event,
+     * fired only for an actual origin or mode change.
      */
-    public function resetOnNewLocations(array $payload): void
+    public function syncLocationIds(array $payload): void
     {
         $this->originLocationId      = $payload['originLocationId'];
         $this->destinationLocationId = $payload['destinationLocationId'];
+    }
+
+    /**
+     * Clear rows/errors when the parent signals an origin or mode change.
+     */
+    public function resetRows(): void
+    {
         $this->products              = [];
         $this->serialNumberErrors    = [];
         $this->tableValidationErrors = [];

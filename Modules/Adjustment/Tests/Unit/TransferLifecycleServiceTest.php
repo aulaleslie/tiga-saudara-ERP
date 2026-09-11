@@ -69,6 +69,7 @@ class TransferLifecycleServiceTest extends TestCase
         $transfer = $this->service->createDraft(
             $this->origin->id,
             $this->destination->id,
+            Transfer::CONDITION_GOOD,
             $products,
             $this->user->id
         );
@@ -97,8 +98,8 @@ class TransferLifecycleServiceTest extends TestCase
         
         $products = [['product_id' => $this->product->id, 'quantity' => 5]];
 
-        $first = $this->service->createDraft($this->origin->id, $this->destination->id, $products, $this->user->id, $key);
-        $second = $this->service->createDraft($this->origin->id, $this->destination->id, $products, $this->user->id, $key);
+        $first = $this->service->createDraft($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD, $products, $this->user->id, $key);
+        $second = $this->service->createDraft($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD, $products, $this->user->id, $key);
 
         $this->assertEquals($first->id, $second->id);
         $this->assertEquals(1, Transfer::count());
@@ -107,7 +108,7 @@ class TransferLifecycleServiceTest extends TestCase
     /** @test */
     public function it_submits_draft()
     {
-        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, [], $this->user->id);
+        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD, [], $this->user->id);
         
         $submitted = $this->service->submitDraft($transfer, $this->user->id);
 
@@ -124,9 +125,9 @@ class TransferLifecycleServiceTest extends TestCase
     /** @test */
     public function it_updates_products_and_revision()
     {
-        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, [], $this->user->id);
+        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD, [], $this->user->id);
         
-        $updated = $this->service->updateTransfer($transfer, [
+        $updated = $this->service->updateTransfer($transfer, $this->destination->id, Transfer::CONDITION_GOOD, [
             ['product_id' => $this->product->id, 'quantity' => 20]
         ], $this->user->id);
 
@@ -140,7 +141,7 @@ class TransferLifecycleServiceTest extends TestCase
     /** @test */
     public function it_prevents_concurrent_modification()
     {
-        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, [], $this->user->id);
+        $transfer = $this->service->createDraft($this->origin->id, $this->destination->id, Transfer::CONDITION_GOOD, [], $this->user->id);
         
         // Simulate another process incrementing the revision
         Transfer::where('id', $transfer->id)->update(['revision' => 2]);
@@ -148,6 +149,6 @@ class TransferLifecycleServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Transfer has been modified by another process.');
 
-        $this->service->updateTransfer($transfer, [], $this->user->id);
+        $this->service->updateTransfer($transfer, $this->destination->id, Transfer::CONDITION_GOOD, [], $this->user->id);
     }
 }

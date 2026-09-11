@@ -8,19 +8,28 @@
                             <i class="bi bi-upc-scan text-primary"></i>
                         </div>
                     </div>
-                    <input wire:keydown.enter.prevent="scanBarcode($event.target.value)" wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" id="transfer-barcode-scan" type="text" class="form-control" placeholder="Pindai barcode atau ketik nama/kode produk....">
+                    <input
+                        wire:keydown.enter.prevent="scanBarcode($event.target.value)"
+                        wire:keydown.escape="resetQuery"
+                        wire:model.live.debounce.500ms="query"
+                        id="transfer-barcode-scan"
+                        type="text"
+                        class="form-control"
+                        placeholder="Pindai barcode atau ketik nama/kode produk...."
+                        @unless($locationId) disabled @endunless
+                    >
                     <div class="input-group-append">
-                        <button wire:click="scanBarcode(query)" class="btn btn-outline-primary" type="button">
+                        <button wire:click="scanBarcode(query)" class="btn btn-outline-primary" type="button" @unless($locationId) disabled @endunless>
                             Pindai
                         </button>
                     </div>
                 </div>
                 <div class="d-flex justify-content-between align-items-center mt-2">
-                    <small class="form-text text-muted mb-0">Tekan Enter untuk memindai barcode atau serial number.</small>
-                    <div class="custom-control custom-switch">
-                        <input type="checkbox" class="custom-control-input" id="is_broken_mode" wire:model.live="is_broken_mode">
-                        <label class="custom-control-label text-danger font-weight-bold" for="is_broken_mode">Mode Barang Rusak</label>
-                    </div>
+                    @if($locationId)
+                        <small class="form-text text-muted mb-0">Tekan Enter untuk memindai barcode atau serial number.</small>
+                    @else
+                        <small class="form-text text-danger mb-0">Silakan pilih Lokasi Asal terlebih dahulu untuk mulai memasukkan produk.</small>
+                    @endif
                 </div>
             </div>
         </div>
@@ -69,4 +78,31 @@
             </div>
         @endif
     @endif
+
+    <script>
+        document.addEventListener('livewire:init', function () {
+            const scanInput = document.getElementById('transfer-barcode-scan');
+            if (!scanInput) {
+                return;
+            }
+
+            window.addEventListener('restore-scanner-focus', function () {
+                setTimeout(function () {
+                    scanInput.focus();
+                    if (typeof scanInput.select === 'function') {
+                        scanInput.select();
+                    }
+                }, 50);
+            });
+
+            window.addEventListener('select-scan-input', function () {
+                setTimeout(function () {
+                    scanInput.focus();
+                    if (typeof scanInput.select === 'function') {
+                        scanInput.select();
+                    }
+                }, 50);
+            });
+        });
+    </script>
 </div>
